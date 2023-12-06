@@ -1,0 +1,24 @@
+{
+  "name": "typescript-template",
+  "version": "1.0.0",
+  "description": "[CHANGE THIS BEFORE RELEASE] Template made for Typescript",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node .",
+    "dev": "tsc --watch",
+    "lint": "pnpm lint:base",
+    "lint:base": "eslint . --ext .js,.jsx,.ts,.tsx",
+    "lint:fix": "pnpm lint:base --fix"
+  },
+  "author": "JeanOUINA",
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@typescript-eslint/eslint-plugin": "^6.12.0",
+    "@typescript-eslint/parser": "^6.12.0",
+    "eslint": "^8.54.0",
+    "typescript": "^5.2.2"
+  },
+  "type": "module"
+}
