@@ -1,12 +1,12 @@
-import { KexAlgorithm } from "../../algorithms.js";
-import { DiffieHellmanGroup, createDiffieHellmanGroup, createHash } from "crypto";
+import { KexAlgorithm } from "../../algorithms.js"
+import { DiffieHellmanGroup, createDiffieHellmanGroup, createHash } from "crypto"
 
-import Client from "../../Client.js";
-import { serializeMpintBufferToBuffer } from "../../utils/mpint.js";
+import Client from "../../Client.js"
+import { serializeMpintBufferToBuffer } from "../../utils/mpint.js"
 
 export default class DiffieHellmanGroupN implements KexAlgorithm {
-    static requires_encryption = false;
-    static requires_signature = true;
+    static requires_encryption = false
+    static requires_signature = true
 
     groupName: string
     hashName: string
@@ -31,19 +31,15 @@ export default class DiffieHellmanGroupN implements KexAlgorithm {
             encryptionKeyClientToServer,
             encryptionKeyServerToClient,
             integrityKeyClientToServer,
-            integrityKeyServerToClient
-        ] = this.deriveKeys(
-            client.H!,
-            client.sessionID!,
-            [
-                client.clientEncryptionAlgorithm!.iv_length,
-                client.serverEncryptionAlgorithm!.iv_length,
-                client.clientEncryptionAlgorithm!.key_length,
-                client.serverEncryptionAlgorithm!.key_length,
-                client.clientMacAlgorithm!.key_length,
-                client.serverMacAlgorithm!.key_length
-            ]
-        )
+            integrityKeyServerToClient,
+        ] = this.deriveKeys(client.H!, client.sessionID!, [
+            client.clientEncryptionAlgorithm!.iv_length,
+            client.serverEncryptionAlgorithm!.iv_length,
+            client.clientEncryptionAlgorithm!.key_length,
+            client.serverEncryptionAlgorithm!.key_length,
+            client.clientMacAlgorithm!.key_length,
+            client.serverMacAlgorithm!.key_length,
+        ])
         client.ivClientToServer = ivClientToServer
         client.ivServerToClient = ivServerToClient
         client.encryptionKeyClientToServer = encryptionKeyClientToServer
@@ -59,19 +55,19 @@ export default class DiffieHellmanGroupN implements KexAlgorithm {
         K_Len.writeUint32BE(K.length)
 
         const buffers = []
-        for(let i = 0; i < 6; i++) {
+        for (let i = 0; i < 6; i++) {
             const hash = createHash(this.hashName)
             hash.update(K_Len)
             hash.update(K)
 
             hash.update(H)
             // A => F
-            hash.update(Buffer.from([65+i]))
+            hash.update(Buffer.from([65 + i]))
             hash.update(sessionID)
 
             let key = hash.digest()
 
-            while(key.length < keyLengths[i]) {
+            while (key.length < keyLengths[i]) {
                 const hash = createHash(this.hashName)
                 hash.update(K_Len)
                 hash.update(K)
@@ -83,7 +79,7 @@ export default class DiffieHellmanGroupN implements KexAlgorithm {
                 key = Buffer.concat([key, hash.digest()])
                 console.log(this.hashName, i, key.length, keyLengths[i])
             }
-            
+
             buffers.push(key.subarray(0, keyLengths[i]))
         }
         return buffers
@@ -95,12 +91,12 @@ export default class DiffieHellmanGroupN implements KexAlgorithm {
             client.options.protocolVersionExchange.toString().slice(0, -2),
             // V_S
             client.serverProtocolVersion!.toString().slice(0, -2),
-            
+
             // I_C
             client.clientKexInit!.serialize(),
             // I_S
             I_S,
-            
+
             // K_S
             client.serverKexDHReply!.data.K_S,
 
@@ -109,28 +105,34 @@ export default class DiffieHellmanGroupN implements KexAlgorithm {
             // f
             serializeMpintBufferToBuffer(client.serverKexDHReply!.data.f),
             // K
-            serializeMpintBufferToBuffer(this.sharedSecret!)
+            serializeMpintBufferToBuffer(this.sharedSecret!),
         )
     }
 
     computeH(
-        V_C: string, V_S: string,
-        I_C: Buffer, I_S: Buffer,
-        
+        V_C: string,
+        V_S: string,
+        I_C: Buffer,
+        I_S: Buffer,
+
         K_S: Buffer,
 
-        e: Buffer, f: Buffer,
-        K: Buffer
+        e: Buffer,
+        f: Buffer,
+        K: Buffer,
     ) {
         const hash = createHash(this.hashName)
 
         const length = Buffer.allocUnsafe(4)
-        for(const buf of [
+        for (const buf of [
             Buffer.from(V_C, "utf8"),
             Buffer.from(V_S, "utf8"),
-            I_C, I_S,
+            I_C,
+            I_S,
             K_S,
-            e, f, K
+            e,
+            f,
+            K,
         ]) {
             length.writeUInt32BE(buf.length)
             hash.update(length)

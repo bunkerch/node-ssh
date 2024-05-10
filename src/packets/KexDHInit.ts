@@ -1,8 +1,8 @@
-import assert from "assert";
-import { SSHPacketType } from "../constants.js";
-import Packet from "../packet.js";
-import { parseBufferToMpintBuffer, serializeMpintBufferToBuffer } from "../utils/mpint.js";
-import { readNextBuffer, readNextUint8 } from "../utils/Buffer.js";
+import assert from "assert"
+import { SSHPacketType } from "../constants.js"
+import Packet from "../packet.js"
+import { parseBufferToMpintBuffer, serializeMpintBufferToBuffer } from "../utils/mpint.js"
+import { readNextBuffer, readNextUint8 } from "../utils/Buffer.js"
 
 export interface KexDHInitData {
     e: Buffer
@@ -19,7 +19,7 @@ export default class KexDHInit implements Packet {
         const buffers = []
 
         buffers.push(Buffer.from([KexDHInit.type]))
-        
+
         const e = serializeMpintBufferToBuffer(this.data.e)
         const eLength = Buffer.allocUnsafe(4)
         eLength.writeUInt32BE(e.length)
@@ -28,19 +28,19 @@ export default class KexDHInit implements Packet {
 
         return Buffer.concat(buffers)
     }
-    
+
     static parse(raw: Buffer): KexDHInit {
         let packetType: number
-        [packetType, raw] = readNextUint8(raw)
+        ;[packetType, raw] = readNextUint8(raw)
         assert(packetType === KexDHInit.type)
-        
+
         let e: Buffer
-        [e, raw] = readNextBuffer(raw)
+        ;[e, raw] = readNextBuffer(raw)
 
         assert(raw.length === 0)
-        
+
         return new KexDHInit({
-            e: parseBufferToMpintBuffer(e)
+            e: parseBufferToMpintBuffer(e),
         })
     }
 }

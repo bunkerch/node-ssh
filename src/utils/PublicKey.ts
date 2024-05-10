@@ -6,7 +6,7 @@ import crypto from "crypto"
 
 export type PublicKeyAlgoritm = SSHRSA
 export interface PublicKeyData {
-    alg: string,
+    alg: string
     publicKey: PublicKeyAlgoritm
 }
 
@@ -17,14 +17,14 @@ export default class PublicKey {
     }
 
     verifySignature(data: Buffer, signature: EncodedSignature): boolean {
-        if(signature.data.alg !== this.data.alg) {
+        if (signature.data.alg !== this.data.alg) {
             return false
         }
 
         return this.data.publicKey.verifySignature(data, signature.data.data)
     }
 
-    toString(): string  {
+    toString(): string {
         return `${this.data.alg} ${this.serialize().toString("base64")}`
     }
 
@@ -36,32 +36,32 @@ export default class PublicKey {
         algLength.writeUInt32BE(alg.length)
         buffers.push(algLength)
         buffers.push(alg)
-        
+
         buffers.push(this.data.publicKey.serialize())
 
         return Buffer.concat(buffers)
     }
 
-    static parse(raw: Buffer) : PublicKey {
+    static parse(raw: Buffer): PublicKey {
         let alg: Buffer
-        [alg, raw] = readNextBuffer(raw)
+        ;[alg, raw] = readNextBuffer(raw)
 
-        switch(alg.toString("utf8")){
+        switch (alg.toString("utf8")) {
             case "ssh-rsa": {
                 let publicExponent: Buffer
-                [publicExponent, raw] = readNextBuffer(raw)
-        
+                ;[publicExponent, raw] = readNextBuffer(raw)
+
                 let modulus: Buffer
-                [modulus, raw] = readNextBuffer(raw)
-        
+                ;[modulus, raw] = readNextBuffer(raw)
+
                 assert(raw.length === 0)
-        
+
                 return new PublicKey({
                     alg: alg.toString("utf8"),
                     publicKey: new SSHRSA({
                         publicExponent: publicExponent,
-                        modulus: modulus
-                    })
+                        modulus: modulus,
+                    }),
                 })
             }
             default: {
@@ -72,7 +72,7 @@ export default class PublicKey {
 }
 
 export interface SSHRSAData {
-    publicExponent: Buffer,
+    publicExponent: Buffer
     modulus: Buffer
 }
 export class SSHRSA {
@@ -84,19 +84,19 @@ export class SSHRSA {
     toPEM(): string {
         const sequence = new asn1js.Sequence({
             value: [
-                new asn1js.Integer({ 
+                new asn1js.Integer({
                     isHexOnly: true,
-                    valueHex: this.data.modulus
+                    valueHex: this.data.modulus,
                 }),
-                new asn1js.Integer({ 
+                new asn1js.Integer({
                     isHexOnly: true,
-                    valueHex: this.data.publicExponent
+                    valueHex: this.data.publicExponent,
                 }),
-            ]
+            ],
         })
         const buffer = Buffer.from(sequence.toBER(false)).toString("base64")
         let key = ""
-        for(let i = 0; i < buffer.length; i += 64) {
+        for (let i = 0; i < buffer.length; i += 64) {
             key += buffer.slice(i, i + 64) + "\n"
         }
         return `-----BEGIN RSA PUBLIC KEY-----\n${key}-----END RSA PUBLIC KEY-----`
@@ -106,7 +106,7 @@ export class SSHRSA {
         const key = crypto.createPublicKey({
             key: this.toPEM(),
             format: "pem",
-            type: "pkcs1"
+            type: "pkcs1",
         })
         const verifier = crypto.createVerify("sha1")
         verifier.update(data)

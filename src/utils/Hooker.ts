@@ -3,45 +3,52 @@ import TypedEventEmitter from "typed-emitter"
 
 export interface HookController {
     stopPropagation(): void
-    
 }
-export type Hook<values extends any[]> = (controller: HookController, ...values: values) => void | Promise<void>
+export type Hook<values extends any[]> = (
+    controller: HookController,
+    ...values: values
+) => void | Promise<void>
 export type HookerEvents = {
     uncaughtException: (event: string, error: Error) => void
 }
 
-export class Hooker<types extends { [key: string]: any[] }> extends (EventEmitter as new() => TypedEventEmitter<HookerEvents>) {
+export class Hooker<
+    types extends { [key: string]: any[] },
+> extends (EventEmitter as new () => TypedEventEmitter<HookerEvents>) {
     hooks: Map<keyof types, Hook<types[keyof types]>[]> = new Map()
 
-    hook<event extends keyof types>(event: event, hook: Hook<types[event]>){
-        if(!this.hooks.has(event)){
+    hook<event extends keyof types>(event: event, hook: Hook<types[event]>) {
+        if (!this.hooks.has(event)) {
             this.hooks.set(event, [])
         }
 
         this.hooks.get(event)!.push(hook as Hook<types[keyof types]>)
     }
 
-    unhook<event extends keyof types>(event: event, hook: Hook<types[event]>){
-        if(!this.hooks.has(event)){
+    unhook<event extends keyof types>(event: event, hook: Hook<types[event]>) {
+        if (!this.hooks.has(event)) {
             return
         }
 
         const hooks = this.hooks.get(event)!
 
         const index = hooks.indexOf(hook as Hook<types[keyof types]>)
-        if(index === -1){
+        if (index === -1) {
             return
         }
 
         hooks.splice(index, 1)
     }
 
-    hasHooks(event: keyof types){
+    hasHooks(event: keyof types) {
         return this.hooks.has(event)
     }
 
-    async triggerHook<event extends keyof types>(event: event, ...values: types[event]): Promise<void> {
-        if(!this.hooks.has(event)){
+    async triggerHook<event extends keyof types>(
+        event: event,
+        ...values: types[event]
+    ): Promise<void> {
+        if (!this.hooks.has(event)) {
             return
         }
 
@@ -51,23 +58,26 @@ export class Hooker<types extends { [key: string]: any[] }> extends (EventEmitte
 
         let stopPropagation = false
         const controller: HookController = {
-            stopPropagation(){
+            stopPropagation() {
                 stopPropagation = true
-            }
+            },
         }
 
-        for(const hook of hooks){
-            try{
+        for (const hook of hooks) {
+            try {
                 await hook(controller, ...values)
-            }catch(err){
-                if(this.listenerCount("uncaughtException") > 0){
+            } catch (err) {
+                if (this.listenerCount("uncaughtException") > 0) {
                     this.emit("uncaughtException", event as string, err as Error)
-                }else{
-                    console.warn(`[node-ssh] Uncaught exception in hook for event ${event.toString()}:`, err)
+                } else {
+                    console.warn(
+                        `[node-ssh] Uncaught exception in hook for event ${event.toString()}:`,
+                        err,
+                    )
                 }
             }
 
-            if(stopPropagation){
+            if (stopPropagation) {
                 break
             }
         }

@@ -1,6 +1,6 @@
 export function encodeBigIntBE(int: bigint): Buffer {
     const bytes = []
-    while(int != 0n){
+    while (int != 0n) {
         bytes.unshift(Number(int % 256n))
         int /= 256n
     }
@@ -9,7 +9,7 @@ export function encodeBigIntBE(int: bigint): Buffer {
 
 export function encodeBigIntLE(int: bigint): Buffer {
     const bytes = []
-    while(int != 0n){
+    while (int != 0n) {
         bytes.push(Number(int % 256n))
         int /= 256n
     }
@@ -18,7 +18,7 @@ export function encodeBigIntLE(int: bigint): Buffer {
 
 export function decodeBigIntBE(raw: Buffer): bigint {
     let int = 0n
-    for(let i = 0; i < raw.length; i++){
+    for (let i = 0; i < raw.length; i++) {
         int = (int << 8n) + BigInt(raw[i])
     }
 
@@ -26,7 +26,7 @@ export function decodeBigIntBE(raw: Buffer): bigint {
 }
 export function decodeBigIntLE(raw: Buffer): bigint {
     let int = 0n
-    for(let i = raw.length - 1; i >= 0; i--){
+    for (let i = raw.length - 1; i >= 0; i--) {
         int = (int << 8n) + BigInt(raw[i])
     }
 

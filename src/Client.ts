@@ -8,7 +8,16 @@ import ProtocolVersionExchange from "./ProtocolVersionExchange.js"
 import assert from "node:assert"
 import Packet, { packets } from "./packet.js"
 import KexInit from "./packets/KexInit.js"
-import { EncryptionAlgorithm, HostKeyAlgorithm, KexAlgorithm, MACAlgorithm, encryption_algorithms, host_key_algorithms, kex_algorithms, mac_algorithms } from "./algorithms.js"
+import {
+    EncryptionAlgorithm,
+    HostKeyAlgorithm,
+    KexAlgorithm,
+    MACAlgorithm,
+    encryption_algorithms,
+    host_key_algorithms,
+    kex_algorithms,
+    mac_algorithms,
+} from "./algorithms.js"
 import KexDHInit from "./packets/KexDHInit.js"
 import KexDHReply from "./packets/KexDHReply.js"
 import EncodedSignature from "./utils/Signature.js"
@@ -25,7 +34,8 @@ export interface ClientOptions {
     username?: string
     protocolVersionExchange?: ProtocolVersionExchange
 }
-export interface ClientOptionsRequired extends Required<ClientOptions> { }
+export interface ClientOptionsRequired extends Required<ClientOptions> {}
+
 export type ClientEvents = {
     debug: (...message: any[]) => void
     error: (error: Error) => void
@@ -39,6 +49,7 @@ export type ClientEvents = {
     clientNewKeys: () => void
     serverNewKeys: () => void
 }
+
 export type ClientHookerHostKeyController = {
     allowHostKey: boolean
 }
@@ -54,8 +65,7 @@ export default class Client extends (EventEmitter as new () => TypedEmitter<Clie
         this.options.port = options.port ?? 22
         this.options.username = options.username ?? os.userInfo({ encoding: "utf8" }).username
         this.options.protocolVersionExchange =
-            options.protocolVersionExchange ??
-            ProtocolVersionExchange.defaultValue
+            options.protocolVersionExchange ?? ProtocolVersionExchange.defaultValue
         setImmediate(() => {
             this.debug("Client created with options:", this.options)
         })
@@ -67,7 +77,7 @@ export default class Client extends (EventEmitter as new () => TypedEmitter<Clie
     private buffering: Buffer = Buffer.alloc(0)
     private in_sequence_number = 0
     private out_sequence_number = 0
-    
+
     serverProtocolVersion: ProtocolVersionExchange | undefined
     serverKexDHReply: KexDHReply | undefined
 
@@ -97,7 +107,7 @@ export default class Client extends (EventEmitter as new () => TypedEmitter<Clie
 
     hasReceivedNewKeys: boolean = false
     hasSentNewKeys: boolean = false
-    
+
     state = SocketState.Closed
     get isConnected(): boolean {
         return this.state === SocketState.Connected
@@ -117,9 +127,9 @@ export default class Client extends (EventEmitter as new () => TypedEmitter<Clie
         this.state = SocketState.Connecting
         this.socket = net.createConnection({
             host: this.options.hostname,
-            port: this.options.port
+            port: this.options.port,
         })
-        
+
         let connected = false
         await new Promise<void>((resolve, reject) => {
             const connectListener = () => {
@@ -132,10 +142,10 @@ export default class Client extends (EventEmitter as new () => TypedEmitter<Clie
                 this.debug("Socket error:", error)
                 this.socket = undefined
 
-                if(connected){
+                if (connected) {
                     this.emit("error", error)
                     this.emit("close")
-                }else{
+                } else {
                     reject(error)
                 }
             }
@@ -170,62 +180,72 @@ export default class Client extends (EventEmitter as new () => TypedEmitter<Clie
             compression_algorithms_server_to_client: ["none"],
             languages_client_to_server: [],
             languages_server_to_client: [],
-            first_kex_packet_follows: false
+            first_kex_packet_follows: false,
         })
         this.sendPacket(this.clientKexInit)
-        
+
         const [serverKexInit, serverKexInitBuffer] = await this.waitEvent("serverKexInit")
         this.serverKexInit = serverKexInit
         this.debug("Server KexInit:", serverKexInit)
         this.chooseAlgorithms()
 
-        if(this.kexAlgorithm instanceof DiffieHellmanGroupN){
-            // @ts-expect-error alg_name is a static property
-            this.debug("Using DiffieHellmanGroupN key exchange algorithm", this.kexAlgorithm.constructor.alg_name)
+        if (this.kexAlgorithm instanceof DiffieHellmanGroupN) {
+            this.debug(
+                "Using DiffieHellmanGroupN key exchange algorithm",
+                // @ts-expect-error alg_name is a static property
+                this.kexAlgorithm.constructor.alg_name,
+            )
             this.kexAlgorithm.generateKeyPair()
-            this.sendPacket(new KexDHInit({
-                e: this.kexAlgorithm.keyPair!.getPublicKey()
-            }))
-            
+            this.sendPacket(
+                new KexDHInit({
+                    e: this.kexAlgorithm.keyPair!.getPublicKey(),
+                }),
+            )
+
             const [serverKexDHReply] = await this.waitEvent("serverKexDHReply")
             this.debug("Server KexDHReply:", serverKexDHReply)
             this.serverKexDHReply = serverKexDHReply
 
-            this.kexAlgorithm.sharedSecret = this.kexAlgorithm.keyPair!.computeSecret(serverKexDHReply.data.f)
+            this.kexAlgorithm.sharedSecret = this.kexAlgorithm.keyPair!.computeSecret(
+                serverKexDHReply.data.f,
+            )
             const hostKey = PublicKey.parse(serverKexDHReply.data.K_S)
-            assert(hostKey.data.alg === this.hostKeyAlgorithm!.alg_name, "Invalid host key algorithm (Server did not send the negotiated algorithm)")
+            assert(
+                hostKey.data.alg === this.hostKeyAlgorithm!.alg_name,
+                "Invalid host key algorithm (Server did not send the negotiated algorithm)",
+            )
             this.debug("Host key:", hostKey.toString())
             const signature = EncodedSignature.parse(serverKexDHReply.data.H_sig)
             this.debug("Signature:", signature)
 
             const h = this.kexAlgorithm.computeHClient(
                 this,
-                
-                serverKexInitBuffer
+
+                serverKexInitBuffer,
             )
 
             assert(hostKey.verifySignature(h, signature), "Invalid host key signature from server!")
 
-            if(this.hooker.hasHooks("hostKey")){
+            if (this.hooker.hasHooks("hostKey")) {
                 const controller: ClientHookerHostKeyController = {
-                    allowHostKey: false
+                    allowHostKey: false,
                 }
                 await this.hooker.triggerHook("hostKey", controller, hostKey)
 
-                if(!controller.allowHostKey){
+                if (!controller.allowHostKey) {
                     this.debug("Hook rejected host key")
                     throw new Error("Host key not allowed by hook")
-                }else{
+                } else {
                     this.debug("Hook allowed host key")
                 }
-            }else{
+            } else {
                 this.debug("Host key implicitly allowed; No host key hooks registered")
             }
 
             // at this point, we're good to go
             this.H = h
             this.sessionID = h
-        }else{
+        } else {
             throw new Error("Unsupported key exchange algorithm (Not Implemented in Client)")
         }
 
@@ -236,32 +256,42 @@ export default class Client extends (EventEmitter as new () => TypedEmitter<Clie
             encryptionKeyClientToServer: this.encryptionKeyClientToServer,
             encryptionKeyServerToClient: this.encryptionKeyServerToClient,
             integrityKeyClientToServer: this.integrityKeyClientToServer,
-            integrityKeyServerToClient: this.integrityKeyServerToClient
+            integrityKeyServerToClient: this.integrityKeyServerToClient,
         })
 
         this.sendPacket(new NewKeys({}))
         this.hasSentNewKeys = true
         this.emit("clientNewKeys")
-        if(!this.hasReceivedNewKeys){
+        if (!this.hasReceivedNewKeys) {
             await this.waitEvent("serverNewKeys")
         }
 
-        this.clientEncryption = this.clientEncryptionAlgorithm!.instantiate(this.encryptionKeyClientToServer!, this.ivClientToServer!)
-        this.serverEncryption = this.serverEncryptionAlgorithm!.instantiate(this.encryptionKeyServerToClient!, this.ivServerToClient!)
+        this.clientEncryption = this.clientEncryptionAlgorithm!.instantiate(
+            this.encryptionKeyClientToServer!,
+            this.ivClientToServer!,
+        )
+        this.serverEncryption = this.serverEncryptionAlgorithm!.instantiate(
+            this.encryptionKeyServerToClient!,
+            this.ivServerToClient!,
+        )
         this.clientMac = this.clientMacAlgorithm!.instantiate(this.integrityKeyClientToServer!)
         this.serverMac = this.serverMacAlgorithm!.instantiate(this.integrityKeyServerToClient!)
 
         this.debug("Keys exchanged, encryption and MAC algorithms set up")
         this.debug("Starting authentication...")
-        
-        this.sendPacket(new UserAuthRequest({
-            username: this.options.username!,
-            service_name: "ssh-userauth",
-            method: new NoneAuthMethod()
-        }))
+
+        this.sendPacket(
+            new UserAuthRequest({
+                username: this.options.username!,
+                service_name: "ssh-userauth",
+                method: new NoneAuthMethod(),
+            }),
+        )
     }
 
-    waitEvent<event extends keyof ClientEvents>(event: event): Promise<Parameters<ClientEvents[event]>> {
+    waitEvent<event extends keyof ClientEvents>(
+        event: event,
+    ): Promise<Parameters<ClientEvents[event]>> {
         return new Promise((resolve, reject) => {
             const onError = (error: Error) => {
                 cleanup()
@@ -285,7 +315,7 @@ export default class Client extends (EventEmitter as new () => TypedEmitter<Clie
         const payload = packet.serialize()
         const padding_multiple = Math.max(8, this.clientEncryptionAlgorithm?.block_size ?? 8)
         let padding_length = padding_multiple - ((4 + 1 + payload.length) % padding_multiple)
-        if(padding_length < 4){
+        if (padding_length < 4) {
             padding_length += padding_multiple
         }
         const padding = crypto.getRandomValues(Buffer.allocUnsafe(padding_length))
@@ -299,20 +329,17 @@ export default class Client extends (EventEmitter as new () => TypedEmitter<Clie
             payload,
             padding,
         ])
-        
+
         let mac: Buffer
-        if(this.hasReceivedNewKeys && this.hasSentNewKeys){
+        if (this.hasReceivedNewKeys && this.hasSentNewKeys) {
             // we'll also encrypt here
             mac = this.clientMac!.computeMAC(this.out_sequence_number, packet_buf)
             packet_buf = this.clientEncryption!.encrypt(packet_buf)
-        }else{
+        } else {
             mac = Buffer.allocUnsafe(0)
         }
-        
-        this.socket!.write(Buffer.concat([
-            packet_buf,
-            mac
-        ]))
+
+        this.socket!.write(Buffer.concat([packet_buf, mac]))
         this.out_sequence_number++
         this.out_sequence_number %= SEQUENCE_NUMBER_MODULO
     }
@@ -323,34 +350,39 @@ export default class Client extends (EventEmitter as new () => TypedEmitter<Clie
         this.debug("Choosing algorithms...")
 
         const server_host_key_algorithms: (typeof HostKeyAlgorithm)[] = []
-        for(const alg of this.serverKexInit.data.server_host_key_algorithms){
+        for (const alg of this.serverKexInit.data.server_host_key_algorithms) {
             const algorithm = host_key_algorithms.get(alg)
-            if(!algorithm)continue
-            
+            if (!algorithm) continue
+
             server_host_key_algorithms.push(algorithm)
         }
 
-        if(this.clientKexInit.data.kex_algorithms[0] == this.serverKexInit.data.kex_algorithms[0]){
-            this.debug("Key Exchange Algorithm guessed right:", this.clientKexInit.data.kex_algorithms[0])
-            
+        if (
+            this.clientKexInit.data.kex_algorithms[0] == this.serverKexInit.data.kex_algorithms[0]
+        ) {
+            this.debug(
+                "Key Exchange Algorithm guessed right:",
+                this.clientKexInit.data.kex_algorithms[0],
+            )
+
             const algorithm = kex_algorithms.get(this.clientKexInit.data.kex_algorithms[0])!
             assert(algorithm, "Invalid key exchange algorithm")
             this.kexAlgorithm = algorithm.instantiate()
 
-            const host_key_algorithm = server_host_key_algorithms.find(alg => {
-                if(algorithm.requires_encryption && !alg.has_encryption){
+            const host_key_algorithm = server_host_key_algorithms.find((alg) => {
+                if (algorithm.requires_encryption && !alg.has_encryption) {
                     return false
                 }
-                if(algorithm.requires_signature && !alg.has_signature){
+                if (algorithm.requires_signature && !alg.has_signature) {
                     return false
                 }
                 return true
             })
             assert(host_key_algorithm, "No compatible host key algorithm found")
             this.hostKeyAlgorithm = host_key_algorithm
-        }else{
-            for(const alg of this.clientKexInit.data.kex_algorithms){
-                if(!this.serverKexInit.data.kex_algorithms.includes(alg)){
+        } else {
+            for (const alg of this.clientKexInit.data.kex_algorithms) {
+                if (!this.serverKexInit.data.kex_algorithms.includes(alg)) {
                     continue
                 }
                 const algorithm = kex_algorithms.get(alg)!
@@ -358,18 +390,18 @@ export default class Client extends (EventEmitter as new () => TypedEmitter<Clie
                 // we shouldn't have put an algorithm we don't support
                 // assert is fine, it means we have a bug if it throws
                 assert(algorithm, "Invalid key exchange algorithm")
- 
+
                 // need a compatible host key to provide encryption and signature if needed
-                const host_key_algorithm = server_host_key_algorithms.find(alg => {
-                    if(algorithm.requires_encryption && !alg.has_encryption){
+                const host_key_algorithm = server_host_key_algorithms.find((alg) => {
+                    if (algorithm.requires_encryption && !alg.has_encryption) {
                         return false
                     }
-                    if(algorithm.requires_signature && !alg.has_signature){
+                    if (algorithm.requires_signature && !alg.has_signature) {
                         return false
                     }
                     return true
                 })
-                if(!host_key_algorithm){
+                if (!host_key_algorithm) {
                     continue
                 }
 
@@ -381,8 +413,8 @@ export default class Client extends (EventEmitter as new () => TypedEmitter<Clie
             assert(this.hostKeyAlgorithm, "No host key algorithm found")
         }
 
-        for(const alg of this.clientKexInit.data.encryption_algorithms_client_to_server){
-            if(!this.serverKexInit.data.encryption_algorithms_client_to_server.includes(alg)){
+        for (const alg of this.clientKexInit.data.encryption_algorithms_client_to_server) {
+            if (!this.serverKexInit.data.encryption_algorithms_client_to_server.includes(alg)) {
                 continue
             }
 
@@ -392,8 +424,8 @@ export default class Client extends (EventEmitter as new () => TypedEmitter<Clie
             this.clientEncryptionAlgorithm = algorithm
         }
         assert(this.clientEncryptionAlgorithm, "No client to server encryption algorithm found")
-        for(const alg of this.clientKexInit.data.encryption_algorithms_server_to_client){
-            if(!this.serverKexInit.data.encryption_algorithms_server_to_client.includes(alg)){
+        for (const alg of this.clientKexInit.data.encryption_algorithms_server_to_client) {
+            if (!this.serverKexInit.data.encryption_algorithms_server_to_client.includes(alg)) {
                 continue
             }
 
@@ -404,8 +436,8 @@ export default class Client extends (EventEmitter as new () => TypedEmitter<Clie
         }
         assert(this.serverEncryptionAlgorithm, "No server to client encryption algorithm found")
 
-        for(const alg of this.clientKexInit.data.mac_algorithms_client_to_server){
-            if(!this.serverKexInit.data.mac_algorithms_client_to_server.includes(alg)){
+        for (const alg of this.clientKexInit.data.mac_algorithms_client_to_server) {
+            if (!this.serverKexInit.data.mac_algorithms_client_to_server.includes(alg)) {
                 continue
             }
 
@@ -415,8 +447,8 @@ export default class Client extends (EventEmitter as new () => TypedEmitter<Clie
             this.clientMacAlgorithm = algorithm
         }
         assert(this.clientMacAlgorithm, "No client to server mac algorithm found")
-        for(const alg of this.clientKexInit.data.mac_algorithms_server_to_client){
-            if(!this.serverKexInit.data.mac_algorithms_server_to_client.includes(alg)){
+        for (const alg of this.clientKexInit.data.mac_algorithms_server_to_client) {
+            if (!this.serverKexInit.data.mac_algorithms_server_to_client.includes(alg)) {
                 continue
             }
 
@@ -439,30 +471,30 @@ export default class Client extends (EventEmitter as new () => TypedEmitter<Clie
     }
 
     onMessage(message: Buffer): void {
-        if(!this.serverProtocolVersion){
+        if (!this.serverProtocolVersion) {
             // split("\n") but for buffers
-            const lines:Buffer[] = []
+            const lines: Buffer[] = []
             let index = 0
-            for(let i = 0; i < message.length; i++){
-                if(message[i] === 0x0A){
+            for (let i = 0; i < message.length; i++) {
+                if (message[i] === 0x0a) {
                     lines.push(message.subarray(index, i + 1))
                     index += i + 1
                 }
             }
-            if(index < message.length){
+            if (index < message.length) {
                 lines.push(message.subarray(index))
             }
-            
-            while(lines[0]){
+
+            while (lines[0]) {
                 const lineBuf = lines.shift()!
                 this.emit("message", lineBuf)
                 let line = lineBuf!.toString("utf8")
-                if(line?.startsWith("SSH-")){
+                if (line?.startsWith("SSH-")) {
                     // protocol version exchange
                     this.serverProtocolVersion = ProtocolVersionExchange.parse(line)
                     this.emit("serverProtocolVersion", this.serverProtocolVersion)
                     break // no utf8 message after that.
-                }else{
+                } else {
                     // remove trailing whitespace and newlines
                     line = line.replace(/[\r\s]+\n$/, "")
                     this.emit("tcpWrapperLog", line)
@@ -470,22 +502,22 @@ export default class Client extends (EventEmitter as new () => TypedEmitter<Clie
                 }
             }
 
-            if(!this.serverProtocolVersion){
+            if (!this.serverProtocolVersion) {
                 return
             }
 
-            if(lines.length == 0){
+            if (lines.length == 0) {
                 return
             }
 
             // process the remaining lines
             message = Buffer.concat(lines)
             return this.onMessage(message)
-        }else{
+        } else {
             // binary packet protocol
             message = Buffer.concat([this.buffering, message])
             const padding_multiple = Math.max(8, this.serverEncryptionAlgorithm?.block_size ?? 8)
-            if(message.length < Math.max(16, padding_multiple)){
+            if (message.length < Math.max(16, padding_multiple)) {
                 this.buffering = message
                 this.debug("Partial message, buffering...")
                 return
@@ -493,18 +525,18 @@ export default class Client extends (EventEmitter as new () => TypedEmitter<Clie
 
             let packet_length: number
             let padding_length: number
-            if(this.hasReceivedNewKeys && this.hasSentNewKeys){
+            if (this.hasReceivedNewKeys && this.hasSentNewKeys) {
                 const first16 = this.serverEncryption!.decrypt(message.subarray(0, 16))
                 packet_length = first16.readUInt32BE(0)
                 padding_length = first16[4]
-            }else{
+            } else {
                 packet_length = message.readUInt32BE(0)
                 padding_length = message[4]
             }
 
             // TODO: Comply with 6.1. Maximum Packet Length
             // https://datatracker.ietf.org/doc/html/rfc4253#section-6.1
-            if(message.length < packet_length + 4){
+            if (message.length < packet_length + 4) {
                 this.buffering = message
                 this.debug("Partial message, buffering...")
                 return
@@ -518,24 +550,27 @@ export default class Client extends (EventEmitter as new () => TypedEmitter<Clie
             assert(cipher_mul % padding_multiple === 0, "Invalid cipher multiplication")
 
             let decrypted_message = message
-            if(this.hasReceivedNewKeys && this.hasSentNewKeys){
+            if (this.hasReceivedNewKeys && this.hasSentNewKeys) {
                 decrypted_message = this.serverEncryption!.decrypt(message.subarray(0, 5 + n1 + n2))
             }
 
             const payload = decrypted_message.subarray(5, 5 + n1)
             const padding = decrypted_message.subarray(5 + n1, 5 + n1 + n2)
-            const macsize = this.hasReceivedNewKeys && this.hasSentNewKeys ? this.serverMacAlgorithm!.digest_length : 0
+            const macsize =
+                this.hasReceivedNewKeys && this.hasSentNewKeys
+                    ? this.serverMacAlgorithm!.digest_length
+                    : 0
             const mac = decrypted_message.subarray(5 + n1 + n2, 5 + n1 + n2 + macsize)
-            if(this.hasReceivedNewKeys && this.hasSentNewKeys){
+            if (this.hasReceivedNewKeys && this.hasSentNewKeys) {
                 // verify MAC
                 const computed_mac = this.serverMac!.computeMAC(
                     this.in_sequence_number,
-                    message.subarray(0, 5 + n1 + n2)
+                    message.subarray(0, 5 + n1 + n2),
                 )
                 assert(computed_mac.length === mac.length, "Invalid MAC size")
                 assert(timingSafeEqual(computed_mac, mac), "Invalid MAC")
             }
-            
+
             this.buffering = message.subarray(5 + n1 + n2 + macsize)
             message = message.subarray(0, 5 + n1 + n2 + macsize)
             this.emit("message", message)
@@ -546,21 +581,21 @@ export default class Client extends (EventEmitter as new () => TypedEmitter<Clie
                 padding_length,
                 payload,
                 padding,
-                mac
+                mac,
             })
 
             this.in_sequence_number++
             this.in_sequence_number %= SEQUENCE_NUMBER_MODULO
 
             const packet = packets.get(payload[0])
-            if(!packet){
-                throw new Error("Invalid packet type ("+payload[0]+")")
+            if (!packet) {
+                throw new Error("Invalid packet type (" + payload[0] + ")")
             }
 
             const p = packet.parse(payload)
             this.emit("packet", p)
 
-            switch(packet.type){
+            switch (packet.type) {
                 case SSHPacketType.SSH_MSG_KEXINIT:
                     // handle key exchange
                     this.emit("serverKexInit", p as KexInit, payload)
@@ -576,7 +611,7 @@ export default class Client extends (EventEmitter as new () => TypedEmitter<Clie
                     break
             }
 
-            if(this.buffering.length > 0){
+            if (this.buffering.length > 0) {
                 this.onMessage(Buffer.alloc(0))
             }
         }

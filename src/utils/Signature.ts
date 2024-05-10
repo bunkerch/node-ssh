@@ -2,7 +2,7 @@ import assert from "assert"
 import { readNextBuffer } from "./Buffer.js"
 
 export interface EncodedSignatureData {
-    alg: string,
+    alg: string
     data: Buffer
 }
 export default class EncodedSignature {
@@ -28,18 +28,18 @@ export default class EncodedSignature {
         return Buffer.concat(buffers)
     }
 
-    static parse(raw: Buffer) : EncodedSignature {
+    static parse(raw: Buffer): EncodedSignature {
         let name: Buffer
-        [name, raw] = readNextBuffer(raw)
+        ;[name, raw] = readNextBuffer(raw)
 
         let data: Buffer
-        [data, raw] = readNextBuffer(raw)
+        ;[data, raw] = readNextBuffer(raw)
 
         assert(raw.length === 0)
 
         return new EncodedSignature({
             alg: name.toString("utf8"),
-            data: data
+            data: data,
         })
     }
 }

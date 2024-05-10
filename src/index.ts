@@ -1,10 +1,10 @@
 import "modernlog/patch.js"
-import Client from "./Client.js";
+import Client from "./Client.js"
 
 const client = new Client({
     hostname: "127.0.0.1",
     port: 1022,
-    username: "debian"
+    username: "debian",
 })
 client.hooker.hook("hostKey", (controller, result) => {
     // example. you could have a more complex logic here

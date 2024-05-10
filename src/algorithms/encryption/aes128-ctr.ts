@@ -1,11 +1,11 @@
 import crypto from "crypto"
-import { EncryptionAlgorithm } from "../../algorithms.js";
+import { EncryptionAlgorithm } from "../../algorithms.js"
 
 export default class AES128CTR implements EncryptionAlgorithm {
-    static alg_name = "aes128-ctr";
-    static key_length = 16;
-    static iv_length = 16;
-    static block_size = 16;
+    static alg_name = "aes128-ctr"
+    static key_length = 16
+    static iv_length = 16
+    static block_size = 16
 
     static instantiate(key: Buffer, iv: Buffer): EncryptionAlgorithm {
         return new AES128CTR(key, iv)

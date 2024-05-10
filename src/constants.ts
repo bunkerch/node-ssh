@@ -37,7 +37,7 @@ export enum SSHPacketType {
     SSH_MSG_CHANNEL_FAILURE = 100,
 }
 
-export const SEQUENCE_NUMBER_MODULO = 2**32
+export const SEQUENCE_NUMBER_MODULO = 2 ** 32
 
 // TODO: Is this even needed ?
 // this would speed up connexions but meh
@@ -51,7 +51,7 @@ export const hostnameCipherGuesses = new Map<string, string[]>([
             "ecdh-sha2-nistp384",
             "ecdh-sha2-nistp521",
             "diffie-hellman-group-exchange-sha256",
-            "kex-strict-s-v00@openssh.com"
-        ]
+            "kex-strict-s-v00@openssh.com",
+        ],
     ],
 ])

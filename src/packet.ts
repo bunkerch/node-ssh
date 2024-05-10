@@ -1,14 +1,14 @@
-import { SSHPacketType } from "./constants.js";
-import KexDHInit from "./packets/KexDHInit.js";
-import KexDHReply from "./packets/KexDHReply.js";
-import KexInit from "./packets/KexInit.js";
-import NewKeys from "./packets/NewKeys.js";
+import { SSHPacketType } from "./constants.js"
+import KexDHInit from "./packets/KexDHInit.js"
+import KexDHReply from "./packets/KexDHReply.js"
+import KexInit from "./packets/KexInit.js"
+import NewKeys from "./packets/NewKeys.js"
 
 export default abstract class Packet {
     static type: SSHPacketType
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    constructor(data: any){
+    constructor(data: any) {
         throw new Error("Abstract class")
     }
 
