@@ -37,7 +37,9 @@ export enum SSHPacketType {
     SSH_MSG_CHANNEL_FAILURE = 100,
 }
 
-// is this even needed ?
+export const SEQUENCE_NUMBER_MODULO = 2**32
+
+// TODO: Is this even needed ?
 // this would speed up connexions but meh
 export const hostnameCipherGuesses = new Map<string, string[]>([
     [

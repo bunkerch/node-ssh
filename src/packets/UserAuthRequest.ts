@@ -53,6 +53,7 @@ export default class UserAuthRequest implements Packet {
         return new UserAuthRequest({
             username: username.toString("utf-8"),
             service_name: service_name.toString("utf-8"),
+            // TODO: handle unknown auth methods
             method: UserAuthRequest.auth_methods.get(method_name.toString("utf-8"))!.parse(method_name)
         })
     }

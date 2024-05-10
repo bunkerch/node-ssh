@@ -1,9 +1,9 @@
-import crypto from "crypto"
+import crypto, { timingSafeEqual } from "crypto"
 import EventEmitter from "node:events"
 import os from "node:os"
 import TypedEmitter from "typed-emitter"
 import net from "node:net"
-import { SocketState, SSHPacketType } from "./constants.js"
+import { SEQUENCE_NUMBER_MODULO, SocketState, SSHPacketType } from "./constants.js"
 import ProtocolVersionExchange from "./ProtocolVersionExchange.js"
 import assert from "node:assert"
 import Packet, { packets } from "./packet.js"
@@ -63,12 +63,15 @@ export default class Client extends (EventEmitter as new () => TypedEmitter<Clie
 
     hooker: Hooker<ClientHooker> = new Hooker()
 
-    socket: net.Socket | undefined
-    buffering: Buffer = Buffer.alloc(0)
+    private socket: net.Socket | undefined
+    private buffering: Buffer = Buffer.alloc(0)
+    private in_sequence_number = 0
+    private out_sequence_number = 0
     
     serverProtocolVersion: ProtocolVersionExchange | undefined
     serverKexDHReply: KexDHReply | undefined
 
+    // TODO: Assess if these should be private properties
     clientKexInit: KexInit | undefined
     serverKexInit: KexInit | undefined
     kexAlgorithm: KexAlgorithm | undefined
@@ -82,6 +85,7 @@ export default class Client extends (EventEmitter as new () => TypedEmitter<Clie
     clientMac: MACAlgorithm | undefined
     serverMac: MACAlgorithm | undefined
 
+    // TODO: Set those as private properties (Need to be accessed by the algorithms only)
     H: Buffer | undefined
     sessionID: Buffer | undefined
     ivClientToServer: Buffer | undefined
@@ -284,9 +288,9 @@ export default class Client extends (EventEmitter as new () => TypedEmitter<Clie
         if(padding_length < 4){
             padding_length += padding_multiple
         }
-        const padding = crypto.getRandomValues(Buffer.alloc(padding_length))
+        const padding = crypto.getRandomValues(Buffer.allocUnsafe(padding_length))
 
-        const packet_length = Buffer.alloc(4)
+        const packet_length = Buffer.allocUnsafe(4)
         packet_length.writeUInt32BE(1 + payload.length + padding_length, 0)
 
         let packet_buf = Buffer.concat([
@@ -299,16 +303,18 @@ export default class Client extends (EventEmitter as new () => TypedEmitter<Clie
         let mac: Buffer
         if(this.hasReceivedNewKeys && this.hasSentNewKeys){
             // we'll also encrypt here
-            mac = this.clientMac!.computeMAC(packet_buf)
+            mac = this.clientMac!.computeMAC(this.out_sequence_number, packet_buf)
             packet_buf = this.clientEncryption!.encrypt(packet_buf)
         }else{
             mac = Buffer.allocUnsafe(0)
         }
-
+        
         this.socket!.write(Buffer.concat([
             packet_buf,
             mac
         ]))
+        this.out_sequence_number++
+        this.out_sequence_number %= SEQUENCE_NUMBER_MODULO
     }
 
     chooseAlgorithms() {
@@ -523,9 +529,11 @@ export default class Client extends (EventEmitter as new () => TypedEmitter<Clie
             if(this.hasReceivedNewKeys && this.hasSentNewKeys){
                 // verify MAC
                 const computed_mac = this.serverMac!.computeMAC(
+                    this.in_sequence_number,
                     message.subarray(0, 5 + n1 + n2)
                 )
-                assert(computed_mac.equals(mac), "Invalid MAC")
+                assert(computed_mac.length === mac.length, "Invalid MAC size")
+                assert(timingSafeEqual(computed_mac, mac), "Invalid MAC")
             }
             
             this.buffering = message.subarray(5 + n1 + n2 + macsize)
@@ -540,6 +548,9 @@ export default class Client extends (EventEmitter as new () => TypedEmitter<Clie
                 padding,
                 mac
             })
+
+            this.in_sequence_number++
+            this.in_sequence_number %= SEQUENCE_NUMBER_MODULO
 
             const packet = packets.get(payload[0])
             if(!packet){

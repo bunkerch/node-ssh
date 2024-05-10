@@ -6,8 +6,6 @@ export default class HMACSHA1 implements MACAlgorithm {
     static key_length = 20;
     static digest_length = 20;
 
-    sequence_number: number = 0
-    
     static instantiate(key: Buffer): MACAlgorithm {
         return new HMACSHA1(key)
     }
@@ -18,11 +16,10 @@ export default class HMACSHA1 implements MACAlgorithm {
     }
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    computeMAC(packet: Buffer): Buffer {
-        const seq = Buffer.alloc(4)
+    computeMAC(sequence_number: number, packet: Buffer): Buffer {
+        const seq = Buffer.allocUnsafe(4)
         
-        seq.writeUInt32BE(this.sequence_number)
-        this.sequence_number = (this.sequence_number + 1) % 2**32
+        seq.writeUInt32BE(sequence_number)
 
         const hmac = crypto.createHmac("sha1", this.key)
         hmac.update(seq)

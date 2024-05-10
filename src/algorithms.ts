@@ -107,7 +107,7 @@ export abstract class MACAlgorithm {
     }
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    computeMAC(packet: Buffer): Buffer {
+    computeMAC(sequence_number: number, packet: Buffer): Buffer {
         throw new Error("Not implemented");
     }
 }

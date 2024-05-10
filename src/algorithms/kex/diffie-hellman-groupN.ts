@@ -70,7 +70,6 @@ export default class DiffieHellmanGroupN implements KexAlgorithm {
             hash.update(sessionID)
 
             let key = hash.digest()
-            console.log(this.hashName, i, key.length, keyLengths[i])
 
             while(key.length < keyLengths[i]) {
                 const hash = createHash(this.hashName)
