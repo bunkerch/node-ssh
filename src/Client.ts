@@ -59,13 +59,16 @@ export type ClientHooker = {
 
 export default class Client extends (EventEmitter as new () => TypedEmitter<ClientEvents>) {
     options: ClientOptionsRequired
+
     constructor(options: ClientOptions) {
         super()
+
         this.options = options as ClientOptionsRequired
         this.options.port = options.port ?? 22
         this.options.username = options.username ?? os.userInfo({ encoding: "utf8" }).username
         this.options.protocolVersionExchange =
             options.protocolVersionExchange ?? ProtocolVersionExchange.defaultValue
+
         setImmediate(() => {
             this.debug("Client created with options:", this.options)
         })
@@ -75,6 +78,7 @@ export default class Client extends (EventEmitter as new () => TypedEmitter<Clie
 
     private socket: net.Socket | undefined
     private buffering: Buffer = Buffer.alloc(0)
+    private buffering_decrypted: Buffer = Buffer.alloc(0)
     private in_sequence_number = 0
     private out_sequence_number = 0
 
@@ -180,6 +184,7 @@ export default class Client extends (EventEmitter as new () => TypedEmitter<Clie
             compression_algorithms_server_to_client: ["none"],
             languages_client_to_server: [],
             languages_server_to_client: [],
+            // TODO: Determine what this field does
             first_kex_packet_follows: false,
         })
         this.sendPacket(this.clientKexInit)
@@ -523,10 +528,21 @@ export default class Client extends (EventEmitter as new () => TypedEmitter<Clie
                 return
             }
 
+            const macsize =
+                this.hasReceivedNewKeys && this.hasSentNewKeys
+                    ? this.serverMacAlgorithm!.digest_length
+                    : 0
+
             let packet_length: number
             let padding_length: number
             if (this.hasReceivedNewKeys && this.hasSentNewKeys) {
-                const first16 = this.serverEncryption!.decrypt(message.subarray(0, 16))
+                let first16: Buffer
+                if (this.buffering_decrypted.length >= 16) {
+                    first16 = this.buffering_decrypted.subarray(0, 16)
+                } else {
+                    first16 = this.serverEncryption!.decrypt(message.subarray(0, 16))
+                    this.buffering_decrypted = first16
+                }
                 packet_length = first16.readUInt32BE(0)
                 padding_length = first16[4]
             } else {
@@ -536,7 +552,7 @@ export default class Client extends (EventEmitter as new () => TypedEmitter<Clie
 
             // TODO: Comply with 6.1. Maximum Packet Length
             // https://datatracker.ietf.org/doc/html/rfc4253#section-6.1
-            if (message.length < packet_length + 4) {
+            if (message.length < packet_length + 4 + macsize) {
                 this.buffering = message
                 this.debug("Partial message, buffering...")
                 return
@@ -551,21 +567,23 @@ export default class Client extends (EventEmitter as new () => TypedEmitter<Clie
 
             let decrypted_message = message
             if (this.hasReceivedNewKeys && this.hasSentNewKeys) {
-                decrypted_message = this.serverEncryption!.decrypt(message.subarray(0, 5 + n1 + n2))
+                decrypted_message = Buffer.concat([
+                    this.buffering_decrypted,
+                    this.serverEncryption!.decrypt(
+                        message.subarray(this.buffering_decrypted.length, 5 + n1 + n2),
+                    ),
+                ])
+                this.buffering_decrypted = Buffer.alloc(0)
             }
 
             const payload = decrypted_message.subarray(5, 5 + n1)
             const padding = decrypted_message.subarray(5 + n1, 5 + n1 + n2)
-            const macsize =
-                this.hasReceivedNewKeys && this.hasSentNewKeys
-                    ? this.serverMacAlgorithm!.digest_length
-                    : 0
-            const mac = decrypted_message.subarray(5 + n1 + n2, 5 + n1 + n2 + macsize)
+            const mac = message.subarray(5 + n1 + n2, 5 + n1 + n2 + macsize)
             if (this.hasReceivedNewKeys && this.hasSentNewKeys) {
                 // verify MAC
                 const computed_mac = this.serverMac!.computeMAC(
                     this.in_sequence_number,
-                    message.subarray(0, 5 + n1 + n2),
+                    decrypted_message.subarray(0, 5 + n1 + n2),
                 )
                 assert(computed_mac.length === mac.length, "Invalid MAC size")
                 assert(timingSafeEqual(computed_mac, mac), "Invalid MAC")
