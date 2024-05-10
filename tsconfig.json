@@ -9,10 +9,12 @@
         "lib": ["ES2019", "DOM", "DOM.Iterable", "ES2020"],
         "downlevelIteration": true,
         "esModuleInterop": true,
-        "strict": true
+        "strict": true,
+        "declaration": true
     },
     "exclude": [
         "dist/",
-        "node_modules/"
+        "node_modules/",
+        "__tests__/"
     ]
 }
