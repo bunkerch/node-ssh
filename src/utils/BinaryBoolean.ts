@@ -7,5 +7,7 @@ export function parseBinaryBoolean(raw: Buffer): boolean {
 }
 
 export function serializeBinaryBoolean(value: boolean): Buffer {
+    assert(value === true || value === false)
+
     return Buffer.from([value ? 1 : 0])
 }

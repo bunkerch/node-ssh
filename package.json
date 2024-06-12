@@ -30,6 +30,7 @@
   },
   "type": "module",
   "dependencies": {
-    "asn1js": "^3.0.5"
+    "asn1js": "^3.0.5",
+    "tweetnacl": "^1.0.3"
   }
 }

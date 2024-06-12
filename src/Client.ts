@@ -3,35 +3,44 @@ import EventEmitter from "node:events"
 import os from "node:os"
 import TypedEmitter from "typed-emitter"
 import net from "node:net"
-import { SEQUENCE_NUMBER_MODULO, SocketState, SSHPacketType } from "./constants.js"
+import { SEQUENCE_NUMBER_MODULO, SocketState, SSHPacketType, SSHServiceNames } from "./constants.js"
 import ProtocolVersionExchange from "./ProtocolVersionExchange.js"
 import assert from "node:assert"
 import Packet, { packets } from "./packet.js"
 import KexInit from "./packets/KexInit.js"
 import {
     EncryptionAlgorithm,
-    HostKeyAlgorithm,
     KexAlgorithm,
     MACAlgorithm,
     encryption_algorithms,
-    host_key_algorithms,
     kex_algorithms,
     mac_algorithms,
 } from "./algorithms.js"
 import KexDHInit from "./packets/KexDHInit.js"
 import KexDHReply from "./packets/KexDHReply.js"
 import EncodedSignature from "./utils/Signature.js"
-import PublicKey from "./utils/PublicKey.js"
+import PublicKey, { PublicKeyAlgoritm } from "./utils/PublicKey.js"
 import { Hooker } from "./utils/Hooker.js"
 import DiffieHellmanGroupN from "./algorithms/kex/diffie-hellman-groupN.js"
 import NewKeys from "./packets/NewKeys.js"
 import UserAuthRequest from "./packets/UserAuthRequest.js"
-import NoneAuthMethod from "./auth/none.js"
+import Disconnect, { DisconnectReason } from "./packets/Disconnect.js"
+import Unimplemented from "./packets/Unimplemented.js"
+import UserAuthFailure from "./packets/UserAuthFailure.js"
+import ServiceRequest from "./packets/ServiceRequest.js"
+import ServiceAccept from "./packets/ServiceAccept.js"
+import UserAuthSuccess from "./packets/UserAuthSuccess.js"
+import Agent from "./publickey/Agent.js"
+import DiskAgent from "./publickey/DiskAgent.js"
+import UserAuthPKOK from "./packets/UserAuthPKOK.js"
+import PublicKeyAuthMethod from "./auth/publickey.js"
 
 export interface ClientOptions {
     hostname: string
     port?: number
     username?: string
+    password?: string
+    agent?: Agent
     protocolVersionExchange?: ProtocolVersionExchange
 }
 export interface ClientOptionsRequired extends Required<ClientOptions> {}
@@ -40,6 +49,7 @@ export type ClientEvents = {
     debug: (...message: any[]) => void
     error: (error: Error) => void
     close: () => void
+    connect: () => void
     message: (message: Buffer) => void
     packet: (packet: Packet) => void
     tcpWrapperLog: (message: string) => void
@@ -53,8 +63,18 @@ export type ClientEvents = {
 export type ClientHookerHostKeyController = {
     allowHostKey: boolean
 }
+export type ClientHookerPasswordAuthContext = Readonly<{
+    username: string
+}>
+export type ClientHookerPasswordAuthController = {
+    password: string | undefined
+}
 export type ClientHooker = {
-    hostKey: [ClientHookerHostKeyController, PublicKey]
+    hostKey: [hostKeyController: ClientHookerHostKeyController, serverPublicKey: PublicKey]
+    passwordAuth: [
+        passwordAuthContext: ClientHookerPasswordAuthContext,
+        passwordAuthController: ClientHookerPasswordAuthController,
+    ]
 }
 
 export default class Client extends (EventEmitter as new () => TypedEmitter<ClientEvents>) {
@@ -66,12 +86,28 @@ export default class Client extends (EventEmitter as new () => TypedEmitter<Clie
         this.options = options as ClientOptionsRequired
         this.options.port = options.port ?? 22
         this.options.username = options.username ?? os.userInfo({ encoding: "utf8" }).username
+        this.options.password = options.password ?? ""
+        this.options.agent = options.agent ?? new DiskAgent()
         this.options.protocolVersionExchange =
             options.protocolVersionExchange ?? ProtocolVersionExchange.defaultValue
 
         setImmediate(() => {
             this.debug("Client created with options:", this.options)
         })
+
+        if (this.options.password) {
+            this.hooker.hook("passwordAuth", async (controller, context, answer) => {
+                // should not happen, but we've been given a
+                // pair of username and password, we want them
+                // to be used together.
+                if (context.username != this.options.username) return
+                answer.password = this.options.password
+            })
+
+            setImmediate(() => {
+                this.debug("Password authentication handled by client options")
+            })
+        }
     }
 
     hooker: Hooker<ClientHooker> = new Hooker()
@@ -84,12 +120,11 @@ export default class Client extends (EventEmitter as new () => TypedEmitter<Clie
 
     serverProtocolVersion: ProtocolVersionExchange | undefined
     serverKexDHReply: KexDHReply | undefined
-
     // TODO: Assess if these should be private properties
     clientKexInit: KexInit | undefined
     serverKexInit: KexInit | undefined
     kexAlgorithm: KexAlgorithm | undefined
-    hostKeyAlgorithm: typeof HostKeyAlgorithm | undefined
+    hostKeyAlgorithm: typeof PublicKeyAlgoritm | undefined
     clientEncryptionAlgorithm: typeof EncryptionAlgorithm | undefined
     serverEncryptionAlgorithm: typeof EncryptionAlgorithm | undefined
     clientEncryption: EncryptionAlgorithm | undefined
@@ -175,7 +210,7 @@ export default class Client extends (EventEmitter as new () => TypedEmitter<Clie
         this.clientKexInit = new KexInit({
             cookie: crypto.getRandomValues(Buffer.alloc(16)),
             kex_algorithms: [...kex_algorithms.keys()],
-            server_host_key_algorithms: [...host_key_algorithms.keys()],
+            server_host_key_algorithms: [...PublicKey.algorithms.keys()],
             encryption_algorithms_client_to_server: [...encryption_algorithms.keys()],
             encryption_algorithms_server_to_client: [...encryption_algorithms.keys()],
             mac_algorithms_client_to_server: [...mac_algorithms.keys()],
@@ -197,8 +232,7 @@ export default class Client extends (EventEmitter as new () => TypedEmitter<Clie
         if (this.kexAlgorithm instanceof DiffieHellmanGroupN) {
             this.debug(
                 "Using DiffieHellmanGroupN key exchange algorithm",
-                // @ts-expect-error alg_name is a static property
-                this.kexAlgorithm.constructor.alg_name,
+                (this.kexAlgorithm.constructor as typeof KexAlgorithm).alg_name,
             )
             this.kexAlgorithm.generateKeyPair()
             this.sendPacket(
@@ -230,6 +264,7 @@ export default class Client extends (EventEmitter as new () => TypedEmitter<Clie
             )
 
             assert(hostKey.verifySignature(h, signature), "Invalid host key signature from server!")
+            this.debug("Host key signature verified")
 
             if (this.hooker.hasHooks("hostKey")) {
                 const controller: ClientHookerHostKeyController = {
@@ -286,12 +321,98 @@ export default class Client extends (EventEmitter as new () => TypedEmitter<Clie
         this.debug("Starting authentication...")
 
         this.sendPacket(
-            new UserAuthRequest({
-                username: this.options.username!,
-                service_name: "ssh-userauth",
-                method: new NoneAuthMethod(),
+            new ServiceRequest({
+                service_name: SSHServiceNames.UserAuth,
             }),
         )
+
+        const serviceAnswer: ServiceAccept = await this.waitForPackets(
+            {
+                [SSHPacketType.SSH_MSG_SERVICE_ACCEPT]: {
+                    predicate: (packet: ServiceAccept) => {
+                        return packet.data.service_name == SSHServiceNames.UserAuth
+                    },
+                },
+            },
+            10000,
+        )
+        assert(serviceAnswer.data.service_name == SSHServiceNames.UserAuth)
+
+        // TODO: Maybe get list of auth methods from server
+        // can be done through UserAuthFailure.auth_methods
+        const methodList: string[] = [...UserAuthRequest.auth_methods.keys()]
+        for (const method of methodList) {
+            const m = UserAuthRequest.auth_methods.get(method)!
+            this.debug(`Trying auth method`, m.method_name)
+
+            const iterator = m.getPackets(this)
+            // eslint-disable-next-line no-constant-condition
+            while (true) {
+                const { value, done } = await iterator.next()
+                if (done) break
+
+                let packet: UserAuthRequest | undefined = value
+
+                while (packet) {
+                    const seqno = this.sendPacket(packet)
+
+                    const answer: Unimplemented | UserAuthFailure | UserAuthSuccess =
+                        await this.waitForPackets(
+                            {
+                                [SSHPacketType.SSH_MSG_UNIMPLEMENTED]: {
+                                    predicate: (packet: Unimplemented) => {
+                                        return packet.data.sequence_number === seqno
+                                    },
+                                },
+                                [SSHPacketType.SSH_MSG_USERAUTH_FAILURE]: {
+                                    predicate: () => true,
+                                },
+                                [SSHPacketType.SSH_MSG_USERAUTH_SUCCESS]: {
+                                    predicate: () => true,
+                                },
+                                [SSHPacketType.SSH_MSG_USERAUTH_PK_OK]: {
+                                    predicate: () => true,
+                                },
+                            },
+                            10000,
+                        )
+
+                    console.log(answer)
+
+                    if (answer instanceof UserAuthSuccess) {
+                        this.debug(`Authentication successful with method`, m.method_name)
+                        this.debug("Authenticated as", this.options.username)
+
+                        // stops the getPackets generator
+                        iterator.return(undefined)
+
+                        this.emit("connect")
+                        return
+                    } else if (answer instanceof UserAuthPKOK) {
+                        const method = packet.data.method as PublicKeyAuthMethod
+                        assert(
+                            method instanceof PublicKeyAuthMethod,
+                            "Server returned an UserAuthPKOK packet but the method was not a PublicKeyAuthMethod",
+                        )
+
+                        const keys = await this.options.agent.getPublicKeys()
+                        const key = keys.find((key) => key[1].equals(method.data.publicKey))
+                        assert(
+                            key,
+                            "Server requested a public key that was not provided by the agent",
+                        )
+                        method.data.signature = await this.options.agent.sign(
+                            key[0],
+                            packet.serializeForSignature(this),
+                        )
+                    } else {
+                        packet = undefined
+                    }
+                }
+            }
+        }
+
+        //
     }
 
     waitEvent<event extends keyof ClientEvents>(
@@ -314,8 +435,70 @@ export default class Client extends (EventEmitter as new () => TypedEmitter<Clie
             this.once("error", onError)
         })
     }
+    waitForPacket<packet extends Packet>(packet: SSHPacketType): Promise<packet> {
+        return new Promise((resolve, reject) => {
+            const onError = (error: Error) => {
+                cleanup()
+                reject(error)
+            }
+            const handler = (p: Packet) => {
+                // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+                // @ts-expect-error
+                // type is a static property on every packet class
+                if (p.constructor.type === packet) {
+                    resolve(p as packet)
+                    cleanup()
+                }
+            }
+            const cleanup = () => {
+                this.off("packet", handler)
+                this.off("error", onError)
+            }
+            this.on("packet", handler)
+            this.once("error", onError)
+        })
+    }
+    waitForPackets<
+        packets extends {
+            [key in SSHPacketType]?: {
+                predicate: (packet: any) => boolean
+            }
+        },
+    >(packets: packets, timeout: number): Promise<any> {
+        return new Promise((resolve, reject) => {
+            const cleanup = () => {
+                this.off("packet", onPacket)
+                this.off("error", onError)
+                clearTimeout(timer)
+            }
+            const onPacket = (packet: Packet) => {
+                // toString to convert the number to a string
+                // because the type key in the packets object
+                // is transformed to a stirng by javascript
+                // could also use a loose == but I prefer to be explicit
+                const packetType = (packet.constructor as typeof Packet).type.toString()
+                for (const [type, { predicate }] of Object.entries(packets)) {
+                    if (packetType === type && predicate(packet)) {
+                        resolve(packet)
+                        cleanup()
+                        return
+                    }
+                }
+            }
+            const onError = (error: Error) => {
+                cleanup()
+                reject(error)
+            }
+            const timer = setTimeout(() => {
+                cleanup()
+                reject(new Error("Timed out waiting for message"))
+            }, timeout)
+            this.on("packet", onPacket)
+            this.once("error", onError)
+        })
+    }
 
-    sendPacket(packet: Packet): void {
+    sendPacket(packet: Packet): number {
         this.debug("Sending packet:", packet)
         const payload = packet.serialize()
         const padding_multiple = Math.max(8, this.clientEncryptionAlgorithm?.block_size ?? 8)
@@ -335,10 +518,11 @@ export default class Client extends (EventEmitter as new () => TypedEmitter<Clie
             padding,
         ])
 
+        const seqno = this.out_sequence_number
         let mac: Buffer
         if (this.hasReceivedNewKeys && this.hasSentNewKeys) {
             // we'll also encrypt here
-            mac = this.clientMac!.computeMAC(this.out_sequence_number, packet_buf)
+            mac = this.clientMac!.computeMAC(seqno, packet_buf)
             packet_buf = this.clientEncryption!.encrypt(packet_buf)
         } else {
             mac = Buffer.allocUnsafe(0)
@@ -347,6 +531,8 @@ export default class Client extends (EventEmitter as new () => TypedEmitter<Clie
         this.socket!.write(Buffer.concat([packet_buf, mac]))
         this.out_sequence_number++
         this.out_sequence_number %= SEQUENCE_NUMBER_MODULO
+
+        return seqno
     }
 
     chooseAlgorithms() {
@@ -354,12 +540,24 @@ export default class Client extends (EventEmitter as new () => TypedEmitter<Clie
         assert(this.serverKexInit, "Server KexInit not set")
         this.debug("Choosing algorithms...")
 
-        const server_host_key_algorithms: (typeof HostKeyAlgorithm)[] = []
+        // TODO: I feel like this code could be cleaned a bit...
+        // I tried to follow the spec word by word.
+        // https://datatracker.ietf.org/doc/html/rfc4253#section-7.1
+
+        const server_host_key_algorithms: (typeof PublicKeyAlgoritm)[] = []
         for (const alg of this.serverKexInit.data.server_host_key_algorithms) {
-            const algorithm = host_key_algorithms.get(alg)
+            const algorithm = PublicKey.algorithms.get(alg)
             if (!algorithm) continue
 
             server_host_key_algorithms.push(algorithm)
+        }
+        const host_key_algorithms: (typeof PublicKeyAlgoritm)[] = []
+        for (const alg of this.clientKexInit.data.server_host_key_algorithms) {
+            const algorithm = PublicKey.algorithms.get(alg)
+            if (!algorithm) continue
+            if (!server_host_key_algorithms.includes(algorithm)) continue
+
+            host_key_algorithms.push(algorithm)
         }
 
         if (
@@ -374,7 +572,7 @@ export default class Client extends (EventEmitter as new () => TypedEmitter<Clie
             assert(algorithm, "Invalid key exchange algorithm")
             this.kexAlgorithm = algorithm.instantiate()
 
-            const host_key_algorithm = server_host_key_algorithms.find((alg) => {
+            const host_key_algorithm = host_key_algorithms.find((alg) => {
                 if (algorithm.requires_encryption && !alg.has_encryption) {
                     return false
                 }
@@ -397,7 +595,7 @@ export default class Client extends (EventEmitter as new () => TypedEmitter<Clie
                 assert(algorithm, "Invalid key exchange algorithm")
 
                 // need a compatible host key to provide encryption and signature if needed
-                const host_key_algorithm = server_host_key_algorithms.find((alg) => {
+                const host_key_algorithm = host_key_algorithms.find((alg) => {
                     if (algorithm.requires_encryption && !alg.has_encryption) {
                         return false
                     }
@@ -577,7 +775,7 @@ export default class Client extends (EventEmitter as new () => TypedEmitter<Clie
             }
 
             const payload = decrypted_message.subarray(5, 5 + n1)
-            const padding = decrypted_message.subarray(5 + n1, 5 + n1 + n2)
+            //const padding = decrypted_message.subarray(5 + n1, 5 + n1 + n2)
             const mac = message.subarray(5 + n1 + n2, 5 + n1 + n2 + macsize)
             if (this.hasReceivedNewKeys && this.hasSentNewKeys) {
                 // verify MAC
@@ -592,15 +790,8 @@ export default class Client extends (EventEmitter as new () => TypedEmitter<Clie
             this.buffering = message.subarray(5 + n1 + n2 + macsize)
             message = message.subarray(0, 5 + n1 + n2 + macsize)
             this.emit("message", message)
-            this.debug("Message:", [message.toString("utf8")])
 
-            this.debug("Packet:", SSHPacketType[payload[0]], {
-                packet_length,
-                padding_length,
-                payload,
-                padding,
-                mac,
-            })
+            this.debug("Receiving packet:", SSHPacketType[payload[0]])
 
             this.in_sequence_number++
             this.in_sequence_number %= SEQUENCE_NUMBER_MODULO
@@ -612,6 +803,7 @@ export default class Client extends (EventEmitter as new () => TypedEmitter<Clie
 
             const p = packet.parse(payload)
             this.emit("packet", p)
+            this.debug("Parsing packet:", p)
 
             switch (packet.type) {
                 case SSHPacketType.SSH_MSG_KEXINIT:
@@ -627,6 +819,16 @@ export default class Client extends (EventEmitter as new () => TypedEmitter<Clie
                     this.emit("serverNewKeys")
                     // handle key exchange
                     break
+                case SSHPacketType.SSH_MSG_DISCONNECT: {
+                    const disconnect = p as Disconnect
+                    this.debug(
+                        "Server disconnected:",
+                        DisconnectReason[disconnect.data.reason_code],
+                        disconnect.data.description,
+                        disconnect.data.language_tag,
+                    )
+                    // TODO: Handle disconnect
+                }
             }
 
             if (this.buffering.length > 0) {

@@ -5,6 +5,7 @@ const client = new Client({
     hostname: "127.0.0.1",
     port: 1022,
     username: "debian",
+    password: "debian",
 })
 client.on("debug", (...args) => console.debug(...args))
 client.on("error", console.error)

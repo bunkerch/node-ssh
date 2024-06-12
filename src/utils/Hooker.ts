@@ -70,6 +70,9 @@ export class Hooker<
                 if (this.listenerCount("uncaughtException") > 0) {
                     this.emit("uncaughtException", event as string, err as Error)
                 } else {
+                    // in node:events, they throw an uncaughtException
+                    // on the process or something, this makes the process
+                    // crash if you don't catch it. I'd rather log it
                     console.warn(
                         `[node-ssh] Uncaught exception in hook for event ${event.toString()}:`,
                         err,

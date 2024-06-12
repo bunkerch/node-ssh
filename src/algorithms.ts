@@ -9,8 +9,6 @@ import DiffieHellmanGroup16SHA512 from "./algorithms/kex/diffie-hellman-group16-
 import DiffieHellmanGroup15SHA512 from "./algorithms/kex/diffie-hellman-group15-sha512.js"
 import DiffieHellmanGroup17SHA512 from "./algorithms/kex/diffie-hellman-group17-sha512.js"
 
-import SSHRSA from "./algorithms/host_key/ssh-rsa.js"
-
 import AES128CTR from "./algorithms/encryption/aes128-ctr.js"
 
 //import HMACSHA2256 from "./algorithms/mac/hmac-sha2-256.js";
@@ -51,13 +49,6 @@ export const kex_algorithms = new Map<string, typeof KexAlgorithm>([
     // TODO: Figure if we should disable it.
     ["diffie-hellman-group1-sha1", DiffieHellmanGroup1SHA1],
 ])
-
-export abstract class HostKeyAlgorithm {
-    static alg_name: string
-    static has_encryption: boolean
-    static has_signature: boolean
-}
-export const host_key_algorithms = new Map<string, typeof HostKeyAlgorithm>([["ssh-rsa", SSHRSA]])
 
 export abstract class EncryptionAlgorithm {
     static alg_name: string

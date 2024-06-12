@@ -4,6 +4,7 @@ import Packet from "../packet.js"
 import { parseBufferToMpintBuffer, serializeMpintBufferToBuffer } from "../utils/mpint.js"
 import { readNextBuffer, readNextUint8 } from "../utils/Buffer.js"
 
+// https://datatracker.ietf.org/doc/html/rfc4253#section-8
 export interface KexDHInitData {
     e: Buffer
 }

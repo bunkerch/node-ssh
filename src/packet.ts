@@ -1,8 +1,16 @@
 import { SSHPacketType } from "./constants.js"
+import Disconnect from "./packets/Disconnect.js"
 import KexDHInit from "./packets/KexDHInit.js"
 import KexDHReply from "./packets/KexDHReply.js"
 import KexInit from "./packets/KexInit.js"
 import NewKeys from "./packets/NewKeys.js"
+import ServiceAccept from "./packets/ServiceAccept.js"
+import ServiceRequest from "./packets/ServiceRequest.js"
+import Unimplemented from "./packets/Unimplemented.js"
+import UserAuthFailure from "./packets/UserAuthFailure.js"
+import UserAuthPKOK from "./packets/UserAuthPKOK.js"
+import UserAuthRequest from "./packets/UserAuthRequest.js"
+import UserAuthSuccess from "./packets/UserAuthSuccess.js"
 
 export default abstract class Packet {
     static type: SSHPacketType
@@ -25,9 +33,38 @@ export default abstract class Packet {
 }
 
 export const packets = new Map<SSHPacketType, typeof Packet>([
+    [SSHPacketType.SSH_MSG_DISCONNECT, Disconnect],
+    [SSHPacketType.SSH_MSG_UNIMPLEMENTED, Unimplemented],
+    [SSHPacketType.SSH_MSG_SERVICE_REQUEST, ServiceRequest],
+    [SSHPacketType.SSH_MSG_SERVICE_ACCEPT, ServiceAccept],
+
     [SSHPacketType.SSH_MSG_KEXINIT, KexInit],
     [SSHPacketType.SSH_MSG_NEWKEYS, NewKeys],
 
     [SSHPacketType.SSH_MSG_KEXDH_INIT, KexDHInit],
     [SSHPacketType.SSH_MSG_KEXDH_REPLY, KexDHReply],
+
+    [SSHPacketType.SSH_MSG_USERAUTH_REQUEST, UserAuthRequest],
+    [SSHPacketType.SSH_MSG_USERAUTH_FAILURE, UserAuthFailure],
+    [SSHPacketType.SSH_MSG_USERAUTH_SUCCESS, UserAuthSuccess],
+
+    [SSHPacketType.SSH_MSG_USERAUTH_PK_OK, UserAuthPKOK],
 ])
+export interface PacketTypes {
+    [SSHPacketType.SSH_MSG_DISCONNECT]: Disconnect
+    [SSHPacketType.SSH_MSG_UNIMPLEMENTED]: Unimplemented
+    [SSHPacketType.SSH_MSG_SERVICE_REQUEST]: ServiceRequest
+    [SSHPacketType.SSH_MSG_SERVICE_ACCEPT]: ServiceAccept
+
+    [SSHPacketType.SSH_MSG_KEXINIT]: KexInit
+    [SSHPacketType.SSH_MSG_NEWKEYS]: NewKeys
+
+    [SSHPacketType.SSH_MSG_KEXDH_INIT]: KexDHInit
+    [SSHPacketType.SSH_MSG_KEXDH_REPLY]: KexDHReply
+
+    [SSHPacketType.SSH_MSG_USERAUTH_REQUEST]: UserAuthRequest
+    [SSHPacketType.SSH_MSG_USERAUTH_FAILURE]: UserAuthFailure
+    [SSHPacketType.SSH_MSG_USERAUTH_SUCCESS]: UserAuthSuccess
+
+    [SSHPacketType.SSH_MSG_USERAUTH_PK_OK]: UserAuthPKOK
+}

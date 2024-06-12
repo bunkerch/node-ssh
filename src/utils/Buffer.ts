@@ -28,11 +28,37 @@ export function readNextBinaryBoolean(buffer: Buffer): [boolean, Buffer] {
 }
 
 export function serializeBuffer(buffer: Buffer): Buffer {
+    assert(buffer.length <= 0xffffffff)
     const length = Buffer.alloc(4)
     length.writeUInt32BE(buffer.length)
     return Buffer.concat([length, buffer])
 }
 
 export function serializeUint8(data: number): Buffer {
+    assert(data <= 0xff)
+    assert(data >= 0)
+    assert(Number.isInteger(data))
     return Buffer.from([data])
+}
+
+export function serializeUint32(data: number): Buffer {
+    assert(data <= 0xffffffff)
+    assert(data >= 0)
+    assert(Number.isInteger(data))
+    const buffer = Buffer.alloc(4)
+    buffer.writeUint32BE(data)
+    return buffer
+}
+
+export function readNextCString(buffer: Buffer): [Buffer, Buffer] {
+    let nullIndex = buffer.indexOf(0x00)
+    if (nullIndex === -1) {
+        nullIndex = buffer.length
+    }
+    const data = buffer.subarray(0, nullIndex)
+    return [data, buffer.subarray(nullIndex + 1)]
+}
+
+export function serializeCString(data: Buffer): Buffer {
+    return Buffer.concat([data, Buffer.from([0x00])])
 }

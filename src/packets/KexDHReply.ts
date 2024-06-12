@@ -3,6 +3,7 @@ import { SSHPacketType } from "../constants.js"
 import Packet from "../packet.js"
 import { readNextBuffer, readNextUint8 } from "../utils/Buffer.js"
 
+// https://datatracker.ietf.org/doc/html/rfc4253#section-8
 export interface KexDHReplyData {
     K_S: Buffer
     f: Buffer
