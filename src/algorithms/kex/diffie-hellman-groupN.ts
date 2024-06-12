@@ -3,6 +3,7 @@ import { DiffieHellmanGroup, createDiffieHellmanGroup, createHash } from "crypto
 
 import Client from "../../Client.js"
 import { serializeMpintBufferToBuffer } from "../../utils/mpint.js"
+import ServerClient from "../../ServerClient.js"
 
 export default class DiffieHellmanGroupN implements KexAlgorithm {
     static requires_encryption = false
@@ -24,7 +25,7 @@ export default class DiffieHellmanGroupN implements KexAlgorithm {
         this.keyPair.generateKeys()
     }
 
-    deriveKeysClient(client: Client): void {
+    deriveKeysClient(client: Client | ServerClient): void {
         const [
             ivClientToServer,
             ivServerToClient,
@@ -104,6 +105,30 @@ export default class DiffieHellmanGroupN implements KexAlgorithm {
             serializeMpintBufferToBuffer(this.keyPair!.getPublicKey()),
             // f
             serializeMpintBufferToBuffer(client.serverKexDHReply!.data.f),
+            // K
+            serializeMpintBufferToBuffer(this.sharedSecret!),
+        )
+    }
+
+    computeHServer(client: ServerClient, I_C: Buffer, K_S: Buffer) {
+        return this.computeH(
+            // V_C
+            client.clientProtocolVersion!.toString().slice(0, -2),
+            // V_S
+            client.server.options.protocolVersionExchange!.toString().slice(0, -2),
+
+            // I_C
+            I_C,
+            // I_S
+            client.serverKexInit!.serialize(),
+
+            // K_S
+            K_S,
+
+            // e
+            serializeMpintBufferToBuffer(client.clientKexDHInit!.data.e),
+            // f
+            serializeMpintBufferToBuffer(this.keyPair!.getPublicKey()),
             // K
             serializeMpintBufferToBuffer(this.sharedSecret!),
         )

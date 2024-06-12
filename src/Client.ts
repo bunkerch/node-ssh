@@ -12,6 +12,7 @@ import {
     EncryptionAlgorithm,
     KexAlgorithm,
     MACAlgorithm,
+    chooseAlgorithms,
     encryption_algorithms,
     kex_algorithms,
     mac_algorithms,
@@ -42,6 +43,7 @@ export interface ClientOptions {
     password?: string
     agent?: Agent
     protocolVersionExchange?: ProtocolVersionExchange
+    serverClient?: boolean
 }
 export interface ClientOptionsRequired extends Required<ClientOptions> {}
 
@@ -84,12 +86,11 @@ export default class Client extends (EventEmitter as new () => TypedEmitter<Clie
         super()
 
         this.options = options as ClientOptionsRequired
-        this.options.port = options.port ?? 22
-        this.options.username = options.username ?? os.userInfo({ encoding: "utf8" }).username
-        this.options.password = options.password ?? ""
-        this.options.agent = options.agent ?? new DiskAgent()
-        this.options.protocolVersionExchange =
-            options.protocolVersionExchange ?? ProtocolVersionExchange.defaultValue
+        this.options.port ??= 22
+        this.options.username ??= os.userInfo({ encoding: "utf8" }).username
+        this.options.password ??= ""
+        this.options.agent ??= new DiskAgent()
+        this.options.protocolVersionExchange ??= ProtocolVersionExchange.defaultValue
 
         setImmediate(() => {
             this.debug("Client created with options:", this.options)
@@ -112,37 +113,37 @@ export default class Client extends (EventEmitter as new () => TypedEmitter<Clie
 
     hooker: Hooker<ClientHooker> = new Hooker()
 
-    private socket: net.Socket | undefined
+    private socket?: net.Socket
     private buffering: Buffer = Buffer.alloc(0)
     private buffering_decrypted: Buffer = Buffer.alloc(0)
     private in_sequence_number = 0
     private out_sequence_number = 0
 
-    serverProtocolVersion: ProtocolVersionExchange | undefined
-    serverKexDHReply: KexDHReply | undefined
+    serverProtocolVersion?: ProtocolVersionExchange
+    serverKexDHReply?: KexDHReply
     // TODO: Assess if these should be private properties
-    clientKexInit: KexInit | undefined
-    serverKexInit: KexInit | undefined
-    kexAlgorithm: KexAlgorithm | undefined
-    hostKeyAlgorithm: typeof PublicKeyAlgoritm | undefined
-    clientEncryptionAlgorithm: typeof EncryptionAlgorithm | undefined
-    serverEncryptionAlgorithm: typeof EncryptionAlgorithm | undefined
-    clientEncryption: EncryptionAlgorithm | undefined
-    serverEncryption: EncryptionAlgorithm | undefined
-    clientMacAlgorithm: typeof MACAlgorithm | undefined
-    serverMacAlgorithm: typeof MACAlgorithm | undefined
-    clientMac: MACAlgorithm | undefined
-    serverMac: MACAlgorithm | undefined
+    clientKexInit?: KexInit
+    serverKexInit?: KexInit
+    kexAlgorithm?: KexAlgorithm
+    hostKeyAlgorithm?: typeof PublicKeyAlgoritm
+    clientEncryptionAlgorithm?: typeof EncryptionAlgorithm
+    serverEncryptionAlgorithm?: typeof EncryptionAlgorithm
+    clientEncryption?: EncryptionAlgorithm
+    serverEncryption?: EncryptionAlgorithm
+    clientMacAlgorithm?: typeof MACAlgorithm
+    serverMacAlgorithm?: typeof MACAlgorithm
+    clientMac?: MACAlgorithm
+    serverMac?: MACAlgorithm
 
     // TODO: Set those as private properties (Need to be accessed by the algorithms only)
-    H: Buffer | undefined
-    sessionID: Buffer | undefined
-    ivClientToServer: Buffer | undefined
-    ivServerToClient: Buffer | undefined
-    encryptionKeyClientToServer: Buffer | undefined
-    encryptionKeyServerToClient: Buffer | undefined
-    integrityKeyClientToServer: Buffer | undefined
-    integrityKeyServerToClient: Buffer | undefined
+    H?: Buffer
+    sessionID?: Buffer
+    ivClientToServer?: Buffer
+    ivServerToClient?: Buffer
+    encryptionKeyClientToServer?: Buffer
+    encryptionKeyServerToClient?: Buffer
+    integrityKeyClientToServer?: Buffer
+    integrityKeyServerToClient?: Buffer
 
     hasReceivedNewKeys: boolean = false
     hasSentNewKeys: boolean = false
@@ -215,6 +216,7 @@ export default class Client extends (EventEmitter as new () => TypedEmitter<Clie
             encryption_algorithms_server_to_client: [...encryption_algorithms.keys()],
             mac_algorithms_client_to_server: [...mac_algorithms.keys()],
             mac_algorithms_server_to_client: [...mac_algorithms.keys()],
+            // we don't support compression yet
             compression_algorithms_client_to_server: ["none"],
             compression_algorithms_server_to_client: ["none"],
             languages_client_to_server: [],
@@ -227,7 +229,7 @@ export default class Client extends (EventEmitter as new () => TypedEmitter<Clie
         const [serverKexInit, serverKexInitBuffer] = await this.waitEvent("serverKexInit")
         this.serverKexInit = serverKexInit
         this.debug("Server KexInit:", serverKexInit)
-        this.chooseAlgorithms()
+        chooseAlgorithms(this)
 
         if (this.kexAlgorithm instanceof DiffieHellmanGroupN) {
             this.debug(
@@ -256,6 +258,10 @@ export default class Client extends (EventEmitter as new () => TypedEmitter<Clie
             this.debug("Host key:", hostKey.toString())
             const signature = EncodedSignature.parse(serverKexDHReply.data.H_sig)
             this.debug("Signature:", signature)
+            assert(
+                signature.data.alg === this.hostKeyAlgorithm!.alg_name,
+                "Invalid signature algorithm (Server did not send the negotiated algorithm)",
+            )
 
             const h = this.kexAlgorithm.computeHClient(
                 this,
@@ -533,144 +539,6 @@ export default class Client extends (EventEmitter as new () => TypedEmitter<Clie
         this.out_sequence_number %= SEQUENCE_NUMBER_MODULO
 
         return seqno
-    }
-
-    chooseAlgorithms() {
-        assert(this.clientKexInit, "Client KexInit not set")
-        assert(this.serverKexInit, "Server KexInit not set")
-        this.debug("Choosing algorithms...")
-
-        // TODO: I feel like this code could be cleaned a bit...
-        // I tried to follow the spec word by word.
-        // https://datatracker.ietf.org/doc/html/rfc4253#section-7.1
-
-        const server_host_key_algorithms: (typeof PublicKeyAlgoritm)[] = []
-        for (const alg of this.serverKexInit.data.server_host_key_algorithms) {
-            const algorithm = PublicKey.algorithms.get(alg)
-            if (!algorithm) continue
-
-            server_host_key_algorithms.push(algorithm)
-        }
-        const host_key_algorithms: (typeof PublicKeyAlgoritm)[] = []
-        for (const alg of this.clientKexInit.data.server_host_key_algorithms) {
-            const algorithm = PublicKey.algorithms.get(alg)
-            if (!algorithm) continue
-            if (!server_host_key_algorithms.includes(algorithm)) continue
-
-            host_key_algorithms.push(algorithm)
-        }
-
-        if (
-            this.clientKexInit.data.kex_algorithms[0] == this.serverKexInit.data.kex_algorithms[0]
-        ) {
-            this.debug(
-                "Key Exchange Algorithm guessed right:",
-                this.clientKexInit.data.kex_algorithms[0],
-            )
-
-            const algorithm = kex_algorithms.get(this.clientKexInit.data.kex_algorithms[0])!
-            assert(algorithm, "Invalid key exchange algorithm")
-            this.kexAlgorithm = algorithm.instantiate()
-
-            const host_key_algorithm = host_key_algorithms.find((alg) => {
-                if (algorithm.requires_encryption && !alg.has_encryption) {
-                    return false
-                }
-                if (algorithm.requires_signature && !alg.has_signature) {
-                    return false
-                }
-                return true
-            })
-            assert(host_key_algorithm, "No compatible host key algorithm found")
-            this.hostKeyAlgorithm = host_key_algorithm
-        } else {
-            for (const alg of this.clientKexInit.data.kex_algorithms) {
-                if (!this.serverKexInit.data.kex_algorithms.includes(alg)) {
-                    continue
-                }
-                const algorithm = kex_algorithms.get(alg)!
-                // this is the client algorithms
-                // we shouldn't have put an algorithm we don't support
-                // assert is fine, it means we have a bug if it throws
-                assert(algorithm, "Invalid key exchange algorithm")
-
-                // need a compatible host key to provide encryption and signature if needed
-                const host_key_algorithm = host_key_algorithms.find((alg) => {
-                    if (algorithm.requires_encryption && !alg.has_encryption) {
-                        return false
-                    }
-                    if (algorithm.requires_signature && !alg.has_signature) {
-                        return false
-                    }
-                    return true
-                })
-                if (!host_key_algorithm) {
-                    continue
-                }
-
-                this.kexAlgorithm = algorithm.instantiate()
-                this.hostKeyAlgorithm = host_key_algorithm
-                break
-            }
-            assert(this.kexAlgorithm, "No key exchange algorithm found")
-            assert(this.hostKeyAlgorithm, "No host key algorithm found")
-        }
-
-        for (const alg of this.clientKexInit.data.encryption_algorithms_client_to_server) {
-            if (!this.serverKexInit.data.encryption_algorithms_client_to_server.includes(alg)) {
-                continue
-            }
-
-            const algorithm = encryption_algorithms.get(alg)!
-            assert(algorithm, "Invalid encryption algorithm")
-
-            this.clientEncryptionAlgorithm = algorithm
-        }
-        assert(this.clientEncryptionAlgorithm, "No client to server encryption algorithm found")
-        for (const alg of this.clientKexInit.data.encryption_algorithms_server_to_client) {
-            if (!this.serverKexInit.data.encryption_algorithms_server_to_client.includes(alg)) {
-                continue
-            }
-
-            const algorithm = encryption_algorithms.get(alg)!
-            assert(algorithm, "Invalid encryption algorithm")
-
-            this.serverEncryptionAlgorithm = algorithm
-        }
-        assert(this.serverEncryptionAlgorithm, "No server to client encryption algorithm found")
-
-        for (const alg of this.clientKexInit.data.mac_algorithms_client_to_server) {
-            if (!this.serverKexInit.data.mac_algorithms_client_to_server.includes(alg)) {
-                continue
-            }
-
-            const algorithm = mac_algorithms.get(alg)!
-            assert(algorithm, "Invalid mac algorithm")
-
-            this.clientMacAlgorithm = algorithm
-        }
-        assert(this.clientMacAlgorithm, "No client to server mac algorithm found")
-        for (const alg of this.clientKexInit.data.mac_algorithms_server_to_client) {
-            if (!this.serverKexInit.data.mac_algorithms_server_to_client.includes(alg)) {
-                continue
-            }
-
-            const algorithm = mac_algorithms.get(alg)!
-            assert(algorithm, "Invalid mac algorithm")
-
-            this.serverMacAlgorithm = algorithm
-        }
-        assert(this.serverMacAlgorithm, "No server to client mac algorithm found")
-
-        // TODO: Implement languages (?)
-        // TODO: Implement compression
-
-        this.debug("Key Exchange Algorithm chosen:", this.kexAlgorithm)
-        this.debug("Host Key Algorithm chosen:", this.hostKeyAlgorithm)
-        this.debug("Client to Server Encryption Algorithm chosen:", this.clientEncryptionAlgorithm)
-        this.debug("Server to Client Encryption Algorithm chosen:", this.serverEncryptionAlgorithm)
-        this.debug("Client to Server MAC Algorithm chosen:", this.clientMacAlgorithm)
-        this.debug("Server to Client MAC Algorithm chosen:", this.serverMacAlgorithm)
     }
 
     onMessage(message: Buffer): void {

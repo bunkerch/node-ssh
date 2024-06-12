@@ -4,6 +4,7 @@ export enum SocketState {
     Connecting,
     Connected,
     Closed,
+    Disconnected,
 }
 
 export enum SSHPacketType {

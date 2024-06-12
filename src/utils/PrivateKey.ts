@@ -7,7 +7,7 @@ import {
     serializeCString,
     serializeUint32,
 } from "./Buffer.js"
-import PublicKey from "./PublicKey.js"
+import PublicKey, { SSHED25519PublicKey } from "./PublicKey.js"
 import nacl from "tweetnacl"
 import { randomBytes } from "crypto"
 
@@ -158,6 +158,13 @@ export default class PrivateKey {
 
         return PrivateKey.parse(raw)
     }
+
+    static generate(alg: string): PrivateKey {
+        const algo = PrivateKey.algorithms.get(alg)
+        assert(algo, `Unsupported algorithm: ${alg}`)
+
+        return algo.generate()
+    }
 }
 
 export abstract class PrivateKeyAlgorithm {
@@ -183,7 +190,7 @@ export abstract class PrivateKeyAlgorithm {
     }
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    static async generate(): Promise<PrivateKeyAlgorithm> {
+    static generate(): PrivateKey {
         throw new Error("Not implemented")
     }
 }
@@ -229,12 +236,24 @@ export class SSHED25519PrivateKey implements PrivateKeyAlgorithm {
         return [new SSHED25519PrivateKey({ publicKey, privateKey }), raw]
     }
 
-    static async generate(): Promise<PrivateKeyAlgorithm> {
+    static generate(): PrivateKey {
         const keyPair = nacl.sign.keyPair()
 
-        return new SSHED25519PrivateKey({
-            publicKey: Buffer.from(keyPair.publicKey),
-            privateKey: Buffer.from(keyPair.secretKey),
+        const publicKey = Buffer.from(keyPair.publicKey)
+        const privateKey = Buffer.from(keyPair.secretKey)
+
+        return new PrivateKey({
+            alg: SSHED25519PrivateKey.alg_name,
+            publicKey: new PublicKey({
+                alg: SSHED25519PrivateKey.alg_name,
+                algorithm: new SSHED25519PublicKey({
+                    publicKey: publicKey,
+                }),
+            }),
+            algorithm: new SSHED25519PrivateKey({
+                privateKey: privateKey,
+                publicKey: publicKey,
+            }),
         })
     }
 }
