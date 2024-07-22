@@ -24,6 +24,8 @@ export enum SSHPacketType {
     SSH_MSG_USERAUTH_REQUEST = 50,
     SSH_MSG_USERAUTH_FAILURE = 51,
     SSH_MSG_USERAUTH_SUCCESS = 52,
+    // TODO: Support SSH_MSG_USERAUTH_BANNER
+    // Currently, if a server sends it, the connection will crash.
     SSH_MSG_USERAUTH_BANNER = 53,
 
     // This is messed up in the spec

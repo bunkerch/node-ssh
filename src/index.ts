@@ -3,10 +3,9 @@ import Client from "./Client.js"
 import DiskAgent from "./publickey/DiskAgent.js"
 
 const client = new Client({
-    hostname: "127.0.0.1",
-    port: 1022,
+    hostname: "VPS1",
+    port: 22,
     username: "debian",
-    password: "debian",
     agent: new DiskAgent(),
 })
 client.on("debug", (...args) => console.debug(...args))

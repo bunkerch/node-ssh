@@ -35,6 +35,10 @@ import ServiceRequest from "./packets/ServiceRequest.js"
 import ServiceAccept from "./packets/ServiceAccept.js"
 import Agent from "./publickey/Agent.js"
 import NoneAgent from "./publickey/NoneAgent.js"
+import GlobalRequest from "./packets/GlobalRequest.js"
+import RequestFailure from "./packets/RequestFailure.js"
+import Debug from "./packets/Debug.js"
+import { readNextBuffer } from "./utils/Buffer.js"
 
 export interface ClientOptions {
     hostname: string
@@ -156,6 +160,7 @@ export default class Client extends (EventEmitter as new () => TypedEmitter<Clie
 
     hasReceivedNewKeys: boolean = false
     hasSentNewKeys: boolean = false
+    hasAuthenticated: boolean = false
 
     state = SocketState.Closed
     get isConnected(): boolean {
@@ -374,6 +379,56 @@ export default class Client extends (EventEmitter as new () => TypedEmitter<Clie
             // we could not authenticate.
             throw new Error("All authentication methods failed.")
         }
+        this.hasAuthenticated = true
+
+        // now that we have received USERAUTH_SUCCESS, we need
+        // to handle GLOBAL_REQUEST.
+
+        this.on("packet", (packet) => {
+            if (!(packet instanceof GlobalRequest)) return
+
+            this.debug(`Received global request packet:`, packet)
+
+            switch (packet.data.request_name) {
+                case "hostkeys-00@openssh.com": {
+                    const hostkeys = []
+                    let raw = packet.data.args
+                    while (raw.length != 0) {
+                        let arg: Buffer
+                        ;[arg, raw] = readNextBuffer(raw)
+
+                        try {
+                            hostkeys.push(PublicKey.parse(arg))
+                        } catch (err) {
+                            // unsupported host key algorithm
+                            // or parse error
+                            // either way don't care and silently fail.
+                            this.debug(`Error while trying to parse host key:`, err)
+                        }
+                    }
+
+                    this.debug(`Received ${hostkeys.length} valid host keys`)
+
+                    // Do we care ?
+                    // at this point, most usage will be
+                    // from people ignoring host keys
+                    // TODO: need to implement verifying host keys
+
+                    // https://cvsweb.openbsd.org/src/usr.bin/ssh/PROTOCOL?annotate=HEAD
+                    // section 2.5 (ctrl + f search for "hostkeys-00@openssh.com")
+                    break
+                }
+                default: {
+                    this.debug(`Unknown global request name: ${packet.data.request_name}`)
+                    if (packet.data.want_reply) {
+                        // this might be a keep alive lol
+                        // shitty spec
+                        // either way, send a failure response.
+                        this.sendPacket(new RequestFailure({}))
+                    }
+                }
+            }
+        })
     }
 
     waitEvent<event extends keyof ClientEvents>(
@@ -622,23 +677,11 @@ export default class Client extends (EventEmitter as new () => TypedEmitter<Clie
             }
 
             const p = packet.parse(payload)
-            this.emit("packet", p)
             this.debug("Parsing packet:", p)
 
+            this.emit("packet", p)
+
             switch (packet.type) {
-                case SSHPacketType.SSH_MSG_KEXINIT:
-                    // handle key exchange
-                    this.emit("serverKexInit", p as KexInit, payload)
-                    break
-                case SSHPacketType.SSH_MSG_KEXDH_REPLY:
-                    // handle key exchange
-                    this.emit("serverKexDHReply", p as KexDHReply)
-                    break
-                case SSHPacketType.SSH_MSG_NEWKEYS:
-                    this.hasReceivedNewKeys = true
-                    this.emit("serverNewKeys")
-                    // handle key exchange
-                    break
                 case SSHPacketType.SSH_MSG_DISCONNECT: {
                     const disconnect = p as Disconnect
                     this.debug(
@@ -648,7 +691,34 @@ export default class Client extends (EventEmitter as new () => TypedEmitter<Clie
                         disconnect.data.language_tag,
                     )
                     // TODO: Handle disconnect
+                    break
                 }
+
+                case SSHPacketType.SSH_MSG_IGNORE:
+                    this.debug(`Received Ignore packet. Ignoring.`)
+                    break
+
+                case SSHPacketType.SSH_MSG_DEBUG: {
+                    const debug = p as Debug
+                    this.debug(`Received debug packet:`, [debug.data.message])
+                    break
+                }
+
+                case SSHPacketType.SSH_MSG_KEXINIT:
+                    // handle key exchange
+                    this.emit("serverKexInit", p as KexInit, payload)
+                    break
+
+                case SSHPacketType.SSH_MSG_KEXDH_REPLY:
+                    // handle key exchange
+                    this.emit("serverKexDHReply", p as KexDHReply)
+                    break
+
+                case SSHPacketType.SSH_MSG_NEWKEYS:
+                    this.hasReceivedNewKeys = true
+                    this.emit("serverNewKeys")
+                    // handle key exchange
+                    break
             }
 
             if (this.buffering.length > 0) {

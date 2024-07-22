@@ -1,9 +1,14 @@
 import { SSHPacketType } from "./constants.js"
+import Debug from "./packets/Debug.js"
 import Disconnect from "./packets/Disconnect.js"
+import GlobalRequest from "./packets/GlobalRequest.js"
+import Ignore from "./packets/Ignore.js"
 import KexDHInit from "./packets/KexDHInit.js"
 import KexDHReply from "./packets/KexDHReply.js"
 import KexInit from "./packets/KexInit.js"
 import NewKeys from "./packets/NewKeys.js"
+import RequestFailure from "./packets/RequestFailure.js"
+import RequestSuccess from "./packets/RequestSuccess.js"
 import ServiceAccept from "./packets/ServiceAccept.js"
 import ServiceRequest from "./packets/ServiceRequest.js"
 import Unimplemented from "./packets/Unimplemented.js"
@@ -34,7 +39,9 @@ export default abstract class Packet {
 
 export const packets = new Map<SSHPacketType, typeof Packet>([
     [SSHPacketType.SSH_MSG_DISCONNECT, Disconnect],
+    [SSHPacketType.SSH_MSG_IGNORE, Ignore],
     [SSHPacketType.SSH_MSG_UNIMPLEMENTED, Unimplemented],
+    [SSHPacketType.SSH_MSG_DEBUG, Debug],
     [SSHPacketType.SSH_MSG_SERVICE_REQUEST, ServiceRequest],
     [SSHPacketType.SSH_MSG_SERVICE_ACCEPT, ServiceAccept],
 
@@ -49,10 +56,16 @@ export const packets = new Map<SSHPacketType, typeof Packet>([
     [SSHPacketType.SSH_MSG_USERAUTH_SUCCESS, UserAuthSuccess],
 
     [SSHPacketType.SSH_MSG_USERAUTH_PK_OK, UserAuthPKOK],
+
+    [SSHPacketType.SSH_MSG_GLOBAL_REQUEST, GlobalRequest],
+    [SSHPacketType.SSH_MSG_REQUEST_FAILURE, RequestFailure],
+    [SSHPacketType.SSH_MSG_REQUEST_SUCCESS, RequestSuccess],
 ])
 export interface PacketTypes {
     [SSHPacketType.SSH_MSG_DISCONNECT]: Disconnect
+    [SSHPacketType.SSH_MSG_IGNORE]: Ignore
     [SSHPacketType.SSH_MSG_UNIMPLEMENTED]: Unimplemented
+    [SSHPacketType.SSH_MSG_DEBUG]: Debug
     [SSHPacketType.SSH_MSG_SERVICE_REQUEST]: ServiceRequest
     [SSHPacketType.SSH_MSG_SERVICE_ACCEPT]: ServiceAccept
 
@@ -67,4 +80,8 @@ export interface PacketTypes {
     [SSHPacketType.SSH_MSG_USERAUTH_SUCCESS]: UserAuthSuccess
 
     [SSHPacketType.SSH_MSG_USERAUTH_PK_OK]: UserAuthPKOK
+
+    [SSHPacketType.SSH_MSG_GLOBAL_REQUEST]: GlobalRequest
+    [SSHPacketType.SSH_MSG_REQUEST_FAILURE]: RequestFailure
+    [SSHPacketType.SSH_MSG_REQUEST_SUCCESS]: RequestSuccess
 }

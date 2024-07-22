@@ -10,6 +10,8 @@ import DiffieHellmanGroup15SHA512 from "./algorithms/kex/diffie-hellman-group15-
 import DiffieHellmanGroup17SHA512 from "./algorithms/kex/diffie-hellman-group17-sha512.js"
 
 import AES128CTR from "./algorithms/encryption/aes128-ctr.js"
+import AES192CTR from "./algorithms/encryption/aes192-ctr.js"
+import AES256CTR from "./algorithms/encryption/aes256-ctr.js"
 
 //import HMACSHA2256 from "./algorithms/mac/hmac-sha2-256.js";
 import HMACSHA1 from "./algorithms/mac/hmac-sha1.js"
@@ -24,12 +26,10 @@ export abstract class KexAlgorithm {
     static requires_encryption: boolean
     static requires_signature: boolean
 
-     
     constructor() {
         throw new Error("Not implemented")
     }
 
-     
     static instantiate(): KexAlgorithm {
         throw new Error("Not implemented")
     }
@@ -80,6 +80,8 @@ export abstract class EncryptionAlgorithm {
     }
 }
 export const encryption_algorithms = new Map<string, typeof EncryptionAlgorithm>([
+    ["aes256-ctr", AES256CTR],
+    ["aes192-ctr", AES192CTR],
     ["aes128-ctr", AES128CTR],
 ])
 
@@ -189,7 +191,11 @@ export function chooseAlgorithms(client: Client | ServerClient) {
         assert(client.hostKeyAlgorithm, "No host key algorithm found")
     }
 
-    for (const alg of client.clientKexInit.data.encryption_algorithms_client_to_server) {
+    // TODO: Figure out why this needs a reverse
+    // I will rewrite this to be cleaner later.
+    for (const alg of [
+        ...client.clientKexInit.data.encryption_algorithms_client_to_server,
+    ].reverse()) {
         if (!client.serverKexInit.data.encryption_algorithms_client_to_server.includes(alg)) {
             continue
         }
@@ -200,7 +206,9 @@ export function chooseAlgorithms(client: Client | ServerClient) {
         client.clientEncryptionAlgorithm = algorithm
     }
     assert(client.clientEncryptionAlgorithm, "No client to server encryption algorithm found")
-    for (const alg of client.clientKexInit.data.encryption_algorithms_server_to_client) {
+    for (const alg of [
+        ...client.clientKexInit.data.encryption_algorithms_server_to_client,
+    ].reverse()) {
         if (!client.serverKexInit.data.encryption_algorithms_server_to_client.includes(alg)) {
             continue
         }
