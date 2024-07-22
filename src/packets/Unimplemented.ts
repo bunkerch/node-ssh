@@ -30,13 +30,13 @@ export default class Unimplemented implements Packet {
         ;[packetType, raw] = readNextUint8(raw)
         assert(packetType === Unimplemented.type)
 
-        let sequence_nuber: number
-        ;[sequence_nuber, raw] = readNextUint32(raw)
+        let sequence_number: number
+        ;[sequence_number, raw] = readNextUint32(raw)
 
         assert(raw.length === 0)
 
         return new Unimplemented({
-            sequence_number: sequence_nuber,
+            sequence_number: sequence_number,
         })
     }
 }
