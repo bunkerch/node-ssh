@@ -1,10 +1,23 @@
 import { Socket } from "node:net"
-import Server from "./Server.js"
+import Server, {
+    ServerHookerNoneAuthenticationContext,
+    ServerHookerNoneAuthenticationController,
+    ServerHookerPasswordAuthenticationContext,
+    ServerHookerPasswordAuthenticationController,
+    ServerHookerPublicKeyAuthenticationContext,
+    ServerHookerPublicKeyAuthenticationController,
+} from "./Server.js"
 import ProtocolVersionExchange from "./ProtocolVersionExchange.js"
 import { randomBytes, timingSafeEqual } from "node:crypto"
 import EventEmitter from "node:events"
 import TypedEventEmitter from "typed-emitter"
-import { SEQUENCE_NUMBER_MODULO, SSHPacketType, SSHServiceNames, SocketState } from "./constants.js"
+import {
+    SEQUENCE_NUMBER_MODULO,
+    SSHAuthenticationMethods,
+    SSHPacketType,
+    SSHServiceNames,
+    SocketState,
+} from "./constants.js"
 import KexInit from "./packets/KexInit.js"
 import {
     EncryptionAlgorithm,
@@ -19,14 +32,18 @@ import { PublicKeyAlgoritm } from "./utils/PublicKey.js"
 import KexDHReply from "./packets/KexDHReply.js"
 import assert from "node:assert"
 import Packet, { packets } from "./packet.js"
-import Disconnect, { DisconnectReason } from "./packets/Disconnect.js"
+import Disconnect, { DisconnectError, DisconnectReason } from "./packets/Disconnect.js"
 import DiffieHellmanGroupN from "./algorithms/kex/diffie-hellman-groupN.js"
 import KexDHInit from "./packets/KexDHInit.js"
-import EncodedSignature from "./utils/Signature.js"
 import NewKeys from "./packets/NewKeys.js"
 import ServiceRequest from "./packets/ServiceRequest.js"
 import ServiceAccept from "./packets/ServiceAccept.js"
-import UserAuthRequest from "./packets/UserAuthRequest.js"
+import UserAuthRequest, { AuthMethod } from "./packets/UserAuthRequest.js"
+import UserAuthFailure from "./packets/UserAuthFailure.js"
+import PublicKeyAuthMethod from "./auth/publickey.js"
+import UserAuthPKOK from "./packets/UserAuthPKOK.js"
+import PasswordAuthMethod from "./auth/password.js"
+import UserAuthSuccess from "./packets/UserAuthSuccess.js"
 
 export type ServerClientEvents = {
     error: (error: Error) => void
@@ -186,10 +203,7 @@ export default class ServerClient extends (EventEmitter as new () => TypedEventE
                 new KexDHReply({
                     K_S: publicKey,
                     f: this.kexAlgorithm!.keyPair!.getPublicKey(),
-                    H_sig: new EncodedSignature({
-                        alg: hostKey.data.alg,
-                        data: hostKey.data.algorithm.sign(h),
-                    }).serialize(),
+                    H_sig: hostKey.data.algorithm.sign(h).serialize(),
                 }),
             )
 
@@ -248,11 +262,138 @@ export default class ServerClient extends (EventEmitter as new () => TypedEventE
     }
 
     async handleAuthentication() {
-         
-        while (true) {
-            this.debug("Waiting for authentication request...")
-            const [authRequest] = (await this.waitEvent("packet")) as [Packet]
-            assert(authRequest instanceof UserAuthRequest, "Invalid packet type")
+        let allowLogin = false
+        authentication: {
+            const userAuthFailure = new UserAuthFailure({
+                auth_methods: [
+                    SSHAuthenticationMethods.PublicKey,
+                    SSHAuthenticationMethods.Password,
+                ],
+                // TODO: Figure out when and when not to set this to true (if it's even needed?)
+                partial_success: false,
+            })
+            while (true) {
+                this.debug("Waiting for authentication request...")
+                const [authRequest] = (await this.waitEvent("packet")) as [Packet]
+                assert(authRequest instanceof UserAuthRequest, "Invalid packet type")
+
+                this.debug(`Received authentication request:`, authRequest)
+
+                switch ((authRequest.data.method.constructor as typeof AuthMethod).method_name) {
+                    case SSHAuthenticationMethods.None: {
+                        const context: ServerHookerNoneAuthenticationContext = {
+                            username: authRequest.data.username,
+                        }
+                        const controller: ServerHookerNoneAuthenticationController = {
+                            allowLogin: false,
+                        }
+
+                        await this.server.hooker.triggerHook(
+                            "noneAuthentication",
+                            Object.freeze(context),
+                            controller,
+                            this,
+                        )
+
+                        if (controller.allowLogin) {
+                            allowLogin = true
+                            break authentication
+                        }
+
+                        this.sendPacket(userAuthFailure)
+                        break
+                    }
+                    case SSHAuthenticationMethods.PublicKey: {
+                        const method = authRequest.data.method as PublicKeyAuthMethod
+
+                        const context: ServerHookerPublicKeyAuthenticationContext = {
+                            username: authRequest.data.username,
+                            publicKey: method.data.publicKey,
+                            signature: method.data.signature,
+                            signatureMessage: authRequest.serializeForSignature(this),
+                        }
+                        const controller: ServerHookerPublicKeyAuthenticationController = {
+                            // both are independant since you can also allowLogin without checking the signature
+                            requestSignature: false,
+                            allowLogin: false,
+                        }
+
+                        await this.server.hooker.triggerHook(
+                            "publicKeyAuthentication",
+                            Object.freeze(context),
+                            controller,
+                            this,
+                        )
+
+                        if (controller.allowLogin && controller.requestSignature) {
+                            console.warn(
+                                `[node-ssh] Hook "publicKeyAuthentication" returned "allowLogin" and "requestSignature" to true at the same time. You should not set both to true, but rather the correct one, depending if the request is signed.`,
+                            )
+                            if (method.data.signature) {
+                                controller.requestSignature = false
+                            } else {
+                                controller.allowLogin = false
+                            }
+                        }
+
+                        if (controller.allowLogin) {
+                            allowLogin = true
+                            break authentication
+                        } else if (controller.requestSignature) {
+                            // ask the client for a signed request
+                            this.sendPacket(
+                                new UserAuthPKOK({
+                                    publicKey: method.data.publicKey,
+                                }),
+                            )
+                            break
+                        }
+
+                        this.sendPacket(userAuthFailure)
+                        break
+                    }
+                    case SSHAuthenticationMethods.Password: {
+                        const method = authRequest.data.method as PasswordAuthMethod
+
+                        assert(
+                            method.data.change_password === false,
+                            "Client requested a password change. Not implemented.",
+                        )
+
+                        const context: ServerHookerPasswordAuthenticationContext = {
+                            username: authRequest.data.username,
+                            password: method.data.password,
+                        }
+                        const controller: ServerHookerPasswordAuthenticationController = {
+                            allowLogin: false,
+                        }
+
+                        await this.server.hooker.triggerHook(
+                            "passwordAuthentication",
+                            Object.freeze(context),
+                            controller,
+                            this,
+                        )
+
+                        if (controller.allowLogin) {
+                            allowLogin = true
+                            break authentication
+                        }
+
+                        this.sendPacket(userAuthFailure)
+                        break
+                    }
+                }
+            }
+        }
+
+        if (allowLogin) {
+            this.sendPacket(new UserAuthSuccess({}))
+        } else {
+            throw new DisconnectError(
+                DisconnectReason.SSH_DISCONNECT_NO_MORE_AUTH_METHODS_AVAILABLE,
+                "No auth methods were successful.",
+            )
         }
     }
 

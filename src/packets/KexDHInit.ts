@@ -2,7 +2,7 @@ import assert from "assert"
 import { SSHPacketType } from "../constants.js"
 import Packet from "../packet.js"
 import { parseBufferToMpintBuffer, serializeMpintBufferToBuffer } from "../utils/mpint.js"
-import { readNextBuffer, readNextUint8 } from "../utils/Buffer.js"
+import { readNextBuffer, readNextUint8, serializeBuffer } from "../utils/Buffer.js"
 
 // https://datatracker.ietf.org/doc/html/rfc4253#section-8
 export interface KexDHInitData {
@@ -21,11 +21,7 @@ export default class KexDHInit implements Packet {
 
         buffers.push(Buffer.from([KexDHInit.type]))
 
-        const e = serializeMpintBufferToBuffer(this.data.e)
-        const eLength = Buffer.allocUnsafe(4)
-        eLength.writeUInt32BE(e.length)
-        buffers.push(eLength)
-        buffers.push(e)
+        buffers.push(serializeBuffer(serializeMpintBufferToBuffer(this.data.e)))
 
         return Buffer.concat(buffers)
     }

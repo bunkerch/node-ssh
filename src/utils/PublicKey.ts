@@ -2,7 +2,7 @@ import assert from "assert"
 import { readNextBuffer, serializeBuffer } from "./Buffer.js"
 import EncodedSignature from "./Signature.js"
 import asn1js from "asn1js"
-import crypto from "crypto"
+import crypto, { createHash } from "crypto"
 import nacl from "tweetnacl"
 
 export interface PublicKeyData {
@@ -31,6 +31,18 @@ export default class PublicKey {
         return `${this.data.alg} ${this.serialize().toString("base64")}${this.data.comment ? ` ${this.data.comment}` : ""}`
     }
 
+    hash(algorithm: "sha256" | "sha512"): string {
+        // generate an hash in the format
+        // SHA256:wQpFbMmpXdJJtm6bwaHiBrEq827/0/n8RzBo7yIUlEg
+        const hash = createHash(algorithm)
+            .update(this.serialize())
+            .digest("base64")
+            // remove trailing padding
+            .replace(/=+$/, "")
+
+        return algorithm.toUpperCase() + ":" + hash
+    }
+
     serialize(): Buffer {
         const buffers = []
 
@@ -55,6 +67,28 @@ export default class PublicKey {
             alg: alg.toString("utf8"),
             algorithm: algorithm.parse(raw),
         })
+    }
+
+    static parseString(content: string) {
+        const parts = content.trim().split(/\s+/)
+
+        assert(
+            parts.length === 3 || parts.length === 2,
+            `Invalid number of parts in the public key`,
+        )
+        const [alg, key, comment] = parts
+
+        const publicKey = PublicKey.parse(Buffer.from(key, "base64"))
+        assert(
+            alg === publicKey.data.alg,
+            `blob public key algorithm does not match the text public key algorithm`,
+        )
+
+        if (comment) {
+            publicKey.data.comment = comment
+        }
+
+        return publicKey
     }
 }
 

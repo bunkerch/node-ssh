@@ -79,3 +79,13 @@ export default class Disconnect implements Packet {
         })
     }
 }
+
+export class DisconnectError extends Error {
+    name = "DisconnectError"
+    reason_code: DisconnectReason
+
+    constructor(reason_code: DisconnectReason, message: string) {
+        super(message)
+        this.reason_code = reason_code
+    }
+}

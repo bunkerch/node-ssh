@@ -6,6 +6,7 @@ import { existsSync } from "fs"
 import PublicKey from "../utils/PublicKey.js"
 import assert from "assert"
 import PrivateKey from "../utils/PrivateKey.js"
+import EncodedSignature from "../utils/Signature.js"
 
 export default class DiskAgent implements Agent<string> {
     type = AgentType.NonInteractive
@@ -15,7 +16,7 @@ export default class DiskAgent implements Agent<string> {
         this.directory = directory
     }
 
-    async sign(id: string, data: Buffer): Promise<Buffer> {
+    async sign(id: string, data: Buffer): Promise<EncodedSignature> {
         const path = normalize(id)
 
         // getPublicKey already checks if the id is correct
@@ -48,27 +49,16 @@ export default class DiskAgent implements Agent<string> {
             if (!existsSync(publicKeyPath)) continue
 
             // this is a private key
-            const publicKey = await readFile(publicKeyPath, "utf-8")
-            const parts = publicKey.trim().split(" ")
-
-            if (parts.length > 3 || parts.length < 2) continue
-            const [alg, key, comment] = parts
-
+            // we can safely parse its public key
             try {
-                const publicKey = PublicKey.parse(Buffer.from(key, "base64"))
-                assert(
-                    alg === publicKey.data.alg,
-                    new DiskAgentError(
-                        "blob public key algorithm does not match the text public key algorithm",
-                    ),
-                )
-
-                if (comment) {
-                    publicKey.data.comment = comment
-                }
+                const content = await readFile(publicKeyPath, "utf-8")
+                const publicKey = PublicKey.parseString(content)
 
                 keys.push([privateKeyPath, publicKey])
-            } catch {}
+            } catch {
+                // don't know what to do here yet
+                // TODO: Handle and maybe report this error
+            }
         }
 
         return keys

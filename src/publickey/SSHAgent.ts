@@ -1,6 +1,7 @@
 import { existsSync } from "fs"
 import PublicKey from "../utils/PublicKey.js"
 import Agent, { AgentError, AgentType } from "./Agent.js"
+import EncodedSignature from "../utils/Signature.js"
 
 export default class SSHAgent implements Agent<string> {
     type = AgentType.NonInteractive
@@ -29,7 +30,7 @@ export default class SSHAgent implements Agent<string> {
     // library might be handy here ?
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    sign(id: string, data: Buffer): Promise<Buffer> {
+    sign(id: string, data: Buffer): Promise<EncodedSignature> {
         throw new SSHAgentError("Not implemented")
     }
 

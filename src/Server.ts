@@ -8,6 +8,8 @@ import net from "net"
 import ServerClient from "./ServerClient.js"
 import { Hooker } from "./utils/Hooker.js"
 import PrivateKey, { SSHED25519PrivateKey } from "./utils/PrivateKey.js"
+import PublicKey from "./utils/PublicKey.js"
+import EncodedSignature from "./utils/Signature.js"
 
 export interface ServerOptions {
     protocolVersionExchange?: ProtocolVersionExchange
@@ -24,8 +26,46 @@ export type ServerEvents = {
 export type ServerHookerPreconnectController = {
     allowConnection: boolean
 }
+export type ServerHookerNoneAuthenticationContext = Readonly<{
+    username: string
+}>
+export type ServerHookerNoneAuthenticationController = {
+    allowLogin: boolean
+}
+export type ServerHookerPublicKeyAuthenticationContext = Readonly<{
+    username: string
+    publicKey: PublicKey
+    signature?: EncodedSignature
+    signatureMessage: Buffer
+}>
+export type ServerHookerPublicKeyAuthenticationController = {
+    requestSignature: boolean
+    allowLogin: boolean
+}
+export type ServerHookerPasswordAuthenticationContext = Readonly<{
+    username: string
+    password: string
+}>
+export type ServerHookerPasswordAuthenticationController = {
+    allowLogin: boolean
+}
 export type ServerHooker = {
     preconnect: [preconnectController: ServerHookerPreconnectController, client: ServerClient]
+    noneAuthentication: [
+        noneAuthenticationContext: ServerHookerNoneAuthenticationContext,
+        noneAuthenticationController: ServerHookerNoneAuthenticationController,
+        client: ServerClient,
+    ]
+    publicKeyAuthentication: [
+        publicKeyAuthenticationContext: ServerHookerPublicKeyAuthenticationContext,
+        publicKeyAuthenticationController: ServerHookerPublicKeyAuthenticationController,
+        client: ServerClient,
+    ]
+    passwordAuthentication: [
+        passwordAuthenticationContext: ServerHookerPasswordAuthenticationContext,
+        passwordAuthenticationController: ServerHookerPasswordAuthenticationController,
+        client: ServerClient,
+    ]
 }
 
 export default class Server extends (EventEmitter as new () => TypedEmitter<ServerEvents>) {

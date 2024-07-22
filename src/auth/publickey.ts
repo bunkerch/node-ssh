@@ -9,11 +9,11 @@ import { SSHAuthenticationMethods, SSHServiceNames } from "../constants.js"
 import UserAuthSuccess from "../packets/UserAuthSuccess.js"
 import UserAuthFailure from "../packets/UserAuthFailure.js"
 import UserAuthPKOK from "../packets/UserAuthPKOK.js"
-import { serializeMpintBufferToBuffer } from "../utils/mpint.js"
+import EncodedSignature from "../utils/Signature.js"
 
 export interface PublicKeyAuthMethodData {
     publicKey: PublicKey
-    signature?: Buffer
+    signature?: EncodedSignature
 }
 export default class PublicKeyAuthMethod implements AuthMethod {
     static method_name = SSHAuthenticationMethods.PublicKey
@@ -33,7 +33,7 @@ export default class PublicKeyAuthMethod implements AuthMethod {
         buffers.push(serializeBuffer(this.data.publicKey.serialize()))
 
         if (this.data.signature) {
-            buffers.push(serializeBuffer(this.data.signature))
+            buffers.push(serializeBuffer(this.data.signature.serialize()))
         }
 
         return Buffer.concat(buffers)
@@ -73,7 +73,7 @@ export default class PublicKeyAuthMethod implements AuthMethod {
 
         return new PublicKeyAuthMethod({
             publicKey: publicKey,
-            signature: signature,
+            signature: signature ? EncodedSignature.parse(signature) : undefined,
         })
     }
 

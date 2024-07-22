@@ -9,6 +9,7 @@ import PublicKeyAuthMethod from "../auth/publickey.js"
 import Unimplemented from "./Unimplemented.js"
 import UserAuthFailure from "./UserAuthFailure.js"
 import UserAuthSuccess from "./UserAuthSuccess.js"
+import ServerClient from "../ServerClient.js"
 
 export interface UserAuthRequestData {
     username: string
@@ -43,7 +44,7 @@ export default class UserAuthRequest implements Packet {
         return Buffer.concat(buffers)
     }
 
-    serializeForSignature(client: Client): Buffer {
+    serializeForSignature(client: Client | ServerClient): Buffer {
         assert(
             this.data.method instanceof PublicKeyAuthMethod,
             "Only PublicKeyAuthMethod is supported for signature serialization",
@@ -102,7 +103,7 @@ export abstract class AuthMethod {
         throw new Error("Not implemented")
     }
 
-    // eslint-disable-next-line require-yield, @typescript-eslint/no-unused-vars
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     static async handleAuthentication(client: Client): Promise<boolean> {
         throw new Error("Not implemented")
     }

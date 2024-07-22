@@ -1,5 +1,5 @@
 import assert from "assert"
-import { readNextBuffer } from "./Buffer.js"
+import { readNextBuffer, serializeBuffer } from "./Buffer.js"
 
 export interface EncodedSignatureData {
     alg: string
@@ -14,16 +14,8 @@ export default class EncodedSignature {
     serialize(): Buffer {
         const buffers = []
 
-        const alg = Buffer.from(this.data.alg, "utf8")
-        const algLength = Buffer.alloc(4)
-        algLength.writeUInt32BE(alg.length)
-        buffers.push(algLength)
-        buffers.push(alg)
-
-        const dataLength = Buffer.alloc(4)
-        dataLength.writeUInt32BE(this.data.data.length)
-        buffers.push(dataLength)
-        buffers.push(this.data.data)
+        buffers.push(serializeBuffer(Buffer.from(this.data.alg, "utf8")))
+        buffers.push(serializeBuffer(this.data.data))
 
         return Buffer.concat(buffers)
     }

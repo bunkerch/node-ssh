@@ -10,6 +10,7 @@ import {
 import PublicKey, { SSHED25519PublicKey } from "./PublicKey.js"
 import nacl from "tweetnacl"
 import { randomBytes } from "crypto"
+import EncodedSignature from "./Signature.js"
 
 // TODO: Find a way to implement private key encryption
 export interface PrivateKeyData {
@@ -26,7 +27,7 @@ export default class PrivateKey {
         this.data = data
     }
 
-    sign(data: Buffer): Buffer {
+    sign(data: Buffer): EncodedSignature {
         return this.data.algorithm.sign(data)
     }
 
@@ -175,7 +176,7 @@ export abstract class PrivateKeyAlgorithm {
     }
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    sign(data: Buffer): Buffer {
+    sign(data: Buffer): EncodedSignature {
         throw new Error("Not implemented")
     }
 
@@ -207,8 +208,11 @@ export class SSHED25519PrivateKey implements PrivateKeyAlgorithm {
         this.data = data
     }
 
-    sign(data: Buffer): Buffer {
-        return Buffer.from(nacl.sign.detached(data, this.data.privateKey))
+    sign(data: Buffer): EncodedSignature {
+        return new EncodedSignature({
+            alg: SSHED25519PrivateKey.alg_name,
+            data: Buffer.from(nacl.sign.detached(data, this.data.privateKey)),
+        })
     }
 
     serialize(): Buffer {

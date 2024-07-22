@@ -73,6 +73,9 @@ export type ClientHookerPasswordAuthController = {
     password: string | undefined
 }
 export type ClientHooker = {
+    // `serverPublicKey` is the second argument because
+    // in some cases, you don't actually need it
+    // i.e. when blindly trusting the server public key.
     hostKey: [hostKeyController: ClientHookerHostKeyController, serverPublicKey: PublicKey]
     passwordAuth: [
         passwordAuthContext: ClientHookerPasswordAuthContext,

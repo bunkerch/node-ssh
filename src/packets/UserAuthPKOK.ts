@@ -20,7 +20,7 @@ export default class UserAuthPKOK implements Packet {
 
         buffers.push(serializeUint8(UserAuthPKOK.type))
 
-        buffers.push(Buffer.from(this.data.publicKey.data.alg, "utf-8"))
+        buffers.push(serializeBuffer(Buffer.from(this.data.publicKey.data.alg, "utf-8")))
         buffers.push(serializeBuffer(this.data.publicKey.serialize()))
 
         return Buffer.concat(buffers)
