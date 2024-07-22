@@ -8,7 +8,7 @@ import Server, {
     ServerHookerPublicKeyAuthenticationController,
 } from "./Server.js"
 import ProtocolVersionExchange from "./ProtocolVersionExchange.js"
-import { randomBytes, timingSafeEqual } from "node:crypto"
+import { timingSafeEqual } from "node:crypto"
 import EventEmitter from "node:events"
 import TypedEventEmitter from "typed-emitter"
 import {
@@ -44,6 +44,7 @@ import PublicKeyAuthMethod from "./auth/publickey.js"
 import UserAuthPKOK from "./packets/UserAuthPKOK.js"
 import PasswordAuthMethod from "./auth/password.js"
 import UserAuthSuccess from "./packets/UserAuthSuccess.js"
+import { randomBase36 } from "./utils/base36.js"
 
 export type ServerClientEvents = {
     error: (error: Error) => void
@@ -60,14 +61,14 @@ export type ServerClientEvents = {
 
 export default class ServerClient extends (EventEmitter as new () => TypedEventEmitter<ServerClientEvents>) {
     private socket: Socket
-    logId: string
+    connectionId: string
     server: Server
 
     constructor(socket: Socket, server: Server) {
         super()
         this.socket = socket
         this.server = server
-        this.logId = randomBytes(3).toString("hex")
+        this.connectionId = randomBase36(9)
 
         this.socket.on("data", (data) => {
             try {
@@ -124,6 +125,10 @@ export default class ServerClient extends (EventEmitter as new () => TypedEventE
     state = SocketState.Closed
     get isConnected(): boolean {
         return this.state === SocketState.Connected
+    }
+
+    get remoteAddress() {
+        return this.socket.remoteAddress
     }
 
     disconnect() {
@@ -273,6 +278,9 @@ export default class ServerClient extends (EventEmitter as new () => TypedEventE
                 partial_success: false,
             })
             while (true) {
+                // TODO: iirc from the spec, one client can batch all their pubkeys at once
+                // and the server should be able to handle them. This current implementation
+                // does not respect that and waits sequencially.
                 this.debug("Waiting for authentication request...")
                 const [authRequest] = (await this.waitEvent("packet")) as [Packet]
                 assert(authRequest instanceof UserAuthRequest, "Invalid packet type")
@@ -456,7 +464,7 @@ export default class ServerClient extends (EventEmitter as new () => TypedEventE
     }
 
     debug(...message: any[]): void {
-        this.server.debug(`[${this.logId}]`, ...message)
+        this.server.debug(`[${this.connectionId}]`, ...message)
     }
 
     onMessage(message: Buffer): void {

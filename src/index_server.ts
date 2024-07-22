@@ -3,7 +3,7 @@ import Server from "./Server.js"
 import PublicKey from "./utils/PublicKey.js"
 
 const server = new Server()
-//server.on("debug", console.debug)
+server.on("debug", console.debug)
 
 server.listen(1023, () => {
     server.debug("Server listening on port", 1023)
