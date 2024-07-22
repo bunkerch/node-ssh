@@ -12,3 +12,7 @@ export default abstract class Agent<Id = string> {
     abstract getPublicKeys(): Promise<[Id, PublicKey][]>
     abstract getPublicKey(id: Id): Promise<PublicKey>
 }
+
+export class AgentError extends Error {
+    name = "AgentError"
+}

@@ -15,7 +15,7 @@ export default class HMACSHA2256 implements MACAlgorithm {
         this.key = key
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+     
     computeMAC(sequence_number: number, packet: Buffer): Buffer {
         const seq = Buffer.alloc(4)
 

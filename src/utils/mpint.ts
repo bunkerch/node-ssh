@@ -23,7 +23,8 @@ export function parseBufferToMpintBuffer(raw: Buffer): Buffer {
     if (raw.length === 0) {
         return Buffer.alloc(0)
     }
-    assert((raw[0] & 0x80) === 0, "Undefined behavior, for negative mpint buffer")
+
+    assert((raw[0] & 0b1000_0000) === 0, "Undefined behavior, for negative mpint buffer")
 
     return raw
 }

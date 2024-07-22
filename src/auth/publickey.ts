@@ -5,14 +5,18 @@ import { serializeBinaryBoolean } from "../utils/BinaryBoolean.js"
 import Client from "../Client.js"
 import PublicKey from "../utils/PublicKey.js"
 import { AgentType } from "../publickey/Agent.js"
-import { SSHServiceNames } from "../constants.js"
+import { SSHAuthenticationMethods, SSHServiceNames } from "../constants.js"
+import UserAuthSuccess from "../packets/UserAuthSuccess.js"
+import UserAuthFailure from "../packets/UserAuthFailure.js"
+import UserAuthPKOK from "../packets/UserAuthPKOK.js"
+import { serializeMpintBufferToBuffer } from "../utils/mpint.js"
 
 export interface PublicKeyAuthMethodData {
     publicKey: PublicKey
     signature?: Buffer
 }
 export default class PublicKeyAuthMethod implements AuthMethod {
-    static method_name = "publickey"
+    static method_name = SSHAuthenticationMethods.PublicKey
 
     data: PublicKeyAuthMethodData
     constructor(data: PublicKeyAuthMethodData) {
@@ -62,7 +66,6 @@ export default class PublicKeyAuthMethod implements AuthMethod {
 
         let signature: Buffer | undefined
         if (hasSignature) {
-            // eslint-disable-next-line no-extra-semi
             ;[signature, raw] = readNextBuffer(raw)
         }
 
@@ -74,35 +77,85 @@ export default class PublicKeyAuthMethod implements AuthMethod {
         })
     }
 
-    static async *getPackets(client: Client): AsyncGenerator<UserAuthRequest> {
+    static async handleAuthentication(client: Client): Promise<boolean> {
         const keys = await client.options.agent.getPublicKeys()
         for (const key of keys) {
             try {
                 client.debug(
+                    `[Authentication]`,
+                    `[PublicKey]`,
                     `Trying publickey authentication with key ${key[0]} ${key[1].toString()}`,
                 )
+
+                const method = new PublicKeyAuthMethod({
+                    publicKey: key[1],
+                })
                 const packet = new UserAuthRequest({
                     username: client.options.username,
                     service_name: SSHServiceNames.Connection,
-                    method: new PublicKeyAuthMethod({
-                        publicKey: key[1],
-                    }),
+                    method: method,
                 })
 
+                // if this does not require any input from the user
+                // that would be otherwise annoying, we directly sign
+                // the packet. That will save us one packet if the pk
+                // is correct.
                 if (client.options.agent.type === AgentType.NonInteractive) {
-                    // prettier and eslint are fighting over this semicolon
-                    // eslint-disable-next-line no-extra-semi
-                    ;(packet.data.method as PublicKeyAuthMethod).data.signature =
-                        await client.options.agent.sign(
+                    method.data.signature = await client.options.agent.sign(
+                        key[0],
+                        packet.serializeForSignature(client),
+                    )
+                }
+
+                while (true) {
+                    const seqno = client.sendPacket(packet)
+                    const answer = await AuthMethod.waitForAnswer!(client, seqno)
+
+                    if (answer instanceof UserAuthSuccess) {
+                        // public key accepted
+                        // tell the client it's ok
+                        return true
+                    } else if (answer instanceof UserAuthFailure) {
+                        // this public key won't be accepted.
+                        // go try another one or fail
+                        break
+                    } else if (answer instanceof UserAuthPKOK) {
+                        assert(
+                            !method.data.signature,
+                            "Server requested a public key signature, but a signature was already provided.",
+                        )
+
+                        const keys = await client.options.agent.getPublicKeys()
+                        const key = keys.find((key) => key[1].equals(method.data.publicKey))
+                        assert(
+                            key,
+                            "Server requested a signature from a public key that was not provided by the agent",
+                        )
+
+                        method.data.signature = await client.options.agent.sign(
                             key[0],
                             packet.serializeForSignature(client),
                         )
+                    } else {
+                        client.debug(
+                            `[Authentication]`,
+                            `[PublicKey]`,
+                            `Unknown response to "UserAuthRequest" with method "publickey":`,
+                            answer,
+                        )
+                        break
+                    }
                 }
-
-                yield packet
             } catch (err) {
-                console.error(err)
+                client.debug(
+                    `[Authentication]`,
+                    `[PublicKey]`,
+                    `Public Key authentication threw an error`,
+                    err,
+                )
             }
         }
+
+        return false
     }
 }

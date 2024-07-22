@@ -1,7 +1,8 @@
 import assert from "assert"
 import { SSHPacketType } from "../constants.js"
 import Packet from "../packet.js"
-import { readNextBuffer, readNextUint8 } from "../utils/Buffer.js"
+import { readNextBuffer, readNextUint8, serializeBuffer } from "../utils/Buffer.js"
+import { parseBufferToMpintBuffer, serializeMpintBufferToBuffer } from "../utils/mpint.js"
 
 // https://datatracker.ietf.org/doc/html/rfc4253#section-8
 export interface KexDHReplyData {
@@ -22,20 +23,9 @@ export default class KexDHReply implements Packet {
 
         buffers.push(Buffer.from([KexDHReply.type]))
 
-        const K_SLength = Buffer.allocUnsafe(4)
-        K_SLength.writeUInt32BE(this.data.K_S.length)
-        buffers.push(K_SLength)
-        buffers.push(this.data.K_S)
-
-        const fLength = Buffer.allocUnsafe(4)
-        fLength.writeUInt32BE(this.data.f.length)
-        buffers.push(fLength)
-        buffers.push(this.data.f)
-
-        const H_sigLength = Buffer.allocUnsafe(4)
-        H_sigLength.writeUInt32BE(this.data.H_sig.length)
-        buffers.push(H_sigLength)
-        buffers.push(this.data.H_sig)
+        buffers.push(serializeBuffer(this.data.K_S))
+        buffers.push(serializeBuffer(serializeMpintBufferToBuffer(this.data.f)))
+        buffers.push(serializeBuffer(this.data.H_sig))
 
         return Buffer.concat(buffers)
     }
@@ -58,7 +48,7 @@ export default class KexDHReply implements Packet {
 
         return new KexDHReply({
             K_S: K_S,
-            f: f,
+            f: parseBufferToMpintBuffer(f),
             H_sig: H_sig,
         })
     }

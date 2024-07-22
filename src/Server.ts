@@ -1,3 +1,6 @@
+// this causes issues with the Server#listen method.
+/* eslint-disable @typescript-eslint/unified-signatures */
+
 import EventEmitter from "node:events"
 import TypedEmitter from "typed-emitter"
 import ProtocolVersionExchange from "./ProtocolVersionExchange.js"
@@ -15,6 +18,7 @@ export interface ServerOptionsRequired extends Required<ServerOptions> {}
 export type ServerEvents = {
     debug: (...message: any[]) => void
     close: () => void
+    connection: (client: ServerClient) => void
 }
 
 export type ServerHookerPreconnectController = {
@@ -53,6 +57,7 @@ export default class Server extends (EventEmitter as new () => TypedEmitter<Serv
     listen(opt1: any, opt2: any, opt3?: any, opt4?: any): this {
         const server = net.createServer()
 
+        // eslint-disable-next-line prefer-rest-params
         server.listen(...arguments)
         server.on("close", () => {
             this.emit("debug", "Server closed")
@@ -78,7 +83,12 @@ export default class Server extends (EventEmitter as new () => TypedEmitter<Serv
 
             this.clients.add(client)
 
-            client.connect()
+            this.emit("connection", client)
+
+            client.connect().catch((error) => {
+                client.debug("Error in client connection:", error)
+                client.terminate()
+            })
         })
 
         this.server = server

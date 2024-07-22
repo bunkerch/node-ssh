@@ -26,7 +26,6 @@ export default class PrivateKey {
         this.data = data
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     sign(data: Buffer): Buffer {
         return this.data.algorithm.sign(data)
     }
@@ -91,7 +90,7 @@ export default class PrivateKey {
 
         let numKeys: number
         ;[numKeys, raw] = readNextUint32(raw)
-        assert(numKeys === 1)
+        assert(numKeys === 1, "Multiple keys found (Unsupported)")
 
         let sshpubkey: Buffer
         ;[sshpubkey, raw] = readNextBuffer(raw)
@@ -189,7 +188,6 @@ export abstract class PrivateKeyAlgorithm {
         throw new Error("Not implemented")
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     static generate(): PrivateKey {
         throw new Error("Not implemented")
     }

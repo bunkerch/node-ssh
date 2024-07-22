@@ -24,12 +24,12 @@ export abstract class KexAlgorithm {
     static requires_encryption: boolean
     static requires_signature: boolean
 
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+     
     constructor() {
         throw new Error("Not implemented")
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+     
     static instantiate(): KexAlgorithm {
         throw new Error("Not implemented")
     }

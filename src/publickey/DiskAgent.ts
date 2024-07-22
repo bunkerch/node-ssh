@@ -1,5 +1,5 @@
 import { dirname, join, normalize } from "path"
-import Agent, { AgentType } from "./Agent.js"
+import Agent, { AgentError, AgentType } from "./Agent.js"
 import { homedir } from "os"
 import { readFile, readdir } from "fs/promises"
 import { existsSync } from "fs"
@@ -25,7 +25,10 @@ export default class DiskAgent implements Agent<string> {
         const privateKey = PrivateKey.fromString(content)
 
         // ensure public keys match before signing
-        assert(pub.equals(privateKey.data.publicKey))
+        assert(
+            pub.equals(privateKey.data.publicKey),
+            new DiskAgentError("Stored public key does not match the private key's public key."),
+        )
 
         return privateKey.sign(data)
     }
@@ -53,7 +56,12 @@ export default class DiskAgent implements Agent<string> {
 
             try {
                 const publicKey = PublicKey.parse(Buffer.from(key, "base64"))
-                assert(alg === publicKey.data.alg)
+                assert(
+                    alg === publicKey.data.alg,
+                    new DiskAgentError(
+                        "blob public key algorithm does not match the text public key algorithm",
+                    ),
+                )
 
                 if (comment) {
                     publicKey.data.comment = comment
@@ -69,30 +77,35 @@ export default class DiskAgent implements Agent<string> {
     async getPublicKey(id: string): Promise<PublicKey> {
         const path = normalize(id)
         if (!existsSync(this.directory)) {
-            throw new Error("No keys found")
+            throw new DiskAgentError("No keys found")
         }
         if (dirname(path) !== this.directory) {
-            throw new Error("Invalid key")
+            throw new DiskAgentError("Invalid key")
         }
         if (!existsSync(path)) {
-            throw new Error("Key not found")
+            throw new DiskAgentError("Key not found")
         }
 
         const pubpath = `${path}.pub`
         if (!existsSync(pubpath)) {
-            throw new Error("Public key not found")
+            throw new DiskAgentError("Public key not found")
         }
 
         const publicKey = await readFile(pubpath, "utf-8")
         const parts = publicKey.trim().split(" ")
 
         if (parts.length > 3 || parts.length < 2) {
-            throw new Error("Invalid public key")
+            throw new DiskAgentError("Invalid text public key")
         }
 
         const [alg, key, comment] = parts
         const publicKeyData = PublicKey.parse(Buffer.from(key, "base64"))
-        assert(alg === publicKeyData.data.alg)
+        assert(
+            alg === publicKeyData.data.alg,
+            new DiskAgentError(
+                "blob public key algorithm does not match the text public key algorithm",
+            ),
+        )
 
         if (comment) {
             publicKeyData.data.comment = comment
@@ -100,4 +113,8 @@ export default class DiskAgent implements Agent<string> {
 
         return publicKeyData
     }
+}
+
+export class DiskAgentError extends AgentError {
+    name = "DiskAgentError"
 }

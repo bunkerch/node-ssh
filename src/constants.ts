@@ -29,7 +29,7 @@ export enum SSHPacketType {
     // This is messed up in the spec
     // not my fault
     SSH_MSG_USERAUTH_PK_OK = 60,
-    // eslint-disable-next-line @typescript-eslint/no-duplicate-enum-values
+
     // SSH_MSG_USERAUTH_PASSWD_CHANGEREQ = 60,
 
     SSH_MSG_GLOBAL_REQUEST = 80,
@@ -54,4 +54,10 @@ export const SEQUENCE_NUMBER_MODULO = 2 ** 32
 export enum SSHServiceNames {
     UserAuth = "ssh-userauth",
     Connection = "ssh-connection",
+}
+
+export enum SSHAuthenticationMethods {
+    None = "none",
+    PublicKey = "publickey",
+    Password = "password",
 }

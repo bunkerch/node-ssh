@@ -1,11 +1,14 @@
 import assert from "assert"
-import { SSHPacketType } from "../constants.js"
+import { SSHAuthenticationMethods, SSHPacketType } from "../constants.js"
 import Packet from "../packet.js"
 import { readNextBuffer, readNextUint8, serializeBuffer, serializeUint8 } from "../utils/Buffer.js"
 import NoneAuthMethod from "../auth/none.js"
 import PasswordAuthMethod from "../auth/password.js"
 import Client from "../Client.js"
 import PublicKeyAuthMethod from "../auth/publickey.js"
+import Unimplemented from "./Unimplemented.js"
+import UserAuthFailure from "./UserAuthFailure.js"
+import UserAuthSuccess from "./UserAuthSuccess.js"
 
 export interface UserAuthRequestData {
     username: string
@@ -83,7 +86,7 @@ export default class UserAuthRequest implements Packet {
 }
 
 export abstract class AuthMethod {
-    static method_name: string
+    static method_name: SSHAuthenticationMethods
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     constructor(data: any) {
@@ -100,7 +103,34 @@ export abstract class AuthMethod {
     }
 
     // eslint-disable-next-line require-yield, @typescript-eslint/no-unused-vars
-    static async *getPackets(client: Client): AsyncGenerator<UserAuthRequest> {
+    static async handleAuthentication(client: Client): Promise<boolean> {
         throw new Error("Not implemented")
+    }
+
+    static async waitForAnswer?(
+        client: Client,
+        seqno: number,
+    ): Promise<Unimplemented | UserAuthFailure | UserAuthSuccess> {
+        const answer = await client.waitForPackets(
+            {
+                [SSHPacketType.SSH_MSG_UNIMPLEMENTED]: {
+                    predicate: (packet: Unimplemented) => {
+                        return packet.data.sequence_number === seqno
+                    },
+                },
+                [SSHPacketType.SSH_MSG_USERAUTH_FAILURE]: {
+                    predicate: () => true,
+                },
+                [SSHPacketType.SSH_MSG_USERAUTH_SUCCESS]: {
+                    predicate: () => true,
+                },
+                [SSHPacketType.SSH_MSG_USERAUTH_PK_OK]: {
+                    predicate: () => true,
+                },
+            },
+            10000,
+        )
+
+        return answer
     }
 }

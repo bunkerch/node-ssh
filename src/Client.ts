@@ -1,9 +1,14 @@
 import crypto, { timingSafeEqual } from "crypto"
 import EventEmitter from "node:events"
-import os from "node:os"
 import TypedEmitter from "typed-emitter"
 import net from "node:net"
-import { SEQUENCE_NUMBER_MODULO, SocketState, SSHPacketType, SSHServiceNames } from "./constants.js"
+import {
+    SEQUENCE_NUMBER_MODULO,
+    SocketState,
+    SSHAuthenticationMethods,
+    SSHPacketType,
+    SSHServiceNames,
+} from "./constants.js"
 import ProtocolVersionExchange from "./ProtocolVersionExchange.js"
 import assert from "node:assert"
 import Packet, { packets } from "./packet.js"
@@ -26,15 +31,10 @@ import DiffieHellmanGroupN from "./algorithms/kex/diffie-hellman-groupN.js"
 import NewKeys from "./packets/NewKeys.js"
 import UserAuthRequest from "./packets/UserAuthRequest.js"
 import Disconnect, { DisconnectReason } from "./packets/Disconnect.js"
-import Unimplemented from "./packets/Unimplemented.js"
-import UserAuthFailure from "./packets/UserAuthFailure.js"
 import ServiceRequest from "./packets/ServiceRequest.js"
 import ServiceAccept from "./packets/ServiceAccept.js"
-import UserAuthSuccess from "./packets/UserAuthSuccess.js"
 import Agent from "./publickey/Agent.js"
-import DiskAgent from "./publickey/DiskAgent.js"
-import UserAuthPKOK from "./packets/UserAuthPKOK.js"
-import PublicKeyAuthMethod from "./auth/publickey.js"
+import NoneAgent from "./publickey/NoneAgent.js"
 
 export interface ClientOptions {
     hostname: string
@@ -44,6 +44,7 @@ export interface ClientOptions {
     agent?: Agent
     protocolVersionExchange?: ProtocolVersionExchange
     serverClient?: boolean
+    authenticationMethodsOrder?: SSHAuthenticationMethods[]
 }
 export interface ClientOptionsRequired extends Required<ClientOptions> {}
 
@@ -87,10 +88,15 @@ export default class Client extends (EventEmitter as new () => TypedEmitter<Clie
 
         this.options = options as ClientOptionsRequired
         this.options.port ??= 22
-        this.options.username ??= os.userInfo({ encoding: "utf8" }).username
+        this.options.username ??= "root"
         this.options.password ??= ""
-        this.options.agent ??= new DiskAgent()
+        this.options.agent ??= new NoneAgent()
         this.options.protocolVersionExchange ??= ProtocolVersionExchange.defaultValue
+        this.options.authenticationMethodsOrder ??= [
+            SSHAuthenticationMethods.None,
+            SSHAuthenticationMethods.PublicKey,
+            SSHAuthenticationMethods.Password,
+        ]
 
         setImmediate(() => {
             this.debug("Client created with options:", this.options)
@@ -347,78 +353,24 @@ export default class Client extends (EventEmitter as new () => TypedEmitter<Clie
         // TODO: Maybe get list of auth methods from server
         // can be done through UserAuthFailure.auth_methods
         const methodList: string[] = [...UserAuthRequest.auth_methods.keys()]
-        for (const method of methodList) {
-            const m = UserAuthRequest.auth_methods.get(method)!
-            this.debug(`Trying auth method`, m.method_name)
+        authentication: {
+            for (const method of methodList) {
+                const m = UserAuthRequest.auth_methods.get(method)!
+                this.debug(`Trying auth method`, m.method_name)
 
-            const iterator = m.getPackets(this)
-            // eslint-disable-next-line no-constant-condition
-            while (true) {
-                const { value, done } = await iterator.next()
-                if (done) break
+                const success = await m.handleAuthentication(this)
+                if (success) {
+                    this.debug(`Authentication successful with method`, m.method_name)
+                    this.debug("Authenticated as", this.options.username)
 
-                let packet: UserAuthRequest | undefined = value
-
-                while (packet) {
-                    const seqno = this.sendPacket(packet)
-
-                    const answer: Unimplemented | UserAuthFailure | UserAuthSuccess =
-                        await this.waitForPackets(
-                            {
-                                [SSHPacketType.SSH_MSG_UNIMPLEMENTED]: {
-                                    predicate: (packet: Unimplemented) => {
-                                        return packet.data.sequence_number === seqno
-                                    },
-                                },
-                                [SSHPacketType.SSH_MSG_USERAUTH_FAILURE]: {
-                                    predicate: () => true,
-                                },
-                                [SSHPacketType.SSH_MSG_USERAUTH_SUCCESS]: {
-                                    predicate: () => true,
-                                },
-                                [SSHPacketType.SSH_MSG_USERAUTH_PK_OK]: {
-                                    predicate: () => true,
-                                },
-                            },
-                            10000,
-                        )
-
-                    console.log(answer)
-
-                    if (answer instanceof UserAuthSuccess) {
-                        this.debug(`Authentication successful with method`, m.method_name)
-                        this.debug("Authenticated as", this.options.username)
-
-                        // stops the getPackets generator
-                        iterator.return(undefined)
-
-                        this.emit("connect")
-                        return
-                    } else if (answer instanceof UserAuthPKOK) {
-                        const method = packet.data.method as PublicKeyAuthMethod
-                        assert(
-                            method instanceof PublicKeyAuthMethod,
-                            "Server returned an UserAuthPKOK packet but the method was not a PublicKeyAuthMethod",
-                        )
-
-                        const keys = await this.options.agent.getPublicKeys()
-                        const key = keys.find((key) => key[1].equals(method.data.publicKey))
-                        assert(
-                            key,
-                            "Server requested a public key that was not provided by the agent",
-                        )
-                        method.data.signature = await this.options.agent.sign(
-                            key[0],
-                            packet.serializeForSignature(this),
-                        )
-                    } else {
-                        packet = undefined
-                    }
+                    this.emit("connect")
+                    break authentication
                 }
             }
-        }
 
-        //
+            // we could not authenticate.
+            throw new Error("All authentication methods failed.")
+        }
     }
 
     waitEvent<event extends keyof ClientEvents>(
@@ -448,10 +400,7 @@ export default class Client extends (EventEmitter as new () => TypedEmitter<Clie
                 reject(error)
             }
             const handler = (p: Packet) => {
-                // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-                // @ts-expect-error
-                // type is a static property on every packet class
-                if (p.constructor.type === packet) {
+                if ((p.constructor as typeof Packet).type === packet) {
                     resolve(p as packet)
                     cleanup()
                 }

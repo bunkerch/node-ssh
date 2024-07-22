@@ -26,9 +26,11 @@ import EncodedSignature from "./utils/Signature.js"
 import NewKeys from "./packets/NewKeys.js"
 import ServiceRequest from "./packets/ServiceRequest.js"
 import ServiceAccept from "./packets/ServiceAccept.js"
+import UserAuthRequest from "./packets/UserAuthRequest.js"
 
 export type ServerClientEvents = {
     error: (error: Error) => void
+    close: () => void
     debug: (...message: any[]) => void
     message: (message: Buffer) => void
     clientProtocolVersion: (version: ProtocolVersionExchange) => void
@@ -48,7 +50,7 @@ export default class ServerClient extends (EventEmitter as new () => TypedEventE
         super()
         this.socket = socket
         this.server = server
-        this.logId = randomBytes(8).toString("hex")
+        this.logId = randomBytes(3).toString("hex")
 
         this.socket.on("data", (data) => {
             try {
@@ -61,6 +63,10 @@ export default class ServerClient extends (EventEmitter as new () => TypedEventE
 
         this.socket.on("error", (error) => {
             this.emit("error", error)
+        })
+
+        this.socket.on("close", () => {
+            this.emit("close")
         })
     }
 
@@ -237,6 +243,17 @@ export default class ServerClient extends (EventEmitter as new () => TypedEventE
                 service_name: SSHServiceNames.UserAuth,
             }),
         )
+
+        await this.handleAuthentication()
+    }
+
+    async handleAuthentication() {
+         
+        while (true) {
+            this.debug("Waiting for authentication request...")
+            const [authRequest] = (await this.waitEvent("packet")) as [Packet]
+            assert(authRequest instanceof UserAuthRequest, "Invalid packet type")
+        }
     }
 
     waitEvent<event extends keyof ServerClientEvents>(
