@@ -14,7 +14,6 @@ export interface GlobalRequestData {
     want_reply: boolean
     args: Buffer
 }
-
 export default class GlobalRequest implements Packet {
     static type = SSHPacketType.SSH_MSG_GLOBAL_REQUEST
 

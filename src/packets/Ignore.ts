@@ -6,7 +6,6 @@ import { readNextBuffer, readNextUint8, serializeBuffer } from "../utils/Buffer.
 export interface IgnoreData {
     data: Buffer
 }
-
 export default class Ignore implements Packet {
     static type = SSHPacketType.SSH_MSG_IGNORE
 

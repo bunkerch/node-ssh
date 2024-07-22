@@ -6,7 +6,6 @@ import { readNextBuffer, readNextUint8, serializeBuffer } from "../utils/Buffer.
 export interface ServiceAcceptData {
     service_name: string
 }
-
 export default class ServiceAccept implements Packet {
     static type = SSHPacketType.SSH_MSG_SERVICE_ACCEPT
 

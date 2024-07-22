@@ -6,7 +6,6 @@ import { readNextUint32, readNextUint8, serializeUint32 } from "../utils/Buffer.
 export interface UnimplementedData {
     sequence_number: number
 }
-
 export default class Unimplemented implements Packet {
     static type = SSHPacketType.SSH_MSG_UNIMPLEMENTED
 

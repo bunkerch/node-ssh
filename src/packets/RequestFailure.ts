@@ -4,7 +4,6 @@ import Packet from "../packet.js"
 import { readNextUint8 } from "../utils/Buffer.js"
 
 export interface RequestFailureData {}
-
 export default class RequestFailure implements Packet {
     static type = SSHPacketType.SSH_MSG_REQUEST_FAILURE
 

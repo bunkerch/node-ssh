@@ -1,4 +1,5 @@
 import { SSHPacketType } from "./constants.js"
+import ChannelOpen from "./packets/ChannelOpen.js"
 import Debug from "./packets/Debug.js"
 import Disconnect from "./packets/Disconnect.js"
 import GlobalRequest from "./packets/GlobalRequest.js"
@@ -60,6 +61,8 @@ export const packets = new Map<SSHPacketType, typeof Packet>([
     [SSHPacketType.SSH_MSG_GLOBAL_REQUEST, GlobalRequest],
     [SSHPacketType.SSH_MSG_REQUEST_FAILURE, RequestFailure],
     [SSHPacketType.SSH_MSG_REQUEST_SUCCESS, RequestSuccess],
+
+    [SSHPacketType.SSH_MSG_CHANNEL_OPEN, ChannelOpen],
 ])
 export interface PacketTypes {
     [SSHPacketType.SSH_MSG_DISCONNECT]: Disconnect
@@ -84,4 +87,6 @@ export interface PacketTypes {
     [SSHPacketType.SSH_MSG_GLOBAL_REQUEST]: GlobalRequest
     [SSHPacketType.SSH_MSG_REQUEST_FAILURE]: RequestFailure
     [SSHPacketType.SSH_MSG_REQUEST_SUCCESS]: RequestSuccess
+
+    [SSHPacketType.SSH_MSG_CHANNEL_OPEN]: ChannelOpen
 }

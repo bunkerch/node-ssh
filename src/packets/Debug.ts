@@ -14,7 +14,6 @@ export interface DebugData {
     message: string
     language_tag: string
 }
-
 export default class Debug implements Packet {
     static type = SSHPacketType.SSH_MSG_DEBUG
 

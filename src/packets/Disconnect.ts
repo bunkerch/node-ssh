@@ -32,7 +32,6 @@ export interface DisconnectData {
     description: string
     language_tag: string
 }
-
 export default class Disconnect implements Packet {
     static type = SSHPacketType.SSH_MSG_DISCONNECT
 
