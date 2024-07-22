@@ -407,7 +407,7 @@ export default class Client extends (EventEmitter as new () => TypedEmitter<Clie
                         }
                     }
 
-                    this.debug(`Received ${hostkeys.length} valid host keys`)
+                    this.debug(`Received ${hostkeys.length} host keys from global request`)
 
                     // Do we care ?
                     // at this point, most usage will be
