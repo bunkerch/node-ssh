@@ -30,7 +30,7 @@ export default class GlobalRequest implements Packet {
         buffers.push(serializeBuffer(Buffer.from(this.data.request_name, "ascii")))
         buffers.push(serializeBinaryBoolean(this.data.want_reply))
 
-        buffers.push(serializeBuffer(this.data.args))
+        buffers.push(this.data.args)
 
         return Buffer.concat(buffers)
     }

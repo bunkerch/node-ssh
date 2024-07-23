@@ -28,7 +28,7 @@ import {
     kex_algorithms,
     mac_algorithms,
 } from "./algorithms.js"
-import { PublicKeyAlgoritm } from "./utils/PublicKey.js"
+import PublicKey, { PublicKeyAlgoritm } from "./utils/PublicKey.js"
 import KexDHReply from "./packets/KexDHReply.js"
 import assert from "node:assert"
 import Packet, { packets } from "./packet.js"
@@ -47,6 +47,10 @@ import UserAuthSuccess from "./packets/UserAuthSuccess.js"
 import { randomBase36 } from "./utils/base36.js"
 import Debug from "./packets/Debug.js"
 import Channel from "./Channel.js"
+import GlobalRequest from "./packets/GlobalRequest.js"
+import { readNextBuffer, serializeBuffer } from "./utils/Buffer.js"
+import RequestFailure from "./packets/RequestFailure.js"
+import RequestSuccess from "./packets/RequestSuccess.js"
 
 export type ServerClientEvents = {
     error: (error: Error) => void
@@ -270,6 +274,93 @@ export default class ServerClient extends (EventEmitter as new () => TypedEventE
         )
 
         await this.handleAuthentication()
+        // user is logged in!
+
+        // now that we have received USERAUTH_SUCCESS, we need
+        // to handle GLOBAL_REQUEST.
+
+        this.on("packet", (packet) => {
+            if (!(packet instanceof GlobalRequest)) return
+
+            this.debug(`Received global request packet:`, packet)
+
+            switch (packet.data.request_name) {
+                case "hostkeys-prove-00@openssh.com": {
+                    const hostkeys = []
+                    let raw = packet.data.args
+                    while (raw.length != 0) {
+                        let arg: Buffer
+                        ;[arg, raw] = readNextBuffer(raw)
+
+                        try {
+                            hostkeys.push(PublicKey.parse(arg))
+                        } catch (err) {
+                            // unsupported host key algorithm
+                            // or parse error
+                            // either way don't care and silently fail.
+                            this.debug(`Error while trying to parse host key:`, err)
+                        }
+                    }
+
+                    this.debug(`Client asked us to prove ownership of`, hostkeys.length, `keys.`)
+
+                    const signatures = []
+                    for (const pubkey of hostkeys) {
+                        const hostkey = this.server.options.hostKeys.find((privkey) =>
+                            privkey.data.publicKey.equals(pubkey),
+                        )
+
+                        if (!hostkey) {
+                            this.debug(
+                                `Client asked us to prove ownership of a public key we do not control!`,
+                            )
+                            this.sendPacket(new RequestFailure({}))
+                            return
+                        }
+
+                        const message = Buffer.concat([
+                            serializeBuffer(Buffer.from("hostkeys-prove-00@openssh.com", "utf8")),
+                            serializeBuffer(this.sessionID!),
+                            serializeBuffer(pubkey.serialize()),
+                        ])
+                        signatures.push(serializeBuffer(hostkey.sign(message).serialize()))
+                    }
+
+                    this.sendPacket(
+                        new RequestSuccess({
+                            args: Buffer.concat(signatures),
+                        }),
+                    )
+                    break
+                }
+                default: {
+                    this.debug(`Unknown global request name: ${packet.data.request_name}`)
+                    if (packet.data.want_reply) {
+                        // this might be a keep alive lol
+                        // shitty spec
+                        // either way, send a failure response.
+                        this.sendPacket(new RequestFailure({}))
+                    }
+                }
+            }
+        })
+
+        if (this.server.options.sendAllHostKeys) {
+            // we can send every host key we have
+            // https://cvsweb.openbsd.org/src/usr.bin/ssh/PROTOCOL?annotate=HEAD
+            // section 2.5 (ctrl + f search for "hostkeys-00@openssh.com")
+            this.sendPacket(
+                new GlobalRequest({
+                    request_name: "hostkeys-00@openssh.com",
+                    want_reply: false,
+                    args: Buffer.concat(
+                        this.server.options.hostKeys.map((key) => {
+                            return serializeBuffer(key.data.publicKey.serialize())
+                        }),
+                    ),
+                }),
+            )
+        }
     }
 
     async handleAuthentication() {

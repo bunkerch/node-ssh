@@ -5,7 +5,9 @@ import { readNextUint8 } from "../utils/Buffer.js"
 
 // TODO: Request success might hold data, depending on the request.
 // need to impl this.
-export interface RequestSuccessData {}
+export interface RequestSuccessData {
+    args: Buffer
+}
 export default class RequestSuccess implements Packet {
     static type = SSHPacketType.SSH_MSG_REQUEST_SUCCESS
 
@@ -18,6 +20,7 @@ export default class RequestSuccess implements Packet {
         const buffers = []
 
         buffers.push(Buffer.from([RequestSuccess.type]))
+        buffers.push(this.data.args)
 
         return Buffer.concat(buffers)
     }
@@ -27,8 +30,8 @@ export default class RequestSuccess implements Packet {
         ;[packetType, raw] = readNextUint8(raw)
         assert(packetType === RequestSuccess.type)
 
-        assert(raw.length === 0)
-
-        return new RequestSuccess({})
+        return new RequestSuccess({
+            args: raw,
+        })
     }
 }

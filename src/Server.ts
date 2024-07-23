@@ -14,6 +14,13 @@ import EncodedSignature from "./utils/Signature.js"
 export interface ServerOptions {
     protocolVersionExchange?: ProtocolVersionExchange
     hostKeys?: PrivateKey[]
+    // by default, the Server will send all available hostkeys
+    // to the client after login (USERAUTH_SUCCESS)
+    // this allows the client to save them and then to accept any
+    // of them on the next login.
+    // This is particularily useful when a transition in hostkeys
+    // is happening (for example deprecating an host key)
+    sendAllHostKeys?: boolean
 }
 export interface ServerOptionsRequired extends Required<ServerOptions> {}
 
@@ -76,6 +83,7 @@ export default class Server extends (EventEmitter as new () => TypedEmitter<Serv
         this.options = options as ServerOptionsRequired
         this.options.protocolVersionExchange ??= ProtocolVersionExchange.defaultValue
         this.options.hostKeys ??= []
+        this.options.sendAllHostKeys ??= true
     }
 
     hooker: Hooker<ServerHooker> = new Hooker()
