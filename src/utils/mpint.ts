@@ -1,5 +1,4 @@
 import assert from "assert"
-import { decodeBigIntBE } from "./BigInt.js"
 
 export function serializeMpintBufferToBuffer(mpint: Buffer): Buffer {
     let i = 0
