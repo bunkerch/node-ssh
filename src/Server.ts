@@ -7,7 +7,7 @@ import ProtocolVersionExchange from "./ProtocolVersionExchange.js"
 import net from "net"
 import ServerClient from "./ServerClient.js"
 import { Hooker } from "./utils/Hooker.js"
-import PrivateKey, { SSHED25519PrivateKey } from "./utils/PrivateKey.js"
+import PrivateKey from "./utils/PrivateKey.js"
 import PublicKey from "./utils/PublicKey.js"
 import EncodedSignature from "./utils/Signature.js"
 
@@ -75,9 +75,7 @@ export default class Server extends (EventEmitter as new () => TypedEmitter<Serv
         super()
         this.options = options as ServerOptionsRequired
         this.options.protocolVersionExchange ??= ProtocolVersionExchange.defaultValue
-        // generate a random host key if none is provided
-        // one per algorithm, please
-        this.options.hostKeys ??= [PrivateKey.generate(SSHED25519PrivateKey.alg_name)]
+        this.options.hostKeys ??= []
     }
 
     hooker: Hooker<ServerHooker> = new Hooker()
@@ -93,12 +91,31 @@ export default class Server extends (EventEmitter as new () => TypedEmitter<Serv
     listen(options: net.ListenOptions, listeningListener?: () => void): this
     listen(handle: any, backlog?: number, listeningListener?: () => void): this
     listen(handle: any, listeningListener?: () => void): this
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    listen(opt1: any, opt2: any, opt3?: any, opt4?: any): this {
+    listen(): this {
         const server = net.createServer()
 
-        // eslint-disable-next-line prefer-rest-params
-        server.listen(...arguments)
+        // generate host keys if needed
+        if (this.options.hostKeys.length === 0) {
+            console.warn(
+                `[node-ssh] No host key supplied inside ServerOptions. Consider generating some host keys and storing them. Generating temporary ones...`,
+            )
+            Promise.all(
+                [
+                    "ssh-ed25519",
+                    // ssh-rsa seems to be disabled on recent openssh versions
+                    // is it because of sha1 or something ?
+                    // "ssh-rsa",
+                ].map((algorithm) => PrivateKey.generate(algorithm)),
+            ).then((keys) => {
+                this.options.hostKeys.push(...keys)
+                // eslint-disable-next-line prefer-rest-params
+                server.listen(...arguments)
+            })
+        } else {
+            // eslint-disable-next-line prefer-rest-params
+            server.listen(...arguments)
+        }
+
         server.on("close", () => {
             this.emit("debug", "Server closed")
             this.clients = new Set()
@@ -124,6 +141,10 @@ export default class Server extends (EventEmitter as new () => TypedEmitter<Serv
             this.clients.add(client)
 
             this.emit("connection", client)
+
+            client.on("close", () => {
+                this.clients.delete(client)
+            })
 
             client.connect().catch((error) => {
                 client.debug("Error in client connection:", error)

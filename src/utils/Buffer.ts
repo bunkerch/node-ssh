@@ -51,10 +51,9 @@ export function serializeUint32(data: number): Buffer {
 }
 
 export function readNextCString(buffer: Buffer): [Buffer, Buffer] {
-    let nullIndex = buffer.indexOf(0x00)
-    if (nullIndex === -1) {
-        nullIndex = buffer.length
-    }
+    const nullIndex = buffer.indexOf(0x00)
+    assert(nullIndex != -1, "No null terminator found in C String")
+
     const data = buffer.subarray(0, nullIndex)
     return [data, buffer.subarray(nullIndex + 1)]
 }

@@ -186,7 +186,7 @@ export interface SSHRSAData {
     publicExponent: Buffer
     modulus: Buffer
 }
-export class SSHRSA implements PublicKeyAlgoritm {
+export class SSHRSAPublicKey implements PublicKeyAlgoritm {
     static alg_name = "ssh-rsa"
     static has_encryption = false
     static has_signature = true
@@ -196,6 +196,7 @@ export class SSHRSA implements PublicKeyAlgoritm {
         this.data = data
     }
 
+    // encode the public key to PKCS#1 in PEM
     toPEM(): string {
         const sequence = new asn1js.Sequence({
             value: [
@@ -223,8 +224,10 @@ export class SSHRSA implements PublicKeyAlgoritm {
             format: "pem",
             type: "pkcs1",
         })
+
         const verifier = crypto.createVerify("sha1")
         verifier.update(data)
+
         return verifier.verify(key, signature)
     }
 
@@ -238,7 +241,7 @@ export class SSHRSA implements PublicKeyAlgoritm {
     }
 
     equals(other: PublicKeyAlgoritm): boolean {
-        if (!(other instanceof SSHRSA)) return false
+        if (!(other instanceof SSHRSAPublicKey)) return false
 
         return (
             this.data.publicExponent.equals(other.data.publicExponent) &&
@@ -246,7 +249,7 @@ export class SSHRSA implements PublicKeyAlgoritm {
         )
     }
 
-    static parse(raw: Buffer): SSHRSA {
+    static parse(raw: Buffer): SSHRSAPublicKey {
         let publicExponent: Buffer
         ;[publicExponent, raw] = readNextBuffer(raw)
 
@@ -255,10 +258,10 @@ export class SSHRSA implements PublicKeyAlgoritm {
 
         assert(raw.length === 0)
 
-        return new SSHRSA({
+        return new SSHRSAPublicKey({
             publicExponent: publicExponent,
             modulus: modulus,
         })
     }
 }
-PublicKey.algorithms.set(SSHRSA.alg_name, SSHRSA)
+PublicKey.algorithms.set(SSHRSAPublicKey.alg_name, SSHRSAPublicKey)
