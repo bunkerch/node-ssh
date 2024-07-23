@@ -4,7 +4,7 @@ import PublicKey from "./utils/PublicKey.js"
 import PrivateKey from "./utils/PrivateKey.js"
 
 const server = new Server({
-    hostKeys: [await PrivateKey.generate("ssh-ed25519")],
+    hostKeys: [await PrivateKey.generate("ssh-rsa")],
 })
 server.on("debug", console.debug)
 

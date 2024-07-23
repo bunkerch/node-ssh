@@ -39,6 +39,7 @@ import GlobalRequest from "./packets/GlobalRequest.js"
 import RequestFailure from "./packets/RequestFailure.js"
 import Debug from "./packets/Debug.js"
 import { readNextBuffer } from "./utils/Buffer.js"
+import Channel from "./Channel.js"
 
 export interface ClientOptions {
     hostname: string
@@ -162,6 +163,9 @@ export default class Client extends (EventEmitter as new () => TypedEmitter<Clie
     hasSentNewKeys: boolean = false
     hasAuthenticated: boolean = false
 
+    localChannelIndex = 0
+    channels = new Map<number, Channel>()
+
     state = SocketState.Closed
     get isConnected(): boolean {
         return this.state === SocketState.Connected
@@ -225,6 +229,9 @@ export default class Client extends (EventEmitter as new () => TypedEmitter<Clie
         this.clientKexInit = new KexInit({
             cookie: crypto.getRandomValues(Buffer.alloc(16)),
             kex_algorithms: [...kex_algorithms.keys()],
+            // TODO: Disable ssh-rsa. Most vendors already do.
+            // They do it because ssh-rsa uses sha1 as a hashing algorithm
+            // for signature. This is insecure.
             server_host_key_algorithms: [...PublicKey.algorithms.keys()],
             encryption_algorithms_client_to_server: [...encryption_algorithms.keys()],
             encryption_algorithms_server_to_client: [...encryption_algorithms.keys()],
@@ -709,15 +716,15 @@ export default class Client extends (EventEmitter as new () => TypedEmitter<Clie
                     this.emit("serverKexInit", p as KexInit, payload)
                     break
 
-                case SSHPacketType.SSH_MSG_KEXDH_REPLY:
-                    // handle key exchange
-                    this.emit("serverKexDHReply", p as KexDHReply)
-                    break
-
                 case SSHPacketType.SSH_MSG_NEWKEYS:
                     this.hasReceivedNewKeys = true
                     this.emit("serverNewKeys")
                     // handle key exchange
+                    break
+
+                case SSHPacketType.SSH_MSG_KEXDH_REPLY:
+                    // handle key exchange
+                    this.emit("serverKexDHReply", p as KexDHReply)
                     break
             }
 

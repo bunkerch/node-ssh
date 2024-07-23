@@ -45,6 +45,8 @@ import UserAuthPKOK from "./packets/UserAuthPKOK.js"
 import PasswordAuthMethod from "./auth/password.js"
 import UserAuthSuccess from "./packets/UserAuthSuccess.js"
 import { randomBase36 } from "./utils/base36.js"
+import Debug from "./packets/Debug.js"
+import Channel from "./Channel.js"
 
 export type ServerClientEvents = {
     error: (error: Error) => void
@@ -121,6 +123,10 @@ export default class ServerClient extends (EventEmitter as new () => TypedEventE
 
     hasReceivedNewKeys: boolean = false
     hasSentNewKeys: boolean = false
+    hasAuthenticated: boolean = false
+
+    localChannelIndex = 0
+    channels = new Map<number, Channel>()
 
     state = SocketState.Closed
     get isConnected(): boolean {
@@ -397,6 +403,7 @@ export default class ServerClient extends (EventEmitter as new () => TypedEventE
 
         if (allowLogin) {
             this.sendPacket(new UserAuthSuccess({}))
+            this.hasAuthenticated = true
         } else {
             throw new DisconnectError(
                 DisconnectReason.SSH_DISCONNECT_NO_MORE_AUTH_METHODS_AVAILABLE,
@@ -607,15 +614,6 @@ export default class ServerClient extends (EventEmitter as new () => TypedEventE
             this.debug("Parsing packet:", p)
 
             switch (packet.type) {
-                case SSHPacketType.SSH_MSG_KEXINIT:
-                    // handle key exchange
-                    this.emit("clientKexInit", p as KexInit, payload)
-                    break
-                case SSHPacketType.SSH_MSG_NEWKEYS:
-                    this.hasReceivedNewKeys = true
-                    this.emit("clientNewKeys")
-                    // handle key exchange
-                    break
                 case SSHPacketType.SSH_MSG_DISCONNECT: {
                     const disconnect = p as Disconnect
                     this.debug(
@@ -625,7 +623,29 @@ export default class ServerClient extends (EventEmitter as new () => TypedEventE
                         disconnect.data.language_tag,
                     )
                     // TODO: Handle disconnect
+                    break
                 }
+
+                case SSHPacketType.SSH_MSG_IGNORE:
+                    this.debug(`Received Ignore packet. Ignoring.`)
+                    break
+
+                case SSHPacketType.SSH_MSG_DEBUG: {
+                    const debug = p as Debug
+                    this.debug(`Received debug packet:`, [debug.data.message])
+                    break
+                }
+
+                case SSHPacketType.SSH_MSG_KEXINIT:
+                    // handle key exchange
+                    this.emit("clientKexInit", p as KexInit, payload)
+                    break
+
+                case SSHPacketType.SSH_MSG_NEWKEYS:
+                    this.hasReceivedNewKeys = true
+                    this.emit("clientNewKeys")
+                    // handle key exchange
+                    break
             }
 
             if (this.buffering.length > 0) {
