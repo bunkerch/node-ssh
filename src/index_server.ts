@@ -14,37 +14,29 @@ server.on("connection", (client) => {
 })
 
 const allowedUser = "manaf"
-const allowedPublicKeys = [
-    PublicKey.parseString(
-        `ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICcSFk1WeyZZyOV/W5oFXldpVvLssFZNZVyURUsSz6tU thomiz@vitc.org`,
-    ),
-    PublicKey.parseString(
-        `ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJS6a664HMOKoLXZU0NTI/v9psSjaYye6GUsab62uvg3 manafralli@gmail.com`,
-    ),
-]
+const allowedPublicKeys = PublicKey.parseAuthorizedKeysFile(`
+    ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICcSFk1WeyZZyOV/W5oFXldpVvLssFZNZVyURUsSz6tU thomiz@vitc.org
+    ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJS6a664HMOKoLXZU0NTI/v9psSjaYye6GUsab62uvg3 manafralli@gmail.com
+`)
 
-server.hooker.hook("publicKeyAuthentication", async (_, context, controller) => {
-    if (context.username != allowedUser) {
-        // deny request
+server.hooker.hook("publicKeyAuthentication", (_, context, controller) => {
+    // only allow user "manaf"
+    if (context.username != allowedUser) return
+
+    const publicKey = allowedPublicKeys.find((key) => key.equals(context.publicKey))
+    // public key is not in the keys file
+    if (!publicKey) return
+
+    // when using password managers or keychains,
+    // the server needs to explicitely tell the
+    // client to sign the auth request.
+    if (!context.signature) {
+        controller.requestSignature = true
         return
     }
 
-    for (const publicKey of allowedPublicKeys) {
-        if (publicKey.equals(context.publicKey)) {
-            // this is a valid public key
+    // If the signature is not valid, do not allow login.
+    if (!context.publicKey.verifySignature(context.signatureMessage, context.signature)) return
 
-            if (!context.signature) {
-                controller.requestSignature = true
-                return
-            }
-
-            if (context.publicKey.verifySignature(context.signatureMessage, context.signature)) {
-                controller.allowLogin = true
-            }
-
-            return
-        }
-    }
-
-    // if none match, deny request
+    controller.allowLogin = true
 })

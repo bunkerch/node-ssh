@@ -69,7 +69,7 @@ export default class PublicKey {
         })
     }
 
-    static parseString(content: string) {
+    static parseString(content: string): PublicKey {
         const parts = content.trim().split(/\s+/)
 
         assert(
@@ -89,6 +89,24 @@ export default class PublicKey {
         }
 
         return publicKey
+    }
+
+    static parseAuthorizedKeysFile(content: string): PublicKey[] {
+        // ~/.ssh/authorized_keys is just a text file, where each
+        // line is a new public key.
+        const keys: PublicKey[] = []
+        const lines = content.trim().split(/[\n\r]+/)
+
+        for (const line of lines) {
+            if (!line) continue
+
+            try {
+                const publicKey = PublicKey.parseString(line.trim())
+                keys.push(publicKey)
+            } catch {}
+        }
+
+        return keys
     }
 }
 
