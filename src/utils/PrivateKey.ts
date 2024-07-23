@@ -57,7 +57,7 @@ export default class PrivateKey {
         prv.push(rnd, rnd)
         prv.push(serializeBuffer(Buffer.from(this.data.alg, "utf8")))
         prv.push(this.data.algorithm.serialize())
-        prv.push(Buffer.from(this.data.comment ?? "", "utf8"))
+        prv.push(serializeBuffer(Buffer.from(this.data.comment ?? "", "utf8")))
 
         let prvPayload = Buffer.concat(prv)
         if (prvPayload.length % 8 !== 0) {
