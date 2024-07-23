@@ -40,11 +40,11 @@ export default class PrivateKey {
         // auth magic
         buffers.push(serializeCString(Buffer.from("openssh-key-v1")))
         // cipher name
-        buffers.push(Buffer.from("none"))
+        buffers.push(serializeBuffer(Buffer.from("none")))
         // kdf name
-        buffers.push(Buffer.from("none"))
+        buffers.push(serializeBuffer(Buffer.from("none")))
         // kdf options
-        buffers.push(Buffer.alloc(0))
+        buffers.push(serializeBuffer(Buffer.alloc(0)))
 
         // number of keys
         buffers.push(serializeUint32(1))
