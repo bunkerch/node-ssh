@@ -9,7 +9,7 @@ import {
 } from "./Buffer.js"
 import PublicKey, { SSHED25519PublicKey, SSHRSAPublicKey } from "./PublicKey.js"
 import nacl from "tweetnacl"
-import { createPublicKey, createSign, generateKeyPair, KeyObject, randomBytes } from "crypto"
+import { createPrivateKey, createSign, generateKeyPair, KeyObject, randomBytes } from "crypto"
 import EncodedSignature from "./Signature.js"
 import asn1js from "asn1js"
 import { decodeBigIntBE, encodeBigIntBE } from "./BigInt.js"
@@ -287,7 +287,7 @@ export class SSHRSAPrivateKey implements PrivateKeyAlgorithm {
     }
 
     sign(data: Buffer): EncodedSignature {
-        const key = createPublicKey({
+        const key = createPrivateKey({
             key: this.toPEM(),
             format: "pem",
             type: "pkcs1",
