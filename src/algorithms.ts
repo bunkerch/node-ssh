@@ -220,7 +220,7 @@ export function chooseAlgorithms(client: Client | ServerClient) {
     }
     assert(client.serverEncryptionAlgorithm, "No server to client encryption algorithm found")
 
-    for (const alg of client.clientKexInit.data.mac_algorithms_client_to_server) {
+    for (const alg of [...client.clientKexInit.data.mac_algorithms_client_to_server].reverse()) {
         if (!client.serverKexInit.data.mac_algorithms_client_to_server.includes(alg)) {
             continue
         }
@@ -231,7 +231,7 @@ export function chooseAlgorithms(client: Client | ServerClient) {
         client.clientMacAlgorithm = algorithm
     }
     assert(client.clientMacAlgorithm, "No client to server mac algorithm found")
-    for (const alg of client.clientKexInit.data.mac_algorithms_server_to_client) {
+    for (const alg of [...client.clientKexInit.data.mac_algorithms_server_to_client].reverse()) {
         if (!client.serverKexInit.data.mac_algorithms_server_to_client.includes(alg)) {
             continue
         }
