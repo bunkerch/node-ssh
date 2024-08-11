@@ -15,15 +15,14 @@ export default class HMACSHA2256 implements MACAlgorithm {
         this.key = key
     }
 
-     
     computeMAC(sequence_number: number, packet: Buffer): Buffer {
         const seq = Buffer.alloc(4)
 
         seq.writeUInt32BE(sequence_number)
 
-        const hmac = crypto.createHmac("sha2", this.key)
+        const hmac = crypto.createHmac("sha256", this.key)
         hmac.update(seq)
         hmac.update(packet)
-        return hmac.digest().subarray(0, HMACSHA2256.digest_length)
+        return hmac.digest()
     }
 }

@@ -15,7 +15,6 @@ export default class HMACSHA1 implements MACAlgorithm {
         this.key = key
     }
 
-     
     computeMAC(sequence_number: number, packet: Buffer): Buffer {
         const seq = Buffer.allocUnsafe(4)
 
