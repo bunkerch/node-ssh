@@ -3,16 +3,16 @@ import Client from "./Client.js"
 import DiskAgent from "./publickey/DiskAgent.js"
 
 const client = new Client({
-    hostname: "VPS1",
+    hostname: "kiji",
     port: 22,
-    username: "debian",
+    username: "ubuntu",
     agent: new DiskAgent(),
 })
-client.on("debug", (...args) => console.debug(...args))
 client.on("error", console.error)
 client.on("close", () => {
     console.log("Connection closed")
 })
+client.on("debug", console.debug)
 
 await client.connect()
 console.log("Connected with ssh!")

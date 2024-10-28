@@ -2,9 +2,15 @@ import "modernlog/patch.js"
 import Server from "./Server.js"
 import PublicKey from "./utils/PublicKey.js"
 import PrivateKey from "./utils/PrivateKey.js"
+import { readFileSync } from "node:fs"
+import { homedir } from "node:os"
 
 const server = new Server({
-    hostKeys: [await PrivateKey.generate("ssh-rsa")],
+    hostKeys: [
+        PrivateKey.fromString(readFileSync(homedir() + "/.ssh/id_ed25519", "utf8")),
+        // big day for annoying people
+        await PrivateKey.generate("ssh-ed25519"),
+    ],
 })
 server.on("debug", console.debug)
 

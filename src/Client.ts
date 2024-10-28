@@ -419,7 +419,12 @@ export default class Client extends (EventEmitter as new () => TypedEmitter<Clie
                     // Do we care ?
                     // at this point, most usage will be
                     // from people ignoring host keys
-                    // TODO: need to implement verifying host keys
+                    // so ig 👍
+
+                    // TODO: need to implement verifying host keys reliably
+                    // this could take the form of an "KnownHostsAgent" or something
+                    // that stores known hosts in a file (.ssh/known_hosts) or in
+                    // memory, or in a database.
 
                     // https://cvsweb.openbsd.org/src/usr.bin/ssh/PROTOCOL?annotate=HEAD
                     // section 2.5 (ctrl + f search for "hostkeys-00@openssh.com")
@@ -436,6 +441,10 @@ export default class Client extends (EventEmitter as new () => TypedEmitter<Clie
                 }
             }
         })
+
+        // we are connected and logged in
+        // we can now open channels
+        this.emit("connect")
     }
 
     waitEvent<event extends keyof ClientEvents>(
