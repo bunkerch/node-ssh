@@ -13,6 +13,9 @@ export interface PasswordAuthMethodData {
 }
 export default class PasswordAuthMethod implements AuthMethod {
     static method_name = SSHAuthenticationMethods.Password
+    get method_name() {
+        return PasswordAuthMethod.method_name
+    }
 
     data: PasswordAuthMethodData
     constructor(data: PasswordAuthMethodData) {

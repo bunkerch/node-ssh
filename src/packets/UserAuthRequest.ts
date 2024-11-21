@@ -31,6 +31,23 @@ export default class UserAuthRequest implements Packet {
         this.data = data
     }
 
+    get username() {
+        return this.data.username
+    }
+    get publicKey() {
+        return this.data.method instanceof PublicKeyAuthMethod
+            ? this.data.method.data.publicKey
+            : undefined
+    }
+    get password() {
+        return this.data.method instanceof PasswordAuthMethod
+            ? this.data.method.data.password
+            : undefined
+    }
+    get method_name() {
+        return this.data.method.method_name
+    }
+
     serialize(): Buffer {
         const buffers = []
 
@@ -88,6 +105,7 @@ export default class UserAuthRequest implements Packet {
 
 export abstract class AuthMethod {
     static method_name: SSHAuthenticationMethods
+    method_name: SSHAuthenticationMethods
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     constructor(data: any) {

@@ -20,6 +20,12 @@ server.listen(3022, () => {
 
 server.on("connection", (client) => {
     client.on("error", console.error)
+
+    client.on("connect", () => {
+        console.log(
+            `User ${client.credentials!.username} logged in with ${client.credentials!.method_name}`,
+        )
+    })
 })
 
 const allowedUser = "manaf"

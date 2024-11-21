@@ -9,6 +9,9 @@ import UserAuthFailure from "../packets/UserAuthFailure.js"
 export interface NoneAuthMethodData {}
 export default class NoneAuthMethod implements AuthMethod {
     static method_name = SSHAuthenticationMethods.None
+    get method_name() {
+        return NoneAuthMethod.method_name
+    }
 
     data: NoneAuthMethodData
     constructor(data: NoneAuthMethodData) {

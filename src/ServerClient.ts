@@ -129,6 +129,7 @@ export default class ServerClient extends (EventEmitter as new () => TypedEventE
     hasReceivedNewKeys: boolean = false
     hasSentNewKeys: boolean = false
     hasAuthenticated: boolean = false
+    credentials: UserAuthRequest | undefined
 
     localChannelIndex = 0
     channels = new Map<number, Channel>()
@@ -368,6 +369,7 @@ export default class ServerClient extends (EventEmitter as new () => TypedEventE
 
     async handleAuthentication() {
         let allowLogin = false
+        let authRequest: Packet
         authentication: {
             const userAuthFailure = new UserAuthFailure({
                 auth_methods: [
@@ -382,7 +384,7 @@ export default class ServerClient extends (EventEmitter as new () => TypedEventE
                 // and the server should be able to handle them. This current implementation
                 // does not respect that and waits sequencially.
                 this.debug("Waiting for authentication request...")
-                const [authRequest] = (await this.waitEvent("packet")) as [Packet]
+                ;[authRequest] = (await this.waitEvent("packet")) as [Packet]
                 assert(authRequest instanceof UserAuthRequest, "Invalid packet type")
 
                 this.debug(`Received authentication request:`, authRequest)
@@ -495,6 +497,11 @@ export default class ServerClient extends (EventEmitter as new () => TypedEventE
                 }
             }
         }
+
+        // redo the assert for type checking, otherwise it should
+        // never throw.
+        assert(authRequest instanceof UserAuthRequest, "Invalid packet type")
+        this.credentials = authRequest
 
         if (allowLogin) {
             this.sendPacket(new UserAuthSuccess({}))

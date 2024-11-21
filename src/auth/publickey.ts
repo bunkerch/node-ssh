@@ -17,6 +17,9 @@ export interface PublicKeyAuthMethodData {
 }
 export default class PublicKeyAuthMethod implements AuthMethod {
     static method_name = SSHAuthenticationMethods.PublicKey
+    get method_name() {
+        return PublicKeyAuthMethod.method_name
+    }
 
     data: PublicKeyAuthMethodData
     constructor(data: PublicKeyAuthMethodData) {
