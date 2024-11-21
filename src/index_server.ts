@@ -14,8 +14,8 @@ const server = new Server({
 })
 server.on("debug", console.debug)
 
-server.listen(1023, () => {
-    server.debug("Server listening on port", 1023)
+server.listen(3022, () => {
+    server.debug("Server listening on port", 3022)
 })
 
 server.on("connection", (client) => {

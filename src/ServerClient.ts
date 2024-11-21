@@ -55,6 +55,7 @@ import RequestSuccess from "./packets/RequestSuccess.js"
 export type ServerClientEvents = {
     error: (error: Error) => void
     close: () => void
+    connect: () => void
     debug: (...message: any[]) => void
     message: (message: Buffer) => void
     clientProtocolVersion: (version: ProtocolVersionExchange) => void
@@ -275,6 +276,8 @@ export default class ServerClient extends (EventEmitter as new () => TypedEventE
 
         await this.handleAuthentication()
         // user is logged in!
+        // emit the event
+        this.emit("connect")
 
         // now that we have received USERAUTH_SUCCESS, we need
         // to handle GLOBAL_REQUEST.
@@ -419,6 +422,7 @@ export default class ServerClient extends (EventEmitter as new () => TypedEventE
                         }
                         const controller: ServerHookerPublicKeyAuthenticationController = {
                             // both are independant since you can also allowLogin without checking the signature
+                            // would sucks tho !
                             requestSignature: false,
                             allowLogin: false,
                         }
