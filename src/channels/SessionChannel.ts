@@ -7,6 +7,7 @@ import ChannelSuccess from "../packets/ChannelSuccess.js"
 import assert from "assert"
 import { Hooker } from "../utils/Hooker.js"
 import EventEmitter from "events"
+import Shell from "./Session/Shell.js"
 
 export type SessionChannelHookerExecRequestContext = {
     command: string
@@ -37,7 +38,7 @@ export type SessionChannelHooker = {
 }
 
 export type SessionChannelEvents = {
-    shell: []
+    shell: [Shell]
 }
 
 export default class SessionChannel extends Channel {
@@ -48,6 +49,8 @@ export default class SessionChannel extends Channel {
 
     env: Map<string, string> = new Map()
     consumed: boolean = false
+
+    shell: Shell | undefined
 
     constructor(client: Client | ServerClient, channel_type: string, clientArgs = Buffer.alloc(0)) {
         if (client instanceof Client) {
@@ -149,6 +152,7 @@ export default class SessionChannel extends Channel {
 
                 if (controller.success) {
                     this.consumed = true
+                    this.shell = new Shell(this)
 
                     if (request.data.want_reply) {
                         this.client.sendPacket(
@@ -158,10 +162,19 @@ export default class SessionChannel extends Channel {
                         )
                     }
 
-                    this.events.emit("shell")
+                    this.events.emit("shell", this.shell!)
 
                     return
                 }
+
+                break
+            }
+            case "subsystem": {
+                const { subsystem } = this.parseSubsystemRequest(request.data.args)
+
+                this.debug(subsystem)
+
+                break
             }
             // TODO: X11 Forwarding, subsystem
         }
@@ -239,5 +252,16 @@ export default class SessionChannel extends Channel {
     parseShellRequest(raw: Buffer) {
         assert(raw.length === 0)
         return {}
+    }
+
+    parseSubsystemRequest(raw: Buffer) {
+        let subsystem: Buffer
+        ;[subsystem, raw] = readNextBuffer(raw)
+
+        assert(raw.length === 0)
+
+        return {
+            subsystem: subsystem,
+        }
     }
 }

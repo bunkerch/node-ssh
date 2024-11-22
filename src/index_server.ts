@@ -14,7 +14,6 @@ const server = new Server({
         await PrivateKey.generate("ssh-ed25519"),
     ],
 })
-server.on("debug", console.debug)
 
 server.listen(3022, () => {
     server.debug("Server listening on port", 3022)
@@ -42,13 +41,29 @@ server.on("connection", (client) => {
             controller.success = true
         })
 
-        channel.events.on("shell", () => {
+        channel.events.on("shell", (shell) => {
+            process.stdin.resume()
+            process.stdin.setRawMode(true)
+            process.stdin.setEncoding("utf8")
+            process.stdin.pipe(shell.stdout)
+
             client.sendPacket(
                 new ChannelData({
                     recipient_channel_id: channel.remoteId!,
-                    data: Buffer.from("Hello World !\n"),
+                    data: Buffer.from("Hello World !\n\nEnvironment Variables:\n", "utf8"),
                 }),
             )
+
+            for (const [key, value] of channel.env.entries()) {
+                client.sendPacket(
+                    new ChannelData({
+                        recipient_channel_id: channel.remoteId!,
+                        data: Buffer.from(`${key}=${value}\n`, "utf8"),
+                    }),
+                )
+            }
+
+            // channel.close()
         })
     })
 })

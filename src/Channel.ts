@@ -6,6 +6,8 @@ import ChannelOpenConfirmation from "./packets/ChannelOpenConfirmation.js"
 import ChannelRequest from "./packets/ChannelRequest.js"
 import ChannelFailure from "./packets/ChannelFailure.js"
 import { ServerHookerChannelRequestController } from "./Server.js"
+import ChannelEOF from "./packets/ChannelEOF.js"
+import ChannelClose from "./packets/ChannelClose.js"
 
 export type BaseChannelEvents = {
     asd: ["meow"]
@@ -105,6 +107,31 @@ export default class Channel {
 
         this.client.sendPacket(
             new ChannelFailure({
+                recipient_channel_id: this.remoteId,
+            }),
+        )
+    }
+
+    sendEOF() {
+        assert(this.remoteId !== undefined, "sendEOF was demanded, but remoteId was not set.")
+
+        this.client.sendPacket(
+            new ChannelEOF({
+                recipient_channel_id: this.remoteId,
+            }),
+        )
+    }
+
+    close() {
+        this.sendEOF()
+        this.terminate()
+    }
+
+    terminate() {
+        assert(this.remoteId !== undefined, "terminate was demanded, but remoteId was not set.")
+
+        this.client.sendPacket(
+            new ChannelClose({
                 recipient_channel_id: this.remoteId,
             }),
         )

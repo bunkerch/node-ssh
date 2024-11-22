@@ -59,6 +59,7 @@ import ChannelOpenFailure, {
 import { channelFromChannelOpenPacket } from "./channels.js"
 import ChannelRequest from "./packets/ChannelRequest.js"
 import { ActionQueue } from "./utils/ActionQueue.js"
+import ChannelData from "./packets/ChannelData.js"
 
 export type ServerClientEvents = {
     error: [error: Error]
@@ -75,6 +76,7 @@ export type ServerClientEvents = {
 
     channelOpenRequest: [packet: ChannelOpen]
     channelRequest: [packet: ChannelRequest]
+    channelData: [packet: ChannelData]
     channel: [channel: Channel]
 }
 
@@ -442,6 +444,10 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 )
             }
 
+            // make sure pty request is handled before exec/shell, etc
+            const lock = await this.queue.obtainLock(
+                `channelRequest:${packet.data.recipient_channel_id}`,
+            )
             try {
                 const deny = await channel.preHandleChannelRequest(packet)
                 if (deny) return
@@ -455,6 +461,8 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 // the base method will send a channel failure.
                 await Channel.prototype.handleChannelRequest.call(channel, packet)
             }
+
+            lock.release()
         })
     }
 
