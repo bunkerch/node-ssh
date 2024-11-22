@@ -4,6 +4,8 @@ import PublicKey from "./utils/PublicKey.js"
 import PrivateKey from "./utils/PrivateKey.js"
 import { readFileSync } from "node:fs"
 import { homedir } from "node:os"
+import SessionChannel from "./channels/SessionChannel.js"
+import ChannelData from "./packets/ChannelData.js"
 
 const server = new Server({
     hostKeys: [
@@ -25,6 +27,29 @@ server.on("connection", (client) => {
         console.log(
             `User ${client.credentials!.username} logged in with ${client.credentials!.method_name}`,
         )
+    })
+
+    client.on("channel", (channel) => {
+        if (!(channel instanceof SessionChannel)) return
+
+        channel.hooker.hook("envRequest", (_, context, controller) => {
+            if (!["LANG"].includes(context.key)) return
+
+            controller.success = true
+        })
+
+        channel.hooker.hook("shellRequest", (_, controller) => {
+            controller.success = true
+        })
+
+        channel.events.on("shell", () => {
+            client.sendPacket(
+                new ChannelData({
+                    recipient_channel_id: channel.remoteId!,
+                    data: Buffer.from("Hello World !\n"),
+                }),
+            )
+        })
     })
 })
 
@@ -56,4 +81,10 @@ server.hooker.hook("publicKeyAuthentication", (_, context, controller) => {
     if (!context.publicKey.verifySignature(context.signatureMessage, context.signature)) return
 
     controller.allowLogin = true
+})
+
+server.hooker.hook("channelOpenRequest", (_, channel, controller) => {
+    if (!(channel instanceof SessionChannel)) return
+
+    controller.allowOpen = true
 })

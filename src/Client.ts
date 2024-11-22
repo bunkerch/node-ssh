@@ -1,6 +1,5 @@
 import crypto, { timingSafeEqual } from "crypto"
 import EventEmitter from "node:events"
-import TypedEmitter from "typed-emitter"
 import net from "node:net"
 import {
     SEQUENCE_NUMBER_MODULO,
@@ -54,18 +53,18 @@ export interface ClientOptions {
 export interface ClientOptionsRequired extends Required<ClientOptions> {}
 
 export type ClientEvents = {
-    debug: (...message: any[]) => void
-    error: (error: Error) => void
-    close: () => void
-    connect: () => void
-    message: (message: Buffer) => void
-    packet: (packet: Packet) => void
-    tcpWrapperLog: (message: string) => void
-    serverProtocolVersion: (protocolVersion: ProtocolVersionExchange) => void
-    serverKexInit: (serverKexInit: KexInit, payload: Buffer) => void
-    serverKexDHReply: (serverKexDHReply: KexDHReply) => void
-    clientNewKeys: () => void
-    serverNewKeys: () => void
+    debug: [...message: any[]]
+    error: [error: Error]
+    close: []
+    connect: []
+    message: [message: Buffer]
+    packet: [packet: Packet]
+    tcpWrapperLog: [message: string]
+    serverProtocolVersion: [protocolVersion: ProtocolVersionExchange]
+    serverKexInit: [serverKexInit: KexInit, payload: Buffer]
+    serverKexDHReply: [serverKexDHReply: KexDHReply]
+    clientNewKeys: []
+    serverNewKeys: []
 }
 
 export type ClientHookerHostKeyController = {
@@ -88,7 +87,7 @@ export type ClientHooker = {
     ]
 }
 
-export default class Client extends (EventEmitter as new () => TypedEmitter<ClientEvents>) {
+export default class Client extends EventEmitter<ClientEvents> {
     options: ClientOptionsRequired
 
     constructor(options: ClientOptions) {
@@ -447,9 +446,7 @@ export default class Client extends (EventEmitter as new () => TypedEmitter<Clie
         this.emit("connect")
     }
 
-    waitEvent<event extends keyof ClientEvents>(
-        event: event,
-    ): Promise<Parameters<ClientEvents[event]>> {
+    waitEvent<event extends keyof ClientEvents>(event: event): Promise<ClientEvents[event]> {
         return new Promise((resolve, reject) => {
             const onError = (error: Error) => {
                 cleanup()
@@ -460,10 +457,10 @@ export default class Client extends (EventEmitter as new () => TypedEmitter<Clie
                 cleanup()
             }
             const cleanup = () => {
-                this.off(event, handler)
+                this.off(event, handler as any)
                 this.off("error", onError)
             }
-            this.once(event, handler)
+            this.once(event, handler as any)
             this.once("error", onError)
         })
     }

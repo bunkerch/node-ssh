@@ -86,4 +86,13 @@ export class ChannelOpenError extends Error {
         this.reason_code = reason_code
         this.recipient_channel_id = recipient_channel_id
     }
+
+    getOpenFailurePacket() {
+        return new ChannelOpenFailure({
+            reason_code: this.reason_code,
+            description: this.message,
+            language_tag: "",
+            recipient_channel_id: this.recipient_channel_id,
+        })
+    }
 }

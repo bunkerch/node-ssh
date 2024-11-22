@@ -1,5 +1,6 @@
 import { Socket } from "node:net"
 import Server, {
+    ServerHookerChannelOpenRequestController,
     ServerHookerNoneAuthenticationContext,
     ServerHookerNoneAuthenticationController,
     ServerHookerPasswordAuthenticationContext,
@@ -10,7 +11,6 @@ import Server, {
 import ProtocolVersionExchange from "./ProtocolVersionExchange.js"
 import { timingSafeEqual } from "node:crypto"
 import EventEmitter from "node:events"
-import TypedEventEmitter from "typed-emitter"
 import {
     SEQUENCE_NUMBER_MODULO,
     SSHAuthenticationMethods,
@@ -51,25 +51,39 @@ import GlobalRequest from "./packets/GlobalRequest.js"
 import { readNextBuffer, serializeBuffer } from "./utils/Buffer.js"
 import RequestFailure from "./packets/RequestFailure.js"
 import RequestSuccess from "./packets/RequestSuccess.js"
+import ChannelOpen from "./packets/ChannelOpen.js"
+import ChannelOpenFailure, {
+    ChannelOpenError,
+    ChannelOpenFailureReasonCodes,
+} from "./packets/ChannelOpenFailure.js"
+import { channelFromChannelOpenPacket } from "./channels.js"
+import ChannelRequest from "./packets/ChannelRequest.js"
+import { ActionQueue } from "./utils/ActionQueue.js"
 
 export type ServerClientEvents = {
-    error: (error: Error) => void
-    close: () => void
-    connect: () => void
-    debug: (...message: any[]) => void
-    message: (message: Buffer) => void
-    clientProtocolVersion: (version: ProtocolVersionExchange) => void
-    tcpWrapperLog: (message: string) => void
-    packet: (packet: Packet) => void
-    clientKexInit: (kexInit: KexInit, payload: Buffer) => void
-    clientNewKeys: () => void
-    serverNewKeys: () => void
+    error: [error: Error]
+    close: []
+    connect: []
+    debug: [...message: any[]]
+    message: [message: Buffer]
+    clientProtocolVersion: [version: ProtocolVersionExchange]
+    tcpWrapperLog: [message: string]
+    packet: [packet: Packet]
+    clientKexInit: [kexInit: KexInit, payload: Buffer]
+    clientNewKeys: []
+    serverNewKeys: []
+
+    channelOpenRequest: [packet: ChannelOpen]
+    channelRequest: [packet: ChannelRequest]
+    channel: [channel: Channel]
 }
 
-export default class ServerClient extends (EventEmitter as new () => TypedEventEmitter<ServerClientEvents>) {
+export default class ServerClient extends EventEmitter<ServerClientEvents> {
     private socket: Socket
     connectionId: string
     server: Server
+
+    queue: ActionQueue<string> = new ActionQueue()
 
     constructor(socket: Socket, server: Server) {
         super()
@@ -157,6 +171,7 @@ export default class ServerClient extends (EventEmitter as new () => TypedEventE
         this.state = SocketState.Connecting
         const clientProtocolVersionPromise = this.waitEvent("clientProtocolVersion")
         const clientKexInitPromise = this.waitEvent("clientKexInit")
+        const clientNewKeysPromise = this.waitEvent("clientNewKeys")
 
         this.debug(`Socket connected, sending protocol version exchange packet...`)
         this.socket.write(this.server.options.protocolVersionExchange.toString())
@@ -240,12 +255,12 @@ export default class ServerClient extends (EventEmitter as new () => TypedEventE
             integrityKeyServerToClient: this.integrityKeyServerToClient,
         })
 
+        await clientNewKeysPromise
+        this.hasReceivedNewKeys = true
+
         this.sendPacket(new NewKeys({}))
         this.hasSentNewKeys = true
         this.emit("serverNewKeys")
-        if (!this.hasReceivedNewKeys) {
-            await this.waitEvent("clientNewKeys")
-        }
 
         this.clientEncryption = this.clientEncryptionAlgorithm!.instantiate(
             this.encryptionKeyClientToServer!,
@@ -365,6 +380,82 @@ export default class ServerClient extends (EventEmitter as new () => TypedEventE
                 }),
             )
         }
+
+        this.on("channelOpenRequest", async (packet) => {
+            this.debug(`ChannelOpenRequest`, packet)
+
+            const lock = await this.queue.obtainLock("channelOpenRequest")
+            try {
+                const channel = channelFromChannelOpenPacket(packet, this)
+                const controller: ServerHookerChannelOpenRequestController = {
+                    allowOpen: false,
+                }
+
+                await this.server.hooker.triggerHook(
+                    "channelOpenRequest",
+                    channel,
+                    controller,
+                    this,
+                )
+
+                if (!controller.allowOpen) {
+                    throw new ChannelOpenError(
+                        ChannelOpenFailureReasonCodes.SSH_OPEN_ADMINISTRATIVELY_PROHIBITED,
+                        packet.data.sender_channel_id,
+                        "Opening channel type not allowed by the server.",
+                    )
+                }
+
+                this.debug(`Opening channel`, channel)
+                this.channels.set(channel.localId, channel)
+                this.sendPacket(channel.getChannelOpenConfirmationPacket())
+                this.emit("channel", channel)
+            } catch (err) {
+                this.debug(`ChannelOpenRequest failed:`, err)
+
+                if (err instanceof ChannelOpenError) {
+                    this.sendPacket(err.getOpenFailurePacket())
+                    return
+                }
+                this.debug(`An error occured:`, err)
+
+                this.sendPacket(
+                    new ChannelOpenFailure({
+                        reason_code: ChannelOpenFailureReasonCodes.SSH_OPEN_CONNECT_FAILED,
+                        description: "An error occured on the server",
+                        language_tag: "",
+                        recipient_channel_id: packet.data.sender_channel_id,
+                    }),
+                )
+            }
+
+            lock.release()
+        })
+        this.on("channelRequest", async (packet) => {
+            const channel = this.channels.get(packet.data.recipient_channel_id)
+            if (!channel) {
+                // TODO: I think this error isn't actually sent to client here.
+                // make it send and get a proper error handling here.
+                throw new DisconnectError(
+                    DisconnectReason.SSH_DISCONNECT_PROTOCOL_ERROR,
+                    "Invalid channel id received.",
+                )
+            }
+
+            try {
+                const deny = await channel.preHandleChannelRequest(packet)
+                if (deny) return
+
+                await channel.handleChannelRequest(packet)
+            } catch (err) {
+                this.debug(
+                    `An error occured in the Channel Request handler. This could be due to a faulty request or an implementation bug.`,
+                    err,
+                )
+                // the base method will send a channel failure.
+                await Channel.prototype.handleChannelRequest.call(channel, packet)
+            }
+        })
     }
 
     async handleAuthentication() {
@@ -516,7 +607,7 @@ export default class ServerClient extends (EventEmitter as new () => TypedEventE
 
     waitEvent<event extends keyof ServerClientEvents>(
         event: event,
-    ): Promise<Parameters<ServerClientEvents[event]>> {
+    ): Promise<ServerClientEvents[event]> {
         return new Promise((resolve, reject) => {
             const onError = (error: Error) => {
                 cleanup()
@@ -527,10 +618,10 @@ export default class ServerClient extends (EventEmitter as new () => TypedEventE
                 cleanup()
             }
             const cleanup = () => {
-                this.off(event, handler)
+                this.off(event, handler as any)
                 this.off("error", onError)
             }
-            this.once(event, handler)
+            this.once(event, handler as any)
             this.once("error", onError)
         })
     }
@@ -744,9 +835,15 @@ export default class ServerClient extends (EventEmitter as new () => TypedEventE
                     break
 
                 case SSHPacketType.SSH_MSG_NEWKEYS:
-                    this.hasReceivedNewKeys = true
                     this.emit("clientNewKeys")
                     // handle key exchange
+                    break
+
+                case SSHPacketType.SSH_MSG_CHANNEL_OPEN:
+                    this.emit("channelOpenRequest", p as ChannelOpen)
+                    break
+                case SSHPacketType.SSH_MSG_CHANNEL_REQUEST:
+                    this.emit("channelRequest", p as ChannelRequest)
                     break
             }
 

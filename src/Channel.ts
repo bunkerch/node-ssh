@@ -1,13 +1,16 @@
 import assert from "assert"
 import Client from "./Client.js"
 import ChannelOpen from "./packets/ChannelOpen.js"
-import { ChannelOpenError, ChannelOpenFailureReasonCodes } from "./packets/ChannelOpenFailure.js"
 import ServerClient from "./ServerClient.js"
 import ChannelOpenConfirmation from "./packets/ChannelOpenConfirmation.js"
+import ChannelRequest from "./packets/ChannelRequest.js"
+import ChannelFailure from "./packets/ChannelFailure.js"
+import { ServerHookerChannelRequestController } from "./Server.js"
 
+export type BaseChannelEvents = {
+    asd: ["meow"]
+}
 export default class Channel {
-    static channel_types = new Map<string, typeof Channel>()
-
     client: Client | ServerClient
 
     channel_type: string
@@ -19,10 +22,18 @@ export default class Channel {
     local_maximum_packet_size: number = 0
     remote_maximum_packet_size: number = 0
 
-    constructor(client: Client | ServerClient, channel_type: string) {
+    serverArgs: Buffer | undefined
+    clientArgs: Buffer
+
+    constructor(client: Client | ServerClient, channel_type: string, clientArgs = Buffer.alloc(0)) {
         this.client = client
         this.channel_type = channel_type
         this.localId = client.localChannelIndex++
+        this.clientArgs = clientArgs
+    }
+
+    debug(...msg: any[]) {
+        return this.client.debug(`[Channel:${this.channel_type}#${this.localId}]`, ...msg)
     }
 
     getChannelOpenPacket() {
@@ -31,7 +42,7 @@ export default class Channel {
             initial_window_size: this.local_initial_window_size,
             maximum_packet_size: this.local_maximum_packet_size,
             sender_channel_id: this.localId,
-            args: Buffer.alloc(0),
+            args: this.clientArgs,
         })
     }
 
@@ -40,63 +51,62 @@ export default class Channel {
             this.remoteId !== undefined,
             "ChannelOpenConfirmation packet was demanded, but remoteId was not set.",
         )
+        assert(
+            this.serverArgs !== undefined,
+            "ChannelOpenConfirmation packet was demanded, but serverArgs was not set.",
+        )
+
         return new ChannelOpenConfirmation({
-            recipient_channel_id: this.localId,
-            sender_channel_id: this.remoteId!,
+            recipient_channel_id: this.remoteId,
+            sender_channel_id: this.localId,
             initial_window_size: this.local_initial_window_size,
             maximum_packet_size: this.local_maximum_packet_size,
-            args: Buffer.alloc(0),
+            args: this.serverArgs,
         })
     }
 
-    static fromChannelOpenPacket(packet: ChannelOpen, client: Client | ServerClient) {
-        const constructor = Channel.channel_types.get(packet.data.channel_type)
-        if (!constructor) {
-            throw new ChannelOpenError(
-                ChannelOpenFailureReasonCodes.SSH_OPEN_UNKNOWN_CHANNEL_TYPE,
-                client.localChannelIndex++,
-                `Unknown channel type: ${JSON.stringify(packet.data.channel_type)}`,
+    getServerArgsBuffer() {
+        return Buffer.alloc(0)
+    }
+
+    async preHandleChannelRequest(request: ChannelRequest): Promise<boolean> {
+        if (this.client instanceof ServerClient) {
+            const controller: ServerHookerChannelRequestController = {
+                deny: false,
+            }
+
+            await this.client.server.hooker.triggerHook(
+                "channelRequest",
+                this,
+                controller,
+                this.client,
             )
+
+            if (controller.deny) {
+                // call this without any extend
+                // this will deny the request.
+                await Channel.prototype.handleChannelRequest.call(this, request)
+            }
+
+            return controller.deny
         }
+        // TODO: Implement deny for Client
 
-        const channel = new constructor(client, packet.data.channel_type)
-        channel.remoteId = packet.data.sender_channel_id
-        channel.remote_initial_window_size = packet.data.initial_window_size
-        channel.remote_maximum_packet_size = packet.data.maximum_packet_size
+        return false
+    }
 
+    async handleChannelRequest(request: ChannelRequest): Promise<void> {
         assert(
-            channel.remote_initial_window_size != 0,
-            new ChannelOpenError(
-                ChannelOpenFailureReasonCodes.SSH_OPEN_CONNECT_FAILED,
-                channel.localId,
-                `Misconfigured remote initial window size`,
-            ),
-        )
-        assert(
-            channel.local_initial_window_size != 0,
-            new ChannelOpenError(
-                ChannelOpenFailureReasonCodes.SSH_OPEN_CONNECT_FAILED,
-                channel.localId,
-                `Misconfigured local initial window size`,
-            ),
-        )
-        assert(
-            channel.remote_maximum_packet_size != 0,
-            new ChannelOpenError(
-                ChannelOpenFailureReasonCodes.SSH_OPEN_CONNECT_FAILED,
-                channel.localId,
-                `Misconfigured remote maximum packet size`,
-            ),
-        )
-        assert(
-            channel.local_maximum_packet_size != 0,
-            new ChannelOpenError(
-                ChannelOpenFailureReasonCodes.SSH_OPEN_CONNECT_FAILED,
-                channel.localId,
-                `Misconfigured local maximum packet size`,
-            ),
+            this.remoteId !== undefined,
+            "handleChannelRequest was demanded, but remoteId was not set.",
         )
 
-        return channel
+        if (!request.data.want_reply) return
+
+        this.client.sendPacket(
+            new ChannelFailure({
+                recipient_channel_id: this.remoteId,
+            }),
+        )
     }
 }

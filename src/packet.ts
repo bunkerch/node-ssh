@@ -1,6 +1,15 @@
 import { SSHPacketType } from "./constants.js"
+import ChannelClose from "./packets/ChannelClose.js"
+import ChannelData from "./packets/ChannelData.js"
+import ChannelEOF from "./packets/ChannelEOF.js"
+import ChannelExtendedData from "./packets/ChannelExtendedData.js"
+import ChannelFailure from "./packets/ChannelFailure.js"
 import ChannelOpen from "./packets/ChannelOpen.js"
 import ChannelOpenConfirmation from "./packets/ChannelOpenConfirmation.js"
+import ChannelOpenFailure from "./packets/ChannelOpenFailure.js"
+import ChannelRequest from "./packets/ChannelRequest.js"
+import ChannelSuccess from "./packets/ChannelSuccess.js"
+import ChannelWindowAdjust from "./packets/ChannelWindowAdjust.js"
 import Debug from "./packets/Debug.js"
 import Disconnect from "./packets/Disconnect.js"
 import GlobalRequest from "./packets/GlobalRequest.js"
@@ -65,6 +74,15 @@ export const packets = new Map<SSHPacketType, typeof Packet>([
 
     [SSHPacketType.SSH_MSG_CHANNEL_OPEN, ChannelOpen],
     [SSHPacketType.SSH_MSG_CHANNEL_OPEN_CONFIRMATION, ChannelOpenConfirmation],
+    [SSHPacketType.SSH_MSG_CHANNEL_OPEN_FAILURE, ChannelOpenFailure],
+    [SSHPacketType.SSH_MSG_CHANNEL_WINDOW_ADJUST, ChannelWindowAdjust],
+    [SSHPacketType.SSH_MSG_CHANNEL_DATA, ChannelData],
+    [SSHPacketType.SSH_MSG_CHANNEL_EXTENDED_DATA, ChannelExtendedData],
+    [SSHPacketType.SSH_MSG_CHANNEL_EOF, ChannelEOF],
+    [SSHPacketType.SSH_MSG_CHANNEL_CLOSE, ChannelClose],
+    [SSHPacketType.SSH_MSG_CHANNEL_REQUEST, ChannelRequest],
+    [SSHPacketType.SSH_MSG_CHANNEL_SUCCESS, ChannelSuccess],
+    [SSHPacketType.SSH_MSG_CHANNEL_FAILURE, ChannelFailure],
 ])
 export interface PacketTypes {
     [SSHPacketType.SSH_MSG_DISCONNECT]: Disconnect
@@ -92,4 +110,13 @@ export interface PacketTypes {
 
     [SSHPacketType.SSH_MSG_CHANNEL_OPEN]: ChannelOpen
     [SSHPacketType.SSH_MSG_CHANNEL_OPEN_CONFIRMATION]: ChannelOpenConfirmation
+    [SSHPacketType.SSH_MSG_CHANNEL_OPEN_FAILURE]: ChannelOpenFailure
+    [SSHPacketType.SSH_MSG_CHANNEL_WINDOW_ADJUST]: ChannelWindowAdjust
+    [SSHPacketType.SSH_MSG_CHANNEL_DATA]: ChannelData
+    [SSHPacketType.SSH_MSG_CHANNEL_EXTENDED_DATA]: ChannelExtendedData
+    [SSHPacketType.SSH_MSG_CHANNEL_EOF]: ChannelEOF
+    [SSHPacketType.SSH_MSG_CHANNEL_CLOSE]: ChannelClose
+    [SSHPacketType.SSH_MSG_CHANNEL_REQUEST]: ChannelRequest
+    [SSHPacketType.SSH_MSG_CHANNEL_SUCCESS]: ChannelSuccess
+    [SSHPacketType.SSH_MSG_CHANNEL_FAILURE]: ChannelFailure
 }

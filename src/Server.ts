@@ -2,7 +2,6 @@
 /* eslint-disable @typescript-eslint/unified-signatures */
 
 import EventEmitter from "node:events"
-import TypedEmitter from "typed-emitter"
 import ProtocolVersionExchange from "./ProtocolVersionExchange.js"
 import net from "net"
 import ServerClient from "./ServerClient.js"
@@ -10,6 +9,7 @@ import { Hooker } from "./utils/Hooker.js"
 import PrivateKey from "./utils/PrivateKey.js"
 import PublicKey from "./utils/PublicKey.js"
 import EncodedSignature from "./utils/Signature.js"
+import Channel from "./Channel.js"
 
 export interface ServerOptions {
     protocolVersionExchange?: ProtocolVersionExchange
@@ -25,9 +25,9 @@ export interface ServerOptions {
 export interface ServerOptionsRequired extends Required<ServerOptions> {}
 
 export type ServerEvents = {
-    debug: (...message: any[]) => void
-    close: () => void
-    connection: (client: ServerClient) => void
+    debug: any[]
+    close: []
+    connection: [client: ServerClient]
 }
 
 export type ServerHookerPreconnectController = {
@@ -56,26 +56,42 @@ export type ServerHookerPasswordAuthenticationContext = Readonly<{
 export type ServerHookerPasswordAuthenticationController = {
     allowLogin: boolean
 }
+export type ServerHookerChannelOpenRequestController = {
+    allowOpen: boolean
+}
+export type ServerHookerChannelRequestController = {
+    deny: boolean
+}
 export type ServerHooker = {
     preconnect: [preconnectController: ServerHookerPreconnectController, client: ServerClient]
     noneAuthentication: [
-        noneAuthenticationContext: ServerHookerNoneAuthenticationContext,
+        noneAuthenticationContext: Readonly<ServerHookerNoneAuthenticationContext>,
         noneAuthenticationController: ServerHookerNoneAuthenticationController,
         client: ServerClient,
     ]
     publicKeyAuthentication: [
-        publicKeyAuthenticationContext: ServerHookerPublicKeyAuthenticationContext,
+        publicKeyAuthenticationContext: Readonly<ServerHookerPublicKeyAuthenticationContext>,
         publicKeyAuthenticationController: ServerHookerPublicKeyAuthenticationController,
         client: ServerClient,
     ]
     passwordAuthentication: [
-        passwordAuthenticationContext: ServerHookerPasswordAuthenticationContext,
+        passwordAuthenticationContext: Readonly<ServerHookerPasswordAuthenticationContext>,
         passwordAuthenticationController: ServerHookerPasswordAuthenticationController,
+        client: ServerClient,
+    ]
+    channelOpenRequest: [
+        channel: Channel,
+        channelOpenRequestController: ServerHookerChannelOpenRequestController,
+        client: ServerClient,
+    ]
+    channelRequest: [
+        channel: Channel,
+        channelRequestController: ServerHookerChannelRequestController,
         client: ServerClient,
     ]
 }
 
-export default class Server extends (EventEmitter as new () => TypedEmitter<ServerEvents>) {
+export default class Server extends EventEmitter<ServerEvents> {
     options: ServerOptionsRequired
 
     constructor(options: ServerOptions = {}) {
@@ -134,7 +150,7 @@ export default class Server extends (EventEmitter as new () => TypedEmitter<Serv
 
             const client = new ServerClient(socket, this)
 
-            // if the server wants to deny the connection
+            // if the server wants to deny the connection (based on ip/stuff ?)
             if (this.hooker.hasHooks("preconnect")) {
                 const controller: ServerHookerPreconnectController = {
                     allowConnection: true,

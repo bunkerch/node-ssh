@@ -1,5 +1,4 @@
 import EventEmitter from "node:events"
-import TypedEventEmitter from "typed-emitter"
 
 export interface HookController {
     stopPropagation(): void
@@ -9,12 +8,10 @@ export type Hook<values extends any[]> = (
     ...values: values
 ) => void | Promise<void>
 export type HookerEvents = {
-    uncaughtException: (event: string, error: Error) => void
+    uncaughtException: [event: string, error: Error]
 }
 
-export class Hooker<
-    types extends { [key: string]: any[] },
-> extends (EventEmitter as new () => TypedEventEmitter<HookerEvents>) {
+export class Hooker<types extends { [key: string]: any[] }> extends EventEmitter<HookerEvents> {
     hooks: Map<keyof types, Hook<types[keyof types]>[]> = new Map()
 
     hook<event extends keyof types>(event: event, hook: Hook<types[event]>) {

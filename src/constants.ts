@@ -63,3 +63,10 @@ export enum SSHAuthenticationMethods {
     PublicKey = "publickey",
     Password = "password",
 }
+
+// https://datatracker.ietf.org/doc/html/rfc4254#section-5.2
+export const MAXIMUM_CHANNEL_WINDOW_SIZE = 2 ** 32 - 1
+
+export enum SSHExtendedDataTypes {
+    SSH_EXTENDED_DATA_STDERR = 1,
+}
