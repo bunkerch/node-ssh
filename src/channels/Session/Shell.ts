@@ -2,6 +2,7 @@ import { Readable, Writable } from "stream"
 import SessionChannel from "../SessionChannel.js"
 import ChannelData from "../../packets/ChannelData.js"
 import assert from "assert"
+import ChannelExtendedData from "../../packets/ChannelExtendedData.js"
 
 export default class Shell {
     channel: SessionChannel
@@ -43,8 +44,9 @@ export default class Shell {
             assert(Buffer.isBuffer(chunk))
 
             this.channel.client.sendPacket(
-                new ChannelData({
+                new ChannelExtendedData({
                     recipient_channel_id: this.channel.remoteId!,
+                    data_type_code: 1,
                     data: chunk,
                 }),
             )
