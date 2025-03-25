@@ -13,7 +13,7 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier -wc src"
   },
-  "author": "JeanOUINA",
+  "author": "Manaf",
   "license": "UNLICENSED",
   "devDependencies": {
     "@eslint/js": "^9.7.0",
