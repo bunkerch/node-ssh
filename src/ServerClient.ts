@@ -647,7 +647,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         const packet_length = Buffer.allocUnsafe(4)
         packet_length.writeUInt32BE(1 + payload.length + padding_length, 0)
 
-        let packet_buf = Buffer.concat([
+        let packet_buf: Buffer = Buffer.concat([
             packet_length,
             Buffer.from([padding_length]),
             payload,

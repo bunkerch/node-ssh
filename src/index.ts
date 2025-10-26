@@ -3,7 +3,7 @@ import Client from "./Client.js"
 import DiskAgent from "./publickey/DiskAgent.js"
 
 const client = new Client({
-    hostname: "kiji",
+    hostname: "takeru",
     port: 22,
     username: "ubuntu",
     agent: new DiskAgent(),

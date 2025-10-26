@@ -27,7 +27,11 @@ export default class Channel {
     serverArgs: Buffer | undefined
     clientArgs: Buffer
 
-    constructor(client: Client | ServerClient, channel_type: string, clientArgs = Buffer.alloc(0)) {
+    constructor(
+        client: Client | ServerClient,
+        channel_type: string,
+        clientArgs: Buffer = Buffer.alloc(0),
+    ) {
         this.client = client
         this.channel_type = channel_type
         this.localId = client.localChannelIndex++
