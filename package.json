@@ -2,7 +2,7 @@
   "name": "modernssh",
   "private": true,
   "version": "1.0.0",
-  "description": "[CHANGE THIS BEFORE RELEASE] Template made for Typescript",
+  "description": "cool ssh library frfr",
   "main": "dist/index.js",
   "scripts": {
     "test": "bun test ./__tests__/*/*",
@@ -17,6 +17,7 @@
   "license": "UNLICENSED",
   "devDependencies": {
     "@eslint/js": "^9.38.0",
+    "@stylistic/eslint-plugin": "^5.5.0",
     "@types/eslint__js": "^8.42.3",
     "@types/jest": "^29.5.14",
     "@types/node": "^22.18.12",
@@ -25,7 +26,7 @@
     "modernlog": "^1.1.2",
     "prettier": "^3.6.2",
     "typescript": "^5.9.3",
-    "typescript-eslint": "^7.18.0"
+    "typescript-eslint": "^8.46.2"
   },
   "type": "module",
   "dependencies": {
