@@ -1,5 +1,5 @@
 import assert from "assert"
-import { SSHPacketType } from "../constants.js"
+import { PacketNameToType } from "../constants.js"
 import Packet from "../packet.js"
 import { readNextNameList, serializeNameList } from "../utils/NameList.js"
 import { serializeBinaryBoolean } from "../utils/BinaryBoolean.js"
@@ -20,7 +20,7 @@ export interface KexInitData {
     first_kex_packet_follows: boolean
 }
 export default class KexInit implements Packet {
-    static type = SSHPacketType.SSH_MSG_KEXINIT
+    static type = PacketNameToType.SSH_MSG_KEXINIT
 
     data: KexInitData
     constructor(data: KexInitData) {

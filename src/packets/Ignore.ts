@@ -1,5 +1,5 @@
 import assert from "assert"
-import { SSHPacketType } from "../constants.js"
+import { PacketNameToType } from "../constants.js"
 import Packet from "../packet.js"
 import { readNextBuffer, readNextUint8, serializeBuffer } from "../utils/Buffer.js"
 
@@ -7,7 +7,7 @@ export interface IgnoreData {
     data: Buffer
 }
 export default class Ignore implements Packet {
-    static type = SSHPacketType.SSH_MSG_IGNORE
+    static type = PacketNameToType.SSH_MSG_IGNORE
 
     data: IgnoreData
     constructor(data: IgnoreData) {

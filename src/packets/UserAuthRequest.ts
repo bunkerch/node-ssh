@@ -1,14 +1,11 @@
 import assert from "assert"
-import { SSHAuthenticationMethods, SSHPacketType } from "../constants.js"
+import { SSHAuthenticationMethods, PacketNameToType } from "../constants.js"
 import Packet from "../packet.js"
 import { readNextBuffer, readNextUint8, serializeBuffer, serializeUint8 } from "../utils/Buffer.js"
 import NoneAuthMethod from "../auth/none.js"
 import PasswordAuthMethod from "../auth/password.js"
 import Client from "../Client.js"
 import PublicKeyAuthMethod from "../auth/publickey.js"
-import Unimplemented from "./Unimplemented.js"
-import UserAuthFailure from "./UserAuthFailure.js"
-import UserAuthSuccess from "./UserAuthSuccess.js"
 import ServerClient from "../ServerClient.js"
 
 export interface UserAuthRequestData {
@@ -18,7 +15,7 @@ export interface UserAuthRequestData {
     method: AuthMethod
 }
 export default class UserAuthRequest implements Packet {
-    static type = SSHPacketType.SSH_MSG_USERAUTH_REQUEST
+    static type = PacketNameToType.SSH_MSG_USERAUTH_REQUEST
     static auth_methods = new Map<string, typeof AuthMethod>(
         [NoneAuthMethod, PublicKeyAuthMethod, PasswordAuthMethod].map((method) => [
             method.method_name,
@@ -108,7 +105,7 @@ export abstract class AuthMethod {
     method_name: SSHAuthenticationMethods
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    constructor(data: any) {
+    constructor(data: unknown) {
         throw new Error("Not implemented")
     }
 
@@ -126,24 +123,21 @@ export abstract class AuthMethod {
         throw new Error("Not implemented")
     }
 
-    static async waitForAnswer?(
-        client: Client,
-        seqno: number,
-    ): Promise<Unimplemented | UserAuthFailure | UserAuthSuccess> {
+    static async waitForAnswer?(client: Client, seqno: number) {
         const answer = await client.waitForPackets(
             {
-                [SSHPacketType.SSH_MSG_UNIMPLEMENTED]: {
-                    predicate: (packet: Unimplemented) => {
+                SSH_MSG_UNIMPLEMENTED: {
+                    predicate: (packet) => {
                         return packet.data.sequence_number === seqno
                     },
                 },
-                [SSHPacketType.SSH_MSG_USERAUTH_FAILURE]: {
+                SSH_MSG_USERAUTH_FAILURE: {
                     predicate: () => true,
                 },
-                [SSHPacketType.SSH_MSG_USERAUTH_SUCCESS]: {
+                SSH_MSG_USERAUTH_SUCCESS: {
                     predicate: () => true,
                 },
-                [SSHPacketType.SSH_MSG_USERAUTH_PK_OK]: {
+                SSH_MSG_USERAUTH_PK_OK: {
                     predicate: () => true,
                 },
             },

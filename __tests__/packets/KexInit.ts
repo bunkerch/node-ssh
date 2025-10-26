@@ -1,11 +1,10 @@
-// TODO: Jest does not allow ESM imports ? figure it out
-import { SSHPacketType } from "../../src/constants.js"
+import { PacketNameToType } from "../../src/constants.js"
 import KexInit from "../../src/packets/KexInit.js"
 
 describe("Packets", () => {
     describe("KexInit", () => {
         test("Packet Type should be SSH_MSG_KEXINIT", () => {
-            expect(KexInit.type).toBe(SSHPacketType.SSH_MSG_KEXINIT)
+            expect(KexInit.type).toBe(PacketNameToType.SSH_MSG_KEXINIT)
         })
 
         const sample = Buffer.from(

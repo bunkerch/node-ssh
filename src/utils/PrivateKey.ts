@@ -185,7 +185,7 @@ export abstract class PrivateKeyAlgorithm {
     static alg_name: string
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    constructor(data: any) {
+    constructor(data: unknown) {
         throw new Error("Not implemented")
     }
 
@@ -499,7 +499,7 @@ export class SSHRSAPrivateKey implements PrivateKeyAlgorithm {
 
     // 3072 is still good today.
     // in case you need more security, you can increase that value
-    static async generate(bitsize: number = 3072): Promise<PrivateKey> {
+    static async generate(bitsize = 3072): Promise<PrivateKey> {
         const privateKey = await new Promise<KeyObject>((res, rej) => {
             generateKeyPair(
                 "rsa",

@@ -1,5 +1,5 @@
 import assert from "assert"
-import { SSHPacketType } from "../constants.js"
+import { PacketNameToType } from "../constants.js"
 import Packet from "../packet.js"
 import { readNextUint32, readNextUint8, serializeUint32 } from "../utils/Buffer.js"
 
@@ -9,7 +9,7 @@ export interface ChannelWindowAdjustData {
     bytes_to_add: number
 }
 export default class ChannelWindowAdjust implements Packet {
-    static type = SSHPacketType.SSH_MSG_CHANNEL_WINDOW_ADJUST
+    static type = PacketNameToType.SSH_MSG_CHANNEL_WINDOW_ADJUST
 
     data: ChannelWindowAdjustData
     constructor(data: ChannelWindowAdjustData) {

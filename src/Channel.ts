@@ -9,9 +9,6 @@ import { ServerHookerChannelRequestController } from "./Server.js"
 import ChannelEOF from "./packets/ChannelEOF.js"
 import ChannelClose from "./packets/ChannelClose.js"
 
-export type BaseChannelEvents = {
-    asd: ["meow"]
-}
 export default class Channel {
     client: Client | ServerClient
 
@@ -19,10 +16,10 @@ export default class Channel {
     localId: number
     remoteId: number | undefined
 
-    local_initial_window_size: number = 0
-    remote_initial_window_size: number = 0
-    local_maximum_packet_size: number = 0
-    remote_maximum_packet_size: number = 0
+    local_initial_window_size = 0
+    remote_initial_window_size = 0
+    local_maximum_packet_size = 0
+    remote_maximum_packet_size = 0
 
     serverArgs: Buffer | undefined
     clientArgs: Buffer
@@ -38,7 +35,7 @@ export default class Channel {
         this.clientArgs = clientArgs
     }
 
-    debug(...msg: any[]) {
+    debug(...msg: unknown[]) {
         return this.client.debug(`[Channel:${this.channel_type}#${this.localId}]`, ...msg)
     }
 
@@ -89,7 +86,7 @@ export default class Channel {
             )
 
             if (controller.deny) {
-                // call this without any extend
+                // call this without unknown extend
                 // this will deny the request.
                 await Channel.prototype.handleChannelRequest.call(this, request)
             }

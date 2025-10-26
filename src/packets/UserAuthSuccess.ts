@@ -1,11 +1,11 @@
 import assert from "assert"
-import { SSHPacketType } from "../constants.js"
+import { PacketNameToType } from "../constants.js"
 import Packet from "../packet.js"
 import { readNextUint8, serializeUint8 } from "../utils/Buffer.js"
 
-export interface UserAuthSuccessData {}
+export type UserAuthSuccessData = Record<never, never>
 export default class UserAuthSuccess implements Packet {
-    static type = SSHPacketType.SSH_MSG_USERAUTH_SUCCESS
+    static type = PacketNameToType.SSH_MSG_USERAUTH_SUCCESS
 
     data: UserAuthSuccessData
     constructor(data: UserAuthSuccessData) {

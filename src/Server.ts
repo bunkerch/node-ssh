@@ -1,5 +1,4 @@
 // this causes issues with the Server#listen method.
-/* eslint-disable @typescript-eslint/unified-signatures */
 
 import EventEmitter from "node:events"
 import ProtocolVersionExchange from "./ProtocolVersionExchange.js"
@@ -16,27 +15,28 @@ export interface ServerOptions {
     hostKeys?: PrivateKey[]
     // by default, the Server will send all available hostkeys
     // to the client after login (USERAUTH_SUCCESS)
-    // this allows the client to save them and then to accept any
+    // this allows the client to save them and then to accept unknown
     // of them on the next login.
     // This is particularily useful when a transition in hostkeys
     // is happening (for example deprecating an host key)
     sendAllHostKeys?: boolean
 }
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface ServerOptionsRequired extends Required<ServerOptions> {}
 
-export type ServerEvents = {
-    debug: any[]
+export interface ServerEvents {
+    debug: unknown[]
     close: []
     connection: [client: ServerClient]
 }
 
-export type ServerHookerPreconnectController = {
+export interface ServerHookerPreconnectController {
     allowConnection: boolean
 }
 export type ServerHookerNoneAuthenticationContext = Readonly<{
     username: string
 }>
-export type ServerHookerNoneAuthenticationController = {
+export interface ServerHookerNoneAuthenticationController {
     allowLogin: boolean
 }
 export type ServerHookerPublicKeyAuthenticationContext = Readonly<{
@@ -45,7 +45,7 @@ export type ServerHookerPublicKeyAuthenticationContext = Readonly<{
     signature?: EncodedSignature
     signatureMessage: Buffer
 }>
-export type ServerHookerPublicKeyAuthenticationController = {
+export interface ServerHookerPublicKeyAuthenticationController {
     requestSignature: boolean
     allowLogin: boolean
 }
@@ -53,15 +53,16 @@ export type ServerHookerPasswordAuthenticationContext = Readonly<{
     username: string
     password: string
 }>
-export type ServerHookerPasswordAuthenticationController = {
+export interface ServerHookerPasswordAuthenticationController {
     allowLogin: boolean
 }
-export type ServerHookerChannelOpenRequestController = {
+export interface ServerHookerChannelOpenRequestController {
     allowOpen: boolean
 }
-export type ServerHookerChannelRequestController = {
+export interface ServerHookerChannelRequestController {
     deny: boolean
 }
+// eslint-disable-next-line @typescript-eslint/consistent-type-definitions
 export type ServerHooker = {
     preconnect: [preconnectController: ServerHookerPreconnectController, client: ServerClient]
     noneAuthentication: [
@@ -102,9 +103,9 @@ export default class Server extends EventEmitter<ServerEvents> {
         this.options.sendAllHostKeys ??= true
     }
 
-    hooker: Hooker<ServerHooker> = new Hooker()
+    hooker = new Hooker<ServerHooker>()
     server?: net.Server
-    clients: Set<ServerClient> = new Set()
+    clients = new Set<ServerClient>()
 
     listen(port?: number, hostname?: string, backlog?: number, listeningListener?: () => void): this
     listen(port?: number, hostname?: string, listeningListener?: () => void): this
@@ -113,8 +114,8 @@ export default class Server extends EventEmitter<ServerEvents> {
     listen(path: string, backlog?: number, listeningListener?: () => void): this
     listen(path: string, listeningListener?: () => void): this
     listen(options: net.ListenOptions, listeningListener?: () => void): this
-    listen(handle: any, backlog?: number, listeningListener?: () => void): this
-    listen(handle: any, listeningListener?: () => void): this
+    listen(handle: unknown, backlog?: number, listeningListener?: () => void): this
+    listen(handle: unknown, listeningListener?: () => void): this
     listen(): this {
         const server = net.createServer()
 
@@ -181,7 +182,7 @@ export default class Server extends EventEmitter<ServerEvents> {
         return this
     }
 
-    debug(...message: any[]): void {
+    debug(...message: unknown[]): void {
         this.emit("debug", ...message)
     }
 }

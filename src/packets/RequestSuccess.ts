@@ -1,5 +1,5 @@
 import assert from "assert"
-import { SSHPacketType } from "../constants.js"
+import { PacketNameToType } from "../constants.js"
 import Packet from "../packet.js"
 import { readNextUint8 } from "../utils/Buffer.js"
 
@@ -9,7 +9,7 @@ export interface RequestSuccessData {
     args: Buffer
 }
 export default class RequestSuccess implements Packet {
-    static type = SSHPacketType.SSH_MSG_REQUEST_SUCCESS
+    static type = PacketNameToType.SSH_MSG_REQUEST_SUCCESS
 
     data: RequestSuccessData
     constructor(data: RequestSuccessData) {

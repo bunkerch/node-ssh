@@ -16,7 +16,7 @@ export default class NoneAgent implements Agent<never> {
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     async getPublicKey(id: never): Promise<PublicKey> {
-        throw new NoneAgentError("NoneAgent does not store any public key")
+        throw new NoneAgentError("NoneAgent does not store unknown public key")
     }
 }
 

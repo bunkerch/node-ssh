@@ -1,5 +1,5 @@
 import assert from "assert"
-import { SSHPacketType } from "../constants.js"
+import { PacketNameToType } from "../constants.js"
 import Packet from "../packet.js"
 import {
     readNextBinaryBoolean,
@@ -15,7 +15,7 @@ export interface DebugData {
     language_tag: string
 }
 export default class Debug implements Packet {
-    static type = SSHPacketType.SSH_MSG_DEBUG
+    static type = PacketNameToType.SSH_MSG_DEBUG
 
     data: DebugData
     constructor(data: DebugData) {

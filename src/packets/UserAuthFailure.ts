@@ -1,5 +1,5 @@
 import assert from "assert"
-import { SSHAuthenticationMethods, SSHPacketType } from "../constants.js"
+import { SSHAuthenticationMethods, PacketNameToType } from "../constants.js"
 import Packet from "../packet.js"
 import { readNextBinaryBoolean, readNextUint8, serializeUint8 } from "../utils/Buffer.js"
 import { readNextNameList, serializeNameList } from "../utils/NameList.js"
@@ -10,7 +10,7 @@ export interface UserAuthFailureData {
     partial_success: boolean
 }
 export default class UserAuthFailure implements Packet {
-    static type = SSHPacketType.SSH_MSG_USERAUTH_FAILURE
+    static type = PacketNameToType.SSH_MSG_USERAUTH_FAILURE
 
     data: UserAuthFailureData
     constructor(data: UserAuthFailureData) {

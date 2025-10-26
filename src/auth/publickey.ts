@@ -99,7 +99,7 @@ export default class PublicKeyAuthMethod implements AuthMethod {
                     method: method,
                 })
 
-                // if this does not require any input from the user
+                // if this does not require unknown input from the user
                 // that would be otherwise annoying, we directly sign
                 // the packet. That will save us one packet if the pk
                 // is correct.

@@ -1,5 +1,5 @@
 import assert from "assert"
-import { SSHPacketType } from "../constants.js"
+import { PacketNameToType } from "../constants.js"
 import Packet from "../packet.js"
 import { readNextUint32, readNextUint8, serializeUint32 } from "../utils/Buffer.js"
 
@@ -8,7 +8,7 @@ export interface ChannelSuccessData {
     recipient_channel_id: number
 }
 export default class ChannelSuccess implements Packet {
-    static type = SSHPacketType.SSH_MSG_CHANNEL_SUCCESS
+    static type = PacketNameToType.SSH_MSG_CHANNEL_SUCCESS
 
     data: ChannelSuccessData
     constructor(data: ChannelSuccessData) {

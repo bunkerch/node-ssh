@@ -17,9 +17,11 @@ export function encodeBigIntLE(int: bigint): Buffer {
 }
 
 export function decodeBigIntBE(raw: Buffer): bigint {
+    // TODO: Could potentially improve perfs with one big raw.readBigUInt64BE()
+    // every 8 bytes instead of making one bigint per byte
     let int = 0n
-    for (let i = 0; i < raw.length; i++) {
-        int = (int << 8n) + BigInt(raw[i])
+    for (const byte of raw) {
+        int = (int << 8n) + BigInt(byte)
     }
 
     return int

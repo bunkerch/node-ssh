@@ -14,9 +14,11 @@ import EventEmitter from "node:events"
 import {
     SEQUENCE_NUMBER_MODULO,
     SSHAuthenticationMethods,
-    SSHPacketType,
+    PacketNameToType,
     SSHServiceNames,
     SocketState,
+    PacketType,
+    PacketTypeToName,
 } from "./constants.js"
 import KexInit from "./packets/KexInit.js"
 import {
@@ -61,11 +63,11 @@ import ChannelRequest from "./packets/ChannelRequest.js"
 import { ActionQueue } from "./utils/ActionQueue.js"
 import ChannelData from "./packets/ChannelData.js"
 
-export type ServerClientEvents = {
+export interface ServerClientEvents {
     error: [error: Error]
     close: []
     connect: []
-    debug: [...message: any[]]
+    debug: [...message: unknown[]]
     message: [message: Buffer]
     clientProtocolVersion: [version: ProtocolVersionExchange]
     tcpWrapperLog: [message: string]
@@ -85,7 +87,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     connectionId: string
     server: Server
 
-    queue: ActionQueue<string> = new ActionQueue()
+    queue = new ActionQueue<string>()
 
     constructor(socket: Socket, server: Server) {
         super()
@@ -142,9 +144,9 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     integrityKeyClientToServer?: Buffer
     integrityKeyServerToClient?: Buffer
 
-    hasReceivedNewKeys: boolean = false
-    hasSentNewKeys: boolean = false
-    hasAuthenticated: boolean = false
+    hasReceivedNewKeys = false
+    hasSentNewKeys = false
+    hasAuthenticated = false
     credentials: UserAuthRequest | undefined
 
     localChannelIndex = 0
@@ -621,15 +623,17 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 cleanup()
                 reject(error)
             }
-            const handler = (...values: any) => {
+            const handler = (...values: ServerClientEvents[event]) => {
                 resolve(values)
                 cleanup()
             }
             const cleanup = () => {
-                this.off(event, handler as any)
+                // @ts-expect-error the function definition makes sure this is respected
+                this.off(event, handler)
                 this.off("error", onError)
             }
-            this.once(event, handler as any)
+            // @ts-expect-error the function definition makes sure this is respected
+            this.once(event, handler)
             this.once("error", onError)
         })
     }
@@ -671,7 +675,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         return seqno
     }
 
-    debug(...message: any[]): void {
+    debug(...message: unknown[]): void {
         this.server.debug(`[${this.connectionId}]`, ...message)
     }
 
@@ -800,22 +804,27 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             message = message.subarray(0, 5 + n1 + n2 + macsize)
             this.emit("message", message)
 
-            this.debug("Receiving packet:", SSHPacketType[payload[0]])
+            const packetType = payload[0] as PacketType
+            this.debug("Receiving packet:", packetType)
 
             this.in_sequence_number++
             this.in_sequence_number %= SEQUENCE_NUMBER_MODULO
 
-            const packet = packets.get(payload[0])
-            if (!packet) {
-                throw new Error("Invalid packet type (" + payload[0] + ")")
+            if (!(packetType in PacketTypeToName)) {
+                throw new Error("Invalid packet type: " + packetType)
             }
+            const packetName = PacketTypeToName[packetType]
+            if (!(packetName in packets)) {
+                throw new Error("Not implemented: " + packetName)
+            }
+            const packet = packets[packetName as keyof typeof packets]
 
             const p = packet.parse(payload)
             this.emit("packet", p)
             this.debug("Parsing packet:", p)
 
             switch (packet.type) {
-                case SSHPacketType.SSH_MSG_DISCONNECT: {
+                case PacketNameToType.SSH_MSG_DISCONNECT: {
                     const disconnect = p as Disconnect
                     this.debug(
                         "Client disconnected:",
@@ -827,30 +836,30 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                     break
                 }
 
-                case SSHPacketType.SSH_MSG_IGNORE:
+                case PacketNameToType.SSH_MSG_IGNORE:
                     this.debug(`Received Ignore packet. Ignoring.`)
                     break
 
-                case SSHPacketType.SSH_MSG_DEBUG: {
+                case PacketNameToType.SSH_MSG_DEBUG: {
                     const debug = p as Debug
                     this.debug(`Received debug packet:`, [debug.data.message])
                     break
                 }
 
-                case SSHPacketType.SSH_MSG_KEXINIT:
+                case PacketNameToType.SSH_MSG_KEXINIT:
                     // handle key exchange
                     this.emit("clientKexInit", p as KexInit, payload)
                     break
 
-                case SSHPacketType.SSH_MSG_NEWKEYS:
+                case PacketNameToType.SSH_MSG_NEWKEYS:
                     this.emit("clientNewKeys")
                     // handle key exchange
                     break
 
-                case SSHPacketType.SSH_MSG_CHANNEL_OPEN:
+                case PacketNameToType.SSH_MSG_CHANNEL_OPEN:
                     this.emit("channelOpenRequest", p as ChannelOpen)
                     break
-                case SSHPacketType.SSH_MSG_CHANNEL_REQUEST:
+                case PacketNameToType.SSH_MSG_CHANNEL_REQUEST:
                     this.emit("channelRequest", p as ChannelRequest)
                     break
             }

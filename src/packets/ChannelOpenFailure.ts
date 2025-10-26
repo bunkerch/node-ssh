@@ -1,5 +1,5 @@
 import assert from "assert"
-import { SSHPacketType } from "../constants.js"
+import { PacketNameToType } from "../constants.js"
 import Packet from "../packet.js"
 import {
     readNextBuffer,
@@ -23,7 +23,7 @@ export interface ChannelOpenFailureData {
     language_tag: string
 }
 export default class ChannelOpenFailure implements Packet {
-    static type = SSHPacketType.SSH_MSG_CHANNEL_OPEN_FAILURE
+    static type = PacketNameToType.SSH_MSG_CHANNEL_OPEN_FAILURE
 
     data: ChannelOpenFailureData
     constructor(data: ChannelOpenFailureData) {

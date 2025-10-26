@@ -9,22 +9,23 @@ import { Hooker } from "../utils/Hooker.js"
 import EventEmitter from "events"
 import Shell from "./Session/Shell.js"
 
-export type SessionChannelHookerExecRequestContext = {
+export interface SessionChannelHookerExecRequestContext {
     command: string
 }
-export type SessionChannelHookerExecRequestController = {
+export interface SessionChannelHookerExecRequestController {
     success: boolean
 }
-export type SessionChannelHookerEnvRequestContext = {
+export interface SessionChannelHookerEnvRequestContext {
     key: string
     value: string
 }
-export type SessionChannelHookerEnvRequestController = {
+export interface SessionChannelHookerEnvRequestController {
     success: boolean
 }
-export type SessionChannelHookerShellRequestController = {
+export interface SessionChannelHookerShellRequestController {
     success: boolean
 }
+// eslint-disable-next-line @typescript-eslint/consistent-type-definitions
 export type SessionChannelHooker = {
     execRequest: [
         execRequestContext: Readonly<SessionChannelHookerExecRequestContext>,
@@ -37,18 +38,18 @@ export type SessionChannelHooker = {
     shellRequest: [shellRequestController: SessionChannelHookerShellRequestController]
 }
 
-export type SessionChannelEvents = {
+export interface SessionChannelEvents {
     shell: [Shell]
 }
 
 export default class SessionChannel extends Channel {
     static channel_type = "session"
 
-    hooker: Hooker<SessionChannelHooker> = new Hooker()
-    events: EventEmitter<SessionChannelEvents> = new EventEmitter()
+    hooker = new Hooker<SessionChannelHooker>()
+    events = new EventEmitter<SessionChannelEvents>()
 
-    env: Map<string, string> = new Map()
-    consumed: boolean = false
+    env = new Map<string, string>()
+    consumed = false
 
     shell: Shell | undefined
 

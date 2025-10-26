@@ -1,5 +1,5 @@
 import assert from "assert"
-import { SSHPacketType } from "../constants.js"
+import { PacketNameToType } from "../constants.js"
 import Packet from "../packet.js"
 import { parseBufferToMpintBuffer, serializeMpintBufferToBuffer } from "../utils/mpint.js"
 import { readNextBuffer, readNextUint8, serializeBuffer } from "../utils/Buffer.js"
@@ -9,7 +9,7 @@ export interface KexDHInitData {
     e: Buffer
 }
 export default class KexDHInit implements Packet {
-    static type = SSHPacketType.SSH_MSG_KEXDH_INIT
+    static type = PacketNameToType.SSH_MSG_KEXDH_INIT
 
     data: KexDHInitData
     constructor(data: KexDHInitData) {

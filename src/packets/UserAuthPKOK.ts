@@ -1,5 +1,5 @@
 import assert from "assert"
-import { SSHPacketType } from "../constants.js"
+import { PacketNameToType } from "../constants.js"
 import Packet from "../packet.js"
 import { readNextBuffer, readNextUint8, serializeBuffer, serializeUint8 } from "../utils/Buffer.js"
 import PublicKey from "../utils/PublicKey.js"
@@ -8,7 +8,7 @@ export interface UserAuthPKOKData {
     publicKey: PublicKey
 }
 export default class UserAuthPKOK implements Packet {
-    static type = SSHPacketType.SSH_MSG_USERAUTH_PK_OK
+    static type = PacketNameToType.SSH_MSG_USERAUTH_PK_OK
 
     data: UserAuthPKOKData
     constructor(data: UserAuthPKOKData) {

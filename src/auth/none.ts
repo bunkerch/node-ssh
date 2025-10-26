@@ -6,7 +6,7 @@ import { SSHAuthenticationMethods, SSHServiceNames } from "../constants.js"
 import UserAuthSuccess from "../packets/UserAuthSuccess.js"
 import UserAuthFailure from "../packets/UserAuthFailure.js"
 
-export interface NoneAuthMethodData {}
+export type NoneAuthMethodData = Record<never, never>
 export default class NoneAuthMethod implements AuthMethod {
     static method_name = SSHAuthenticationMethods.None
     get method_name() {

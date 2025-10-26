@@ -1,11 +1,11 @@
 import assert from "assert"
-import { SSHPacketType } from "../constants.js"
+import { PacketNameToType } from "../constants.js"
 import Packet from "../packet.js"
 import { readNextUint8 } from "../utils/Buffer.js"
 
-export interface RequestFailureData {}
+export type RequestFailureData = Record<never, never>
 export default class RequestFailure implements Packet {
-    static type = SSHPacketType.SSH_MSG_REQUEST_FAILURE
+    static type = PacketNameToType.SSH_MSG_REQUEST_FAILURE
 
     data: RequestFailureData
     constructor(data: RequestFailureData) {

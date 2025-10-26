@@ -4,14 +4,14 @@ export interface ActionQueueLock {
     release: () => void
 }
 
-export class ActionQueue<keyType = any> {
-    actionQueues: Map<
+export class ActionQueue<keyType extends string = string> {
+    actionQueues = new Map<
         keyType,
         {
             processing: boolean
             queue: (() => Promise<void>)[]
         }
-    > = new Map()
+    >()
 
     async queueAction<T = void>(key: keyType, nextStep: () => Promise<T>): Promise<T> {
         if (!this.actionQueues.has(key)) {

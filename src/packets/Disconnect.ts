@@ -1,5 +1,5 @@
 import assert from "assert"
-import { SSHPacketType } from "../constants.js"
+import { PacketNameToType } from "../constants.js"
 import Packet from "../packet.js"
 import {
     readNextBuffer,
@@ -33,7 +33,7 @@ export interface DisconnectData {
     language_tag: string
 }
 export default class Disconnect implements Packet {
-    static type = SSHPacketType.SSH_MSG_DISCONNECT
+    static type = PacketNameToType.SSH_MSG_DISCONNECT
 
     data: DisconnectData
     constructor(data: DisconnectData) {

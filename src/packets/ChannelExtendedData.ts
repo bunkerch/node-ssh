@@ -1,5 +1,5 @@
 import assert from "assert"
-import { SSHPacketType } from "../constants.js"
+import { PacketNameToType } from "../constants.js"
 import Packet from "../packet.js"
 import {
     readNextBuffer,
@@ -16,7 +16,7 @@ export interface ChannelExtendedDataData {
     data: Buffer
 }
 export default class ChannelExtendedData implements Packet {
-    static type = SSHPacketType.SSH_MSG_CHANNEL_EXTENDED_DATA
+    static type = PacketNameToType.SSH_MSG_CHANNEL_EXTENDED_DATA
 
     data: ChannelExtendedDataData
     constructor(data: ChannelExtendedDataData) {

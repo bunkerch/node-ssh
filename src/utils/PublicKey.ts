@@ -116,7 +116,7 @@ export abstract class PublicKeyAlgoritm {
     static has_signature: boolean
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    constructor(data: any) {
+    constructor(data: unknown) {
         throw new Error("Not implemented")
     }
 

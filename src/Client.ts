@@ -5,12 +5,14 @@ import {
     SEQUENCE_NUMBER_MODULO,
     SocketState,
     SSHAuthenticationMethods,
-    SSHPacketType,
+    PacketNameToType,
     SSHServiceNames,
+    PacketType,
+    PacketTypeToName,
 } from "./constants.js"
 import ProtocolVersionExchange from "./ProtocolVersionExchange.js"
 import assert from "node:assert"
-import Packet, { packets } from "./packet.js"
+import Packet, { packets, Packets } from "./packet.js"
 import KexInit from "./packets/KexInit.js"
 import {
     EncryptionAlgorithm,
@@ -31,7 +33,6 @@ import NewKeys from "./packets/NewKeys.js"
 import UserAuthRequest from "./packets/UserAuthRequest.js"
 import Disconnect, { DisconnectReason } from "./packets/Disconnect.js"
 import ServiceRequest from "./packets/ServiceRequest.js"
-import ServiceAccept from "./packets/ServiceAccept.js"
 import Agent from "./publickey/Agent.js"
 import NoneAgent from "./publickey/NoneAgent.js"
 import GlobalRequest from "./packets/GlobalRequest.js"
@@ -50,10 +51,12 @@ export interface ClientOptions {
     serverClient?: boolean
     authenticationMethodsOrder?: SSHAuthenticationMethods[]
 }
+
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface ClientOptionsRequired extends Required<ClientOptions> {}
 
-export type ClientEvents = {
-    debug: [...message: any[]]
+export interface ClientEvents {
+    debug: [...message: unknown[]]
     error: [error: Error]
     close: []
     connect: []
@@ -67,15 +70,16 @@ export type ClientEvents = {
     serverNewKeys: []
 }
 
-export type ClientHookerHostKeyController = {
+export interface ClientHookerHostKeyController {
     allowHostKey: boolean
 }
 export type ClientHookerPasswordAuthContext = Readonly<{
     username: string
 }>
-export type ClientHookerPasswordAuthController = {
+export interface ClientHookerPasswordAuthController {
     password: string | undefined
 }
+// eslint-disable-next-line @typescript-eslint/consistent-type-definitions
 export type ClientHooker = {
     // `serverPublicKey` is the second argument because
     // in some cases, you don't actually need it
@@ -124,7 +128,7 @@ export default class Client extends EventEmitter<ClientEvents> {
         }
     }
 
-    hooker: Hooker<ClientHooker> = new Hooker()
+    hooker = new Hooker<ClientHooker>()
 
     private socket?: net.Socket
     private buffering: Buffer = Buffer.alloc(0)
@@ -158,9 +162,9 @@ export default class Client extends EventEmitter<ClientEvents> {
     integrityKeyClientToServer?: Buffer
     integrityKeyServerToClient?: Buffer
 
-    hasReceivedNewKeys: boolean = false
-    hasSentNewKeys: boolean = false
-    hasAuthenticated: boolean = false
+    hasReceivedNewKeys = false
+    hasSentNewKeys = false
+    hasAuthenticated = false
 
     localChannelIndex = 0
     channels = new Map<number, Channel>()
@@ -173,7 +177,7 @@ export default class Client extends EventEmitter<ClientEvents> {
         return this.state === SocketState.Closed
     }
 
-    debug(...message: any[]): void {
+    debug(...message: unknown[]): void {
         this.emit("debug", ...message)
     }
 
@@ -352,10 +356,10 @@ export default class Client extends EventEmitter<ClientEvents> {
             }),
         )
 
-        const serviceAnswer: ServiceAccept = await this.waitForPackets(
+        const serviceAnswer = await this.waitForPackets(
             {
-                [SSHPacketType.SSH_MSG_SERVICE_ACCEPT]: {
-                    predicate: (packet: ServiceAccept) => {
+                SSH_MSG_SERVICE_ACCEPT: {
+                    predicate: (packet) => {
                         return packet.data.service_name == SSHServiceNames.UserAuth
                     },
                 },
@@ -452,27 +456,31 @@ export default class Client extends EventEmitter<ClientEvents> {
                 cleanup()
                 reject(error)
             }
-            const handler = (...values: any) => {
+            const handler = (...values: ClientEvents[event]) => {
                 resolve(values)
                 cleanup()
             }
             const cleanup = () => {
-                this.off(event, handler as any)
+                // @ts-expect-error the function definition makes sure this is respected
+                this.off(event, handler)
                 this.off("error", onError)
             }
-            this.once(event, handler as any)
+            // @ts-expect-error the function definition makes sure this is respected
+            this.once(event, handler)
             this.once("error", onError)
         })
     }
-    waitForPacket<packet extends Packet>(packet: SSHPacketType): Promise<packet> {
+    waitForPacket<Name extends keyof typeof packets>(name: Name): Promise<(typeof packets)[Name]> {
         return new Promise((resolve, reject) => {
+            const classType = packets[name]
             const onError = (error: Error) => {
                 cleanup()
                 reject(error)
             }
             const handler = (p: Packet) => {
-                if ((p.constructor as typeof Packet).type === packet) {
-                    resolve(p as packet)
+                if (p instanceof classType) {
+                    // @ts-expect-error good luck typing that
+                    resolve(p)
                     cleanup()
                 }
             }
@@ -484,13 +492,18 @@ export default class Client extends EventEmitter<ClientEvents> {
             this.once("error", onError)
         })
     }
+
+    // holy fucking shit what the fuck are those types ?
     waitForPackets<
-        packets extends {
-            [key in SSHPacketType]?: {
-                predicate: (packet: any) => boolean
+        Predicates extends {
+            [Name in keyof Packets]?: {
+                predicate: (packet: Packets[Name]) => boolean
             }
         },
-    >(packets: packets, timeout: number): Promise<any> {
+    >(
+        Predicates: Predicates,
+        timeout: number,
+    ): Promise<Packets[Extract<keyof Predicates, keyof Packets>]> {
         return new Promise((resolve, reject) => {
             const cleanup = () => {
                 this.off("packet", onPacket)
@@ -498,18 +511,23 @@ export default class Client extends EventEmitter<ClientEvents> {
                 clearTimeout(timer)
             }
             const onPacket = (packet: Packet) => {
-                // toString to convert the number to a string
-                // because the type key in the packets object
-                // is transformed to a stirng by javascript
-                // could also use a loose == but I prefer to be explicit
-                const packetType = (packet.constructor as typeof Packet).type.toString()
-                for (const [type, { predicate }] of Object.entries(packets)) {
-                    if (packetType === type && predicate(packet)) {
-                        resolve(packet)
-                        cleanup()
-                        return
-                    }
+                const packetType = (packet.constructor as typeof Packet).type
+                const packetName = PacketTypeToName[packetType]
+                // we're not interested by this packet
+                if (!(packetName in Predicates)) return
+                if (!(packetName in packets)) return
+
+                const predicateEntry = Predicates[packetName as keyof Predicates]
+                if (!predicateEntry) return
+
+                const { predicate } = predicateEntry as unknown as {
+                    predicate: (packet: Packet) => boolean
                 }
+                if (!predicate(packet)) return
+
+                // @ts-expect-error good luck typing that
+                resolve(packet)
+                cleanup()
             }
             const onError = (error: Error) => {
                 cleanup()
@@ -679,15 +697,20 @@ export default class Client extends EventEmitter<ClientEvents> {
             message = message.subarray(0, 5 + n1 + n2 + macsize)
             this.emit("message", message)
 
-            this.debug("Receiving packet:", SSHPacketType[payload[0]])
+            const packetType = payload[0] as PacketType
+            this.debug("Receiving packet:", packetType)
 
             this.in_sequence_number++
             this.in_sequence_number %= SEQUENCE_NUMBER_MODULO
 
-            const packet = packets.get(payload[0])
-            if (!packet) {
-                throw new Error("Invalid packet type (" + payload[0] + ")")
+            if (!(packetType in PacketTypeToName)) {
+                throw new Error("Invalid packet type: " + packetType)
             }
+            const packetName = PacketTypeToName[packetType]
+            if (!(packetName in packets)) {
+                throw new Error("Not implemented: " + packetName)
+            }
+            const packet = packets[packetName as keyof typeof packets]
 
             const p = packet.parse(payload)
             this.debug("Parsing packet:", p)
@@ -695,7 +718,7 @@ export default class Client extends EventEmitter<ClientEvents> {
             this.emit("packet", p)
 
             switch (packet.type) {
-                case SSHPacketType.SSH_MSG_DISCONNECT: {
+                case PacketNameToType.SSH_MSG_DISCONNECT: {
                     const disconnect = p as Disconnect
                     this.debug(
                         "Server disconnected:",
@@ -707,28 +730,28 @@ export default class Client extends EventEmitter<ClientEvents> {
                     break
                 }
 
-                case SSHPacketType.SSH_MSG_IGNORE:
+                case PacketNameToType.SSH_MSG_IGNORE:
                     this.debug(`Received Ignore packet. Ignoring.`)
                     break
 
-                case SSHPacketType.SSH_MSG_DEBUG: {
+                case PacketNameToType.SSH_MSG_DEBUG: {
                     const debug = p as Debug
                     this.debug(`Received debug packet:`, [debug.data.message])
                     break
                 }
 
-                case SSHPacketType.SSH_MSG_KEXINIT:
+                case PacketNameToType.SSH_MSG_KEXINIT:
                     // handle key exchange
                     this.emit("serverKexInit", p as KexInit, payload)
                     break
 
-                case SSHPacketType.SSH_MSG_NEWKEYS:
+                case PacketNameToType.SSH_MSG_NEWKEYS:
                     this.hasReceivedNewKeys = true
                     this.emit("serverNewKeys")
                     // handle key exchange
                     break
 
-                case SSHPacketType.SSH_MSG_KEXDH_REPLY:
+                case PacketNameToType.SSH_MSG_KEXDH_REPLY:
                     // handle key exchange
                     this.emit("serverKexDHReply", p as KexDHReply)
                     break

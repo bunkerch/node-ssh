@@ -1,5 +1,5 @@
 import assert from "assert"
-import { SSHPacketType } from "../constants.js"
+import { PacketNameToType } from "../constants.js"
 import Packet from "../packet.js"
 import { readNextBuffer, readNextUint8, serializeBuffer } from "../utils/Buffer.js"
 
@@ -7,7 +7,7 @@ export interface ServiceRequestData {
     service_name: string
 }
 export default class ServiceRequest implements Packet {
-    static type = SSHPacketType.SSH_MSG_SERVICE_REQUEST
+    static type = PacketNameToType.SSH_MSG_SERVICE_REQUEST
 
     data: ServiceRequestData
     constructor(data: ServiceRequestData) {
