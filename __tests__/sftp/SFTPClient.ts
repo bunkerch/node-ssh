@@ -43,6 +43,118 @@ function asClientChannel(channel: SFTPServerFixture): ClientSessionChannel {
 }
 
 describe("SFTP client request engine", () => {
+    test("negotiates advertised OpenSSH limits from a literal extension payload", async () => {
+        const fixture = new SFTPServerFixture((packet) => {
+            if (packet.type === SFTPPacketType.Init) {
+                fixture.send({
+                    type: SFTPPacketType.Version,
+                    version: 3,
+                    extensions: [{ name: "limits@openssh.com", data: Buffer.from("1", "ascii") }],
+                })
+            } else if (packet.type === SFTPPacketType.Extended) {
+                expect(packet.request).toBe("limits@openssh.com")
+                expect(packet.data).toEqual(Buffer.alloc(0))
+                fixture.send({
+                    type: SFTPPacketType.ExtendedReply,
+                    requestId: packet.requestId,
+                    data: Buffer.from(
+                        "0000000000040000000000000002000000000000000100000000000000000000",
+                        "hex",
+                    ),
+                })
+            }
+        })
+
+        const client = await SFTPClient.connect(asClientChannel(fixture))
+        expect(client.limits).toEqual({
+            maximumPacketLength: 262144n,
+            maximumReadLength: 131072n,
+            maximumWriteLength: 65536n,
+            maximumOpenHandles: 0n,
+        })
+        expect(client.maxReadLength).toBe(131072)
+        expect(client.maxWriteLength).toBe(65536)
+        expect(client.maxOpenHandles).toBe(Number.POSITIVE_INFINITY)
+        fixture.destroy()
+    })
+
+    test("gates OpenSSH requests by exact advertised version and preserves wire paths", async () => {
+        const requests: string[] = []
+        const fixture = new SFTPServerFixture((packet) => {
+            if (packet.type === SFTPPacketType.Init) {
+                fixture.send({
+                    type: SFTPPacketType.Version,
+                    version: 3,
+                    extensions: [
+                        { name: "posix-rename@openssh.com", data: Buffer.from("1") },
+                        { name: "expand-path@openssh.com", data: Buffer.from("1") },
+                        { name: "fsync@openssh.com", data: Buffer.from("2") },
+                    ],
+                })
+                return
+            }
+            if (packet.type !== SFTPPacketType.Extended) return
+            requests.push(packet.request)
+            if (packet.request === "posix-rename@openssh.com") {
+                expect(packet.data).toEqual(
+                    Buffer.from("000000036f6c64000000086e65772d6e616d65", "hex"),
+                )
+                fixture.send({
+                    type: SFTPPacketType.Status,
+                    requestId: packet.requestId,
+                    code: SFTPStatusCode.Ok,
+                    message: "",
+                    languageTag: "",
+                })
+            } else if (packet.request === "expand-path@openssh.com") {
+                expect(packet.data).toEqual(Buffer.from("000000017e", "hex"))
+                fixture.send({
+                    type: SFTPPacketType.Name,
+                    requestId: packet.requestId,
+                    names: [
+                        {
+                            filename: Buffer.from("/home/test"),
+                            longname: Buffer.from("/home/test"),
+                            attributes: {},
+                        },
+                    ],
+                })
+            }
+        })
+
+        const client = await SFTPClient.connect(asClientChannel(fixture))
+        await client.opensshPosixRename("old", "new-name")
+        expect(await client.opensshExpandPath("~")).toBe("/home/test")
+        await expect(client.opensshFSync(Buffer.from("handle"))).rejects.toThrow(
+            "does not advertise fsync@openssh.com version 1",
+        )
+        expect(requests).toEqual(["posix-rename@openssh.com", "expand-path@openssh.com"])
+        fixture.destroy()
+    })
+
+    test("rejects malformed advertised limits instead of silently downgrading", async () => {
+        const fixture = new SFTPServerFixture((packet) => {
+            if (packet.type === SFTPPacketType.Init) {
+                fixture.send({
+                    type: SFTPPacketType.Version,
+                    version: 3,
+                    extensions: [{ name: "limits@openssh.com", data: Buffer.from("1", "ascii") }],
+                })
+            } else if (packet.type === SFTPPacketType.Extended) {
+                fixture.send({
+                    type: SFTPPacketType.ExtendedReply,
+                    requestId: packet.requestId,
+                    data: Buffer.alloc(31),
+                })
+            }
+        })
+
+        await expect(SFTPClient.connect(asClientChannel(fixture))).rejects.toThrow(
+            "Truncated maximum open handles",
+        )
+        expect(fixture.destroyed).toBe(true)
+    })
+
     test("negotiates v3 and matches concurrent responses by request id", async () => {
         const stats: SFTPPacket[] = []
         const fixture = new SFTPServerFixture((packet) => {

@@ -99,6 +99,36 @@ OpenSSH reverses the two wire arguments of the standard `SSH_FXP_SYMLINK` reques
 the peer's SSH identification to apply that published OpenSSH behavior while preserving the draft's
 ordering for other implementations.
 
+## OpenSSH extensions
+
+Every extension method checks the exact version advertised in `SSH_FXP_VERSION` before sending a
+request. The client supports OpenSSH's published `posix-rename`, `statvfs`, `fstatvfs`, `hardlink`,
+`fsync`, `lsetstat`, `limits`, and `expand-path` extensions, plus the standardized `copy-data` and
+`home-directory` extensions and OpenSSH's `users-groups-by-id` extension.
+
+The main methods are `opensshPosixRename`, `opensshStatVFS`, `opensshFStatVFS`, `opensshHardlink`,
+`opensshFSync`, `opensshLSetStat`, `opensshLimits`, `opensshExpandPath`, `copyData`, `homeDirectory`,
+and `usersGroups`. The `ext_openssh_*` aliases match the corresponding ssh2 method names where ssh2
+exposes one.
+
+When `limits@openssh.com` version 1 is advertised, session setup requests it automatically. The
+exact unsigned 64-bit reply remains available as `sftp.limits`; safe request sizes are reflected in
+`maxReadLength` and `maxWriteLength`, and `maxOpenHandles` is `Infinity` when the server reports no
+fixed handle limit. A server status failure leaves the conservative 32 KiB defaults in place, but a
+malformed successful reply aborts setup as a protocol error.
+
+```ts
+const handle = await sftp.open("incoming/archive.bin", "r")
+try {
+    const filesystem = await sftp.opensshFStatVFS(handle)
+    console.log(filesystem.blockSize) // bigint
+} finally {
+    await sftp.close(handle)
+}
+
+await sftp.opensshPosixRename("incoming/new", "incoming/current")
+```
+
 ## Server sessions
 
 SFTP access is denied by the ordinary session-subsystem policy hook until explicitly accepted. The

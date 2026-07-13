@@ -10,6 +10,7 @@ import {
     ClientX11Channel,
     DirectTCPIPChannel,
     DirectStreamLocalChannel,
+    decodeSFTPLimits,
     DiskAgent,
     EncodedSignature,
     encodeSFTPPacket,
@@ -75,6 +76,7 @@ describe("package exports", () => {
         expect(SSHAuthenticationMethods.PublicKey).toBe("publickey")
         expect(SSHAuthenticationMethods.KeyboardInteractive).toBe("keyboard-interactive")
         expect(encodeSFTPPacket).toBeFunction()
+        expect(decodeSFTPLimits).toBeFunction()
         expect(SFTPPacketParser).toBeFunction()
         expect(SFTPPacketType.Init).toBe(1)
         expect(SFTPClient).toBeFunction()
@@ -106,5 +108,6 @@ describe("package exports", () => {
         expect(entry.SFTPPacketType.Status).toBe(101)
         expect(entry.SFTPClient).toBeDefined()
         expect(entry.SFTPServer).toBeDefined()
+        expect(entry.decodeSFTPLimits).toBeDefined()
     })
 })

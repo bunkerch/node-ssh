@@ -64,6 +64,10 @@ behavior.
   values as `bigint`, treat paths and handles as opaque bytes in the wire layer, bound messages to
   256 KiB and handles to 256 bytes, and test codecs with independently written vectors. Keep
   OpenSSH extensions separate and gate every request on the advertised extension version.
+- Derive OpenSSH SFTP extension layouts and response types from upstream `PROTOCOL`; automatically
+  negotiate advertised `limits@openssh.com` v1, retain exact limit values as `bigint`, and keep
+  conservative sizes when the server rejects the request. Never accept a malformed successful
+  limits reply as a downgrade.
 - Implement vendor extensions from their upstream protocol documents (for example OpenSSH's
   `PROTOCOL`), and keep them explicitly named and separately tested from RFC behavior.
 - Treat local and remote channel identifiers, windows, maximum packet sizes, EOF, and CLOSE state as

@@ -1204,11 +1204,16 @@ describe("OpenSSH interoperability", () => {
             expect(sftp.protocolVersion).toBe(3)
             expect(sftp.isOpenSSH).toBe(true)
             expect(sftp.supportsExtension("posix-rename@openssh.com", "1")).toBe(true)
+            expect(sftp.limits).toBeDefined()
+            expect(sftp.maxReadLength).toBeGreaterThanOrEqual(32_768)
+            expect(sftp.maxWriteLength).toBeGreaterThanOrEqual(32_768)
 
             const sftpDirectory = "/home/interop/modernssh-sftp"
             const originalPath = `${sftpDirectory}/original.bin`
             const renamedPath = `${sftpDirectory}/renamed.bin`
             const linkPath = `${sftpDirectory}/renamed.link`
+            const hardlinkPath = `${sftpDirectory}/renamed.hardlink`
+            const copiedPath = `${sftpDirectory}/copied.bin`
             await sftp.mkdir(sftpDirectory, { permissions: 0o700 })
             const contents = Buffer.allocUnsafe(70_000)
             for (let index = 0; index < contents.length; index++) contents[index] = index % 251
@@ -1216,9 +1221,12 @@ describe("OpenSSH interoperability", () => {
             const writeHandle = await sftp.open(originalPath, "wx", { permissions: 0o640 })
             await sftp.write(writeHandle, contents, 0n)
             expect((await sftp.fstat(writeHandle)).size).toBe(70_000n)
+            await sftp.opensshFSync(writeHandle)
             await sftp.close(writeHandle)
 
             const readHandle = await sftp.open(originalPath, "r")
+            const fileSystem = await sftp.opensshFStatVFS(readHandle)
+            expect(fileSystem.blockSize).toBeGreaterThan(0n)
             const [tail, beginning, middle] = await Promise.all([
                 sftp.read(readHandle, contents.length - 65_536, 65_536n),
                 sftp.read(readHandle, 32_768, 0n),
@@ -1235,16 +1243,42 @@ describe("OpenSSH interoperability", () => {
             expect(attributes.accessTime).toBe(1_700_000_000)
             expect(attributes.modificationTime).toBe(1_700_000_001)
 
-            await sftp.rename(originalPath, renamedPath)
+            await sftp.opensshPosixRename(originalPath, renamedPath)
+            expect(await sftp.opensshExpandPath(renamedPath)).toBe(renamedPath)
+            expect((await sftp.opensshStatVFS(sftpDirectory)).blockSize).toBe(fileSystem.blockSize)
+            await sftp.opensshHardlink(renamedPath, hardlinkPath)
             await sftp.symlink("renamed.bin", linkPath)
             expect(await sftp.readlink(linkPath)).toBe("renamed.bin")
             expect((await sftp.lstat(linkPath)).permissions! & 0o170000).toBe(0o120000)
             expect(await sftp.realpath(renamedPath)).toBe(renamedPath)
+            const expectedDirectoryEntries = ["renamed.bin", "renamed.hardlink", "renamed.link"]
+            if (sftp.supportsExtension("copy-data", "1")) {
+                const copySource = await sftp.open(renamedPath, "r")
+                const copyDestination = await sftp.open(copiedPath, "wx", { permissions: 0o600 })
+                try {
+                    await sftp.copyData(copySource, 0n, 0n, copyDestination, 0n)
+                } finally {
+                    await sftp.close(copySource)
+                    await sftp.close(copyDestination)
+                }
+                expect((await sftp.stat(copiedPath)).size).toBe(70_000n)
+                expectedDirectoryEntries.push("copied.bin")
+            }
+            if (sftp.supportsExtension("home-directory", "1")) {
+                // OpenSSH 9.2 advertises the extension but mishandles the draft's empty-username
+                // shorthand. Supplying the authenticated user exercises the interoperable form.
+                expect(await sftp.homeDirectory("interop")).toBe("/home/interop")
+            }
+            if (sftp.supportsExtension("users-groups-by-id@openssh.com", "1")) {
+                const names = await sftp.usersGroups([attributes.uid!], [attributes.gid!])
+                expect(names.usernames).toEqual(["interop"])
+                expect(names.groupNames).toEqual(["interop"])
+            }
             expect(
                 (await sftp.readDirectory(sftpDirectory))
                     .map((entry) => entry.filename.toString())
                     .sort(),
-            ).toEqual(["renamed.bin", "renamed.link"])
+            ).toEqual(expectedDirectoryEntries.sort())
 
             let missingError: unknown
             try {
@@ -1256,6 +1290,8 @@ describe("OpenSSH interoperability", () => {
             expect((missingError as SFTPStatusError).code).toBe(SFTPStatusCode.NoSuchFile)
 
             await sftp.unlink(linkPath)
+            await sftp.unlink(hardlinkPath)
+            if (sftp.supportsExtension("copy-data", "1")) await sftp.unlink(copiedPath)
             await sftp.unlink(renamedPath)
             await sftp.rmdir(sftpDirectory)
             const sftpClosed = new Promise<void>((resolve) => sftp.channel.once("close", resolve))

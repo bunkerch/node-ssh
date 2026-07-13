@@ -1,6 +1,24 @@
 import type ClientSessionChannel from "../channels/ClientSessionChannel.js"
 import { encodeSFTPPacket, SFTPPacketParser, SFTPProtocolError } from "./codec.js"
-import { SFTP_VERSION, SFTPOpenFlags, SFTPPacketType, SFTPStatusCode } from "./constants.js"
+import {
+    MAX_SFTP_HANDLE_LENGTH,
+    MAX_SFTP_PACKET_LENGTH,
+    SFTP_VERSION,
+    SFTPOpenFlags,
+    SFTPPacketType,
+    SFTPStatusCode,
+} from "./constants.js"
+import {
+    decodeSFTPLimits,
+    decodeSFTPStatVFS,
+    decodeSFTPUsersGroups,
+    encodeSFTPCopyDataExtension,
+    encodeSFTPExtensionString,
+    encodeSFTPLSetStatExtension,
+    encodeSFTPTwoPathExtension,
+    encodeSFTPUsersGroupsExtension,
+} from "./openssh.js"
+import type { SFTPLimits, SFTPStatVFS, SFTPUserGroupNames } from "./openssh.js"
 import type {
     SFTPAttributes,
     SFTPExtension,
@@ -12,6 +30,7 @@ import type {
 
 const MAX_PENDING_REQUESTS = 1024
 const DEFAULT_READ_WRITE_LENGTH = 32768
+const MAX_EXTENSION_READ_WRITE_LENGTH = MAX_SFTP_PACKET_LENGTH - 2048
 const UINT32_MAX = 0xffff_ffff
 
 const STATUS_MESSAGES: Readonly<Record<number, string>> = {
@@ -128,6 +147,8 @@ export default class SFTPClient {
 
     maxReadLength = DEFAULT_READ_WRITE_LENGTH
     maxWriteLength = DEFAULT_READ_WRITE_LENGTH
+    maxOpenHandles: number | undefined
+    limits: Readonly<SFTPLimits> | undefined
 
     private readonly parser = new SFTPPacketParser()
     private readonly pending = new Map<number, PendingRequest>()
@@ -160,6 +181,7 @@ export default class SFTPClient {
                 extensions: [],
             })
             await client.ready
+            await client.negotiateLimits()
             return client
         } catch (error) {
             client.destroy(error instanceof Error ? error : new Error(String(error)))
@@ -386,6 +408,153 @@ export default class SFTPClient {
         })
     }
 
+    opensshPosixRename(oldPath: SFTPPath, newPath: SFTPPath): Promise<void> {
+        return this.extensionStatus(
+            "posix-rename@openssh.com",
+            "1",
+            encodeSFTPTwoPathExtension(pathBuffer(oldPath), pathBuffer(newPath)),
+        )
+    }
+
+    ext_openssh_rename(oldPath: SFTPPath, newPath: SFTPPath): Promise<void> {
+        return this.opensshPosixRename(oldPath, newPath)
+    }
+
+    async opensshStatVFS(path: SFTPPath): Promise<Readonly<SFTPStatVFS>> {
+        const response = await this.extensionRequest(
+            "statvfs@openssh.com",
+            "2",
+            encodeSFTPExtensionString(pathBuffer(path)),
+            SFTPPacketType.ExtendedReply,
+        )
+        if (response.type !== SFTPPacketType.ExtendedReply) {
+            throw new SFTPProtocolError("Expected EXTENDED_REPLY")
+        }
+        return decodeSFTPStatVFS(response.data)
+    }
+
+    ext_openssh_statvfs(path: SFTPPath): Promise<Readonly<SFTPStatVFS>> {
+        return this.opensshStatVFS(path)
+    }
+
+    async opensshFStatVFS(handle: Buffer): Promise<Readonly<SFTPStatVFS>> {
+        validateHandle(handle)
+        const response = await this.extensionRequest(
+            "fstatvfs@openssh.com",
+            "2",
+            encodeSFTPExtensionString(handle),
+            SFTPPacketType.ExtendedReply,
+        )
+        if (response.type !== SFTPPacketType.ExtendedReply) {
+            throw new SFTPProtocolError("Expected EXTENDED_REPLY")
+        }
+        return decodeSFTPStatVFS(response.data)
+    }
+
+    ext_openssh_fstatvfs(handle: Buffer): Promise<Readonly<SFTPStatVFS>> {
+        return this.opensshFStatVFS(handle)
+    }
+
+    opensshHardlink(oldPath: SFTPPath, newPath: SFTPPath): Promise<void> {
+        return this.extensionStatus(
+            "hardlink@openssh.com",
+            "1",
+            encodeSFTPTwoPathExtension(pathBuffer(oldPath), pathBuffer(newPath)),
+        )
+    }
+
+    ext_openssh_hardlink(oldPath: SFTPPath, newPath: SFTPPath): Promise<void> {
+        return this.opensshHardlink(oldPath, newPath)
+    }
+
+    opensshFSync(handle: Buffer): Promise<void> {
+        validateHandle(handle)
+        return this.extensionStatus("fsync@openssh.com", "1", encodeSFTPExtensionString(handle))
+    }
+
+    ext_openssh_fsync(handle: Buffer): Promise<void> {
+        return this.opensshFSync(handle)
+    }
+
+    opensshLSetStat(path: SFTPPath, attributes: SFTPAttributes): Promise<void> {
+        return this.extensionStatus(
+            "lsetstat@openssh.com",
+            "1",
+            encodeSFTPLSetStatExtension(pathBuffer(path), attributes),
+        )
+    }
+
+    ext_openssh_lsetstat(path: SFTPPath, attributes: SFTPAttributes): Promise<void> {
+        return this.opensshLSetStat(path, attributes)
+    }
+
+    opensshExpandPath(path: SFTPPath): Promise<string> {
+        return this.extensionSingleName(
+            "expand-path@openssh.com",
+            "1",
+            encodeSFTPExtensionString(pathBuffer(path)),
+        )
+    }
+
+    ext_openssh_expandPath(path: SFTPPath): Promise<string> {
+        return this.opensshExpandPath(path)
+    }
+
+    copyData(
+        sourceHandle: Buffer,
+        sourceOffset: SFTPPosition,
+        length: SFTPPosition,
+        destinationHandle: Buffer,
+        destinationOffset: SFTPPosition,
+    ): Promise<void> {
+        validateHandle(sourceHandle)
+        validateHandle(destinationHandle)
+        return this.extensionStatus(
+            "copy-data",
+            "1",
+            encodeSFTPCopyDataExtension(
+                sourceHandle,
+                positionBigInt(sourceOffset),
+                positionBigInt(length),
+                destinationHandle,
+                positionBigInt(destinationOffset),
+            ),
+        )
+    }
+
+    homeDirectory(username: string | Buffer = ""): Promise<string> {
+        return this.extensionSingleName("home-directory", "1", encodeSFTPExtensionString(username))
+    }
+
+    async usersGroups(
+        uids: readonly number[],
+        gids: readonly number[],
+    ): Promise<Readonly<SFTPUserGroupNames>> {
+        const response = await this.extensionRequest(
+            "users-groups-by-id@openssh.com",
+            "1",
+            encodeSFTPUsersGroupsExtension(uids, gids),
+            SFTPPacketType.ExtendedReply,
+        )
+        if (response.type !== SFTPPacketType.ExtendedReply) {
+            throw new SFTPProtocolError("Expected EXTENDED_REPLY")
+        }
+        return decodeSFTPUsersGroups(response.data)
+    }
+
+    async opensshLimits(): Promise<Readonly<SFTPLimits>> {
+        const response = await this.extensionRequest(
+            "limits@openssh.com",
+            "1",
+            Buffer.alloc(0),
+            SFTPPacketType.ExtendedReply,
+        )
+        if (response.type !== SFTPPacketType.ExtendedReply) {
+            throw new SFTPProtocolError("Expected EXTENDED_REPLY")
+        }
+        return decodeSFTPLimits(response.data)
+    }
+
     chmod(path: SFTPPath, mode: number | string): Promise<void> {
         return this.setstat(path, { permissions: parseMode(mode) })
     }
@@ -468,6 +637,68 @@ export default class SFTPClient {
             throw new SFTPProtocolError("SFTP response must contain exactly one name")
         }
         return response.names[0]!.filename.toString("utf8")
+    }
+
+    private async extensionSingleName(
+        name: string,
+        version: string,
+        data: Buffer,
+    ): Promise<string> {
+        const response = await this.extensionRequest(name, version, data, SFTPPacketType.Name)
+        if (response.type !== SFTPPacketType.Name || response.names.length !== 1) {
+            throw new SFTPProtocolError("SFTP extension response must contain exactly one name")
+        }
+        return response.names[0]!.filename.toString("utf8")
+    }
+
+    private async extensionStatus(name: string, version: string, data: Buffer): Promise<void> {
+        await this.extensionRequest(name, version, data, SFTPPacketType.Status)
+    }
+
+    private extensionRequest(
+        name: string,
+        version: string,
+        data: Buffer,
+        ...expectedTypes: SFTPPacketType[]
+    ): Promise<SFTPPacket> {
+        this.requireExtension(name, version)
+        return this.request(
+            {
+                type: SFTPPacketType.Extended,
+                requestId: this.allocateRequestId(),
+                request: name,
+                data,
+            },
+            ...expectedTypes,
+        )
+    }
+
+    private requireExtension(name: string, version: string): void {
+        if (!this.supportsExtension(name, version)) {
+            throw new Error(`SFTP server does not advertise ${name} version ${version}`)
+        }
+    }
+
+    private async negotiateLimits(): Promise<void> {
+        if (!this.supportsExtension("limits@openssh.com", "1")) return
+        try {
+            const limits = await this.opensshLimits()
+            this.limits = limits
+            this.maxReadLength = negotiatedLength(
+                limits.maximumReadLength,
+                limits.maximumPacketLength,
+            )
+            this.maxWriteLength = negotiatedLength(
+                limits.maximumWriteLength,
+                limits.maximumPacketLength,
+            )
+            this.maxOpenHandles =
+                limits.maximumOpenHandles === 0n
+                    ? Number.POSITIVE_INFINITY
+                    : safeLimitNumber(limits.maximumOpenHandles)
+        } catch (error) {
+            if (!(error instanceof SFTPStatusError)) throw error
+        }
     }
 
     private async statusRequest(packet: SFTPPacket & SFTPRequestPacketBase): Promise<void> {
@@ -614,6 +845,30 @@ function positionBigInt(position: SFTPPosition): bigint {
         throw new RangeError("Numeric SFTP position must be a non-negative safe integer")
     }
     return BigInt(position)
+}
+
+function validateHandle(handle: Buffer): void {
+    if (handle.length > MAX_SFTP_HANDLE_LENGTH) {
+        throw new RangeError(`SFTP handle exceeds ${MAX_SFTP_HANDLE_LENGTH} bytes`)
+    }
+}
+
+function safeLimitNumber(limit: bigint): number {
+    return Number(limit > BigInt(Number.MAX_SAFE_INTEGER) ? Number.MAX_SAFE_INTEGER : limit)
+}
+
+function negotiatedLength(length: bigint, packetLength: bigint): number {
+    let negotiated = length === 0n ? BigInt(DEFAULT_READ_WRITE_LENGTH) : length
+    const packetMaximum =
+        packetLength === 0n
+            ? BigInt(MAX_EXTENSION_READ_WRITE_LENGTH)
+            : packetLength > 2048n
+              ? packetLength - 2048n
+              : 1n
+    if (packetMaximum < negotiated) negotiated = packetMaximum
+    const implementationMaximum = BigInt(MAX_EXTENSION_READ_WRITE_LENGTH)
+    if (implementationMaximum < negotiated) negotiated = implementationMaximum
+    return safeLimitNumber(negotiated)
 }
 
 function parseMode(mode: number | string): number {

@@ -62,11 +62,13 @@ factor.
 SFTP interoperability runs in both directions. The modern client uses OpenSSH's revision 3
 subsystem for multi-packet upload and download, concurrent reads with request-id matching, file and
 directory handles, attributes and timestamps, rename, canonicalization, directory scanning, and
-OpenSSH's documented reversed `SSH_FXP_SYMLINK` arguments. The system OpenSSH `sftp` client uploads,
-lists, renames, symlinks, downloads, and removes files through a policy-controlled modern server.
-Independent literal vectors cover every baseline request and response layout; malformed framing,
-counts, flags, handles, response types, and request identifiers are rejected without relying on
-another JavaScript SSH implementation.
+OpenSSH's documented reversed `SSH_FXP_SYMLINK` arguments. It also negotiates OpenSSH limits and
+executes advertised fsync, statvfs, POSIX rename, hard-link, path expansion, server-side copy, home
+directory, and identity lookup extensions. The system OpenSSH `sftp` client uploads, lists, renames,
+symlinks, downloads, and removes files through a policy-controlled modern server. Independent
+literal vectors cover every baseline request and response layout and every extension payload;
+malformed framing, counts, flags, handles, response types, request identifiers, and extension
+replies are rejected without relying on another JavaScript SSH implementation.
 
 Together, the OpenSSH tests and known vectors exercise identification exchange, KEXINIT
 negotiation, exchange-hash and signature verification, `NEWKEYS`, encrypted and authenticated

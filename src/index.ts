@@ -22,6 +22,17 @@ export type { SFTPPath, SFTPPosition } from "./sftp/SFTPClient.js"
 export { default as SFTPServer } from "./sftp/SFTPServer.js"
 export type { SFTPServerEvents, SFTPServerOptions, SFTPSymlinkPaths } from "./sftp/SFTPServer.js"
 export {
+    decodeSFTPLimits,
+    decodeSFTPStatVFS,
+    decodeSFTPUsersGroups,
+    encodeSFTPCopyDataExtension,
+    encodeSFTPExtensionString,
+    encodeSFTPLSetStatExtension,
+    encodeSFTPTwoPathExtension,
+    encodeSFTPUsersGroupsExtension,
+} from "./sftp/openssh.js"
+export type { SFTPLimits, SFTPStatVFS, SFTPUserGroupNames } from "./sftp/openssh.js"
+export {
     default as ClientChannel,
     DEFAULT_CHANNEL_PACKET_SIZE,
     DEFAULT_CHANNEL_WINDOW_SIZE,
