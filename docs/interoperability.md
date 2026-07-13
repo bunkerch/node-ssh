@@ -55,6 +55,10 @@ ChaCha20-Poly1305), then decrypt, sign, and verify each key. They also cover enc
 missing and incorrect passphrases, authenticated-data tampering, and `DiskAgent` passphrase
 resolution. No JavaScript SSH implementation supplies expected key data.
 
+OpenSSH private-key tests also generate every required ECDSA curve and prove parsing, public-key
+matching, signing, and verification. An RFC 6979 P-256/SHA-256 signature is independently encoded as
+the RFC 5656 pair of SSH mpints and verified as a fixed cryptographic vector.
+
 Authentication interoperability covers RFC 4252 banners and password changes plus RFC 4256
 keyboard-interactive exchanges. OpenSSH's client completes a two-prompt keyboard-interactive round
 and a forced password change against the modern server. The modern client authenticates through
@@ -70,6 +74,11 @@ the modern server. The modern client uses a real OpenSSH RSA agent and an explic
 SHA-512 host key against the containerized server; an invalid password prevents fallback. Fixed
 vectors independently cover the RFC 8308 `server-sig-algs` message and the distinct RSA signature
 algorithm and `ssh-rsa` key-format fields.
+
+ECDSA host-key interoperability forces each RFC-required NIST curve in both peer roles. OpenSSH
+initiates low-limit rekeys against the modern server for P-256, P-384, and P-521; separate modern
+clients force each corresponding OpenSSH host key, explicitly rekey, authenticate, and execute a
+command.
 
 SFTP interoperability runs in both directions. The modern client uses OpenSSH's revision 3
 subsystem for multi-packet upload and download, concurrent reads with request-id matching, file and

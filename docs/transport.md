@@ -89,6 +89,12 @@ explicitly. Initial key exchange also advertises RFC 8308 extension negotiation;
 `server-sig-algs` immediately after `NEWKEYS` so clients can select an accepted user-authentication
 signature without guessing.
 
+ECDSA host keys support all three curves required by RFC 5656: `ecdsa-sha2-nistp256`,
+`ecdsa-sha2-nistp384`, and `ecdsa-sha2-nistp521`. Received SEC1 points are validated before use,
+their original encoding remains part of the serialized key and fingerprint, and ECDSA `r` and `s`
+values use canonical positive SSH mpints. Signatures select SHA-256, SHA-384, or SHA-512 according
+to the curve size.
+
 Both `ClientOptions` and `ServerOptions` accept an `algorithms` object with `kex`, `serverHostKey`,
 `cipher`, `hmac`, and `compress` categories. Server values are exact ordered arrays. Client values
 may be exact arrays or `{ remove, prepend, append }` changes whose entries are names or regular

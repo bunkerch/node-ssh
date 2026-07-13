@@ -70,6 +70,10 @@ RSA identities use RFC 8332 SHA-2 signatures by preference: `rsa-sha2-512`, then
 algorithms. `DiskAgent` selects the requested hash locally, while `SSHAgent` sends the corresponding
 RFC 9987 RSA SHA-2 flag to the external agent.
 
+ECDSA identities on `nistp256`, `nistp384`, and `nistp521` use the matching RFC 5656 algorithm name
+and SHA-2 hash. Disk-backed OpenSSH ECDSA keys and delegated agent signatures use the same public-key
+authentication path as Ed25519 and RSA identities.
+
 ## Server authentication
 
 Set `banner` to send a login notice once after the user-authentication service starts and before

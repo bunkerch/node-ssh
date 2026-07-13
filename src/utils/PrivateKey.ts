@@ -7,13 +7,27 @@ import {
     serializeCString,
     serializeUint32,
 } from "./Buffer.js"
-import PublicKey, { SSHED25519PublicKey, SSHRSAPublicKey } from "./PublicKey.js"
+import PublicKey, {
+    ECDSA_CURVES,
+    type ECDSACurve,
+    SSHED25519PublicKey,
+    SSHECDSAPublicKey,
+    SSHRSAPublicKey,
+} from "./PublicKey.js"
 import nacl from "tweetnacl"
-import { createPrivateKey, createSign, generateKeyPair, KeyObject, randomBytes } from "crypto"
+import {
+    createECDH,
+    createPrivateKey,
+    createSign,
+    generateKeyPair,
+    KeyObject,
+    randomBytes,
+} from "crypto"
 import EncodedSignature from "./Signature.js"
 import asn1js from "asn1js"
 import { decodeBigIntBE, encodeBigIntBE } from "./BigInt.js"
 import { decryptOpenSSHPrivateKey } from "./OpenSSHPrivateKeyCipher.js"
+import { serializeMpintBufferToBuffer } from "./mpint.js"
 
 export interface PrivateKeyData {
     publicKey: PublicKey
@@ -152,23 +166,7 @@ export default class PrivateKey {
         let prv: PrivateKeyAlgorithm
         ;[prv, raw] = algorithm.parse(raw)
 
-        let privatePublicKey: PublicKey
-        if (prv instanceof SSHED25519PrivateKey) {
-            privatePublicKey = new PublicKey({
-                alg: SSHED25519PrivateKey.alg_name,
-                algorithm: new SSHED25519PublicKey({ publicKey: prv.data.publicKey }),
-            })
-        } else if (prv instanceof SSHRSAPrivateKey) {
-            privatePublicKey = new PublicKey({
-                alg: SSHRSAPrivateKey.alg_name,
-                algorithm: new SSHRSAPublicKey({
-                    modulus: prv.data.modulus,
-                    publicExponent: prv.data.publicExponent,
-                }),
-            })
-        } else {
-            throw new Error("Unsupported private key algorithm")
-        }
+        const privatePublicKey = prv.getPublicKey()
         assert(publicKey.equals(privatePublicKey), "Private and public key data do not match")
 
         let comment: Buffer
@@ -234,6 +232,10 @@ export abstract class PrivateKeyAlgorithm {
         throw new Error("Not implemented")
     }
 
+    getPublicKey(): PublicKey {
+        throw new Error("Not implemented")
+    }
+
     serialize(): Buffer {
         throw new Error("Not implemented")
     }
@@ -270,6 +272,13 @@ export class SSHED25519PrivateKey implements PrivateKeyAlgorithm {
         return new EncodedSignature({
             alg: algorithm,
             data: Buffer.from(nacl.sign.detached(data, this.data.privateKey)),
+        })
+    }
+
+    getPublicKey(): PublicKey {
+        return new PublicKey({
+            alg: SSHED25519PrivateKey.alg_name,
+            algorithm: new SSHED25519PublicKey({ publicKey: this.data.publicKey }),
         })
     }
 
@@ -366,6 +375,16 @@ export class SSHRSAPrivateKey implements PrivateKeyAlgorithm {
         return new EncodedSignature({
             alg: algorithm,
             data: signer.sign(key),
+        })
+    }
+
+    getPublicKey(): PublicKey {
+        return new PublicKey({
+            alg: SSHRSAPrivateKey.alg_name,
+            algorithm: new SSHRSAPublicKey({
+                modulus: this.data.modulus,
+                publicExponent: this.data.publicExponent,
+            }),
         })
     }
 
@@ -589,3 +608,143 @@ export class SSHRSAPrivateKey implements PrivateKeyAlgorithm {
     }
 }
 PrivateKey.algorithms.set(SSHRSAPrivateKey.alg_name, SSHRSAPrivateKey)
+
+export interface SSHECDSAPrivateKeyData {
+    publicKey: Buffer
+    privateKey: Buffer
+}
+
+export class SSHECDSAPrivateKey implements PrivateKeyAlgorithm {
+    static alg_name: string
+    static curve: ECDSACurve
+
+    readonly curve: ECDSACurve
+    readonly data: SSHECDSAPrivateKeyData
+
+    constructor(curve: ECDSACurve, data: SSHECDSAPrivateKeyData) {
+        this.curve = curve
+        this.data = data
+        const ecdh = createECDH(curve.nodeName)
+        try {
+            ecdh.setPrivateKey(unsignedInteger(data.privateKey))
+        } catch (error) {
+            throw new Error(`Invalid ${curve.identifier} private key`, { cause: error })
+        }
+        const derivedPublicKey = ecdh.getPublicKey(undefined, "uncompressed")
+        const suppliedPublicKey = new SSHECDSAPublicKey(curve, {
+            publicKey: data.publicKey,
+        })
+        const derived = new SSHECDSAPublicKey(curve, { publicKey: derivedPublicKey })
+        assert(suppliedPublicKey.equals(derived), "ECDSA private and public keys do not match")
+    }
+
+    sign(data: Buffer, algorithm = this.curve.algorithm): EncodedSignature {
+        assert(algorithm === this.curve.algorithm, `Unsupported ECDSA signature: ${algorithm}`)
+        const publicKey = new SSHECDSAPublicKey(this.curve, {
+            publicKey: this.data.publicKey,
+        })
+        const key = createPrivateKey({
+            key: {
+                ...publicKey.toJWK(),
+                d: fixedWidthInteger(this.data.privateKey, this.curve.coordinateLength).toString(
+                    "base64url",
+                ),
+            },
+            format: "jwk",
+        })
+        const signer = createSign(this.curve.hash)
+        signer.update(data)
+        const p1363 = signer.sign({ key, dsaEncoding: "ieee-p1363" })
+        const width = this.curve.coordinateLength
+        return new EncodedSignature({
+            alg: algorithm,
+            data: Buffer.concat([
+                serializeBuffer(serializeMpintBufferToBuffer(p1363.subarray(0, width))),
+                serializeBuffer(serializeMpintBufferToBuffer(p1363.subarray(width))),
+            ]),
+        })
+    }
+
+    getPublicKey(): PublicKey {
+        return new PublicKey({
+            alg: this.curve.algorithm,
+            algorithm: new SSHECDSAPublicKey(this.curve, {
+                publicKey: this.data.publicKey,
+            }),
+        })
+    }
+
+    serialize(): Buffer {
+        return Buffer.concat([
+            serializeBuffer(Buffer.from(this.curve.identifier, "ascii")),
+            serializeBuffer(this.data.publicKey),
+            serializeBuffer(serializeMpintBufferToBuffer(this.data.privateKey)),
+        ])
+    }
+}
+
+function unsignedInteger(value: Buffer): Buffer {
+    let first = 0
+    while (first < value.length && value[first] === 0) first++
+    return value.subarray(first)
+}
+
+function parsePositiveMpint(value: Buffer): Buffer {
+    assert(value.length > 0, "ECDSA private key must be positive")
+    if (value[0] === 0) {
+        assert(value.length > 1 && (value[1] & 0x80) !== 0, "Non-canonical ECDSA private key")
+        return value.subarray(1)
+    }
+    assert((value[0] & 0x80) === 0, "ECDSA private key must not be negative")
+    return value
+}
+
+function fixedWidthInteger(value: Buffer, width: number): Buffer {
+    const unsigned = unsignedInteger(value)
+    assert(unsigned.length > 0 && unsigned.length <= width, "Invalid ECDSA integer width")
+    const result = Buffer.alloc(width)
+    unsigned.copy(result, width - unsigned.length)
+    return result
+}
+
+function registerECDSAPrivateKey(curve: ECDSACurve): void {
+    class CurvePrivateKey extends SSHECDSAPrivateKey {
+        static alg_name = curve.algorithm
+        static curve = curve
+
+        constructor(data: SSHECDSAPrivateKeyData) {
+            super(curve, data)
+        }
+
+        static parse(raw: Buffer): [PrivateKeyAlgorithm, Buffer] {
+            let identifier: Buffer
+            let publicKey: Buffer
+            let privateKey: Buffer
+            ;[identifier, raw] = readNextBuffer(raw)
+            ;[publicKey, raw] = readNextBuffer(raw)
+            ;[privateKey, raw] = readNextBuffer(raw)
+            assert(identifier.toString("ascii") === curve.identifier)
+            return [
+                new CurvePrivateKey({ publicKey, privateKey: parsePositiveMpint(privateKey) }),
+                raw,
+            ]
+        }
+
+        static async generate(): Promise<PrivateKey> {
+            const ecdh = createECDH(curve.nodeName)
+            const publicKey = ecdh.generateKeys()
+            const algorithm = new CurvePrivateKey({
+                publicKey,
+                privateKey: ecdh.getPrivateKey(),
+            })
+            return new PrivateKey({
+                alg: curve.algorithm,
+                publicKey: algorithm.getPublicKey(),
+                algorithm,
+            })
+        }
+    }
+    PrivateKey.algorithms.set(curve.algorithm, CurvePrivateKey)
+}
+
+for (const curve of ECDSA_CURVES) registerECDSAPrivateKey(curve)

@@ -816,6 +816,97 @@ describe("OpenSSH interoperability", () => {
         }
     }, 30_000)
 
+    test("OpenSSH verifies every required ECDSA host-key curve across rekey", async () => {
+        const algorithms = [
+            "ecdsa-sha2-nistp256",
+            "ecdsa-sha2-nistp384",
+            "ecdsa-sha2-nistp521",
+        ] as const
+        const hostKeys = await Promise.all(
+            algorithms.map((algorithm) => PrivateKey.generate(algorithm)),
+        )
+        const server = new Server({
+            hostKeys,
+            sendAllHostKeys: false,
+            algorithms: { serverHostKey: algorithms },
+        })
+        const errors: Error[] = []
+        const handshakes: string[] = []
+        let rekeys = 0
+        server.hooker.hook("noneAuthentication", (_hook, context, decision) => {
+            decision.allowLogin = context.username === "interop"
+        })
+        server.hooker.hook("channelOpenRequest", (_hook, channel, decision) => {
+            decision.allowOpen = channel instanceof SessionChannel
+        })
+        server.on("connection", (connection) => {
+            connection.on("error", (error) => errors.push(error))
+            connection.on("handshake", (negotiated) => handshakes.push(negotiated.srvHostKey))
+            connection.on("rekey", () => rekeys++)
+            connection.on("channel", (channel) => {
+                if (!(channel instanceof SessionChannel)) return
+                channel.hooker.hook("execRequest", (_hook, _context, decision) => {
+                    decision.success = true
+                })
+                channel.events.on("exec", (_command, shell) => {
+                    shell.resume()
+                    shell.on("end", () => {
+                        shell.stdout.write("ecdsa-ok\n", () => shell.exit(0).end())
+                    })
+                })
+            })
+        })
+        server.listen({ host: "127.0.0.1", port: 0 })
+        await new Promise<void>((resolve) => server.server!.once("listening", resolve))
+        const port = (server.server!.address() as AddressInfo).port
+
+        try {
+            for (const algorithm of algorithms) {
+                const result = await collectProcess(
+                    "/usr/bin/ssh",
+                    [
+                        "-F",
+                        "/dev/null",
+                        "-T",
+                        "-p",
+                        String(port),
+                        "-o",
+                        "BatchMode=yes",
+                        "-o",
+                        "PreferredAuthentications=none",
+                        "-o",
+                        "PubkeyAuthentication=no",
+                        "-o",
+                        "PasswordAuthentication=no",
+                        "-o",
+                        `HostKeyAlgorithms=${algorithm}`,
+                        "-o",
+                        "RekeyLimit=1K",
+                        "-o",
+                        "StrictHostKeyChecking=no",
+                        "-o",
+                        "UserKnownHostsFile=/dev/null",
+                        "-o",
+                        "LogLevel=ERROR",
+                        "interop@127.0.0.1",
+                        "ecdsa-host-key-test",
+                    ],
+                    "x".repeat(65_536),
+                )
+                expect(result).toEqual({ code: 0, stdout: "ecdsa-ok\n", stderr: "" })
+            }
+
+            expect(new Set(handshakes)).toEqual(new Set(algorithms))
+            expect(rekeys).toBeGreaterThanOrEqual(algorithms.length)
+            expect(errors).toEqual([])
+        } finally {
+            for (const client of server.clients) client.terminate()
+            await new Promise<void>((resolve, reject) => {
+                server.server!.close((error) => (error ? reject(error) : resolve()))
+            })
+        }
+    }, 30_000)
+
     test("OpenSSH client forwards its agent to a modernssh server", async () => {
         const agent = await createOpenSSHAgentFixture()
         const hostKey = await PrivateKey.generate("ssh-ed25519")
@@ -1359,6 +1450,39 @@ describe("OpenSSH interoperability", () => {
             expect(Buffer.concat(keyboardOutput).toString()).toBe("keyboard-ok")
             expect(keyboardBanners).toEqual(["OpenSSH authentication banner\n"])
             keyboardClient.end()
+
+            for (const hostKeyAlgorithm of [
+                "ecdsa-sha2-nistp256",
+                "ecdsa-sha2-nistp384",
+                "ecdsa-sha2-nistp521",
+            ]) {
+                const ecdsaClient = new Client({
+                    hostname: "127.0.0.1",
+                    port,
+                    username: "interop",
+                    password: "correct-horse-battery-staple",
+                    algorithms: { serverHostKey: [hostKeyAlgorithm] },
+                })
+                const ecdsaErrors: Error[] = []
+                ecdsaClient.on("error", (error) => ecdsaErrors.push(error))
+                ecdsaClient.hooker.hook("hostKey", (_hook, decision) => {
+                    decision.allowHostKey = true
+                })
+                await ecdsaClient.connect()
+                expect(ecdsaClient.hostKeyAlgorithm?.alg_name).toBe(hostKeyAlgorithm)
+                await ecdsaClient.rekey()
+                const ecdsaSession = await ecdsaClient.exec("printf ecdsa-client-ok")
+                const ecdsaOutput: Buffer[] = []
+                ecdsaSession.on("data", (data: Buffer) => ecdsaOutput.push(data))
+                await new Promise<void>((resolve) => ecdsaSession.once("close", resolve))
+                expect(Buffer.concat(ecdsaOutput).toString()).toBe("ecdsa-client-ok")
+                expect(ecdsaErrors).toEqual([])
+                const ecdsaClosed = new Promise<void>((resolve) =>
+                    ecdsaClient.once("close", resolve),
+                )
+                ecdsaClient.end()
+                await ecdsaClosed
+            }
 
             const client = new Client({
                 hostname: "127.0.0.1",

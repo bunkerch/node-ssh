@@ -58,6 +58,9 @@ function hostKeyAlgorithm(
 
 export const host_key_algorithms = new Map<string, HostKeyAlgorithm>([
     ["ssh-ed25519", hostKeyAlgorithm("ssh-ed25519")],
+    ["ecdsa-sha2-nistp256", hostKeyAlgorithm("ecdsa-sha2-nistp256")],
+    ["ecdsa-sha2-nistp384", hostKeyAlgorithm("ecdsa-sha2-nistp384")],
+    ["ecdsa-sha2-nistp521", hostKeyAlgorithm("ecdsa-sha2-nistp521")],
     ["rsa-sha2-512", hostKeyAlgorithm("rsa-sha2-512", "ssh-rsa")],
     ["rsa-sha2-256", hostKeyAlgorithm("rsa-sha2-256", "ssh-rsa")],
     ["ssh-rsa", hostKeyAlgorithm("ssh-rsa")],
@@ -212,7 +215,10 @@ export function chooseAlgorithms(client: Client | ServerClient) {
         client.hostKeyAlgorithm = hostKeyAlgorithm
         break
     }
-    assert(client.kexAlgorithm, "No key exchange algorithm found")
+    assert(
+        client.kexAlgorithm,
+        `No key exchange algorithm found (client KEX: ${client.clientKexInit.data.kex_algorithms.join(",")}; server KEX: ${client.serverKexInit.data.kex_algorithms.join(",")}; client host keys: ${client.clientKexInit.data.server_host_key_algorithms.join(",")}; server host keys: ${client.serverKexInit.data.server_host_key_algorithms.join(",")})`,
+    )
     assert(client.hostKeyAlgorithm, "No host key algorithm found")
 
     client.clientEncryptionAlgorithm = firstRegisteredMutual(

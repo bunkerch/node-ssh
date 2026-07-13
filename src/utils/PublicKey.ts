@@ -2,8 +2,44 @@ import assert from "assert"
 import { readNextBuffer, serializeBuffer } from "./Buffer.js"
 import EncodedSignature from "./Signature.js"
 import asn1js from "asn1js"
-import crypto, { createHash } from "crypto"
+import crypto, { createHash, ECDH, type JsonWebKey } from "crypto"
 import nacl from "tweetnacl"
+
+export interface ECDSACurve {
+    readonly algorithm: string
+    readonly identifier: string
+    readonly nodeName: string
+    readonly jwkName: "P-256" | "P-384" | "P-521"
+    readonly hash: "sha256" | "sha384" | "sha512"
+    readonly coordinateLength: number
+}
+
+export const ECDSA_CURVES: readonly ECDSACurve[] = Object.freeze([
+    Object.freeze({
+        algorithm: "ecdsa-sha2-nistp256",
+        identifier: "nistp256",
+        nodeName: "prime256v1",
+        jwkName: "P-256",
+        hash: "sha256",
+        coordinateLength: 32,
+    }),
+    Object.freeze({
+        algorithm: "ecdsa-sha2-nistp384",
+        identifier: "nistp384",
+        nodeName: "secp384r1",
+        jwkName: "P-384",
+        hash: "sha384",
+        coordinateLength: 48,
+    }),
+    Object.freeze({
+        algorithm: "ecdsa-sha2-nistp521",
+        identifier: "nistp521",
+        nodeName: "secp521r1",
+        jwkName: "P-521",
+        hash: "sha512",
+        coordinateLength: 66,
+    }),
+])
 
 export interface PublicKeyData {
     alg: string
@@ -289,3 +325,123 @@ export class SSHRSAPublicKey implements PublicKeyAlgoritm {
     }
 }
 PublicKey.algorithms.set(SSHRSAPublicKey.alg_name, SSHRSAPublicKey)
+
+export interface SSHECDSAPublicKeyData {
+    publicKey: Buffer
+}
+
+export class SSHECDSAPublicKey implements PublicKeyAlgoritm {
+    static alg_name: string
+    static has_encryption = false
+    static has_signature = true
+    static curve: ECDSACurve
+
+    readonly curve: ECDSACurve
+    readonly data: SSHECDSAPublicKeyData
+    private readonly normalizedPublicKey: Buffer
+
+    constructor(curve: ECDSACurve, data: SSHECDSAPublicKeyData) {
+        this.curve = curve
+        this.data = data
+        try {
+            this.normalizedPublicKey = Buffer.from(
+                ECDH.convertKey(
+                    data.publicKey,
+                    curve.nodeName,
+                    undefined,
+                    undefined,
+                    "uncompressed",
+                ),
+            )
+        } catch (error) {
+            throw new Error(`Invalid ${curve.identifier} public key`, { cause: error })
+        }
+    }
+
+    verifySignature(data: Buffer, signature: Buffer, algorithm = this.curve.algorithm): boolean {
+        if (algorithm !== this.curve.algorithm) return false
+        try {
+            const [r, afterR] = readNextBuffer(signature)
+            const [s, raw] = readNextBuffer(afterR)
+            if (raw.length !== 0) return false
+            const p1363 = Buffer.concat([
+                fixedWidthMpint(r, this.curve.coordinateLength),
+                fixedWidthMpint(s, this.curve.coordinateLength),
+            ])
+            const key = crypto.createPublicKey({ key: this.toJWK(), format: "jwk" })
+            const verifier = crypto.createVerify(this.curve.hash)
+            verifier.update(data)
+            return verifier.verify({ key, dsaEncoding: "ieee-p1363" }, p1363)
+        } catch {
+            return false
+        }
+    }
+
+    toJWK(): JsonWebKey {
+        const coordinateLength = this.curve.coordinateLength
+        return {
+            kty: "EC",
+            crv: this.curve.jwkName,
+            x: this.normalizedPublicKey.subarray(1, 1 + coordinateLength).toString("base64url"),
+            y: this.normalizedPublicKey.subarray(1 + coordinateLength).toString("base64url"),
+        }
+    }
+
+    serialize(): Buffer {
+        return Buffer.concat([
+            serializeBuffer(Buffer.from(this.curve.identifier, "ascii")),
+            serializeBuffer(this.data.publicKey),
+        ])
+    }
+
+    equals(other: PublicKeyAlgoritm): boolean {
+        return (
+            other instanceof SSHECDSAPublicKey &&
+            other.curve.algorithm === this.curve.algorithm &&
+            other.normalizedPublicKey.equals(this.normalizedPublicKey)
+        )
+    }
+}
+
+function fixedWidthMpint(value: Buffer, width: number): Buffer {
+    if (value.length === 0) throw new Error("ECDSA integers must be positive")
+    let unsigned = value
+    if (value[0] === 0) {
+        if (value.length === 1 || (value[1] & 0x80) === 0) {
+            throw new Error("Non-canonical ECDSA integer")
+        }
+        unsigned = value.subarray(1)
+    } else if ((value[0] & 0x80) !== 0) {
+        throw new Error("Negative ECDSA integer")
+    }
+    if (unsigned.length > width) {
+        throw new Error("Invalid ECDSA integer width")
+    }
+    const result = Buffer.alloc(width)
+    unsigned.copy(result, width - unsigned.length)
+    return result
+}
+
+function registerECDSAPublicKey(curve: ECDSACurve): void {
+    class CurvePublicKey extends SSHECDSAPublicKey {
+        static alg_name = curve.algorithm
+        static curve = curve
+
+        constructor(data: SSHECDSAPublicKeyData) {
+            super(curve, data)
+        }
+
+        static parse(raw: Buffer): SSHECDSAPublicKey {
+            let identifier: Buffer
+            let publicKey: Buffer
+            ;[identifier, raw] = readNextBuffer(raw)
+            ;[publicKey, raw] = readNextBuffer(raw)
+            assert(raw.length === 0)
+            assert(identifier.toString("ascii") === curve.identifier)
+            return new CurvePublicKey({ publicKey })
+        }
+    }
+    PublicKey.algorithms.set(curve.algorithm, CurvePublicKey)
+}
+
+for (const curve of ECDSA_CURVES) registerECDSAPublicKey(curve)

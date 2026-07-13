@@ -132,8 +132,8 @@ injected connected socket after acceptance.
 ## Passphrase-protected private keys
 
 `PrivateKey.fromString()` and `PrivateKey.parse()` accept an optional string or `Buffer`
-passphrase. They read the `openssh-key-v1` format produced by `ssh-keygen`, including Ed25519 and
-RSA keys encrypted with any cipher accepted by current OpenSSH: 3DES-CBC, AES-CBC, AES-CTR,
+passphrase. They read the `openssh-key-v1` format produced by `ssh-keygen`, including Ed25519, RSA,
+and ECDSA keys encrypted with any cipher accepted by current OpenSSH: 3DES-CBC, AES-CBC, AES-CTR,
 AES-GCM, and `chacha20-poly1305@openssh.com`.
 
 ```ts

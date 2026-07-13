@@ -117,6 +117,10 @@ meaningful wire-level behavior.
 - RFC 5656 ECDH messages use SEC1-encoded point strings and the shared point's x-coordinate as the
   secret mpint. Validate received points on the negotiated curve, select SHA-256/384/512 by curve
   size, and cover every required NIST curve with RFC 5903 vectors plus both OpenSSH peer roles.
+- RFC 5656 ECDSA host keys preserve their SEC1 point encoding in the serialized key blob, validate
+  points before use, encode signatures as canonical positive `r` and `s` mpints, and select
+  SHA-256/384/512 by curve size. Cover every required NIST curve with authoritative fixed vectors
+  plus OpenSSH host-key and rekey tests in both peer roles.
 - RFC 6668 HMAC-SHA-2 authenticates the RFC 4253 sequence number followed by the plaintext packet
   and uses the full digest. OpenSSH ETM leaves the packet length clear, encrypts the packet body,
   authenticates sequence number plus clear length plus ciphertext, and must verify the tag before

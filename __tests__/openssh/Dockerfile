@@ -8,6 +8,8 @@ RUN apt-get update \
     && echo 'interop:correct-horse-battery-staple' | chpasswd \
     && printf '%s\n' 'OpenSSH authentication banner' > /etc/modernssh-banner \
     && ssh-keygen -A \
+    && ssh-keygen -q -t ecdsa -b 384 -N '' -f /etc/ssh/ssh_host_ecdsa_384_key \
+    && ssh-keygen -q -t ecdsa -b 521 -N '' -f /etc/ssh/ssh_host_ecdsa_521_key \
     && sed -i 's/^KbdInteractiveAuthentication .*/KbdInteractiveAuthentication yes/' /etc/ssh/sshd_config \
     && printf '%s\n' \
         'PasswordAuthentication yes' \
@@ -15,6 +17,11 @@ RUN apt-get update \
         'GatewayPorts clientspecified' \
         'UsePAM yes' \
         'Banner /etc/modernssh-banner' \
+        'HostKey /etc/ssh/ssh_host_ed25519_key' \
+        'HostKey /etc/ssh/ssh_host_rsa_key' \
+        'HostKey /etc/ssh/ssh_host_ecdsa_key' \
+        'HostKey /etc/ssh/ssh_host_ecdsa_384_key' \
+        'HostKey /etc/ssh/ssh_host_ecdsa_521_key' \
         'PermitRootLogin no' \
         'AllowUsers interop' \
         >> /etc/ssh/sshd_config
