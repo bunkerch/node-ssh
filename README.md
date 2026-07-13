@@ -10,7 +10,8 @@ Until the first registry release, build a local installable archive with `pnpm p
 resulting `modernssh-1.0.0.tgz` file to an application with its package manager.
 
 See [Getting started](docs/getting-started.md) for client and server examples and
-[SSH transport behavior](docs/transport.md) for protocol-level details.
+[SSH transport behavior](docs/transport.md) for protocol-level details. The
+[interoperability matrix](docs/interoperability.md) records cross-implementation coverage.
 
 ## Development
 

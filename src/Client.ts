@@ -135,6 +135,7 @@ export default class Client extends EventEmitter<ClientEvents> {
     private identificationParser = new IdentificationParser({ allowPreamble: true })
     private packetDecoder = new BinaryPacketDecoder()
     private packetEncoder = new BinaryPacketEncoder()
+    private packetProcessingPaused = false
 
     serverProtocolVersion?: ProtocolVersionExchange
     serverKexDHReply?: KexDHReply
@@ -189,6 +190,13 @@ export default class Client extends EventEmitter<ClientEvents> {
                 this.socket?.destroy(error as Error)
             }
         })
+    }
+
+    private resumePacketProcessing(): void {
+        this.packetProcessingPaused = false
+        if (this.packetDecoder.bufferedLength > 0) {
+            this.scheduleMessageProcessing(Buffer.alloc(0))
+        }
     }
 
     async connect(): Promise<void> {
@@ -353,6 +361,7 @@ export default class Client extends EventEmitter<ClientEvents> {
         )
         this.clientMac = this.clientMacAlgorithm!.instantiate(this.integrityKeyClientToServer!)
         this.serverMac = this.serverMacAlgorithm!.instantiate(this.integrityKeyServerToClient!)
+        this.resumePacketProcessing()
 
         this.sendPacket(new NewKeys({}))
         this.hasSentNewKeys = true
@@ -617,6 +626,8 @@ export default class Client extends EventEmitter<ClientEvents> {
         }
 
         this.packetDecoder.push(message)
+        if (this.packetProcessingPaused) return
+
         const decoded = this.packetDecoder.read()
         if (!decoded) {
             if (this.packetDecoder.bufferedLength > 0) {
@@ -685,7 +696,7 @@ export default class Client extends EventEmitter<ClientEvents> {
                 break
 
             case PacketNameToType.SSH_MSG_KEXDH_REPLY:
-                // handle key exchange
+                this.packetProcessingPaused = true
                 this.emit("serverKexDHReply", p as KexDHReply)
                 break
         }

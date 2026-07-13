@@ -118,6 +118,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     private identificationParser = new IdentificationParser({ allowPreamble: false })
     private packetDecoder = new BinaryPacketDecoder()
     private packetEncoder = new BinaryPacketEncoder()
+    private packetProcessingPaused = false
 
     clientProtocolVersion?: ProtocolVersionExchange
     clientKexDHInit?: KexDHInit
@@ -270,6 +271,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         )
         this.clientMac = this.clientMacAlgorithm!.instantiate(this.integrityKeyClientToServer!)
         this.serverMac = this.serverMacAlgorithm!.instantiate(this.integrityKeyServerToClient!)
+        this.resumePacketProcessing()
 
         await clientNewKeysPromise
 
@@ -666,6 +668,13 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         })
     }
 
+    private resumePacketProcessing(): void {
+        this.packetProcessingPaused = false
+        if (this.packetDecoder.bufferedLength > 0) {
+            this.scheduleMessageProcessing(Buffer.alloc(0))
+        }
+    }
+
     onMessage(message: Buffer): void {
         if (this.state === SocketState.Closed) {
             // wait for server to accept connection
@@ -690,6 +699,8 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         }
 
         this.packetDecoder.push(message)
+        if (this.packetProcessingPaused) return
+
         const decoded = this.packetDecoder.read()
         if (!decoded) {
             if (this.packetDecoder.bufferedLength > 0) {
@@ -743,6 +754,10 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             case PacketNameToType.SSH_MSG_KEXINIT:
                 // handle key exchange
                 this.emit("clientKexInit", p as KexInit, payload)
+                break
+
+            case PacketNameToType.SSH_MSG_KEXDH_INIT:
+                this.packetProcessingPaused = true
                 break
 
             case PacketNameToType.SSH_MSG_NEWKEYS:
