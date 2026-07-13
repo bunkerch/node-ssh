@@ -54,6 +54,12 @@ invalid padding, empty payloads, incorrect block alignment, invalid MACs, or tot
 the mandatory receive size in RFC 4253 section 6.1; an internal codec consumer may configure a
 larger bound but not a smaller one.
 
+After key exchange, an otherwise well-formed packet with an unknown message number does not close
+the transport. Both peer roles send RFC 4253 `SSH_MSG_UNIMPLEMENTED` with the exact rejected packet
+sequence number and continue processing subsequent buffered packets. Malformed known packets still
+fail explicitly. During negotiated strict initial key exchange, an unknown non-KEX message remains
+a key-exchange violation and terminates the connection instead of receiving this recovery response.
+
 `SSH_MSG_NEWKEYS` changes protection independently in each direction, as required by RFC 4253
 section 7.3. A sender protects packets immediately after sending its unprotected `NEWKEYS`; a
 receiver protects packets immediately after receiving its peer's `NEWKEYS`. Packet processing

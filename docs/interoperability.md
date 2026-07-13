@@ -65,6 +65,11 @@ layouts have fixed SSH packets generated independently of the TypeScript codec. 
 packet parsing failures local and diagnosable instead of relying on an external implementation to
 reject malformed bytes.
 
+An independently written unknown message is also sent in both directions over an encrypted
+in-process connection; each peer returns the exact rejected sequence in `SSH_MSG_UNIMPLEMENTED` and
+continues with later traffic. The system OpenSSH client independently returns the same response to
+an unknown server message.
+
 RFC 4419 group-exchange request, group, init, and reply messages use independently written fixed
 frames, including the context-specific opcode 31. Primitive tests select RFC 8270-sized safe groups,
 prove both sides derive the same secret, and reject invalid ranges, composite groups, non-canonical

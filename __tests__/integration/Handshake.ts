@@ -16,6 +16,39 @@ import Shell from "../../src/channels/Session/Shell.js"
 import RequestFailure from "../../src/packets/RequestFailure.js"
 import GlobalRequest from "../../src/packets/GlobalRequest.js"
 import PrivateKey from "../../src/utils/PrivateKey.js"
+import Packet from "../../src/packet.js"
+import Unimplemented from "../../src/packets/Unimplemented.js"
+
+class UnsupportedPacket {
+    static type = 200
+
+    constructor(private readonly marker: number) {}
+
+    serialize(): Buffer {
+        return Buffer.from([UnsupportedPacket.type, this.marker])
+    }
+}
+
+function asPacket(marker: number): Packet {
+    return new UnsupportedPacket(marker) as unknown as Packet
+}
+
+function within<T>(promise: Promise<T>, label: string): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error(`Timed out waiting for ${label}`)), 1_000)
+        timer.unref()
+        promise.then(
+            (value) => {
+                clearTimeout(timer)
+                resolve(value)
+            },
+            (error: unknown) => {
+                clearTimeout(timer)
+                reject(error as Error)
+            },
+        )
+    })
+}
 
 const execFileAsync = promisify(execFile)
 
@@ -179,6 +212,48 @@ describe("client/server integration", () => {
                     }),
                 ).toBe(client)
             })
+
+            const clientUnimplemented = new Promise<Unimplemented[]>((resolve) => {
+                const replies: Unimplemented[] = []
+                const listener = (packet: Packet) => {
+                    if (!(packet instanceof Unimplemented)) return
+                    replies.push(packet)
+                    if (replies.length !== 2) return
+                    serverPeer!.off("packet", listener)
+                    resolve(replies)
+                }
+                serverPeer!.on("packet", listener)
+            })
+            const serverUnknownSequences = [
+                serverPeer!.sendPacket(asPacket(0xa1)),
+                serverPeer!.sendPacket(asPacket(0xa2)),
+            ]
+            expect(
+                (await within(clientUnimplemented, "client UNIMPLEMENTED replies")).map(
+                    (packet) => packet.data.sequence_number,
+                ),
+            ).toEqual(serverUnknownSequences)
+
+            const serverUnimplemented = new Promise<Unimplemented[]>((resolve) => {
+                const replies: Unimplemented[] = []
+                const listener = (packet: Packet) => {
+                    if (!(packet instanceof Unimplemented)) return
+                    replies.push(packet)
+                    if (replies.length !== 2) return
+                    client.off("packet", listener)
+                    resolve(replies)
+                }
+                client.on("packet", listener)
+            })
+            const clientUnknownSequences = [
+                client.sendPacket(asPacket(0xb1)),
+                client.sendPacket(asPacket(0xb2)),
+            ]
+            expect(
+                (await within(serverUnimplemented, "server UNIMPLEMENTED replies")).map(
+                    (packet) => packet.data.sequence_number,
+                ),
+            ).toEqual(clientUnknownSequences)
 
             expect(
                 await Promise.all([

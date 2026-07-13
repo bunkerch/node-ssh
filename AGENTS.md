@@ -120,6 +120,10 @@ meaningful wire-level behavior.
   new transport keys from the current exchange hash. Queue application output after sending
   `KEXINIT`, switch each direction exactly at its own `NEWKEYS`, preserve sequence numbers and open
   channels, and test both initiator roles against OpenSSH.
+- RFC 4253 unknown message numbers receive `SSH_MSG_UNIMPLEMENTED` with the rejected inbound packet
+  sequence and must not stop later buffered processing. Keep malformed known packets fatal, and
+  classify strict initial-KEX non-KEX traffic before this recovery path so it still disconnects.
+  Cover the literal response frame, both encrypted peer directions, and a real OpenSSH peer.
 - Strict key exchange advertises both the standard and deployed marker pairs only in the initial
   KEXINIT. Enable it only for a matching pair, require the peer's initial KEXINIT at sequence zero,
   reject non-KEX and duplicate KEX messages during that exchange, and reset each direction's

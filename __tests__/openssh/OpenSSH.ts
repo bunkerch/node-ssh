@@ -19,10 +19,20 @@ import { SSHAuthenticationMethods } from "../../src/constants.js"
 import { SFTPStatusError } from "../../src/sftp/SFTPClient.js"
 import { SFTPPacketType, SFTPStatusCode } from "../../src/sftp/constants.js"
 import GlobalRequest from "../../src/packets/GlobalRequest.js"
+import Packet from "../../src/packet.js"
+import Unimplemented from "../../src/packets/Unimplemented.js"
 import { attachFilesystemSFTPServer } from "./SFTPServerFixture.js"
 
 const execFileAsync = promisify(execFile)
 const imageName = "modernssh-openssh-test:bookworm"
+
+class UnsupportedSSHMessage {
+    static type = 200
+
+    serialize(): Buffer {
+        return Buffer.from([UnsupportedSSHMessage.type, 0x5a])
+    }
+}
 
 interface OpenSSHAgentFixture {
     directory: string
@@ -520,6 +530,7 @@ describe("OpenSSH interoperability", () => {
         let rekeys = 0
         let xonXoffNotifications = 0
         let globalRequestFailure: Promise<void> | undefined
+        let unimplementedResponse: Promise<void> | undefined
         server.hooker.hook("noneAuthentication", (_hook, context, decision) => {
             decision.allowLogin = context.username === "interop"
         })
@@ -542,6 +553,20 @@ describe("OpenSSH interoperability", () => {
                             )
                         },
                     )
+                const response = new Promise<Unimplemented>((resolve) => {
+                    const listener = (packet: Packet) => {
+                        if (!(packet instanceof Unimplemented)) return
+                        connection.off("packet", listener)
+                        resolve(packet)
+                    }
+                    connection.on("packet", listener)
+                })
+                const sequenceNumber = connection.sendPacket(
+                    new UnsupportedSSHMessage() as unknown as Packet,
+                )
+                unimplementedResponse = response.then((packet) => {
+                    expect(packet.data.sequence_number).toBe(sequenceNumber)
+                })
             })
             connection.on("channel", (channel) => {
                 if (!(channel instanceof SessionChannel)) return
@@ -610,6 +635,8 @@ describe("OpenSSH interoperability", () => {
             expect(xonXoffNotifications).toBe(1)
             expect(globalRequestFailure).toBeDefined()
             await globalRequestFailure
+            expect(unimplementedResponse).toBeDefined()
+            await unimplementedResponse
             expect(errors).toEqual([])
         } finally {
             await new Promise<void>((resolve, reject) => {

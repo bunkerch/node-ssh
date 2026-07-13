@@ -73,6 +73,7 @@ import PasswordAuthMethod from "./auth/password.js"
 import UserAuthSuccess from "./packets/UserAuthSuccess.js"
 import { randomBase36 } from "./utils/base36.js"
 import Debug from "./packets/Debug.js"
+import Unimplemented from "./packets/Unimplemented.js"
 import Channel from "./Channel.js"
 import GlobalRequest from "./packets/GlobalRequest.js"
 import { readNextBuffer, readNextUint32, serializeBuffer, serializeUint32 } from "./utils/Buffer.js"
@@ -1681,12 +1682,29 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         const packetType = payload[0] as PacketType
         this.debug("Receiving packet:", packetType)
 
+        if (
+            this.strictKeyExchange &&
+            this.strictInitialExchange &&
+            !isStrictKeyExchangePacket(packetType)
+        ) {
+            throw new KeyExchangeError("Received a non-KEX packet during strict key exchange")
+        }
         if (!(packetType in PacketTypeToName)) {
-            throw new Error("Invalid packet type: " + packetType)
+            this.debug("Unsupported SSH packet type:", packetType)
+            this.sendPacket(new Unimplemented({ sequence_number: decoded.sequenceNumber }))
+            if (this.packetDecoder.bufferedLength > 0) {
+                this.scheduleMessageProcessing(Buffer.alloc(0))
+            }
+            return
         }
         const packetName = PacketTypeToName[packetType]
         if (!(packetName in packets)) {
-            throw new Error("Not implemented: " + packetName)
+            this.debug("Unimplemented SSH packet:", packetName)
+            this.sendPacket(new Unimplemented({ sequence_number: decoded.sequenceNumber }))
+            if (this.packetDecoder.bufferedLength > 0) {
+                this.scheduleMessageProcessing(Buffer.alloc(0))
+            }
+            return
         }
         const packet =
             packetType === PacketNameToType.SSH_MSG_KEXDH_INIT &&
@@ -1707,9 +1725,6 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             }
         }
         if (this.strictKeyExchange && this.strictInitialExchange) {
-            if (!isStrictKeyExchangePacket(packetType)) {
-                throw new KeyExchangeError("Received a non-KEX packet during strict key exchange")
-            }
             if (this.strictInitialPackets.has(packetType)) {
                 throw new KeyExchangeError("Received a duplicate packet during strict key exchange")
             }
