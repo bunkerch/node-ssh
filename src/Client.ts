@@ -360,6 +360,22 @@ export default class Client extends EventEmitter<ClientEvents> {
         return callback ? this.subsystem(name, callback) : this.subsystem(name)
     }
 
+    openssh_noMoreSessions(): Promise<void>
+    openssh_noMoreSessions(callback: (error?: Error) => void): this
+    openssh_noMoreSessions(callback?: (error?: Error) => void): Promise<void> | this {
+        const operation = this.requestNoMoreSessions()
+        if (!callback) return operation
+        operation.then(
+            () => callback(),
+            (error: Error) => callback(error),
+        )
+        return this
+    }
+
+    opensshNoMoreSessions(): Promise<void> {
+        return this.requestNoMoreSessions()
+    }
+
     sftp(): Promise<SFTPClient>
     sftp(callback: ClientSFTPCallback): this
     sftp(callback?: ClientSFTPCallback): Promise<SFTPClient> | this {
@@ -544,6 +560,16 @@ export default class Client extends EventEmitter<ClientEvents> {
         }
         this.remoteForwardings.set(key, { bindAddress, bindPort: actualPort })
         return actualPort
+    }
+
+    private async requestNoMoreSessions(): Promise<void> {
+        const response = await this.sendGlobalRequest(
+            "no-more-sessions@openssh.com",
+            Buffer.alloc(0),
+        )
+        if (response.length !== 0) {
+            throw new Error("Unexpected data in no-more-sessions success response")
+        }
     }
 
     private async cancelRemoteForward(bindAddress: string, bindPort: number): Promise<void> {
@@ -1157,8 +1183,8 @@ export default class Client extends EventEmitter<ClientEvents> {
                     disconnect.data.description,
                     disconnect.data.language_tag,
                 )
-                // TODO: Handle disconnect
-                break
+                this.destroy()
+                return
             }
 
             case PacketNameToType.SSH_MSG_IGNORE:

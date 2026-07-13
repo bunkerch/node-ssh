@@ -1464,7 +1464,10 @@ describe("OpenSSH interoperability", () => {
             await client.openssh_unforwardInStreamLocal(forwardedSocketPath)
 
             const closed = new Promise<void>((resolve) => client.once("close", resolve))
-            client.end()
+            await client.openssh_noMoreSessions()
+            await expect(client.openSession()).rejects.toThrow()
+
+            if (client.isConnected) client.end()
             await closed
         } finally {
             await execFileAsync("docker", ["rm", "--force", containerId]).catch(() => undefined)

@@ -193,6 +193,11 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     private readonly remoteStreamLocalListeners = new Map<string, RemoteForwardListener>()
     private readonly x11Forwardings = new Map<number, { single: boolean }>()
     agentForwardingEnabled = false
+    private noMoreSessionsRequested = false
+
+    get noMoreSessions(): boolean {
+        return this.noMoreSessionsRequested
+    }
 
     state = SocketState.Closed
     get isConnected(): boolean {
@@ -439,6 +444,13 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
 
             const lock = await this.queue.obtainLock("channelOpenRequest")
             try {
+                if (this.noMoreSessionsRequested && packet.data.channel_type === "session") {
+                    throw new ChannelOpenError(
+                        ChannelOpenFailureReasonCodes.SSH_OPEN_ADMINISTRATIVELY_PROHIBITED,
+                        packet.data.sender_channel_id,
+                        "Additional SSH session channels have been disabled",
+                    )
+                }
                 const channel = channelFromChannelOpenPacket(packet, this)
                 const controller: ServerHookerChannelOpenRequestController = {
                     allowOpen: false,
@@ -522,6 +534,9 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             case "hostkeys-prove-00@openssh.com":
                 this.handleHostKeysProof(packet)
                 return
+            case "no-more-sessions@openssh.com":
+                this.handleNoMoreSessions(packet)
+                return
             case "tcpip-forward":
                 await this.handleTCPIPForward(packet)
                 return
@@ -538,6 +553,15 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 this.debug(`Unknown global request name: ${packet.data.request_name}`)
                 if (packet.data.want_reply) this.sendPacket(new RequestFailure({}))
         }
+    }
+
+    private handleNoMoreSessions(packet: GlobalRequest): void {
+        if (packet.data.args.length !== 0) {
+            if (packet.data.want_reply) this.sendPacket(new RequestFailure({}))
+            return
+        }
+        this.noMoreSessionsRequested = true
+        if (packet.data.want_reply) this.sendPacket(new RequestSuccess({ args: Buffer.alloc(0) }))
     }
 
     private handleHostKeysProof(packet: GlobalRequest): void {
@@ -1168,8 +1192,8 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                     disconnect.data.description,
                     disconnect.data.language_tag,
                 )
-                // TODO: Handle disconnect
-                break
+                this.terminate()
+                return
             }
 
             case PacketNameToType.SSH_MSG_IGNORE:

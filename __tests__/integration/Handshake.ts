@@ -4,6 +4,8 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import Client from "../../src/Client.js"
 import Server from "../../src/Server.js"
+import ServerClient from "../../src/ServerClient.js"
+import SessionChannel from "../../src/channels/SessionChannel.js"
 import PrivateKey from "../../src/utils/PrivateKey.js"
 
 describe("client/server integration", () => {
@@ -24,7 +26,12 @@ describe("client/server integration", () => {
         server.hooker.hook("streamLocalForward", (_hook, context, controller) => {
             controller.allow = context.socketPath === streamLocalPath
         })
+        server.hooker.hook("channelOpenRequest", (_hook, channel, controller) => {
+            controller.allowOpen = channel instanceof SessionChannel
+        })
+        let serverPeer: ServerClient | undefined
         server.on("connection", (peer) => {
+            serverPeer = peer
             peer.on("error", (error) => serverErrors.push(error))
         })
 
@@ -78,6 +85,21 @@ describe("client/server integration", () => {
                 await new Promise<void>((resolve) => setTimeout(resolve, 10))
             }
             await expect(access(streamLocalPath)).rejects.toMatchObject({ code: "ENOENT" })
+
+            const existingSession = await client.openSession()
+            await client.openssh_noMoreSessions()
+            expect(serverPeer?.noMoreSessions).toBe(true)
+            expect(existingSession.destroyed).toBe(false)
+            await expect(client.openSession()).rejects.toThrow(
+                "Additional SSH session channels have been disabled",
+            )
+            const sessionClosed = new Promise<void>((resolve) =>
+                existingSession.once("close", resolve),
+            )
+            existingSession.close()
+            await sessionClosed
+            expect(serverErrors).toEqual([])
+            expect(clientErrors).toEqual([])
         } finally {
             const closed = new Promise<void>((resolve) => client.once("close", resolve))
             expect(client.end()).toBe(client)

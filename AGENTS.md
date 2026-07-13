@@ -79,6 +79,9 @@ behavior.
   coerce uint64 sizes away from `bigint`.
 - Implement vendor extensions from their upstream protocol documents (for example OpenSSH's
   `PROTOCOL`), and keep them explicitly named and separately tested from RFC behavior.
+- Treat OpenSSH's `no-more-sessions@openssh.com` request as irreversible. Existing sessions remain
+  usable, later session opens bypass application policy and fail, and an incoming SSH disconnect
+  must close the transport so pending channel and global-request promises settle.
 - Treat local and remote channel identifiers, windows, maximum packet sizes, EOF, and CLOSE state as
   independent protocol state. All channel streams must preserve bounded backpressure.
 - New public APIs and public types must be exported from `src/index.ts`, documented under `docs/`,

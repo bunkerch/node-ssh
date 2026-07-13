@@ -46,6 +46,23 @@ uint32-value mappings; the encoder adds the required `TTY_OP_END` terminator.
 Calling `channel.end()` finishes standard input by sending channel EOF. Calling `channel.close()`
 sends EOF followed by CLOSE. A peer CLOSE is always acknowledged before the stream is destroyed.
 
+## Disabling additional sessions
+
+After opening every session it needs, a client can ask an OpenSSH-compatible server to reject any
+later session channels:
+
+```ts
+const session = await client.exec("deploy")
+await client.opensshNoMoreSessions()
+```
+
+`opensshNoMoreSessions()` is the promise API; `openssh_noMoreSessions()` additionally provides the
+ssh2-compatible callback form. The request is irreversible for the connection. Existing session
+channels and non-session channel types are unaffected, while a `modernssh` server rejects later
+session opens before invoking application channel policy. OpenSSH may enforce the request by
+disconnecting a client that attempts another session, so pending channel operations are rejected
+when that disconnect arrives.
+
 ## Agent forwarding
 
 Agent forwarding is disabled by default. Configure a forwardable `SSHAgent` or `OnePasswordAgent`,
@@ -81,7 +98,8 @@ The implementation follows RFC 4254 channel rules:
   channels are treated as protocol errors.
 
 The interoperability suite exercises session opening, `exec`, stdin, stdout, stderr, exit status,
-EOF, and CLOSE against OpenSSH. Fixed RFC byte vectors cover the exact channel request encodings.
+EOF, CLOSE, and OpenSSH's `no-more-sessions@openssh.com` extension against OpenSSH. Fixed RFC and
+OpenSSH protocol byte vectors cover the exact request encodings.
 
 ## Serving exec and shell requests
 
