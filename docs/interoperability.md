@@ -16,8 +16,9 @@ establishes real TCP connections in both directions:
   stdout/stderr, receives its exit status, establishes and cancels a remote TCP listener, exchanges
   data over the resulting `forwarded-tcpip` channel, opens direct and remote OpenSSH stream-local
   forwarding channels, disables additional sessions with `no-more-sessions@openssh.com`, verifies
-  OpenSSH's enforcement, exchanges SSH-level keepalives, and handles the resulting disconnect
-  without leaving a channel pending.
+  OpenSSH's enforcement, exchanges SSH-level keepalives, explicitly rekeys the transport, and
+  handles the resulting disconnect without leaving a channel pending. The OpenSSH client also
+  initiates key re-exchange against the modern server under a deliberately low byte limit.
   The same test requests agent forwarding and runs `ssh-add -L` on OpenSSH to prove that the remote
   process sees the modern client's local OpenSSH agent. It also requests X11 forwarding, connects
   to the display allocated by sshd, and exchanges data through the resulting `x11` channel.
@@ -78,7 +79,8 @@ JavaScript SSH implementation.
 
 Together, the OpenSSH tests and known vectors exercise identification exchange, KEXINIT
 negotiation, exchange-hash and signature verification, `NEWKEYS`, encrypted and authenticated
-packet framing, service negotiation, authentication, session streams, client- and server-side
+packet framing, bidirectional key re-exchange, service negotiation, authentication, session
+streams, client- and server-side
 remote forwarding, and graceful disconnect behavior. Passing these tests proves the covered
 algorithms and features; it does not imply that every OpenSSH algorithm or extension has been
 implemented.

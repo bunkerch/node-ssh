@@ -31,9 +31,11 @@ describe("client/server integration", () => {
             controller.allowOpen = channel instanceof SessionChannel
         })
         let serverPeer: ServerClient | undefined
+        let serverRekeys = 0
         server.on("connection", (peer) => {
             serverPeer = peer
             peer.on("error", (error) => serverErrors.push(error))
+            peer.on("rekey", () => serverRekeys++)
         })
 
         server.listen({ host: "127.0.0.1", port: 0 })
@@ -47,8 +49,10 @@ describe("client/server integration", () => {
         })
         const clientErrors: Error[] = []
         let connectEvents = 0
+        let clientRekeys = 0
         client.on("error", (error) => clientErrors.push(error))
         client.on("connect", () => connectEvents++)
+        client.on("rekey", () => clientRekeys++)
 
         try {
             await client.connect()
@@ -59,6 +63,39 @@ describe("client/server integration", () => {
             expect(connectEvents).toBe(1)
             expect(serverErrors).toEqual([])
             expect(clientErrors).toEqual([])
+
+            const initialClientSessionId = Buffer.from(client.sessionID!)
+            const initialServerSessionId = Buffer.from(serverPeer!.sessionID!)
+            const initialClientExchangeHash = Buffer.from(client.H!)
+            const initialServerExchangeHash = Buffer.from(serverPeer!.H!)
+
+            const clientRekey = client.rekey()
+            const sessionDuringRekey = client.openSession()
+            await clientRekey
+            const existingSession = await sessionDuringRekey
+            expect(clientRekeys).toBe(1)
+            expect(serverRekeys).toBe(1)
+            expect(client.sessionID).toEqual(initialClientSessionId)
+            expect(serverPeer!.sessionID).toEqual(initialServerSessionId)
+            expect(client.H).not.toEqual(initialClientExchangeHash)
+            expect(serverPeer!.H).not.toEqual(initialServerExchangeHash)
+            expect(client.H).toEqual(serverPeer!.H)
+
+            const clientAcceptedServerRekey = new Promise<void>((resolve) =>
+                client.once("rekey", resolve),
+            )
+            const serverRekey = new Promise<void>((resolve, reject) => {
+                expect(serverPeer!.rekey((error) => (error ? reject(error) : resolve()))).toBe(
+                    serverPeer!,
+                )
+            })
+            await serverRekey
+            await clientAcceptedServerRekey
+            expect(clientRekeys).toBe(2)
+            expect(serverRekeys).toBe(2)
+            expect(client.sessionID).toEqual(initialClientSessionId)
+            expect(serverPeer!.sessionID).toEqual(initialServerSessionId)
+            expect(existingSession.destroyed).toBe(false)
 
             const forwardedPort = await client.forwardIn("127.0.0.1", 0)
             expect(forwardedPort).toBeGreaterThan(0)
@@ -88,7 +125,6 @@ describe("client/server integration", () => {
             }
             await expect(access(streamLocalPath)).rejects.toMatchObject({ code: "ENOENT" })
 
-            const existingSession = await client.openSession()
             await client.openssh_noMoreSessions()
             expect(serverPeer?.noMoreSessions).toBe(true)
             expect(existingSession.destroyed).toBe(false)

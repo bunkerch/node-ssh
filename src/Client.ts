@@ -100,6 +100,7 @@ export interface ClientEvents {
     serverKexDHReply: [serverKexDHReply: KexDHReply]
     clientNewKeys: []
     serverNewKeys: []
+    rekey: []
     banner: [message: string, languageTag: string]
     "tcp connection": [
         details: Readonly<TCPIPConnectionDetails>,
@@ -297,6 +298,8 @@ export default class Client extends EventEmitter<ClientEvents> {
     agentForwardingEnabled = false
     private keepaliveTimer?: ReturnType<typeof setTimeout>
     private unansweredKeepalives = 0
+    private keyExchangeInProgress = false
+    private readonly packetsQueuedDuringKeyExchange: Packet[] = []
 
     registerX11Forwarding(sessionId: number, single: boolean): void {
         this.x11Forwardings.set(sessionId, { single })
@@ -320,6 +323,33 @@ export default class Client extends EventEmitter<ClientEvents> {
 
     setNoDelay(noDelay = true): this {
         this.socket?.setNoDelay(noDelay)
+        return this
+    }
+
+    rekey(): Promise<void>
+    rekey(callback: (error?: Error) => void): this
+    rekey(callback?: (error?: Error) => void): Promise<void> | this {
+        if (!this.isConnected) {
+            const error = new Error("Cannot rekey before the SSH connection is ready")
+            if (!callback) return Promise.reject(error)
+            queueMicrotask(() => callback(error))
+            return this
+        }
+        if (this.keyExchangeInProgress) {
+            const error = new Error("SSH key exchange is already in progress")
+            if (!callback) return Promise.reject(error)
+            queueMicrotask(() => callback(error))
+            return this
+        }
+        const operation = this.performKeyExchange().catch((error: unknown) => {
+            this.destroy()
+            throw error
+        })
+        if (!callback) return operation
+        operation.then(
+            () => callback(),
+            (error: Error) => callback(error),
+        )
         return this
     }
 
@@ -686,6 +716,108 @@ export default class Client extends EventEmitter<ClientEvents> {
         }
     }
 
+    private createKexInit(): KexInit {
+        return new KexInit({
+            cookie: crypto.getRandomValues(Buffer.alloc(16)),
+            kex_algorithms: [...kex_algorithms.keys()],
+            server_host_key_algorithms: [...PublicKey.algorithms.keys()],
+            encryption_algorithms_client_to_server: [...encryption_algorithms.keys()],
+            encryption_algorithms_server_to_client: [...encryption_algorithms.keys()],
+            mac_algorithms_client_to_server: [...mac_algorithms.keys()],
+            mac_algorithms_server_to_client: [...mac_algorithms.keys()],
+            compression_algorithms_client_to_server: ["none"],
+            compression_algorithms_server_to_client: ["none"],
+            languages_client_to_server: [],
+            languages_server_to_client: [],
+            first_kex_packet_follows: false,
+        })
+    }
+
+    private async performKeyExchange(
+        received?: readonly [packet: KexInit, payload: Buffer],
+    ): Promise<void> {
+        if (this.keyExchangeInProgress) {
+            throw new Error("SSH key exchange is already in progress")
+        }
+        const isRekey = this.sessionID !== undefined
+        this.keyExchangeInProgress = true
+        this.clearKeepalive()
+        this.hasReceivedNewKeys = false
+        this.hasSentNewKeys = false
+
+        try {
+            this.clientKexInit = this.createKexInit()
+            this.sendPacket(this.clientKexInit)
+            const [serverKexInit, serverKexInitBuffer] =
+                received ?? (await this.waitEvent("serverKexInit"))
+            this.serverKexInit = serverKexInit
+            chooseAlgorithms(this)
+
+            if (!(this.kexAlgorithm instanceof DiffieHellmanGroupN)) {
+                throw new Error("Unsupported key exchange algorithm")
+            }
+            this.kexAlgorithm.generateKeyPair()
+            this.sendPacket(new KexDHInit({ e: this.kexAlgorithm.keyPair!.getPublicKey() }))
+
+            const [serverKexDHReply] = await this.waitEvent("serverKexDHReply")
+            this.serverKexDHReply = serverKexDHReply
+            this.kexAlgorithm.sharedSecret = this.kexAlgorithm.keyPair!.computeSecret(
+                serverKexDHReply.data.f,
+            )
+            const hostKey = PublicKey.parse(serverKexDHReply.data.K_S)
+            assert(
+                hostKey.data.alg === this.hostKeyAlgorithm!.alg_name,
+                "Server did not use the negotiated host key algorithm",
+            )
+            const signature = EncodedSignature.parse(serverKexDHReply.data.H_sig)
+            assert(
+                signature.data.alg === this.hostKeyAlgorithm!.alg_name,
+                "Server did not use the negotiated signature algorithm",
+            )
+            const h = this.kexAlgorithm.computeHClient(this, serverKexInitBuffer)
+            assert(hostKey.verifySignature(h, signature), "Invalid host key signature from server")
+
+            if (this.hooker.hasHooks("hostKey")) {
+                const controller: ClientHookerHostKeyController = { allowHostKey: false }
+                await this.hooker.triggerHook("hostKey", controller, hostKey)
+                if (!controller.allowHostKey) throw new Error("Host key not allowed by hook")
+            }
+
+            this.H = h
+            this.sessionID ??= h
+            this.kexAlgorithm.deriveKeysClient(this)
+            this.clientEncryption = this.clientEncryptionAlgorithm!.instantiate(
+                this.encryptionKeyClientToServer!,
+                this.ivClientToServer!,
+            )
+            this.serverEncryption = this.serverEncryptionAlgorithm!.instantiate(
+                this.encryptionKeyServerToClient!,
+                this.ivServerToClient!,
+            )
+            this.clientMac = this.clientMacAlgorithm!.instantiate(this.integrityKeyClientToServer!)
+            this.serverMac = this.serverMacAlgorithm!.instantiate(this.integrityKeyServerToClient!)
+            this.resumePacketProcessing()
+
+            this.sendPacket(new NewKeys({}))
+            this.hasSentNewKeys = true
+            this.packetEncoder.setProtection({
+                cipher: this.clientEncryption,
+                mac: this.clientMac,
+                blockSize: this.clientEncryptionAlgorithm!.block_size,
+                macLength: this.clientMacAlgorithm!.digest_length,
+            })
+            while (this.packetsQueuedDuringKeyExchange.length > 0) {
+                this.writePacket(this.packetsQueuedDuringKeyExchange.shift()!)
+            }
+            this.emit("clientNewKeys")
+            if (!this.hasReceivedNewKeys) await this.waitEvent("serverNewKeys")
+            if (isRekey) this.emit("rekey")
+        } finally {
+            this.keyExchangeInProgress = false
+            this.resetKeepalive()
+        }
+    }
+
     async connect(): Promise<void> {
         if (!this.canConnect) {
             throw new Error("Cannot initiate connection; client is not in a state to connect")
@@ -751,125 +883,8 @@ export default class Client extends EventEmitter<ClientEvents> {
         const [serverProtocolVersion] = await this.waitEvent("serverProtocolVersion")
         this.debug("Server protocol version:", serverProtocolVersion)
 
-        this.clientKexInit = new KexInit({
-            cookie: crypto.getRandomValues(Buffer.alloc(16)),
-            kex_algorithms: [...kex_algorithms.keys()],
-            // TODO: Disable ssh-rsa. Most vendors already do.
-            // They do it because ssh-rsa uses sha1 as a hashing algorithm
-            // for signature. This is insecure.
-            server_host_key_algorithms: [...PublicKey.algorithms.keys()],
-            encryption_algorithms_client_to_server: [...encryption_algorithms.keys()],
-            encryption_algorithms_server_to_client: [...encryption_algorithms.keys()],
-            mac_algorithms_client_to_server: [...mac_algorithms.keys()],
-            mac_algorithms_server_to_client: [...mac_algorithms.keys()],
-            // we don't support compression yet
-            compression_algorithms_client_to_server: ["none"],
-            compression_algorithms_server_to_client: ["none"],
-            languages_client_to_server: [],
-            languages_server_to_client: [],
-            // TODO: Determine what this field does
-            first_kex_packet_follows: false,
-        })
-        this.sendPacket(this.clientKexInit)
+        await this.performKeyExchange()
 
-        const [serverKexInit, serverKexInitBuffer] = await this.waitEvent("serverKexInit")
-        this.serverKexInit = serverKexInit
-        this.debug("Server KexInit:", serverKexInit)
-        chooseAlgorithms(this)
-
-        if (this.kexAlgorithm instanceof DiffieHellmanGroupN) {
-            this.debug(
-                "Using DiffieHellmanGroupN key exchange algorithm",
-                (this.kexAlgorithm.constructor as typeof KexAlgorithm).alg_name,
-            )
-            this.kexAlgorithm.generateKeyPair()
-            this.sendPacket(
-                new KexDHInit({
-                    e: this.kexAlgorithm.keyPair!.getPublicKey(),
-                }),
-            )
-
-            const [serverKexDHReply] = await this.waitEvent("serverKexDHReply")
-            this.debug("Server KexDHReply:", serverKexDHReply)
-            this.serverKexDHReply = serverKexDHReply
-
-            this.kexAlgorithm.sharedSecret = this.kexAlgorithm.keyPair!.computeSecret(
-                serverKexDHReply.data.f,
-            )
-            const hostKey = PublicKey.parse(serverKexDHReply.data.K_S)
-            assert(
-                hostKey.data.alg === this.hostKeyAlgorithm!.alg_name,
-                "Invalid host key algorithm (Server did not send the negotiated algorithm)",
-            )
-            this.debug("Host key:", hostKey.toString())
-            const signature = EncodedSignature.parse(serverKexDHReply.data.H_sig)
-            this.debug("Signature:", signature)
-            assert(
-                signature.data.alg === this.hostKeyAlgorithm!.alg_name,
-                "Invalid signature algorithm (Server did not send the negotiated algorithm)",
-            )
-
-            const h = this.kexAlgorithm.computeHClient(
-                this,
-
-                serverKexInitBuffer,
-            )
-
-            assert(hostKey.verifySignature(h, signature), "Invalid host key signature from server!")
-            this.debug("Host key signature verified")
-
-            if (this.hooker.hasHooks("hostKey")) {
-                const controller: ClientHookerHostKeyController = {
-                    allowHostKey: false,
-                }
-                await this.hooker.triggerHook("hostKey", controller, hostKey)
-
-                if (!controller.allowHostKey) {
-                    this.debug("Hook rejected host key")
-                    throw new Error("Host key not allowed by hook")
-                } else {
-                    this.debug("Hook allowed host key")
-                }
-            } else {
-                this.debug("Host key implicitly allowed; No host key hooks registered")
-            }
-
-            // at this point, we're good to go
-            this.H = h
-            this.sessionID = h
-        } else {
-            throw new Error("Unsupported key exchange algorithm (Not Implemented in Client)")
-        }
-
-        this.kexAlgorithm.deriveKeysClient(this)
-        this.debug("Derived transport keys")
-
-        this.clientEncryption = this.clientEncryptionAlgorithm!.instantiate(
-            this.encryptionKeyClientToServer!,
-            this.ivClientToServer!,
-        )
-        this.serverEncryption = this.serverEncryptionAlgorithm!.instantiate(
-            this.encryptionKeyServerToClient!,
-            this.ivServerToClient!,
-        )
-        this.clientMac = this.clientMacAlgorithm!.instantiate(this.integrityKeyClientToServer!)
-        this.serverMac = this.serverMacAlgorithm!.instantiate(this.integrityKeyServerToClient!)
-        this.resumePacketProcessing()
-
-        this.sendPacket(new NewKeys({}))
-        this.hasSentNewKeys = true
-        this.packetEncoder.setProtection({
-            cipher: this.clientEncryption,
-            mac: this.clientMac,
-            blockSize: this.clientEncryptionAlgorithm!.block_size,
-            macLength: this.clientMacAlgorithm!.digest_length,
-        })
-        this.emit("clientNewKeys")
-        if (!this.hasReceivedNewKeys) {
-            await this.waitEvent("serverNewKeys")
-        }
-
-        this.debug("Keys exchanged, encryption and MAC algorithms set up")
         this.debug("Starting authentication...")
 
         this.sendPacket(
@@ -1119,6 +1134,20 @@ export default class Client extends EventEmitter<ClientEvents> {
     }
 
     sendPacket(packet: Packet): number {
+        const type = (packet.constructor as typeof Packet).type
+        if (
+            this.keyExchangeInProgress &&
+            (type >= 50 ||
+                type === PacketNameToType.SSH_MSG_SERVICE_REQUEST ||
+                type === PacketNameToType.SSH_MSG_SERVICE_ACCEPT)
+        ) {
+            this.packetsQueuedDuringKeyExchange.push(packet)
+            return -1
+        }
+        return this.writePacket(packet)
+    }
+
+    private writePacket(packet: Packet): number {
         this.debug("Sending packet:", this.packetForDebug(packet))
         const encoded = this.packetEncoder.encode(packet.serialize())
         this.socket!.write(encoded.data)
@@ -1231,7 +1260,11 @@ export default class Client extends EventEmitter<ClientEvents> {
             }
 
             case PacketNameToType.SSH_MSG_KEXINIT:
-                // handle key exchange
+                if (this.state === SocketState.Connected && !this.keyExchangeInProgress) {
+                    void this.performKeyExchange([p as KexInit, payload]).catch((error: Error) => {
+                        this.socket?.destroy(error)
+                    })
+                }
                 this.emit("serverKexInit", p as KexInit, payload)
                 break
 

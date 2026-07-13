@@ -502,6 +502,7 @@ describe("OpenSSH interoperability", () => {
         const errors: Error[] = []
         const input: Buffer[] = []
         let command = ""
+        let rekeys = 0
         server.hooker.hook("noneAuthentication", (_hook, context, decision) => {
             decision.allowLogin = context.username === "interop"
         })
@@ -510,6 +511,7 @@ describe("OpenSSH interoperability", () => {
         })
         server.on("connection", (connection) => {
             connection.on("error", (error) => errors.push(error))
+            connection.on("rekey", () => rekeys++)
             connection.on("channel", (channel) => {
                 if (!(channel instanceof SessionChannel)) return
                 channel.hooker.hook("execRequest", (_hook, context, decision) => {
@@ -554,17 +556,20 @@ describe("OpenSSH interoperability", () => {
                     "UserKnownHostsFile=/dev/null",
                     "-o",
                     "LogLevel=ERROR",
+                    "-o",
+                    "RekeyLimit=1K",
                     "interop@127.0.0.1",
                     "vector-command",
                 ],
-                "openssh stdin",
+                "x".repeat(65_536),
             )
 
             expect(result.code).toBe(17)
             expect(result.stdout).toBe("openssh stdout\n")
             expect(result.stderr).toBe("openssh stderr\n")
             expect(command).toBe("vector-command")
-            expect(Buffer.concat(input).toString()).toBe("openssh stdin")
+            expect(Buffer.concat(input).toString()).toBe("x".repeat(65_536))
+            expect(rekeys).toBeGreaterThan(0)
             expect(errors).toEqual([])
         } finally {
             await new Promise<void>((resolve, reject) => {
@@ -1174,6 +1179,7 @@ describe("OpenSSH interoperability", () => {
             })
             const errors: Error[] = []
             let keepalives = 0
+            let rekeys = 0
             client.on("error", (error) => errors.push(error))
             client.on("debug", (message, packet) => {
                 if (
@@ -1184,6 +1190,7 @@ describe("OpenSSH interoperability", () => {
                     keepalives++
                 }
             })
+            client.on("rekey", () => rekeys++)
             client.hooker.hook("hostKey", (_hook, decision) => {
                 decision.allowHostKey = true
             })
@@ -1217,6 +1224,12 @@ describe("OpenSSH interoperability", () => {
             await client.connect()
             await new Promise<void>((resolve) => setTimeout(resolve, 60))
             expect(keepalives).toBeGreaterThan(0)
+            const sessionId = Buffer.from(client.sessionID!)
+            const exchangeHash = Buffer.from(client.H!)
+            await client.rekey()
+            expect(rekeys).toBe(1)
+            expect(client.sessionID).toEqual(sessionId)
+            expect(client.H).not.toEqual(exchangeHash)
 
             const sftp = await client.sftp()
             expect(sftp.protocolVersion).toBe(3)

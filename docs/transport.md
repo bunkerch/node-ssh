@@ -48,3 +48,28 @@ section 7.3. A sender protects packets immediately after sending its unprotected
 receiver protects packets immediately after receiving its peer's `NEWKEYS`. Packet processing
 yields between coalesced messages so the key-exchange state machine can derive and install keys
 before decoding the next protected packet from the same TCP read.
+
+## Key re-exchange
+
+Clients and accepted server connections support RFC 4253 section 9 key re-exchange. Either peer may
+initiate it, or an application may request it explicitly:
+
+```ts
+await client.rekey()
+await serverConnection.rekey()
+```
+
+Both methods also have ssh2-compatible callback overloads and emit `rekey` after the new inbound
+and outbound protection is active. A re-exchange generates a fresh Diffie-Hellman key pair,
+exchange hash, IVs, encryption keys, and MAC keys. The session identifier remains the exchange hash
+from the first key exchange, as required for authentication identity continuity.
+
+Once either side sends `SSH_MSG_KEXINIT`, outbound service and application packets are queued until
+that side has sent `SSH_MSG_NEWKEYS`; transport and KEX packets remain permitted. Packets already in
+flight from the peer continue to be processed. Sending `NEWKEYS` changes outbound protection
+immediately, receiving it changes inbound protection immediately, and packet sequence numbers are
+not reset. Existing channels remain open across the exchange.
+
+OpenSSH interoperability covers both directions: the modern client explicitly rekeys an OpenSSH
+server, and an OpenSSH client with a low `RekeyLimit` initiates multiple exchanges while streaming
+data through a modern server.

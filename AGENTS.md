@@ -85,6 +85,10 @@ behavior.
 - SSH keepalives use reply-requesting `keepalive@openssh.com` global requests. Count both success
   and failure as liveness, bound consecutive unanswered requests, unref timers, and clear them on
   every connection shutdown path.
+- RFC 4253 rekeying preserves the first exchange hash as the session identifier while deriving all
+  new transport keys from the current exchange hash. Queue application output after sending
+  `KEXINIT`, switch each direction exactly at its own `NEWKEYS`, preserve sequence numbers and open
+  channels, and test both initiator roles against OpenSSH.
 - Treat local and remote channel identifiers, windows, maximum packet sizes, EOF, and CLOSE state as
   independent protocol state. All channel streams must preserve bounded backpressure.
 - New public APIs and public types must be exported from `src/index.ts`, documented under `docs/`,

@@ -99,8 +99,10 @@ export interface ServerClientEvents {
     tcpWrapperLog: [message: string]
     packet: [packet: Packet]
     clientKexInit: [kexInit: KexInit, payload: Buffer]
+    clientKexDHInit: [kexDHInit: KexDHInit]
     clientNewKeys: []
     serverNewKeys: []
+    rekey: []
 
     channelOpenRequest: [packet: ChannelOpen]
     channelRequest: [packet: ChannelRequest]
@@ -155,6 +157,8 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     private packetDecoder = new BinaryPacketDecoder()
     private packetEncoder = new BinaryPacketEncoder()
     private packetProcessingPaused = false
+    private keyExchangeInProgress = false
+    private readonly packetsQueuedDuringKeyExchange: Packet[] = []
 
     clientProtocolVersion?: ProtocolVersionExchange
     clientKexDHInit?: KexDHInit
@@ -272,11 +276,132 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         this.state = SocketState.Disconnected
     }
 
+    rekey(): Promise<void>
+    rekey(callback: (error?: Error) => void): this
+    rekey(callback?: (error?: Error) => void): Promise<void> | this {
+        if (!this.isConnected || !this.hasAuthenticated) {
+            const error = new Error("Cannot rekey before the SSH connection is ready")
+            if (!callback) return Promise.reject(error)
+            queueMicrotask(() => callback(error))
+            return this
+        }
+        if (this.keyExchangeInProgress) {
+            const error = new Error("SSH key exchange is already in progress")
+            if (!callback) return Promise.reject(error)
+            queueMicrotask(() => callback(error))
+            return this
+        }
+        const operation = this.performKeyExchange().catch((error: unknown) => {
+            this.terminate()
+            throw error
+        })
+        if (!callback) return operation
+        operation.then(
+            () => callback(),
+            (error: Error) => callback(error),
+        )
+        return this
+    }
+
+    private createKexInit(): KexInit {
+        return new KexInit({
+            cookie: crypto.getRandomValues(Buffer.alloc(16)),
+            kex_algorithms: [...kex_algorithms.keys()],
+            server_host_key_algorithms: [
+                ...new Set(this.server.options.hostKeys.map((key) => key.data.alg)),
+            ],
+            encryption_algorithms_client_to_server: [...encryption_algorithms.keys()],
+            encryption_algorithms_server_to_client: [...encryption_algorithms.keys()],
+            mac_algorithms_client_to_server: [...mac_algorithms.keys()],
+            mac_algorithms_server_to_client: [...mac_algorithms.keys()],
+            compression_algorithms_client_to_server: ["none"],
+            compression_algorithms_server_to_client: ["none"],
+            languages_client_to_server: [],
+            languages_server_to_client: [],
+            first_kex_packet_follows: false,
+        })
+    }
+
+    private async performKeyExchange(
+        received?: readonly [packet: KexInit, payload: Buffer],
+    ): Promise<void> {
+        if (this.keyExchangeInProgress) {
+            throw new Error("SSH key exchange is already in progress")
+        }
+        const isRekey = this.sessionID !== undefined
+        this.keyExchangeInProgress = true
+        this.hasReceivedNewKeys = false
+        this.hasSentNewKeys = false
+
+        try {
+            this.serverKexInit = this.createKexInit()
+            this.sendPacket(this.serverKexInit)
+            const [clientKexInit, clientKexInitBuffer] =
+                received ?? (await this.waitEvent("clientKexInit"))
+            this.clientKexInit = clientKexInit
+            chooseAlgorithms(this)
+
+            if (!(this.kexAlgorithm instanceof DiffieHellmanGroupN)) {
+                throw new Error("Unsupported key exchange algorithm")
+            }
+            const [clientKexDHInit] = await this.waitEvent("clientKexDHInit")
+            this.clientKexDHInit = clientKexDHInit
+            this.kexAlgorithm.generateKeyPair()
+            this.kexAlgorithm.sharedSecret = this.kexAlgorithm.keyPair!.computeSecret(
+                clientKexDHInit.data.e,
+            )
+
+            const hostKey = this.server.options.hostKeys.find(
+                (key) => key.data.alg === this.hostKeyAlgorithm!.alg_name,
+            )
+            assert(hostKey, "No host key found for the negotiated algorithm")
+            const publicKey = hostKey.data.publicKey.serialize()
+            const h = this.kexAlgorithm.computeHServer(this, clientKexInitBuffer, publicKey)
+            this.sendPacket(
+                new KexDHReply({
+                    K_S: publicKey,
+                    f: this.kexAlgorithm.keyPair!.getPublicKey(),
+                    H_sig: hostKey.data.algorithm.sign(h).serialize(),
+                }),
+            )
+
+            this.H = h
+            this.sessionID ??= h
+            this.kexAlgorithm.deriveKeysClient(this)
+            this.clientEncryption = this.clientEncryptionAlgorithm!.instantiate(
+                this.encryptionKeyClientToServer!,
+                this.ivClientToServer!,
+            )
+            this.serverEncryption = this.serverEncryptionAlgorithm!.instantiate(
+                this.encryptionKeyServerToClient!,
+                this.ivServerToClient!,
+            )
+            this.clientMac = this.clientMacAlgorithm!.instantiate(this.integrityKeyClientToServer!)
+            this.serverMac = this.serverMacAlgorithm!.instantiate(this.integrityKeyServerToClient!)
+            this.resumePacketProcessing()
+
+            if (!this.hasReceivedNewKeys) await this.waitEvent("clientNewKeys")
+            this.sendPacket(new NewKeys({}))
+            this.hasSentNewKeys = true
+            this.packetEncoder.setProtection({
+                cipher: this.serverEncryption,
+                mac: this.serverMac,
+                blockSize: this.serverEncryptionAlgorithm!.block_size,
+                macLength: this.serverMacAlgorithm!.digest_length,
+            })
+            while (this.packetsQueuedDuringKeyExchange.length > 0) {
+                this.writePacket(this.packetsQueuedDuringKeyExchange.shift()!)
+            }
+            this.emit("serverNewKeys")
+            if (isRekey) this.emit("rekey")
+        } finally {
+            this.keyExchangeInProgress = false
+        }
+    }
+
     async connect(): Promise<void> {
         this.state = SocketState.Connecting
         const clientProtocolVersionPromise = this.waitEvent("clientProtocolVersion")
-        const clientKexInitPromise = this.waitEvent("clientKexInit")
-        const clientNewKeysPromise = this.waitEvent("clientNewKeys")
 
         this.debug(`Socket connected, sending protocol version exchange packet...`)
         this.socket.write(this.server.options.protocolVersionExchange.toString())
@@ -287,95 +412,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         const [clientProtocolVersion] = await clientProtocolVersionPromise
         this.debug("Client protocol version:", clientProtocolVersion)
 
-        this.serverKexInit = new KexInit({
-            cookie: crypto.getRandomValues(Buffer.alloc(16)),
-            kex_algorithms: [...kex_algorithms.keys()],
-            server_host_key_algorithms: [
-                // remove duplicates
-                ...new Set(this.server.options.hostKeys.map((e) => e.data.alg)),
-            ],
-            encryption_algorithms_client_to_server: [...encryption_algorithms.keys()],
-            encryption_algorithms_server_to_client: [...encryption_algorithms.keys()],
-            mac_algorithms_client_to_server: [...mac_algorithms.keys()],
-            mac_algorithms_server_to_client: [...mac_algorithms.keys()],
-            // we don't support compression yet
-            compression_algorithms_client_to_server: ["none"],
-            compression_algorithms_server_to_client: ["none"],
-            languages_client_to_server: [],
-            languages_server_to_client: [],
-            // TODO: Determine what this field does
-            first_kex_packet_follows: false,
-        })
-        this.sendPacket(this.serverKexInit)
-
-        const [clientKexInit, clientKexInitBuffer] = await clientKexInitPromise
-        this.clientKexInit = clientKexInit
-        this.debug("Client KexInit:", clientKexInit)
-        chooseAlgorithms(this)
-
-        if (this.kexAlgorithm instanceof DiffieHellmanGroupN) {
-            this.debug(
-                "Using DiffieHellmanGroupN key exchange algorithm",
-                (this.kexAlgorithm.constructor as typeof KexAlgorithm).alg_name,
-            )
-            const [clientKexDHInit] = (await this.waitEvent("packet")) as [KexDHInit]
-            assert(clientKexDHInit instanceof KexDHInit, "Invalid packet type")
-            this.debug("Client KexDHInit:", clientKexDHInit)
-            this.clientKexDHInit = clientKexDHInit
-
-            this.kexAlgorithm!.generateKeyPair()
-            this.kexAlgorithm!.sharedSecret = this.kexAlgorithm!.keyPair!.computeSecret(
-                clientKexDHInit.data.e,
-            )
-
-            const hostKey = this.server.options.hostKeys.find(
-                (key) => key.data.alg === this.hostKeyAlgorithm!.alg_name,
-            )
-            assert(hostKey, "No host key found")
-            const publicKey = hostKey.data.publicKey.serialize()
-
-            const h = this.kexAlgorithm!.computeHServer(this, clientKexInitBuffer, publicKey)
-
-            this.sendPacket(
-                new KexDHReply({
-                    K_S: publicKey,
-                    f: this.kexAlgorithm!.keyPair!.getPublicKey(),
-                    H_sig: hostKey.data.algorithm.sign(h).serialize(),
-                }),
-            )
-
-            this.H = h
-            this.sessionID = h
-        } else {
-            throw new Error("Unsupported key exchange algorithm (Not Implemented in ServerClient)")
-        }
-
-        this.kexAlgorithm.deriveKeysClient(this)
-        this.debug("Derived transport keys")
-
-        this.clientEncryption = this.clientEncryptionAlgorithm!.instantiate(
-            this.encryptionKeyClientToServer!,
-            this.ivClientToServer!,
-        )
-        this.serverEncryption = this.serverEncryptionAlgorithm!.instantiate(
-            this.encryptionKeyServerToClient!,
-            this.ivServerToClient!,
-        )
-        this.clientMac = this.clientMacAlgorithm!.instantiate(this.integrityKeyClientToServer!)
-        this.serverMac = this.serverMacAlgorithm!.instantiate(this.integrityKeyServerToClient!)
-        this.resumePacketProcessing()
-
-        await clientNewKeysPromise
-
-        this.sendPacket(new NewKeys({}))
-        this.hasSentNewKeys = true
-        this.packetEncoder.setProtection({
-            cipher: this.serverEncryption,
-            mac: this.serverMac,
-            blockSize: this.serverEncryptionAlgorithm!.block_size,
-            macLength: this.serverMacAlgorithm!.digest_length,
-        })
-        this.emit("serverNewKeys")
+        await this.performKeyExchange()
 
         this.debug("Keys exchanged, encryption and MAC algorithms set up")
         this.debug("Starting authentication...")
@@ -1102,6 +1139,20 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     }
 
     sendPacket(packet: Packet): number {
+        const type = (packet.constructor as typeof Packet).type
+        if (
+            this.keyExchangeInProgress &&
+            (type >= 50 ||
+                type === PacketNameToType.SSH_MSG_SERVICE_REQUEST ||
+                type === PacketNameToType.SSH_MSG_SERVICE_ACCEPT)
+        ) {
+            this.packetsQueuedDuringKeyExchange.push(packet)
+            return -1
+        }
+        return this.writePacket(packet)
+    }
+
+    private writePacket(packet: Packet): number {
         this.debug("Sending packet:", this.packetForDebug(packet))
         const encoded = this.packetEncoder.encode(packet.serialize())
         this.socket!.write(encoded.data)
@@ -1207,11 +1258,17 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             }
 
             case PacketNameToType.SSH_MSG_KEXINIT:
-                // handle key exchange
+                if (this.state === SocketState.Connected && !this.keyExchangeInProgress) {
+                    void this.performKeyExchange([p as KexInit, payload]).catch((error: Error) => {
+                        this.emit("error", error)
+                        this.terminate()
+                    })
+                }
                 this.emit("clientKexInit", p as KexInit, payload)
                 break
 
             case PacketNameToType.SSH_MSG_KEXDH_INIT:
+                this.emit("clientKexDHInit", p as KexDHInit)
                 this.packetProcessingPaused = true
                 break
 
