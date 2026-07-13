@@ -48,6 +48,23 @@ hook can perform richer verification with a parsed `PublicKey`; when both mechan
 both must allow the key. With neither configured, the client accepts the cryptographically valid
 host key implicitly, which does not authenticate an unknown server.
 
+After authentication, a server may advertise additional host keys for rotation. The client
+automatically requests an ownership proof bound to the current session and emits `hostKeys` only
+with keys whose signatures verify:
+
+```ts
+client.on("hostKeys", async (publicKeys) => {
+    await knownHosts.replaceHostKeys(
+        client.options.hostname,
+        publicKeys.map((key) => key.toString()),
+    )
+})
+```
+
+This event does not replace initial host verification. The proof is trustworthy only because the
+current connection was first authenticated with an already trusted key. Unsupported, malformed,
+unsigned, or incorrectly signed announcements are never emitted.
+
 `readyTimeout` bounds the complete connection setup: opening a TCP connection (unless `sock` is
 supplied), exchanging SSH identification strings, negotiating transport keys, and authenticating.
 It defaults to 20 seconds. Set it to `0` to disable the deadline. If the deadline expires,

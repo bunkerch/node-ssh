@@ -100,6 +100,7 @@ import UserAuthInfoRequest from "./packets/UserAuthInfoRequest.js"
 import UserAuthInfoResponse from "./packets/UserAuthInfoResponse.js"
 import UserAuthPasswordChangeRequest from "./packets/UserAuthPasswordChangeRequest.js"
 import UserAuthBanner from "./packets/UserAuthBanner.js"
+import { createHostKeysProofMessage } from "./utils/HostKeysProof.js"
 
 interface RemoteForwardListener {
     server: net.Server
@@ -721,11 +722,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 return
             }
 
-            const message = Buffer.concat([
-                serializeBuffer(Buffer.from("hostkeys-prove-00@openssh.com", "utf8")),
-                serializeBuffer(this.sessionID!),
-                serializeBuffer(publicKey.serialize()),
-            ])
+            const message = createHostKeysProofMessage(this.sessionID!, publicKey)
             signatures.push(serializeBuffer(hostKey.sign(message).serialize()))
         }
 

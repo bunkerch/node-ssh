@@ -97,6 +97,12 @@ SHA-512 host key against the containerized server; an invalid password prevents 
 vectors independently cover the RFC 8308 `server-sig-algs` message and the distinct RSA signature
 algorithm and `ssh-rsa` key-format fields.
 
+Host-key rotation interoperability verifies the server's `hostkeys-00@openssh.com` announcement by
+requesting `hostkeys-prove-00@openssh.com`, checking each signature against the session-bound proof
+message, and matching the resulting RSA key to the real containerized server key. Independent fixed
+bytes cover the proof preimage, while focused cryptographic tests reject modified, truncated, and
+extra signatures.
+
 ECDSA host-key interoperability forces each RFC-required NIST curve in both peer roles. OpenSSH
 initiates low-limit rekeys against the modern server for P-256, P-384, and P-521; separate modern
 clients force each corresponding OpenSSH host key, explicitly rekey, authenticate, and execute a

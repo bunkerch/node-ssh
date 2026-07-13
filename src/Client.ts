@@ -97,6 +97,7 @@ import {
     type ResolvedAlgorithmOptions,
 } from "./AlgorithmOptions.js"
 import type PrivateKey from "./utils/PrivateKey.js"
+import { parseHostKeysProofResponse } from "./utils/HostKeysProof.js"
 
 export interface ClientHostbasedOptions {
     key: PrivateKey
@@ -178,6 +179,8 @@ export interface ClientEvents {
     connect: []
     message: [message: Buffer]
     packet: [packet: Packet]
+    /** Host keys whose ownership was cryptographically proved for this connection. */
+    hostKeys: [publicKeys: readonly PublicKey[]]
     tcpWrapperLog: [message: string]
     serverProtocolVersion: [protocolVersion: ProtocolVersionExchange]
     serverKexInit: [serverKexInit: KexInit, payload: Buffer]
@@ -804,6 +807,53 @@ export default class Client extends EventEmitter<ClientEvents> {
         return this
     }
 
+    private async handleServerHostKeys(packet: GlobalRequest): Promise<void> {
+        const publicKeys: PublicKey[] = []
+        const seen = new Set<string>()
+        let raw = packet.data.args
+        while (raw.length !== 0) {
+            let encoded: Buffer
+            ;[encoded, raw] = readNextBuffer(raw)
+            try {
+                const publicKey = PublicKey.parse(encoded)
+                const identity = publicKey.serialize().toString("base64")
+                if (seen.has(identity)) continue
+                seen.add(identity)
+                publicKeys.push(publicKey)
+            } catch (error) {
+                this.debug("Ignoring an unsupported advertised SSH host key:", error)
+            }
+        }
+        if (publicKeys.length === 0) return
+        if (!this.isConnected) await this.waitEvent("connect")
+        assert(this.sessionID, "SSH host-key proof requires an established session")
+        const response = await this.sendGlobalRequest(
+            "hostkeys-prove-00@openssh.com",
+            Buffer.concat(publicKeys.map((publicKey) => serializeBuffer(publicKey.serialize()))),
+        )
+        const verified = parseHostKeysProofResponse(this.sessionID, publicKeys, response)
+        this.debug(`Verified ${verified.length} of ${publicKeys.length} advertised SSH host keys`)
+        if (verified.length !== 0) this.emit("hostKeys", verified)
+    }
+
+    private handleServerGlobalRequest(packet: Packet): void {
+        if (!(packet instanceof GlobalRequest)) return
+        this.debug(`Received global request packet:`, packet)
+
+        if (packet.data.request_name === "hostkeys-00@openssh.com") {
+            if (packet.data.want_reply) {
+                this.sendPacket(new RequestSuccess({ args: Buffer.alloc(0) }))
+            }
+            void this.handleServerHostKeys(packet).catch((error: unknown) => {
+                this.debug("Could not verify advertised SSH host keys:", error)
+            })
+            return
+        }
+
+        this.debug(`Unknown global request name: ${packet.data.request_name}`)
+        if (packet.data.want_reply) this.sendPacket(new RequestFailure({}))
+    }
+
     private async requestRemoteForward(bindAddress: string, bindPort: number): Promise<number> {
         this.validatePort(bindPort, "remote forwarding port")
         const args = Buffer.concat([
@@ -1249,60 +1299,6 @@ export default class Client extends EventEmitter<ClientEvents> {
         }
         this.hasAuthenticated = true
 
-        // now that we have received USERAUTH_SUCCESS, we need
-        // to handle GLOBAL_REQUEST.
-
-        this.on("packet", (packet) => {
-            if (!(packet instanceof GlobalRequest)) return
-
-            this.debug(`Received global request packet:`, packet)
-
-            switch (packet.data.request_name) {
-                case "hostkeys-00@openssh.com": {
-                    const hostkeys = []
-                    let raw = packet.data.args
-                    while (raw.length != 0) {
-                        let arg: Buffer
-                        ;[arg, raw] = readNextBuffer(raw)
-
-                        try {
-                            hostkeys.push(PublicKey.parse(arg))
-                        } catch (err) {
-                            // unsupported host key algorithm
-                            // or parse error
-                            // either way don't care and silently fail.
-                            this.debug(`Error while trying to parse host key:`, err)
-                        }
-                    }
-
-                    this.debug(`Received ${hostkeys.length} host keys from global request`)
-
-                    // Do we care ?
-                    // at this point, most usage will be
-                    // from people ignoring host keys
-                    // so ig 👍
-
-                    // TODO: need to implement verifying host keys reliably
-                    // this could take the form of an "KnownHostsAgent" or something
-                    // that stores known hosts in a file (.ssh/known_hosts) or in
-                    // memory, or in a database.
-
-                    // https://cvsweb.openbsd.org/src/usr.bin/ssh/PROTOCOL?annotate=HEAD
-                    // section 2.5 (ctrl + f search for "hostkeys-00@openssh.com")
-                    break
-                }
-                default: {
-                    this.debug(`Unknown global request name: ${packet.data.request_name}`)
-                    if (packet.data.want_reply) {
-                        // this might be a keep alive lol
-                        // shitty spec
-                        // either way, send a failure response.
-                        this.sendPacket(new RequestFailure({}))
-                    }
-                }
-            }
-        })
-
         // we are connected and logged in
         // we can now open channels
         this.state = SocketState.Connected
@@ -1536,6 +1532,7 @@ export default class Client extends EventEmitter<ClientEvents> {
 
         this.emit("packet", p)
 
+        this.handleServerGlobalRequest(p)
         this.routeGlobalRequestReply(p)
         this.routeChannelPacket(p)
 

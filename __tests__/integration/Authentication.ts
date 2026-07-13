@@ -5,9 +5,53 @@ import Disconnect, { DisconnectReason } from "../../src/packets/Disconnect.js"
 import Server from "../../src/Server.js"
 import type ServerClient from "../../src/ServerClient.js"
 import PrivateKey from "../../src/utils/PrivateKey.js"
+import PublicKey from "../../src/utils/PublicKey.js"
 import EncodedSignature from "../../src/utils/Signature.js"
 
 describe("RFC 4252 multi-method authentication", () => {
+    test("emits only host keys whose ownership the server proves", async () => {
+        const hostKeys = await Promise.all([
+            PrivateKey.generate("ssh-ed25519"),
+            PrivateKey.generate("ecdsa-sha2-nistp256"),
+        ])
+        const server = new Server({ hostKeys, sendAllHostKeys: true })
+        server.hooker.hook("noneAuthentication", (_hook, context, decision) => {
+            decision.allowLogin = context.username === "rotation"
+        })
+        server.listen({ host: "127.0.0.1", port: 0 })
+        await new Promise<void>((resolve) => server.server!.once("listening", resolve))
+        const port = (server.server!.address() as AddressInfo).port
+        const client = new Client({
+            hostname: "127.0.0.1",
+            port,
+            username: "rotation",
+            authenticationMethodsOrder: [SSHAuthenticationMethods.None],
+        })
+        client.hooker.hook("hostKey", (_hook, decision) => {
+            decision.allowHostKey = true
+        })
+        const announced = new Promise<readonly PublicKey[]>((resolve) => {
+            client.once("hostKeys", resolve)
+        })
+
+        try {
+            await client.connect()
+            const verified = await announced
+            expect(verified).toHaveLength(2)
+            expect(
+                verified.every((publicKey) =>
+                    hostKeys.some((privateKey) => privateKey.data.publicKey.equals(publicKey)),
+                ),
+            ).toBe(true)
+        } finally {
+            client.destroy()
+            for (const connection of server.clients) connection.terminate()
+            await new Promise<void>((resolve, reject) => {
+                server.server!.close((error) => (error ? reject(error) : resolve()))
+            })
+        }
+    }, 15_000)
+
     test("authenticates a client host through an awaited server policy hook", async () => {
         const serverHostKey = await PrivateKey.generate("ssh-ed25519")
         const clientHostKey = await PrivateKey.generate("ssh-ed25519")

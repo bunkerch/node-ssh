@@ -1868,8 +1868,9 @@ describe("OpenSSH interoperability", () => {
                 "cat",
                 "/etc/ssh/ssh_host_rsa_key.pub",
             ])
+            const expectedHostKey = PublicKey.parseString(hostKeyText)
             const expectedHostHash = createHash("sha256")
-                .update(PublicKey.parseString(hostKeyText).serialize())
+                .update(expectedHostKey.serialize())
                 .digest("hex")
             const { stdout: clientHostPrivateKeyText } = await execFileAsync("docker", [
                 "exec",
@@ -1894,6 +1895,9 @@ describe("OpenSSH interoperability", () => {
             const keyboardBanners: string[] = []
             const keyboardDebug: unknown[][] = []
             const keyboardErrors: Error[] = []
+            const keyboardHostKeys = new Promise<readonly PublicKey[]>((resolve) => {
+                keyboardClient.once("hostKeys", resolve)
+            })
             keyboardClient.on("banner", (message) => keyboardBanners.push(message))
             keyboardClient.on("debug", (...message) => keyboardDebug.push(message))
             keyboardClient.on("error", (error) => keyboardErrors.push(error))
@@ -1918,6 +1922,8 @@ describe("OpenSSH interoperability", () => {
             await new Promise<void>((resolve) => keyboardSession.once("close", resolve))
             expect(Buffer.concat(keyboardOutput).toString()).toBe("keyboard-ok")
             expect(keyboardBanners).toEqual(["OpenSSH authentication banner\n"])
+            const verifiedHostKeys = await keyboardHostKeys
+            expect(verifiedHostKeys.some((key) => key.equals(expectedHostKey))).toBe(true)
             keyboardClient.end()
 
             const hostbasedClient = new Client({
