@@ -1,32 +1,76 @@
 import { defaultProtocolVersionExchange } from "./constants.js"
 
+const SOFTWARE_VERSION_PATTERN = /^[!-,.-~]+$/
+
+export const MAX_IDENTIFICATION_LENGTH = 255
+
 export default class ProtocolVersionExchange {
-    protocol_version: string
-    protocol_software: string
-    comments: string | undefined
+    readonly protocol_version: string
+    readonly protocol_software: string
+    readonly comments: string | undefined
     constructor(
         protocol_version: string,
         protocol_software: string,
         comments?: string | undefined,
     ) {
+        if (protocol_version !== "2.0" && protocol_version !== "1.99") {
+            throw new Error(`Unsupported SSH protocol version: ${protocol_version}`)
+        }
+        if (!SOFTWARE_VERSION_PATTERN.test(protocol_software)) {
+            throw new Error(
+                "SSH software version must be printable US-ASCII without whitespace or '-'",
+            )
+        }
+        if (comments !== undefined && (comments.length === 0 || /[\0\r\n]/u.test(comments))) {
+            throw new Error(
+                "SSH identification comments must not be empty or contain NUL, CR, or LF",
+            )
+        }
+
         this.protocol_version = protocol_version
         this.protocol_software = protocol_software
         this.comments = comments
+
+        if (Buffer.byteLength(this.toString(), "utf8") > MAX_IDENTIFICATION_LENGTH) {
+            throw new Error(`SSH identification must not exceed ${MAX_IDENTIFICATION_LENGTH} bytes`)
+        }
     }
 
-    static parse(raw: string): ProtocolVersionExchange {
-        const match = raw.match(/^SSH-(\d+\.\d+)-([^ \n\r]+)( (.+))?\r?\n$/)
-        if (raw.length > 255 || !match) {
-            throw new Error("Invalid protocol version exchange message from server")
+    static parse(raw: string | Buffer): ProtocolVersionExchange {
+        const encoded = Buffer.isBuffer(raw) ? raw : Buffer.from(raw, "utf8")
+        if (encoded.length > MAX_IDENTIFICATION_LENGTH) {
+            throw new Error(`SSH identification must not exceed ${MAX_IDENTIFICATION_LENGTH} bytes`)
         }
-        const protocol_version = match[1]
-        const protocol_software = match[2]
-        const comments = match[4]
+        if (encoded.includes(0)) {
+            throw new Error("SSH identification must not contain NUL")
+        }
+
+        let body: Buffer
+        if (encoded.subarray(-2).equals(Buffer.from("\r\n"))) {
+            body = encoded.subarray(0, -2)
+        } else if (encoded.subarray(-1).equals(Buffer.from("\n"))) {
+            // RFC 4253 section 5 permits accepting LF-only identification for
+            // compatibility with older SSH implementations.
+            body = encoded.subarray(0, -1)
+        } else {
+            throw new Error("SSH identification must end with CRLF or LF")
+        }
+
+        const text = body.toString("utf8")
+        if (!Buffer.from(text, "utf8").equals(body)) {
+            throw new Error("SSH identification is not valid UTF-8")
+        }
+        const match = /^SSH-(2\.0|1\.99)-([^ ]+)(?: (.+))?$/u.exec(text)
+        if (!match) {
+            throw new Error("Invalid SSH identification")
+        }
+
+        const [, protocol_version, protocol_software, comments] = match
 
         return new ProtocolVersionExchange(protocol_version, protocol_software, comments)
     }
 
-    static defaultValue = ProtocolVersionExchange.parse(defaultProtocolVersionExchange)
+    static readonly defaultValue = ProtocolVersionExchange.parse(defaultProtocolVersionExchange)
 
     toString(): string {
         return `SSH-${this.protocol_version}-${this.protocol_software}${this.comments ? ` ${this.comments}` : ""}\r\n`

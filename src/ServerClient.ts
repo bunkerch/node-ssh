@@ -62,6 +62,7 @@ import { channelFromChannelOpenPacket } from "./channels.js"
 import ChannelRequest from "./packets/ChannelRequest.js"
 import { ActionQueue } from "./utils/ActionQueue.js"
 import ChannelData from "./packets/ChannelData.js"
+import IdentificationParser from "./IdentificationParser.js"
 
 export interface ServerClientEvents {
     error: [error: Error]
@@ -114,6 +115,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     }
 
     private buffering: Buffer = Buffer.alloc(0)
+    private identificationParser = new IdentificationParser({ allowPreamble: false })
     private buffering_decrypted: Buffer = Buffer.alloc(0)
     private in_sequence_number = 0
     private out_sequence_number = 0
@@ -688,48 +690,16 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         message = Buffer.concat([this.buffering, message])
         this.buffering = Buffer.alloc(0)
         if (!this.clientProtocolVersion) {
-            // split("\n") but for buffers
-            const lines: Buffer[] = []
-            let index = 0
-            for (let i = 0; i < message.length; i++) {
-                if (message[i] === 0x0a) {
-                    lines.push(message.subarray(index, i + 1))
-                    index += i + 1
-                }
-            }
-            if (index < message.length) {
-                lines.push(message.subarray(index))
-            }
+            const result = this.identificationParser.push(message)
+            if (!result.version || !result.identification) return
 
-            while (lines[0]) {
-                const lineBuf = lines.shift()!
-                this.emit("message", lineBuf)
-                let line = lineBuf!.toString("utf8")
-                if (line?.startsWith("SSH-")) {
-                    // protocol version exchange
-                    this.clientProtocolVersion = ProtocolVersionExchange.parse(line)
-                    this.emit("clientProtocolVersion", this.clientProtocolVersion)
-                    this.debug("Client protocol version:", this.clientProtocolVersion)
-                    break // no utf8 message after that.
-                } else {
-                    // remove trailing whitespace and newlines
-                    line = line.replace(/[\r\s]+\n$/, "")
-                    this.emit("tcpWrapperLog", line)
-                    this.debug("TCP Wrapper log:", line)
-                }
-            }
+            this.emit("message", result.identification)
+            this.clientProtocolVersion = result.version
+            this.emit("clientProtocolVersion", result.version)
+            this.debug("Client protocol version:", result.version)
 
-            if (!this.clientProtocolVersion) {
-                return
-            }
-
-            if (lines.length == 0) {
-                return
-            }
-
-            // process the remaining lines
-            message = Buffer.concat(lines)
-            return this.onMessage(message)
+            if (result.remainder.length > 0) this.onMessage(result.remainder)
+            return
         } else {
             // binary packet protocol
             const padding_multiple = Math.max(8, this.clientEncryptionAlgorithm?.block_size ?? 8)

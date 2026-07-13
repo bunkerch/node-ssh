@@ -40,6 +40,7 @@ import RequestFailure from "./packets/RequestFailure.js"
 import Debug from "./packets/Debug.js"
 import { readNextBuffer } from "./utils/Buffer.js"
 import Channel from "./Channel.js"
+import IdentificationParser from "./IdentificationParser.js"
 
 export interface ClientOptions {
     hostname: string
@@ -131,6 +132,7 @@ export default class Client extends EventEmitter<ClientEvents> {
     hooker = new Hooker<ClientHooker>()
 
     private socket?: net.Socket
+    private identificationParser = new IdentificationParser({ allowPreamble: true })
     private buffering: Buffer = Buffer.alloc(0)
     private buffering_decrypted: Buffer = Buffer.alloc(0)
     private in_sequence_number = 0
@@ -220,8 +222,13 @@ export default class Client extends EventEmitter<ClientEvents> {
             this.socket!.on("close", closeListener)
         })
 
-        // TODO: onMessage can throw errors, handle them
-        this.socket!.on("data", this.onMessage.bind(this))
+        this.socket!.on("data", (data) => {
+            try {
+                this.onMessage(data)
+            } catch (error) {
+                this.socket?.destroy(error as Error)
+            }
+        })
 
         this.debug(`Socket connected, sending protocol version exchange packet...`)
         this.socket!.write(this.options.protocolVersionExchange.toString())
@@ -581,47 +588,22 @@ export default class Client extends EventEmitter<ClientEvents> {
 
     onMessage(message: Buffer): void {
         if (!this.serverProtocolVersion) {
-            // split("\n") but for buffers
-            const lines: Buffer[] = []
-            let index = 0
-            for (let i = 0; i < message.length; i++) {
-                if (message[i] === 0x0a) {
-                    lines.push(message.subarray(index, i + 1))
-                    index += i + 1
-                }
-            }
-            if (index < message.length) {
-                lines.push(message.subarray(index))
-            }
-
-            while (lines[0]) {
-                const lineBuf = lines.shift()!
+            const result = this.identificationParser.push(message)
+            for (const lineBuf of result.preamble) {
                 this.emit("message", lineBuf)
-                let line = lineBuf!.toString("utf8")
-                if (line?.startsWith("SSH-")) {
-                    // protocol version exchange
-                    this.serverProtocolVersion = ProtocolVersionExchange.parse(line)
-                    this.emit("serverProtocolVersion", this.serverProtocolVersion)
-                    break // no utf8 message after that.
-                } else {
-                    // remove trailing whitespace and newlines
-                    line = line.replace(/[\r\s]+\n$/, "")
-                    this.emit("tcpWrapperLog", line)
-                    this.debug("TCP Wrapper log:", line)
-                }
+                const line = lineBuf.toString("utf8").replace(/\r?\n$/u, "")
+                this.emit("tcpWrapperLog", line)
+                this.debug("TCP Wrapper log:", line)
             }
 
-            if (!this.serverProtocolVersion) {
-                return
-            }
+            if (!result.version || !result.identification) return
 
-            if (lines.length == 0) {
-                return
-            }
+            this.emit("message", result.identification)
+            this.serverProtocolVersion = result.version
+            this.emit("serverProtocolVersion", result.version)
 
-            // process the remaining lines
-            message = Buffer.concat(lines)
-            return this.onMessage(message)
+            if (result.remainder.length > 0) this.onMessage(result.remainder)
+            return
         } else {
             // binary packet protocol
             message = Buffer.concat([this.buffering, message])
