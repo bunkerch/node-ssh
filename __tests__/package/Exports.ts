@@ -28,6 +28,7 @@ import {
     Shell,
     SFTPPacketParser,
     SFTPPacketType,
+    SFTPClient,
     SSHAgent,
     SSHAuthenticationMethods,
     type ClientOptions,
@@ -75,6 +76,7 @@ describe("package exports", () => {
         expect(encodeSFTPPacket).toBeFunction()
         expect(SFTPPacketParser).toBeFunction()
         expect(SFTPPacketType.Init).toBe(1)
+        expect(SFTPClient).toBeFunction()
     })
 
     test("compiled entry point provides the same side-effect-free API", async () => {
@@ -100,5 +102,6 @@ describe("package exports", () => {
         expect(entry.OnePasswordAgent).toBeDefined()
         expect(entry.SFTPPacketParser).toBeDefined()
         expect(entry.SFTPPacketType.Status).toBe(101)
+        expect(entry.SFTPClient).toBeDefined()
     })
 })

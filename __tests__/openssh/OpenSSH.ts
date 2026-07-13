@@ -14,6 +14,8 @@ import { readNextBuffer, readNextUint32 } from "../../src/utils/Buffer.js"
 import PrivateKey from "../../src/utils/PrivateKey.js"
 import PublicKey from "../../src/utils/PublicKey.js"
 import { SSHAuthenticationMethods } from "../../src/constants.js"
+import { SFTPStatusError } from "../../src/sftp/SFTPClient.js"
+import { SFTPStatusCode } from "../../src/sftp/constants.js"
 
 const execFileAsync = promisify(execFile)
 const imageName = "modernssh-openssh-test:bookworm"
@@ -1093,6 +1095,69 @@ describe("OpenSSH interoperability", () => {
             })
 
             await client.connect()
+
+            const sftp = await client.sftp()
+            expect(sftp.protocolVersion).toBe(3)
+            expect(sftp.isOpenSSH).toBe(true)
+            expect(sftp.supportsExtension("posix-rename@openssh.com", "1")).toBe(true)
+
+            const sftpDirectory = "/home/interop/modernssh-sftp"
+            const originalPath = `${sftpDirectory}/original.bin`
+            const renamedPath = `${sftpDirectory}/renamed.bin`
+            const linkPath = `${sftpDirectory}/renamed.link`
+            await sftp.mkdir(sftpDirectory, { permissions: 0o700 })
+            const contents = Buffer.allocUnsafe(70_000)
+            for (let index = 0; index < contents.length; index++) contents[index] = index % 251
+
+            const writeHandle = await sftp.open(originalPath, "wx", { permissions: 0o640 })
+            await sftp.write(writeHandle, contents, 0n)
+            expect((await sftp.fstat(writeHandle)).size).toBe(70_000n)
+            await sftp.close(writeHandle)
+
+            const readHandle = await sftp.open(originalPath, "r")
+            const [tail, beginning, middle] = await Promise.all([
+                sftp.read(readHandle, contents.length - 65_536, 65_536n),
+                sftp.read(readHandle, 32_768, 0n),
+                sftp.read(readHandle, 32_768, 32_768n),
+            ])
+            await sftp.close(readHandle)
+            expect(Buffer.concat([beginning, middle, tail])).toEqual(contents)
+
+            await sftp.chmod(originalPath, "600")
+            await sftp.utimes(originalPath, 1_700_000_000, 1_700_000_001)
+            const attributes = await sftp.stat(originalPath)
+            expect(attributes.size).toBe(70_000n)
+            expect(attributes.permissions! & 0o777).toBe(0o600)
+            expect(attributes.accessTime).toBe(1_700_000_000)
+            expect(attributes.modificationTime).toBe(1_700_000_001)
+
+            await sftp.rename(originalPath, renamedPath)
+            await sftp.symlink("renamed.bin", linkPath)
+            expect(await sftp.readlink(linkPath)).toBe("renamed.bin")
+            expect((await sftp.lstat(linkPath)).permissions! & 0o170000).toBe(0o120000)
+            expect(await sftp.realpath(renamedPath)).toBe(renamedPath)
+            expect(
+                (await sftp.readDirectory(sftpDirectory))
+                    .map((entry) => entry.filename.toString())
+                    .sort(),
+            ).toEqual(["renamed.bin", "renamed.link"])
+
+            let missingError: unknown
+            try {
+                await sftp.stat(`${sftpDirectory}/missing`)
+            } catch (error) {
+                missingError = error
+            }
+            expect(missingError).toBeInstanceOf(SFTPStatusError)
+            expect((missingError as SFTPStatusError).code).toBe(SFTPStatusCode.NoSuchFile)
+
+            await sftp.unlink(linkPath)
+            await sftp.unlink(renamedPath)
+            await sftp.rmdir(sftpDirectory)
+            const sftpClosed = new Promise<void>((resolve) => sftp.channel.once("close", resolve))
+            sftp.end()
+            await sftpClosed
+
             const channel = await client.exec(
                 "printf 'openssh server stdout\\n'; printf 'openssh server stderr\\n' >&2; exit 23",
             )

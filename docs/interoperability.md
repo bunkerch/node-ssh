@@ -59,6 +59,13 @@ An in-process integration test proves that a partial password success can change
 method set and cause an earlier failed keyboard-interactive method to be retried as the second
 factor.
 
+SFTP client interoperability uses OpenSSH's revision 3 subsystem for multi-packet upload and
+download, concurrent reads with request-id matching, file and directory handles, attributes and
+timestamps, rename, canonicalization, directory scanning, and OpenSSH's documented reversed
+`SSH_FXP_SYMLINK` arguments. Independent literal vectors cover every baseline request and response
+layout; malformed framing, counts, flags, handles, response types, and request identifiers are
+rejected without relying on another JavaScript SSH implementation.
+
 Together, the OpenSSH tests and known vectors exercise identification exchange, KEXINIT
 negotiation, exchange-hash and signature verification, `NEWKEYS`, encrypted and authenticated
 packet framing, service negotiation, authentication, session streams, client- and server-side

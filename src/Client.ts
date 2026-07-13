@@ -69,6 +69,7 @@ import UserAuthPKOK from "./packets/UserAuthPKOK.js"
 import UserAuthPasswordChangeRequest from "./packets/UserAuthPasswordChangeRequest.js"
 import UserAuthInfoRequest, { UserAuthPrompt } from "./packets/UserAuthInfoRequest.js"
 import UserAuthInfoResponse from "./packets/UserAuthInfoResponse.js"
+import SFTPClient from "./sftp/SFTPClient.js"
 
 export interface ClientOptions {
     hostname: string
@@ -168,6 +169,7 @@ export type ClientChannelCallback<T extends ClientChannel = ClientChannel> = (
     channel?: T,
 ) => void
 export type ClientSessionCallback = ClientChannelCallback<ClientSessionChannel>
+export type ClientSFTPCallback = (error: Error | undefined, sftp?: SFTPClient) => void
 export type ClientForwardCallback = ClientChannelCallback<ClientTCPIPChannel>
 export type ClientForwardInCallback = (error: Error | undefined, port?: number) => void
 export type ClientStreamLocalCallback = ClientChannelCallback<ClientDirectStreamLocalChannel>
@@ -356,6 +358,27 @@ export default class Client extends EventEmitter<ClientEvents> {
     subsys(name: string, callback: ClientSessionCallback): this
     subsys(name: string, callback?: ClientSessionCallback): Promise<ClientSessionChannel> | this {
         return callback ? this.subsystem(name, callback) : this.subsystem(name)
+    }
+
+    sftp(): Promise<SFTPClient>
+    sftp(callback: ClientSFTPCallback): this
+    sftp(callback?: ClientSFTPCallback): Promise<SFTPClient> | this {
+        const operation = this.openSessionChannel().then(async (channel) => {
+            try {
+                await channel.subsystem("sftp")
+                const software = this.serverProtocolVersion?.protocol_software ?? ""
+                return await SFTPClient.connect(channel, /^(?:OpenSSH_|dropbear)/iu.test(software))
+            } catch (error) {
+                channel.close()
+                throw error
+            }
+        })
+        if (!callback) return operation
+        void operation.then(
+            (sftp) => callback(undefined, sftp),
+            (error: unknown) => callback(error instanceof Error ? error : new Error(String(error))),
+        )
+        return this
     }
 
     forwardOut(

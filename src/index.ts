@@ -13,9 +13,12 @@ export type {
     ClientHookerPasswordChangeContext,
     ClientHookerPasswordChangeController,
     ClientOptions,
+    ClientSFTPCallback,
     ClientSessionCallback,
     ClientStreamLocalCallback,
 } from "./Client.js"
+export { default as SFTPClient, SFTPStatusError, sftpOpenFlags } from "./sftp/SFTPClient.js"
+export type { SFTPPath, SFTPPosition } from "./sftp/SFTPClient.js"
 export {
     default as ClientChannel,
     DEFAULT_CHANNEL_PACKET_SIZE,
