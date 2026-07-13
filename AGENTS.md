@@ -60,6 +60,10 @@ behavior.
   active authentication context, never as a globally fixed packet. Honor advertised continuation
   lists and partial success, keep at most one keyboard-interactive request outstanding, and test
   prompts, banners, and password changes with fixed vectors plus OpenSSH.
+- SFTP follows revision 3 of `draft-ietf-secsh-filexfer-02`, matching OpenSSH. Preserve uint64
+  values as `bigint`, treat paths and handles as opaque bytes in the wire layer, bound messages to
+  256 KiB and handles to 256 bytes, and test codecs with independently written vectors. Keep
+  OpenSSH extensions separate and gate every request on the advertised extension version.
 - Implement vendor extensions from their upstream protocol documents (for example OpenSSH's
   `PROTOCOL`), and keep them explicitly named and separately tested from RFC behavior.
 - Treat local and remote channel identifiers, windows, maximum packet sizes, EOF, and CLOSE state as

@@ -118,6 +118,49 @@ export { default as EncodedSignature } from "./utils/Signature.js"
 export type { EncodedSignatureData } from "./utils/Signature.js"
 
 export {
+    decodeSFTPPacket,
+    encodeSFTPAttributes,
+    encodeSFTPPacket,
+    SFTPPacketParser,
+    SFTPProtocolError,
+} from "./sftp/codec.js"
+export {
+    MAX_SFTP_HANDLE_LENGTH,
+    MAX_SFTP_PACKET_LENGTH,
+    SFTP_VERSION,
+    SFTPAttributeFlags,
+    SFTPOpenFlags,
+    SFTPPacketType,
+    SFTPStatusCode,
+} from "./sftp/constants.js"
+export type {
+    SFTPAttributes,
+    SFTPAttrsPacket,
+    SFTPDataPacket,
+    SFTPExtendedAttribute,
+    SFTPExtendedPacket,
+    SFTPExtendedReplyPacket,
+    SFTPExtension,
+    SFTPFSetStatPacket,
+    SFTPHandlePacket,
+    SFTPHandleRequestPacket,
+    SFTPInitPacket,
+    SFTPMkDirPacket,
+    SFTPNameEntry,
+    SFTPNamePacket,
+    SFTPOpenPacket,
+    SFTPPacket,
+    SFTPPathPacket,
+    SFTPReadPacket,
+    SFTPRequestPacketBase,
+    SFTPSetStatPacket,
+    SFTPStatusPacket,
+    SFTPTwoPathPacket,
+    SFTPVersionPacket,
+    SFTPWritePacket,
+} from "./sftp/types.js"
+
+export {
     MAXIMUM_CHANNEL_WINDOW_SIZE,
     SSHAuthenticationMethods,
     SSHExtendedDataTypes,

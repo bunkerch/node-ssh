@@ -12,6 +12,7 @@ import {
     DirectStreamLocalChannel,
     DiskAgent,
     EncodedSignature,
+    encodeSFTPPacket,
     ForwardedTCPIPChannel,
     ForwardedAgentChannel,
     ForwardedStreamLocalChannel,
@@ -25,6 +26,8 @@ import {
     ServerClient,
     SessionChannel,
     Shell,
+    SFTPPacketParser,
+    SFTPPacketType,
     SSHAgent,
     SSHAuthenticationMethods,
     type ClientOptions,
@@ -69,6 +72,9 @@ describe("package exports", () => {
         ]).toHaveLength(27)
         expect(SSHAuthenticationMethods.PublicKey).toBe("publickey")
         expect(SSHAuthenticationMethods.KeyboardInteractive).toBe("keyboard-interactive")
+        expect(encodeSFTPPacket).toBeFunction()
+        expect(SFTPPacketParser).toBeFunction()
+        expect(SFTPPacketType.Init).toBe(1)
     })
 
     test("compiled entry point provides the same side-effect-free API", async () => {
@@ -92,5 +98,7 @@ describe("package exports", () => {
         expect(entry.ProtocolVersionExchange).toBeDefined()
         expect(entry.SSHAgent).toBeDefined()
         expect(entry.OnePasswordAgent).toBeDefined()
+        expect(entry.SFTPPacketParser).toBeDefined()
+        expect(entry.SFTPPacketType.Status).toBe(101)
     })
 })
