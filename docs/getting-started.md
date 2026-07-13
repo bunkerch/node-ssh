@@ -14,6 +14,7 @@ const client = new Client({
     port: 22,
     username: "deploy",
     password: process.env.SSH_PASSWORD,
+    readyTimeout: 20_000,
     keepaliveInterval: 15_000,
     keepaliveCountMax: 3,
 })
@@ -41,6 +42,12 @@ client.end()
 Register a `hostKey` hook in production and compare the received key with a value from a trusted
 source. When no hook is registered, the current client accepts the negotiated host key implicitly;
 that behavior is convenient for controlled tests but does not authenticate an unknown server.
+
+`readyTimeout` bounds the complete connection setup: opening a TCP connection (unless `sock` is
+supplied), exchanging SSH identification strings, negotiating transport keys, and authenticating.
+It defaults to 20 seconds. Set it to `0` to disable the deadline. If the deadline expires,
+`connect()` rejects with `Timed out while waiting for handshake` and the client destroys the
+underlying transport.
 
 `end()` sends `SSH_MSG_DISCONNECT` with the `BY_APPLICATION` reason and gracefully ends the TCP
 connection. `destroy()` immediately destroys the underlying connection. Both methods return the

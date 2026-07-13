@@ -280,4 +280,32 @@ describe("client/server integration", () => {
             socketAcceptor.close((error) => (error ? reject(error) : resolve()))
         })
     })
+
+    test("bounds the complete SSH readiness phase for a silent peer", async () => {
+        const silentPeer = createServer(() => undefined)
+        silentPeer.listen({ host: "127.0.0.1", port: 0 })
+        await new Promise<void>((resolve) => silentPeer.once("listening", resolve))
+        const client = new Client({
+            hostname: "127.0.0.1",
+            port: (silentPeer.address() as AddressInfo).port,
+            readyTimeout: 40,
+        })
+        const errors: Error[] = []
+        client.on("error", (error) => errors.push(error))
+
+        await expect(client.connect()).rejects.toThrow("Timed out while waiting for handshake")
+        if (!client.canConnect) {
+            await new Promise<void>((resolve) => client.once("close", resolve))
+        }
+        expect(client.canConnect).toBe(true)
+        expect(errors.map((error) => error.message)).toEqual([
+            "Timed out while waiting for handshake",
+        ])
+        await new Promise<void>((resolve, reject) => {
+            silentPeer.close((error) => (error ? reject(error) : resolve()))
+        })
+        expect(() => new Client({ readyTimeout: -1 })).toThrow(
+            "SSH ready timeout must be a non-negative number",
+        )
+    })
 })

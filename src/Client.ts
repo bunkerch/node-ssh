@@ -84,6 +84,8 @@ export interface ClientOptions {
     authenticationMethodsOrder?: SSHAuthenticationMethods[]
     keepaliveInterval?: number
     keepaliveCountMax?: number
+    /** Maximum milliseconds for TCP connection, SSH handshake, and authentication. Zero disables. */
+    readyTimeout?: number
     /** Already-connected duplex transport, such as an SSH direct-tcpip channel. */
     sock?: Duplex
 }
@@ -225,6 +227,7 @@ export default class Client extends EventEmitter<ClientEvents> {
         ]
         this.options.keepaliveInterval ??= 0
         this.options.keepaliveCountMax ??= 3
+        this.options.readyTimeout ??= 20_000
         if (
             !Number.isFinite(this.options.keepaliveInterval) ||
             this.options.keepaliveInterval < 0
@@ -236,6 +239,9 @@ export default class Client extends EventEmitter<ClientEvents> {
             this.options.keepaliveCountMax < 0
         ) {
             throw new RangeError("SSH keepalive count maximum must be a non-negative integer")
+        }
+        if (!Number.isFinite(this.options.readyTimeout) || this.options.readyTimeout < 0) {
+            throw new RangeError("SSH ready timeout must be a non-negative number")
         }
 
         setImmediate(() => {
@@ -312,6 +318,7 @@ export default class Client extends EventEmitter<ClientEvents> {
     agentForwardingEnabled = false
     private keepaliveTimer?: ReturnType<typeof setTimeout>
     private unansweredKeepalives = 0
+    private readyTimer?: ReturnType<typeof setTimeout>
     private keyExchangeInProgress = false
     private readonly packetsQueuedDuringKeyExchange: Packet[] = []
 
@@ -901,6 +908,11 @@ export default class Client extends EventEmitter<ClientEvents> {
                 host: this.options.hostname,
                 port: this.options.port,
             })
+        if (this.options.readyTimeout > 0) {
+            this.readyTimer = setTimeout(() => {
+                this.socket?.destroy(new Error("Timed out while waiting for handshake"))
+            }, this.options.readyTimeout)
+        }
 
         let connected = suppliedSocket !== undefined
         await new Promise<void>((resolve, reject) => {
@@ -910,6 +922,7 @@ export default class Client extends EventEmitter<ClientEvents> {
             }
             if (suppliedSocket === undefined) this.socket!.once("connect", connectListener)
             const errorListener = (error: Error) => {
+                this.clearReadyTimeout()
                 this.state = SocketState.Closed
                 this.debug("Socket error:", error)
                 this.socket = undefined
@@ -922,6 +935,7 @@ export default class Client extends EventEmitter<ClientEvents> {
             }
             this.socket!.on("error", errorListener)
             const closeListener = () => {
+                this.clearReadyTimeout()
                 this.clearKeepalive()
                 this.state = SocketState.Closed
                 this.debug("Socket closed")
@@ -1085,11 +1099,13 @@ export default class Client extends EventEmitter<ClientEvents> {
         // we are connected and logged in
         // we can now open channels
         this.state = SocketState.Connected
+        this.clearReadyTimeout()
         this.resetKeepalive()
         this.emit("connect")
     }
 
     end(): this {
+        this.clearReadyTimeout()
         this.clearKeepalive()
         if (this.socket && !this.socket.destroyed && this.socket.writable) {
             if (this.serverProtocolVersion) {
@@ -1108,6 +1124,7 @@ export default class Client extends EventEmitter<ClientEvents> {
     }
 
     destroy(): this {
+        this.clearReadyTimeout()
         this.clearKeepalive()
         if (this.socket && !this.socket.destroyed) {
             this.state = SocketState.Disconnected
@@ -1451,6 +1468,11 @@ export default class Client extends EventEmitter<ClientEvents> {
     private clearKeepalive(): void {
         if (this.keepaliveTimer !== undefined) clearTimeout(this.keepaliveTimer)
         this.keepaliveTimer = undefined
+    }
+
+    private clearReadyTimeout(): void {
+        if (this.readyTimer !== undefined) clearTimeout(this.readyTimer)
+        this.readyTimer = undefined
     }
 
     private sendKeepalive(): void {
