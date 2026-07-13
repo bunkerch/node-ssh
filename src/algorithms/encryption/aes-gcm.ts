@@ -39,6 +39,30 @@ export default abstract class AESGCM implements EncryptionAlgorithm {
     }
 
     encryptPacket(
+        _sequenceNumber: number,
+        plaintext: Buffer,
+    ): { ciphertext: Buffer; authenticationTag: Buffer } {
+        const encrypted = this.encryptAuthenticated(plaintext.subarray(4), plaintext.subarray(0, 4))
+        return {
+            ciphertext: Buffer.concat([plaintext.subarray(0, 4), encrypted.ciphertext]),
+            authenticationTag: encrypted.authenticationTag,
+        }
+    }
+
+    decryptPacketLength(_sequenceNumber: number, encryptedLength: Buffer): Buffer {
+        return encryptedLength
+    }
+
+    decryptPacket(_sequenceNumber: number, ciphertext: Buffer, authenticationTag: Buffer): Buffer {
+        const plaintext = this.decryptAuthenticated(
+            ciphertext.subarray(4),
+            ciphertext.subarray(0, 4),
+            authenticationTag,
+        )
+        return Buffer.concat([ciphertext.subarray(0, 4), plaintext])
+    }
+
+    encryptAuthenticated(
         plaintext: Buffer,
         associatedData: Buffer,
     ): { ciphertext: Buffer; authenticationTag: Buffer } {
@@ -51,7 +75,11 @@ export default abstract class AESGCM implements EncryptionAlgorithm {
         return { ciphertext, authenticationTag: cipher.getAuthTag() }
     }
 
-    decryptPacket(ciphertext: Buffer, associatedData: Buffer, authenticationTag: Buffer): Buffer {
+    decryptAuthenticated(
+        ciphertext: Buffer,
+        associatedData: Buffer,
+        authenticationTag: Buffer,
+    ): Buffer {
         if (authenticationTag.length !== 16) {
             throw new Error("SSH AES-GCM authentication tag must be 16 bytes")
         }

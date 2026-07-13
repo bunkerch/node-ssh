@@ -18,13 +18,14 @@ export interface PacketDecryptor {
 
 export interface PacketAEADEncryptor {
     encryptPacket(
+        sequenceNumber: number,
         plaintext: Buffer,
-        associatedData: Buffer,
     ): { ciphertext: Buffer; authenticationTag: Buffer }
 }
 
 export interface PacketAEADDecryptor {
-    decryptPacket(ciphertext: Buffer, associatedData: Buffer, authenticationTag: Buffer): Buffer
+    decryptPacketLength(sequenceNumber: number, encryptedLength: Buffer): Buffer
+    decryptPacket(sequenceNumber: number, ciphertext: Buffer, authenticationTag: Buffer): Buffer
 }
 
 export interface OutboundPacketCipherProtection {
@@ -142,8 +143,8 @@ export class BinaryPacketEncoder {
         const aead = this.protection?.aead === true
         const encryptThenMac =
             this.protection?.aead !== true && this.protection?.encryptThenMac === true
-        const clearPacketLength = aead || encryptThenMac
-        const alignedLength = (clearPacketLength ? 1 : 5) + payload.length
+        const bodyOnlyAlignment = aead || encryptThenMac
+        const alignedLength = (bodyOnlyAlignment ? 1 : 5) + payload.length
         let paddingLength = blockSize - (alignedLength % blockSize)
         if (paddingLength < 4) paddingLength += blockSize
         if (paddingLength > 255) {
@@ -177,11 +178,8 @@ export class BinaryPacketEncoder {
         let packet: Buffer
         let authentication: Buffer
         if (this.protection?.aead) {
-            const result = this.protection.cipher.encryptPacket(
-                plaintext.subarray(4),
-                plaintext.subarray(0, 4),
-            )
-            if (result.ciphertext.length !== plaintext.length - 4) {
+            const result = this.protection.cipher.encryptPacket(sequenceNumber, plaintext)
+            if (result.ciphertext.length !== plaintext.length) {
                 throw new Error("SSH AEAD cipher changed the binary packet length")
             }
             if (result.authenticationTag.length !== authenticationLength) {
@@ -189,7 +187,7 @@ export class BinaryPacketEncoder {
                     `SSH AEAD cipher produced a ${result.authenticationTag.length}-byte authentication tag; expected ${authenticationLength}`,
                 )
             }
-            packet = Buffer.concat([plaintext.subarray(0, 4), result.ciphertext])
+            packet = result.ciphertext
             authentication = result.authenticationTag
         } else if (this.protection && encryptThenMac) {
             const ciphertext = this.protection.cipher.encrypt(plaintext.subarray(4))
@@ -252,23 +250,32 @@ export class BinaryPacketDecoder {
         const aead = this.protection?.aead === true
         const encryptThenMac =
             this.protection?.aead !== true && this.protection?.encryptThenMac === true
-        const clearPacketLength = aead || encryptThenMac
+        const separatelyProcessedLength = aead || encryptThenMac
+        const bodyOnlyAlignment = aead || encryptThenMac
         const minimumPacketLength = Math.max(MINIMUM_BINARY_PACKET_LENGTH, blockSize)
-        if (this.buffered.length < (clearPacketLength ? 4 : minimumPacketLength)) return undefined
+        if (this.buffered.length < (separatelyProcessedLength ? 4 : minimumPacketLength)) {
+            return undefined
+        }
 
         let firstBlock: Buffer
-        if (this.protection?.aead !== true && this.protection && !clearPacketLength) {
+        if (this.protection?.aead) {
+            firstBlock = this.protection.cipher.decryptPacketLength(
+                this.sequenceNumber,
+                this.buffered.subarray(0, 4),
+            )
+        } else if (this.protection && !separatelyProcessedLength) {
             const decryptedFirstBlock =
                 this.decryptedFirstBlock ??
                 this.protection.cipher.decrypt(this.buffered.subarray(0, blockSize))
             this.decryptedFirstBlock = decryptedFirstBlock
             firstBlock = decryptedFirstBlock
-        } else if (!clearPacketLength) {
+        } else if (!separatelyProcessedLength) {
             firstBlock = this.buffered.subarray(0, blockSize)
         } else {
             firstBlock = this.buffered.subarray(0, 4)
         }
-        if (!clearPacketLength && firstBlock.length !== blockSize) {
+        const expectedFirstBlockLength = separatelyProcessedLength ? 4 : blockSize
+        if (firstBlock.length !== expectedFirstBlockLength) {
             throw new Error("SSH cipher returned an incomplete first packet block")
         }
 
@@ -285,31 +292,32 @@ export class BinaryPacketDecoder {
                 `SSH binary packet size ${totalLength} exceeds maximum ${this.maximumPacketSize}`,
             )
         }
-        if (encryptedLength < (clearPacketLength ? 4 + blockSize : minimumPacketLength)) {
+        if (encryptedLength < (bodyOnlyAlignment ? 4 + blockSize : minimumPacketLength)) {
             throw new Error(`SSH binary packet is shorter than ${minimumPacketLength} bytes`)
         }
-        if ((clearPacketLength ? packetLength : encryptedLength) % blockSize !== 0) {
+        if ((bodyOnlyAlignment ? packetLength : encryptedLength) % blockSize !== 0) {
             throw new Error("SSH binary packet length is not a cipher block multiple")
         }
         if (this.buffered.length < totalLength) return undefined
 
         let plaintext: Buffer
         if (this.protection?.aead) {
-            const associatedData = this.buffered.subarray(0, 4)
-            const ciphertext = this.buffered.subarray(4, encryptedLength)
+            const ciphertext = this.buffered.subarray(0, encryptedLength)
             const authenticationTag = this.buffered.subarray(encryptedLength, totalLength)
             if (authenticationTag.length !== authenticationLength) {
                 throw new Error("SSH binary packet has an invalid authentication tag length")
             }
-            const body = this.protection.cipher.decryptPacket(
+            plaintext = this.protection.cipher.decryptPacket(
+                this.sequenceNumber,
                 ciphertext,
-                associatedData,
                 authenticationTag,
             )
-            if (body.length !== packetLength) {
+            if (plaintext.length !== encryptedLength) {
                 throw new Error("SSH AEAD cipher returned an incomplete packet")
             }
-            plaintext = Buffer.concat([associatedData, body])
+            if (!plaintext.subarray(0, 4).equals(firstBlock)) {
+                throw new Error("SSH AEAD cipher returned an inconsistent packet length")
+            }
         } else if (this.protection && encryptThenMac) {
             const authenticated = this.buffered.subarray(0, encryptedLength)
             const receivedMAC = this.buffered.subarray(encryptedLength, totalLength)

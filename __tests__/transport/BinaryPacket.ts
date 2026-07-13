@@ -5,6 +5,7 @@ import {
 } from "../../src/BinaryPacket.js"
 import AES128CTR from "../../src/algorithms/encryption/aes128-ctr.js"
 import AES128GCMOpenSSH from "../../src/algorithms/encryption/aes128-gcm-openssh.js"
+import ChaCha20Poly1305OpenSSH from "../../src/algorithms/encryption/chacha20-poly1305-openssh.js"
 import HMACSHA2256 from "../../src/algorithms/mac/hmac-sha2-256.js"
 
 const deterministicPadding = (size: number): Buffer => Buffer.alloc(size, 0xa5)
@@ -53,6 +54,25 @@ function createAEADProtectionPair() {
             cipher: new AES128GCMOpenSSH(key, iv),
             blockSize: AES128GCMOpenSSH.block_size,
             authTagLength: AES128GCMOpenSSH.auth_tag_length,
+        },
+    }
+}
+
+function createChaChaProtectionPair() {
+    const key = Buffer.from(Array.from({ length: 64 }, (_, index) => index))
+    const iv = Buffer.alloc(0)
+    return {
+        outbound: {
+            aead: true as const,
+            cipher: new ChaCha20Poly1305OpenSSH(key, iv),
+            blockSize: ChaCha20Poly1305OpenSSH.block_size,
+            authTagLength: ChaCha20Poly1305OpenSSH.auth_tag_length,
+        },
+        inbound: {
+            aead: true as const,
+            cipher: new ChaCha20Poly1305OpenSSH(key, iv),
+            blockSize: ChaCha20Poly1305OpenSSH.block_size,
+            authTagLength: ChaCha20Poly1305OpenSSH.auth_tag_length,
         },
     }
 }
@@ -230,6 +250,50 @@ describe("BinaryPacket", () => {
             modified[offset] ^= 0x01
             const decoder = new BinaryPacketDecoder()
             decoder.setProtection(createAEADProtectionPair().inbound)
+            decoder.push(modified)
+            expect(() => decoder.read()).toThrow()
+        }
+    })
+
+    test("matches fixed independently generated ChaCha20-Poly1305 SSH packets", () => {
+        const payload = Buffer.from("3200000000", "hex")
+        const expected = [
+            Buffer.from(
+                "94450e49128a4231ade60374b6c4f9c40ae6eb828399b62625d3409d9b3678bc14fcc039",
+                "hex",
+            ),
+            Buffer.from(
+                "c922a7b5636e7cd9310a1ddf88d4db8a16b1b2b7b2e0fa4ee7251ad0710567fb5d1f6955",
+                "hex",
+            ),
+        ]
+
+        const encoder = new BinaryPacketEncoder({ randomBytes: deterministicPadding })
+        encoder.setProtection(createChaChaProtectionPair().outbound)
+        expect(encoder.encode(payload).data).toEqual(expected[0])
+        expect(encoder.encode(payload).data).toEqual(expected[1])
+
+        for (let split = 0; split <= expected[0].length; split++) {
+            const decoder = new BinaryPacketDecoder()
+            decoder.setProtection(createChaChaProtectionPair().inbound)
+            decoder.push(expected[0].subarray(0, split))
+            const beforeRemainder = decoder.read()
+            if (split < expected[0].length) expect(beforeRemainder).toBeUndefined()
+            decoder.push(expected[0].subarray(split))
+            expect((beforeRemainder ?? decoder.read())?.payload).toEqual(payload)
+        }
+    })
+
+    test("rejects modified ChaCha20-Poly1305 lengths, ciphertext, and tags", () => {
+        const encoder = new BinaryPacketEncoder({ randomBytes: deterministicPadding })
+        encoder.setProtection(createChaChaProtectionPair().outbound)
+        const encoded = encoder.encode(Buffer.from("3200000000", "hex")).data
+
+        for (const offset of [0, 4, encoded.length - 1]) {
+            const modified = Buffer.from(encoded)
+            modified[offset] ^= 0x01
+            const decoder = new BinaryPacketDecoder()
+            decoder.setProtection(createChaChaProtectionPair().inbound)
             decoder.push(modified)
             expect(() => decoder.read()).toThrow()
         }

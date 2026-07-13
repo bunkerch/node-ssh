@@ -91,6 +91,13 @@ the packet. Each direction derives a 12-byte IV consisting of a four-byte fixed 
 eight-byte invocation counter that advances once per packet and must never wrap. No separate MAC
 algorithm or integrity key is used, and inbound plaintext is not accepted until its tag verifies.
 
+The `chacha20-poly1305@openssh.com` AEAD cipher uses two independent 256-bit ChaCha20 keys. One
+encrypts the four-byte packet length so framing can proceed without exposing the payload cipher; the
+other encrypts the body and derives a one-time Poly1305 key for the full encrypted packet. The
+64-bit nonce is the SSH packet sequence number, the body starts at ChaCha20 block counter one, and
+the full 16-byte tag is verified before the body is decrypted. A separate MAC is not negotiated.
+Sequence-number reuse or wrap under one transport key is rejected and requires rekeying.
+
 RSA host keys support the RFC 8332 `rsa-sha2-512` and `rsa-sha2-256` algorithms. The negotiated
 algorithm selects the SHA-2 signature while the serialized public key remains `ssh-rsa`, preserving
 the key blob and fingerprint. The legacy `ssh-rsa` SHA-1 signature remains available when selected

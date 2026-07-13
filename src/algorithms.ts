@@ -20,6 +20,7 @@ import AES192CTR from "./algorithms/encryption/aes192-ctr.js"
 import AES256CTR from "./algorithms/encryption/aes256-ctr.js"
 import AES128GCMOpenSSH from "./algorithms/encryption/aes128-gcm-openssh.js"
 import AES256GCMOpenSSH from "./algorithms/encryption/aes256-gcm-openssh.js"
+import ChaCha20Poly1305OpenSSH from "./algorithms/encryption/chacha20-poly1305-openssh.js"
 
 import HMACSHA2256 from "./algorithms/mac/hmac-sha2-256.js"
 import HMACSHA2512 from "./algorithms/mac/hmac-sha2-512.js"
@@ -139,17 +140,20 @@ export abstract class EncryptionAlgorithm {
     }
 
     encryptPacket?: (
+        sequenceNumber: number,
         plaintext: Buffer,
-        associatedData: Buffer,
     ) => { ciphertext: Buffer; authenticationTag: Buffer }
 
+    decryptPacketLength?: (sequenceNumber: number, encryptedLength: Buffer) => Buffer
+
     decryptPacket?: (
+        sequenceNumber: number,
         ciphertext: Buffer,
-        associatedData: Buffer,
         authenticationTag: Buffer,
     ) => Buffer
 }
 export const encryption_algorithms = new Map<string, typeof EncryptionAlgorithm>([
+    ["chacha20-poly1305@openssh.com", ChaCha20Poly1305OpenSSH],
     ["aes256-gcm@openssh.com", AES256GCMOpenSSH],
     ["aes128-gcm@openssh.com", AES128GCMOpenSSH],
     ["aes256-ctr", AES256CTR],
@@ -362,11 +366,15 @@ export function createInboundPacketProtection(
     mac: MACAlgorithm | undefined,
 ): InboundPacketProtection {
     if (algorithm.aead) {
+        assert(cipher.decryptPacketLength, "AEAD cipher does not implement length decryption")
         assert(cipher.decryptPacket, "AEAD cipher does not implement packet decryption")
         const authTagLength = validateAEADAlgorithm(algorithm)
         return {
             aead: true,
-            cipher: { decryptPacket: cipher.decryptPacket.bind(cipher) },
+            cipher: {
+                decryptPacketLength: cipher.decryptPacketLength.bind(cipher),
+                decryptPacket: cipher.decryptPacket.bind(cipher),
+            },
             blockSize: algorithm.block_size,
             authTagLength,
         }

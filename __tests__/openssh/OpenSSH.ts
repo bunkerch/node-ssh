@@ -907,8 +907,12 @@ describe("OpenSSH interoperability", () => {
         }
     }, 30_000)
 
-    test("OpenSSH client exchanges AES-GCM traffic with a modernssh server across rekey", async () => {
-        const ciphers = ["aes128-gcm@openssh.com", "aes256-gcm@openssh.com"] as const
+    test("OpenSSH client exchanges AEAD traffic with a modernssh server across rekey", async () => {
+        const ciphers = [
+            "chacha20-poly1305@openssh.com",
+            "aes128-gcm@openssh.com",
+            "aes256-gcm@openssh.com",
+        ] as const
         const hostKey = await PrivateKey.generate("ssh-ed25519")
         const server = new Server({
             hostKeys: [hostKey],
@@ -942,7 +946,7 @@ describe("OpenSSH interoperability", () => {
                 channel.events.on("exec", (_command, shell) => {
                     shell.resume()
                     shell.on("end", () => {
-                        shell.stdout.write("aes-gcm-ok\n", () => shell.exit(0).end())
+                        shell.stdout.write("aead-ok\n", () => shell.exit(0).end())
                     })
                 })
             })
@@ -980,11 +984,11 @@ describe("OpenSSH interoperability", () => {
                         "-o",
                         "LogLevel=ERROR",
                         "interop@127.0.0.1",
-                        "aes-gcm-test",
+                        "aead-test",
                     ],
                     "x".repeat(65_536),
                 )
-                expect(result).toEqual({ code: 0, stdout: "aes-gcm-ok\n", stderr: "" })
+                expect(result).toEqual({ code: 0, stdout: "aead-ok\n", stderr: "" })
             }
 
             expect(new Set(handshakes.map(({ cipher }) => cipher))).toEqual(new Set(ciphers))
@@ -1576,46 +1580,48 @@ describe("OpenSSH interoperability", () => {
                 await ecdsaClosed
             }
 
-            for (const cipher of ["aes128-gcm@openssh.com", "aes256-gcm@openssh.com"] as const) {
-                const aesGCMClient = new Client({
+            for (const cipher of [
+                "chacha20-poly1305@openssh.com",
+                "aes128-gcm@openssh.com",
+                "aes256-gcm@openssh.com",
+            ] as const) {
+                const aeadClient = new Client({
                     hostname: "127.0.0.1",
                     port,
                     username: "interop",
                     password: "correct-horse-battery-staple",
                     algorithms: { cipher: [cipher] },
                 })
-                const aesGCMErrors: Error[] = []
-                const aesGCMHandshakes: { cipher: string; mac: string }[] = []
-                aesGCMClient.on("error", (error) => aesGCMErrors.push(error))
-                aesGCMClient.on("handshake", (negotiated) => {
-                    aesGCMHandshakes.push({
+                const aeadErrors: Error[] = []
+                const aeadHandshakes: { cipher: string; mac: string }[] = []
+                aeadClient.on("error", (error) => aeadErrors.push(error))
+                aeadClient.on("handshake", (negotiated) => {
+                    aeadHandshakes.push({
                         cipher: negotiated.cs.cipher,
                         mac: negotiated.cs.mac,
                     })
                     expect(negotiated.sc).toMatchObject({ cipher, mac: "" })
                 })
-                aesGCMClient.hooker.hook("hostKey", (_hook, decision) => {
+                aeadClient.hooker.hook("hostKey", (_hook, decision) => {
                     decision.allowHostKey = true
                 })
-                await aesGCMClient.connect()
-                expect(aesGCMClient.clientMacAlgorithm).toBeUndefined()
-                expect(aesGCMClient.serverMacAlgorithm).toBeUndefined()
-                await aesGCMClient.rekey()
-                const aesGCMSession = await aesGCMClient.exec("printf aes-gcm-client-ok")
-                const aesGCMOutput: Buffer[] = []
-                aesGCMSession.on("data", (data: Buffer) => aesGCMOutput.push(data))
-                await new Promise<void>((resolve) => aesGCMSession.once("close", resolve))
-                expect(Buffer.concat(aesGCMOutput).toString()).toBe("aes-gcm-client-ok")
-                expect(aesGCMHandshakes).toEqual([
+                await aeadClient.connect()
+                expect(aeadClient.clientMacAlgorithm).toBeUndefined()
+                expect(aeadClient.serverMacAlgorithm).toBeUndefined()
+                await aeadClient.rekey()
+                const aeadSession = await aeadClient.exec("printf aead-client-ok")
+                const aeadOutput: Buffer[] = []
+                aeadSession.on("data", (data: Buffer) => aeadOutput.push(data))
+                await new Promise<void>((resolve) => aeadSession.once("close", resolve))
+                expect(Buffer.concat(aeadOutput).toString()).toBe("aead-client-ok")
+                expect(aeadHandshakes).toEqual([
                     { cipher, mac: "" },
                     { cipher, mac: "" },
                 ])
-                expect(aesGCMErrors).toEqual([])
-                const aesGCMClosed = new Promise<void>((resolve) =>
-                    aesGCMClient.once("close", resolve),
-                )
-                aesGCMClient.end()
-                await aesGCMClosed
+                expect(aeadErrors).toEqual([])
+                const aeadClosed = new Promise<void>((resolve) => aeadClient.once("close", resolve))
+                aeadClient.end()
+                await aeadClosed
             }
 
             const client = new Client({

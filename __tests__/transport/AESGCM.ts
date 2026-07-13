@@ -9,12 +9,15 @@ describe("RFC 5647 AES-GCM", () => {
         const expectedCiphertext = Buffer.from("0388dace60b6a392f328c2b971b2fe78", "hex")
         const expectedTag = Buffer.from("ab6e47d42cec13bdf53a67b21257bddf", "hex")
 
-        const encrypted = new AES128GCMOpenSSH(key, iv).encryptPacket(plaintext, Buffer.alloc(0))
+        const encrypted = new AES128GCMOpenSSH(key, iv).encryptAuthenticated(
+            plaintext,
+            Buffer.alloc(0),
+        )
         expect(encrypted.ciphertext).toEqual(expectedCiphertext)
         expect(encrypted.authenticationTag).toEqual(expectedTag)
 
         expect(
-            new AES128GCMOpenSSH(key, iv).decryptPacket(
+            new AES128GCMOpenSSH(key, iv).decryptAuthenticated(
                 expectedCiphertext,
                 Buffer.alloc(0),
                 expectedTag,
@@ -27,7 +30,10 @@ describe("RFC 5647 AES-GCM", () => {
         const iv = Buffer.from("0102030405060708090a0b0c", "hex")
         const associatedData = Buffer.from("00000010", "hex")
         const plaintext = Buffer.alloc(16, 0xa5)
-        const encrypted = new AES256GCMOpenSSH(key, iv).encryptPacket(plaintext, associatedData)
+        const encrypted = new AES256GCMOpenSSH(key, iv).encryptAuthenticated(
+            plaintext,
+            associatedData,
+        )
 
         for (const [ciphertext, aad, tag] of [
             [Buffer.from(encrypted.ciphertext), associatedData, encrypted.authenticationTag],
@@ -38,9 +44,9 @@ describe("RFC 5647 AES-GCM", () => {
             else if (aad !== associatedData) aad[0] ^= 0x01
             else tag[0] ^= 0x01
 
-            expect(() => new AES256GCMOpenSSH(key, iv).decryptPacket(ciphertext, aad, tag)).toThrow(
-                "authentication failed",
-            )
+            expect(() =>
+                new AES256GCMOpenSSH(key, iv).decryptAuthenticated(ciphertext, aad, tag),
+            ).toThrow("authentication failed")
         }
     })
 
@@ -52,7 +58,7 @@ describe("RFC 5647 AES-GCM", () => {
             "IV must be 12 bytes",
         )
         expect(() =>
-            new AES128GCMOpenSSH(Buffer.alloc(16), Buffer.alloc(12)).decryptPacket(
+            new AES128GCMOpenSSH(Buffer.alloc(16), Buffer.alloc(12)).decryptAuthenticated(
                 Buffer.alloc(16),
                 Buffer.alloc(4),
                 Buffer.alloc(15),
@@ -63,9 +69,9 @@ describe("RFC 5647 AES-GCM", () => {
     test("refuses to reuse an invocation counter after its uint64 maximum", () => {
         const iv = Buffer.from("01020304ffffffffffffffff", "hex")
         const cipher = new AES128GCMOpenSSH(Buffer.alloc(16), iv)
-        cipher.encryptPacket(Buffer.alloc(16), Buffer.alloc(4))
+        cipher.encryptAuthenticated(Buffer.alloc(16), Buffer.alloc(4))
 
-        expect(() => cipher.encryptPacket(Buffer.alloc(16), Buffer.alloc(4))).toThrow(
+        expect(() => cipher.encryptAuthenticated(Buffer.alloc(16), Buffer.alloc(4))).toThrow(
             "counter exhausted; rekey is required",
         )
     })

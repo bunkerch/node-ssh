@@ -129,6 +129,10 @@ meaningful wire-level behavior.
   block-aligned body, appends the full 16-byte tag, and uses no separate MAC key. Treat the IV's
   trailing eight bytes as a per-packet invocation counter, never permit it to wrap, and validate
   with authoritative primitive vectors plus OpenSSH in both roles across rekey.
+- OpenSSH ChaCha20-Poly1305 uses the first 32 derived key bytes for payload encryption and Poly1305
+  key generation and the second 32 bytes for independent length encryption. Use the uint64-encoded
+  packet sequence as nonce, authenticate encrypted length plus body before decrypting the body,
+  reject nonce reuse, and cover the primitives with RFC 8439 vectors plus both peer roles.
 - RFC 8332 RSA SHA-2 keeps the serialized public-key format as `ssh-rsa` while negotiating and
   encoding `rsa-sha2-256` or `rsa-sha2-512` signatures. Advertise user-auth signature support with
   RFC 8308 `server-sig-algs`, and validate both host and user signatures against OpenSSH.
