@@ -81,8 +81,8 @@ JavaScript SSH implementation.
 
 Together, the OpenSSH tests and known vectors exercise identification exchange, KEXINIT
 negotiation, exchange-hash and signature verification, `NEWKEYS`, encrypted and authenticated
-packet framing, RFC 8731 Curve25519 and RFC 5656 ECDH in both peer roles, bidirectional key
-re-exchange, service negotiation, authentication, session
+packet framing, OpenSSH encrypt-then-MAC ordering, RFC 8731 Curve25519 and RFC 5656 ECDH in both
+peer roles, bidirectional key re-exchange, service negotiation, authentication, session
 streams, client- and server-side
 remote forwarding, and graceful disconnect behavior. Passing these tests proves the covered
 algorithms and features; it does not imply that every OpenSSH algorithm or extension has been

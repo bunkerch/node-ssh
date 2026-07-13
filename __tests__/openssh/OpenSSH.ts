@@ -509,7 +509,7 @@ describe("OpenSSH interoperability", () => {
             sendAllHostKeys: false,
             algorithms: {
                 kex: ["ecdh-sha2-nistp384"],
-                hmac: ["hmac-sha2-512"],
+                hmac: ["hmac-sha2-512-etm@openssh.com"],
             },
         })
         const errors: Error[] = []
@@ -574,7 +574,7 @@ describe("OpenSSH interoperability", () => {
                     "-o",
                     "KexAlgorithms=ecdh-sha2-nistp384",
                     "-o",
-                    "MACs=hmac-sha2-512",
+                    "MACs=hmac-sha2-512-etm@openssh.com",
                     "interop@127.0.0.1",
                     "vector-command",
                 ],
@@ -1162,7 +1162,7 @@ describe("OpenSSH interoperability", () => {
                 username: "interop",
                 algorithms: {
                     kex: ["ecdh-sha2-nistp384"],
-                    hmac: ["hmac-sha2-512"],
+                    hmac: ["hmac-sha2-512-etm@openssh.com"],
                 },
                 authenticationMethodsOrder: [
                     SSHAuthenticationMethods.None,

@@ -991,6 +991,7 @@ export default class Client extends EventEmitter<ClientEvents> {
                 mac: this.clientMac,
                 blockSize: this.clientEncryptionAlgorithm!.block_size,
                 macLength: this.clientMacAlgorithm!.digest_length,
+                encryptThenMac: this.clientMacAlgorithm!.encrypt_then_mac,
             })
             while (this.packetsQueuedDuringKeyExchange.length > 0) {
                 this.writePacket(this.packetsQueuedDuringKeyExchange.shift()!)
@@ -1507,6 +1508,7 @@ export default class Client extends EventEmitter<ClientEvents> {
                     mac: this.serverMac!,
                     blockSize: this.serverEncryptionAlgorithm!.block_size,
                     macLength: this.serverMacAlgorithm!.digest_length,
+                    encryptThenMac: this.serverMacAlgorithm!.encrypt_then_mac,
                 })
                 this.emit("serverNewKeys")
                 break

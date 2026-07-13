@@ -76,8 +76,11 @@ point lengths, and all-zero Curve25519 secrets terminate key exchange.
 
 The RFC 6668 `hmac-sha2-256` and `hmac-sha2-512` integrity methods are available for both
 directions. Their full 32- and 64-byte outputs authenticate the RFC 4253 sequence number followed
-by the plaintext packet. OpenSSH encrypt-then-MAC names are not aliases for these methods because
-they use a different packet-authentication order.
+by the plaintext packet. The OpenSSH `hmac-sha2-256-etm@openssh.com`,
+`hmac-sha2-512-etm@openssh.com`, and `hmac-sha1-etm@openssh.com` methods instead leave the
+four-byte packet length unencrypted, encrypt the remaining packet body, and authenticate the
+sequence number followed by that header and ciphertext. Inbound ETM verifies the tag before any
+ciphertext is decrypted.
 
 Both `ClientOptions` and `ServerOptions` accept an `algorithms` object with `kex`, `serverHostKey`,
 `cipher`, `hmac`, and `compress` categories. Server values are exact ordered arrays. Client values

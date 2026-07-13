@@ -22,6 +22,9 @@ import AES256CTR from "./algorithms/encryption/aes256-ctr.js"
 import HMACSHA2256 from "./algorithms/mac/hmac-sha2-256.js"
 import HMACSHA2512 from "./algorithms/mac/hmac-sha2-512.js"
 import HMACSHA1 from "./algorithms/mac/hmac-sha1.js"
+import HMACSHA2256ETM from "./algorithms/mac/hmac-sha2-256-etm.js"
+import HMACSHA2512ETM from "./algorithms/mac/hmac-sha2-512-etm.js"
+import HMACSHA1ETM from "./algorithms/mac/hmac-sha1-etm.js"
 
 import Client from "./Client.js"
 import ServerClient from "./ServerClient.js"
@@ -106,6 +109,7 @@ export abstract class MACAlgorithm {
     static alg_name: string
     static key_length: number
     static digest_length: number
+    static encrypt_then_mac = false
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     constructor(key: Buffer) {
@@ -123,6 +127,9 @@ export abstract class MACAlgorithm {
     }
 }
 export const mac_algorithms = new Map<string, typeof MACAlgorithm>([
+    ["hmac-sha2-256-etm@openssh.com", HMACSHA2256ETM],
+    ["hmac-sha2-512-etm@openssh.com", HMACSHA2512ETM],
+    ["hmac-sha1-etm@openssh.com", HMACSHA1ETM],
     ["hmac-sha2-256", HMACSHA2256],
     ["hmac-sha2-512", HMACSHA2512],
     ["hmac-sha1", HMACSHA1],

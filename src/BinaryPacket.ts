@@ -21,6 +21,7 @@ export interface OutboundPacketProtection {
     mac: PacketMAC
     blockSize: number
     macLength: number
+    encryptThenMac?: boolean
 }
 
 export interface InboundPacketProtection {
@@ -28,6 +29,7 @@ export interface InboundPacketProtection {
     mac: PacketMAC
     blockSize: number
     macLength: number
+    encryptThenMac?: boolean
 }
 
 export interface EncodedBinaryPacket {
@@ -93,7 +95,9 @@ export class BinaryPacketEncoder {
         }
 
         const blockSize = Math.max(8, this.protection?.blockSize ?? 8)
-        let paddingLength = blockSize - ((5 + payload.length) % blockSize)
+        const encryptThenMac = this.protection?.encryptThenMac === true
+        const alignedLength = (encryptThenMac ? 1 : 5) + payload.length
+        let paddingLength = blockSize - (alignedLength % blockSize)
         if (paddingLength < 4) paddingLength += blockSize
         if (paddingLength > 255) {
             throw new Error("SSH binary packet padding must not exceed 255 bytes")
@@ -120,14 +124,27 @@ export class BinaryPacketEncoder {
         padding.copy(plaintext, 5 + payload.length)
 
         const sequenceNumber = this.sequenceNumber
-        const mac = this.protection?.mac.computeMAC(sequenceNumber, plaintext) ?? Buffer.alloc(0)
-        if (mac.length !== macLength) {
-            throw new Error(`SSH MAC produced ${mac.length} bytes; expected ${macLength}`)
+        let packet: Buffer
+        let authenticated: Buffer
+        if (this.protection && encryptThenMac) {
+            const ciphertext = this.protection.cipher.encrypt(plaintext.subarray(4))
+            if (ciphertext.length !== plaintext.length - 4) {
+                throw new Error("SSH cipher changed the binary packet length")
+            }
+            packet = Buffer.concat([plaintext.subarray(0, 4), ciphertext])
+            authenticated = packet
+        } else {
+            packet = this.protection?.cipher.encrypt(plaintext) ?? plaintext
+            if (packet.length !== plaintext.length) {
+                throw new Error("SSH cipher changed the binary packet length")
+            }
+            authenticated = plaintext
         }
 
-        const packet = this.protection?.cipher.encrypt(plaintext) ?? plaintext
-        if (packet.length !== plaintext.length) {
-            throw new Error("SSH cipher changed the binary packet length")
+        const mac =
+            this.protection?.mac.computeMAC(sequenceNumber, authenticated) ?? Buffer.alloc(0)
+        if (mac.length !== macLength) {
+            throw new Error(`SSH MAC produced ${mac.length} bytes; expected ${macLength}`)
         }
 
         this.sequenceNumber = (this.sequenceNumber + 1) % SEQUENCE_NUMBER_MODULO
@@ -166,24 +183,26 @@ export class BinaryPacketDecoder {
 
     read(): DecodedBinaryPacket | undefined {
         const blockSize = Math.max(8, this.protection?.blockSize ?? 8)
+        const encryptThenMac = this.protection?.encryptThenMac === true
         const minimumPacketLength = Math.max(MINIMUM_BINARY_PACKET_LENGTH, blockSize)
-        if (this.buffered.length < minimumPacketLength) return undefined
+        if (this.buffered.length < (encryptThenMac ? 4 : minimumPacketLength)) return undefined
 
         let firstBlock: Buffer
-        if (this.protection) {
+        if (this.protection && !encryptThenMac) {
             this.decryptedFirstBlock ??= this.protection.cipher.decrypt(
                 this.buffered.subarray(0, blockSize),
             )
             firstBlock = this.decryptedFirstBlock
-        } else {
+        } else if (!encryptThenMac) {
             firstBlock = this.buffered.subarray(0, blockSize)
+        } else {
+            firstBlock = this.buffered.subarray(0, 4)
         }
-        if (firstBlock.length !== blockSize) {
+        if (!encryptThenMac && firstBlock.length !== blockSize) {
             throw new Error("SSH cipher returned an incomplete first packet block")
         }
 
         const packetLength = firstBlock.readUInt32BE(0)
-        const paddingLength = firstBlock[4]
         const macLength = this.protection?.macLength ?? 0
         const encryptedLength = 4 + packetLength
         const totalLength = encryptedLength + macLength
@@ -193,22 +212,31 @@ export class BinaryPacketDecoder {
                 `SSH binary packet size ${totalLength} exceeds maximum ${this.maximumPacketSize}`,
             )
         }
-        if (encryptedLength < minimumPacketLength) {
+        if (encryptedLength < (encryptThenMac ? 4 + blockSize : minimumPacketLength)) {
             throw new Error(`SSH binary packet is shorter than ${minimumPacketLength} bytes`)
         }
-        if (encryptedLength % blockSize !== 0) {
+        if ((encryptThenMac ? packetLength : encryptedLength) % blockSize !== 0) {
             throw new Error("SSH binary packet length is not a cipher block multiple")
-        }
-        if (paddingLength < 4) {
-            throw new Error("SSH binary packet padding is shorter than 4 bytes")
-        }
-        if (packetLength <= paddingLength + 1) {
-            throw new Error("SSH binary packet payload is empty or has an invalid length")
         }
         if (this.buffered.length < totalLength) return undefined
 
         let plaintext: Buffer
-        if (this.protection) {
+        if (this.protection && encryptThenMac) {
+            const authenticated = this.buffered.subarray(0, encryptedLength)
+            const receivedMAC = this.buffered.subarray(encryptedLength, totalLength)
+            const expectedMAC = this.protection.mac.computeMAC(this.sequenceNumber, authenticated)
+            if (expectedMAC.length !== macLength || receivedMAC.length !== macLength) {
+                throw new Error("SSH binary packet has an invalid MAC length")
+            }
+            if (!timingSafeEqual(expectedMAC, receivedMAC)) {
+                throw new Error("SSH binary packet MAC verification failed")
+            }
+            const body = this.protection.cipher.decrypt(this.buffered.subarray(4, encryptedLength))
+            if (body.length !== packetLength) {
+                throw new Error("SSH cipher returned an incomplete packet")
+            }
+            plaintext = Buffer.concat([firstBlock, body])
+        } else if (this.protection) {
             const remaining = this.protection.cipher.decrypt(
                 this.buffered.subarray(blockSize, encryptedLength),
             )
@@ -227,6 +255,14 @@ export class BinaryPacketDecoder {
             }
         } else {
             plaintext = this.buffered.subarray(0, encryptedLength)
+        }
+
+        const paddingLength = plaintext[4]
+        if (paddingLength < 4) {
+            throw new Error("SSH binary packet padding is shorter than 4 bytes")
+        }
+        if (packetLength <= paddingLength + 1) {
+            throw new Error("SSH binary packet payload is empty or has an invalid length")
         }
 
         const payloadLength = packetLength - paddingLength - 1

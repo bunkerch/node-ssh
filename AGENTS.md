@@ -119,8 +119,9 @@ behavior.
   secret mpint. Validate received points on the negotiated curve, select SHA-256/384/512 by curve
   size, and cover every required NIST curve with RFC 5903 vectors plus both OpenSSH peer roles.
 - RFC 6668 HMAC-SHA-2 authenticates the RFC 4253 sequence number followed by the plaintext packet
-  and uses the full digest. Do not register OpenSSH ETM names until the binary packet codec
-  authenticates the distinct ETM wire layout.
+  and uses the full digest. OpenSSH ETM leaves the packet length clear, encrypts the packet body,
+  authenticates sequence number plus clear length plus ciphertext, and must verify the tag before
+  decrypting. Keep ETM padding aligned to the encrypted body rather than the clear length.
 - High-level session helpers must issue setup requests before the program request: agent forwarding,
   environment, PTY, X11, then exec/shell/subsystem. Treat automatic environment requests as
   best-effort without replies, but require replies for security- or terminal-sensitive setup.

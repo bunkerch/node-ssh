@@ -29,6 +29,14 @@ function createProtectionPair() {
     }
 }
 
+function createETMProtectionPair() {
+    const protection = createProtectionPair()
+    return {
+        outbound: { ...protection.outbound, encryptThenMac: true },
+        inbound: { ...protection.inbound, encryptThenMac: true },
+    }
+}
+
 describe("BinaryPacket", () => {
     test("encodes RFC 4253 framing with deterministic minimum padding", () => {
         const encoder = new BinaryPacketEncoder({ randomBytes: deterministicPadding })
@@ -112,6 +120,55 @@ describe("BinaryPacket", () => {
             decoder.push(encoded.subarray(split))
             expect((beforeRemainder ?? decoder.read())?.payload).toEqual(payload)
         }
+    })
+
+    test("matches a fixed OpenSSH encrypt-then-MAC packet at every fragmentation boundary", () => {
+        const payload = Buffer.from("3200000000", "hex")
+        const expected = Buffer.from(
+            "000000107813393918a2e8d8ab4657879e5ffe9007483086a0346f359eaa8b566ba5329fbc91163f1d4cd5e02b11c84fc3332742",
+            "hex",
+        )
+
+        const encodedProtection = createETMProtectionPair()
+        const encoder = new BinaryPacketEncoder({ randomBytes: deterministicPadding })
+        encoder.setProtection(encodedProtection.outbound)
+        expect(encoder.encode(payload).data).toEqual(expected)
+
+        for (let split = 0; split <= expected.length; split++) {
+            const protection = createETMProtectionPair()
+            const decoder = new BinaryPacketDecoder()
+            decoder.setProtection(protection.inbound)
+            decoder.push(expected.subarray(0, split))
+            const beforeRemainder = decoder.read()
+            if (split < expected.length) expect(beforeRemainder).toBeUndefined()
+            decoder.push(expected.subarray(split))
+            expect((beforeRemainder ?? decoder.read())?.payload).toEqual(payload)
+        }
+    })
+
+    test("verifies an ETM tag before decrypting ciphertext", () => {
+        const outbound = createETMProtectionPair()
+        const encoder = new BinaryPacketEncoder({ randomBytes: deterministicPadding })
+        encoder.setProtection(outbound.outbound)
+        const encoded = Buffer.from(encoder.encode(Buffer.from([20])).data)
+        encoded[5] ^= 0xff
+
+        const inbound = createETMProtectionPair().inbound
+        let decryptions = 0
+        const decoder = new BinaryPacketDecoder()
+        decoder.setProtection({
+            ...inbound,
+            cipher: {
+                decrypt: (ciphertext) => {
+                    decryptions++
+                    return inbound.cipher.decrypt(ciphertext)
+                },
+            },
+        })
+        decoder.push(encoded)
+
+        expect(() => decoder.read()).toThrow("MAC verification failed")
+        expect(decryptions).toBe(0)
     })
 
     test("rejects a modified MAC", () => {

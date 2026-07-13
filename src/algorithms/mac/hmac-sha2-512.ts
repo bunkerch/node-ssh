@@ -6,6 +6,7 @@ export default class HMACSHA2512 implements MACAlgorithm {
     static alg_name = "hmac-sha2-512"
     static key_length = 64
     static digest_length = 64
+    static encrypt_then_mac = false
 
     static instantiate(key: Buffer): MACAlgorithm {
         return new HMACSHA2512(key)
