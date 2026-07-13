@@ -2,13 +2,14 @@ import assert from "assert"
 import { PacketNameToType } from "../constants.js"
 import Packet from "../packet.js"
 import { readNextBuffer, readNextUint8, serializeBuffer } from "../utils/Buffer.js"
-import { parseBufferToMpintBuffer, serializeMpintBufferToBuffer } from "../utils/mpint.js"
+import { serializeMpintBufferToBuffer } from "../utils/mpint.js"
 
-// https://datatracker.ietf.org/doc/html/rfc4253#section-8
+// Message 31 is RFC 4253 KEXDH_REPLY or RFC 5656 KEX_ECDH_REPLY, depending on negotiated KEX.
 export interface KexDHReplyData {
     K_S: Buffer
     f: Buffer
     H_sig: Buffer
+    encoding?: "mpint" | "string"
 }
 export default class KexDHReply implements Packet {
     static type = PacketNameToType.SSH_MSG_KEXDH_REPLY
@@ -24,7 +25,11 @@ export default class KexDHReply implements Packet {
         buffers.push(Buffer.from([KexDHReply.type]))
 
         buffers.push(serializeBuffer(this.data.K_S))
-        buffers.push(serializeBuffer(serializeMpintBufferToBuffer(this.data.f)))
+        const f =
+            this.data.encoding === "string"
+                ? this.data.f
+                : serializeMpintBufferToBuffer(this.data.f)
+        buffers.push(serializeBuffer(f))
         buffers.push(serializeBuffer(this.data.H_sig))
 
         return Buffer.concat(buffers)
@@ -48,7 +53,7 @@ export default class KexDHReply implements Packet {
 
         return new KexDHReply({
             K_S: K_S,
-            f: parseBufferToMpintBuffer(f),
+            f,
             H_sig: H_sig,
         })
     }

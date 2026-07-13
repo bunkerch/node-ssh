@@ -388,7 +388,11 @@ describe("OpenSSH interoperability", () => {
 
     test("OpenSSH and modernssh clients complete an RFC 4252 password change", async () => {
         const hostKey = await PrivateKey.generate("ssh-ed25519")
-        const server = new Server({ hostKeys: [hostKey], sendAllHostKeys: false })
+        const server = new Server({
+            hostKeys: [hostKey],
+            sendAllHostKeys: false,
+            algorithms: { kex: ["curve25519-sha256"] },
+        })
         const attempts: { password: string; newPassword?: string }[] = []
         const errors: Error[] = []
         server.hooker.hook("passwordAuthentication", (_hook, context, decision) => {
@@ -560,6 +564,8 @@ describe("OpenSSH interoperability", () => {
                     "LogLevel=ERROR",
                     "-o",
                     "RekeyLimit=1K",
+                    "-o",
+                    "KexAlgorithms=curve25519-sha256",
                     "interop@127.0.0.1",
                     "vector-command",
                 ],
@@ -1193,7 +1199,7 @@ describe("OpenSSH interoperability", () => {
                     setImmediate(() => verified(hash === expectedHostHash))
                 },
                 algorithms: {
-                    kex: ["diffie-hellman-group14-sha256"],
+                    kex: ["curve25519-sha256"],
                     serverHostKey: ["ssh-ed25519"],
                     cipher: ["aes128-ctr"],
                     hmac: ["hmac-sha2-256"],
@@ -1246,13 +1252,13 @@ describe("OpenSSH interoperability", () => {
 
             await client.connect()
             expect((client.kexAlgorithm?.constructor as { alg_name?: string }).alg_name).toBe(
-                "diffie-hellman-group14-sha256",
+                "curve25519-sha256",
             )
             expect(client.hostKeyAlgorithm?.alg_name).toBe("ssh-ed25519")
             expect(client.clientEncryptionAlgorithm?.alg_name).toBe("aes128-ctr")
             expect(client.clientMacAlgorithm?.alg_name).toBe("hmac-sha2-256")
             const expectedNegotiated = {
-                kex: "diffie-hellman-group14-sha256",
+                kex: "curve25519-sha256",
                 srvHostKey: "ssh-ed25519",
                 cs: {
                     cipher: "aes128-ctr",

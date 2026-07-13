@@ -65,6 +65,13 @@ selections before matching, so a rekey with no mutual algorithm fails rather tha
 transport state. The currently supported compression method is `none`, and both directions must
 negotiate it explicitly.
 
+The default key-exchange preference starts with the RFC 8731 `curve25519-sha256` method and its
+wire-equivalent deployed alias `curve25519-sha256@libssh.org`, followed by the supported fixed-group
+Diffie-Hellman methods. Curve25519 ephemeral public keys remain exact 32-byte SSH strings, while
+the X25519 output is reinterpreted and encoded as an RFC 4251 `mpint` only for the exchange hash and
+transport-key derivation. Incorrect point lengths and all-zero shared secrets terminate key
+exchange.
+
 Both `ClientOptions` and `ServerOptions` accept an `algorithms` object with `kex`, `serverHostKey`,
 `cipher`, `hmac`, and `compress` categories. Server values are exact ordered arrays. Client values
 may be exact arrays or `{ remove, prepend, append }` changes whose entries are names or regular
@@ -75,7 +82,7 @@ copied rather than mutated, and the same configured offer is used for every reke
 const client = new Client({
     hostname,
     algorithms: {
-        kex: ["diffie-hellman-group14-sha256"],
+        kex: ["curve25519-sha256"],
         cipher: { remove: [/^aes(?:192|256)-ctr$/] },
         hmac: ["hmac-sha2-256"],
     },
@@ -98,7 +105,7 @@ await serverConnection.rekey()
 ```
 
 Both methods also have ssh2-compatible callback overloads and emit `rekey` after the new inbound
-and outbound protection is active. A re-exchange generates a fresh Diffie-Hellman key pair,
+and outbound protection is active. A re-exchange generates a fresh ephemeral key pair,
 exchange hash, IVs, encryption keys, and MAC keys. The session identifier remains the exchange hash
 from the first key exchange, as required for authentication identity continuity.
 

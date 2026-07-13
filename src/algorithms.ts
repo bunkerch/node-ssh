@@ -8,6 +8,7 @@ import DiffieHellmanGroup18SHA512 from "./algorithms/kex/diffie-hellman-group18-
 import DiffieHellmanGroup16SHA512 from "./algorithms/kex/diffie-hellman-group16-sha512.js"
 import DiffieHellmanGroup15SHA512 from "./algorithms/kex/diffie-hellman-group15-sha512.js"
 import DiffieHellmanGroup17SHA512 from "./algorithms/kex/diffie-hellman-group17-sha512.js"
+import Curve25519SHA256, { Curve25519SHA256LibSSH } from "./algorithms/kex/curve25519-sha256.js"
 
 import AES128CTR from "./algorithms/encryption/aes128-ctr.js"
 import AES192CTR from "./algorithms/encryption/aes192-ctr.js"
@@ -27,20 +28,26 @@ export abstract class KexAlgorithm {
     static requires_encryption: boolean
     static requires_signature: boolean
 
-    constructor() {
-        throw new Error("Not implemented")
-    }
-
     static instantiate(): KexAlgorithm {
         throw new Error("Not implemented")
     }
 
+    abstract readonly exchangeValueEncoding: "mpint" | "string"
+
+    abstract generateKeyPair(): void
+    abstract getPublicKey(): Buffer
+    abstract computeSharedSecret(peerPublicKey: Buffer): void
+    abstract computeHClient(client: Client, serverKexInit: Buffer): Buffer
+    abstract computeHServer(client: ServerClient, clientKexInit: Buffer, hostKey: Buffer): Buffer
+
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    deriveKeysClient(client: Client): void {
+    deriveKeysClient(client: Client | ServerClient): void {
         throw new Error("Not implemented")
     }
 }
 export const kex_algorithms = new Map<string, typeof KexAlgorithm>([
+    ["curve25519-sha256", Curve25519SHA256],
+    ["curve25519-sha256@libssh.org", Curve25519SHA256LibSSH],
     ["diffie-hellman-group16-sha512", DiffieHellmanGroup16SHA512],
     ["diffie-hellman-group18-sha512", DiffieHellmanGroup18SHA512],
     ["diffie-hellman-group17-sha512", DiffieHellmanGroup17SHA512],

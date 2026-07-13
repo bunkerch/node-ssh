@@ -23,7 +23,7 @@ describe("client/server integration", () => {
             sendAllHostKeys: false,
             greeting: "Authorized integration only\nMaintenance at 02:00",
             algorithms: {
-                kex: ["diffie-hellman-group14-sha256"],
+                kex: ["curve25519-sha256"],
                 serverHostKey: ["ssh-ed25519"],
                 cipher: ["aes128-ctr"],
                 hmac: ["hmac-sha1"],
@@ -90,7 +90,7 @@ describe("client/server integration", () => {
             ident: "modernssh_integration fixed-comment",
             strictVendor: false,
             algorithms: {
-                kex: ["diffie-hellman-group14-sha256"],
+                kex: ["curve25519-sha256"],
                 serverHostKey: ["ssh-ed25519"],
                 cipher: ["aes128-ctr"],
                 hmac: ["hmac-sha1"],
@@ -127,14 +127,14 @@ describe("client/server integration", () => {
                 new ProtocolVersionExchange("2.0", "modernssh_integration", "fixed-comment"),
             )
             expect((client.kexAlgorithm?.constructor as { alg_name?: string }).alg_name).toBe(
-                "diffie-hellman-group14-sha256",
+                "curve25519-sha256",
             )
             expect(client.clientEncryptionAlgorithm?.alg_name).toBe("aes128-ctr")
             expect(client.clientMacAlgorithm?.alg_name).toBe("hmac-sha1")
             expect(serverPeer?.serverEncryptionAlgorithm?.alg_name).toBe("aes128-ctr")
             expect(serverPeer?.serverMacAlgorithm?.alg_name).toBe("hmac-sha1")
             const expectedNegotiated = {
-                kex: "diffie-hellman-group14-sha256",
+                kex: "curve25519-sha256",
                 srvHostKey: "ssh-ed25519",
                 cs: { cipher: "aes128-ctr", mac: "hmac-sha1", compress: "none", lang: "" },
                 sc: { cipher: "aes128-ctr", mac: "hmac-sha1", compress: "none", lang: "" },

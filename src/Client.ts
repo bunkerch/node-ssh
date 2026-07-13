@@ -29,8 +29,8 @@ import KexDHReply from "./packets/KexDHReply.js"
 import EncodedSignature from "./utils/Signature.js"
 import PublicKey, { PublicKeyAlgoritm } from "./utils/PublicKey.js"
 import { Hooker } from "./utils/Hooker.js"
-import DiffieHellmanGroupN from "./algorithms/kex/diffie-hellman-groupN.js"
 import NewKeys from "./packets/NewKeys.js"
+import { KeyExchangeError } from "./algorithms/kex/key-exchange.js"
 import UserAuthRequest from "./packets/UserAuthRequest.js"
 import Disconnect, { DisconnectReason } from "./packets/Disconnect.js"
 import ServiceRequest from "./packets/ServiceRequest.js"
@@ -935,17 +935,19 @@ export default class Client extends EventEmitter<ClientEvents> {
             this.serverKexInit = serverKexInit
             chooseAlgorithms(this)
 
-            if (!(this.kexAlgorithm instanceof DiffieHellmanGroupN)) {
-                throw new Error("Unsupported key exchange algorithm")
-            }
-            this.kexAlgorithm.generateKeyPair()
-            this.sendPacket(new KexDHInit({ e: this.kexAlgorithm.keyPair!.getPublicKey() }))
+            const kexAlgorithm = this.kexAlgorithm
+            assert(kexAlgorithm, "No key exchange algorithm was negotiated")
+            kexAlgorithm.generateKeyPair()
+            this.sendPacket(
+                new KexDHInit({
+                    e: kexAlgorithm.getPublicKey(),
+                    encoding: kexAlgorithm.exchangeValueEncoding,
+                }),
+            )
 
             const [serverKexDHReply] = await this.waitEvent("serverKexDHReply")
             this.serverKexDHReply = serverKexDHReply
-            this.kexAlgorithm.sharedSecret = this.kexAlgorithm.keyPair!.computeSecret(
-                serverKexDHReply.data.f,
-            )
+            kexAlgorithm.computeSharedSecret(serverKexDHReply.data.f)
             const hostKey = PublicKey.parse(serverKexDHReply.data.K_S)
             assert(
                 hostKey.data.alg === this.hostKeyAlgorithm!.alg_name,
@@ -956,7 +958,7 @@ export default class Client extends EventEmitter<ClientEvents> {
                 signature.data.alg === this.hostKeyAlgorithm!.alg_name,
                 "Server did not use the negotiated signature algorithm",
             )
-            const h = this.kexAlgorithm.computeHClient(this, serverKexInitBuffer)
+            const h = kexAlgorithm.computeHClient(this, serverKexInitBuffer)
             assert(hostKey.verifySignature(h, signature), "Invalid host key signature from server")
 
             await this.verifyConfiguredHostKey(serverKexDHReply.data.K_S)
@@ -969,7 +971,7 @@ export default class Client extends EventEmitter<ClientEvents> {
 
             this.H = h
             this.sessionID ??= h
-            this.kexAlgorithm.deriveKeysClient(this)
+            kexAlgorithm.deriveKeysClient(this)
             this.clientEncryption = this.clientEncryptionAlgorithm!.instantiate(
                 this.encryptionKeyClientToServer!,
                 this.ivClientToServer!,
@@ -998,7 +1000,18 @@ export default class Client extends EventEmitter<ClientEvents> {
             this.emit("handshake", describeNegotiatedAlgorithms(this))
             if (isRekey) this.emit("rekey")
         } catch (error) {
-            if (!isRekey) this.socket?.destroy()
+            if (error instanceof KeyExchangeError && this.socket?.writable) {
+                this.sendPacket(
+                    new Disconnect({
+                        reason_code: DisconnectReason.SSH_DISCONNECT_KEY_EXCHANGE_FAILED,
+                        description: error.message,
+                        language_tag: "",
+                    }),
+                )
+                this.socket.end()
+            } else if (!isRekey) {
+                this.socket?.destroy()
+            }
             throw error
         } finally {
             this.keyExchangeInProgress = false
