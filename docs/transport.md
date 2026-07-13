@@ -65,6 +65,23 @@ selections before matching, so a rekey with no mutual algorithm fails rather tha
 transport state. The currently supported compression method is `none`, and both directions must
 negotiate it explicitly.
 
+Both `ClientOptions` and `ServerOptions` accept an `algorithms` object with `kex`, `serverHostKey`,
+`cipher`, `hmac`, and `compress` categories. Server values are exact ordered arrays. Client values
+may be exact arrays or `{ remove, prepend, append }` changes whose entries are names or regular
+expressions. Unknown names and empty resolved lists are rejected during construction, defaults are
+copied rather than mutated, and the same configured offer is used for every rekey.
+
+```ts
+const client = new Client({
+    hostname,
+    algorithms: {
+        kex: ["diffie-hellman-group14-sha256"],
+        cipher: { remove: [/^aes(?:192|256)-ctr$/] },
+        hmac: ["hmac-sha2-256"],
+    },
+})
+```
+
 ## Key re-exchange
 
 Clients and accepted server connections support RFC 4253 section 9 key re-exchange. Either peer may

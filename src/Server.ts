@@ -11,6 +11,12 @@ import EncodedSignature from "./utils/Signature.js"
 import Channel from "./Channel.js"
 import { SSHAuthenticationMethods } from "./constants.js"
 import { MAX_PREAMBLE_LINE_LENGTH, MAX_PREAMBLE_LINES } from "./IdentificationParser.js"
+import {
+    resolveServerAlgorithmOptions,
+    type ResolvedAlgorithmOptions,
+    type ServerAlgorithmOptions,
+} from "./AlgorithmOptions.js"
+import { encryption_algorithms, kex_algorithms, mac_algorithms } from "./algorithms.js"
 
 export interface ServerOptions {
     protocolVersionExchange?: ProtocolVersionExchange
@@ -18,6 +24,7 @@ export interface ServerOptions {
     ident?: string | Buffer
     /** Informational text sent before the SSH identification. */
     greeting?: string
+    algorithms?: ServerAlgorithmOptions
     hostKeys?: PrivateKey[]
     // by default, the Server will send all available hostkeys
     // to the client after login (USERAUTH_SUCCESS)
@@ -29,8 +36,10 @@ export interface ServerOptions {
     /** RFC 4252 banner sent once before authentication begins. */
     banner?: string
 }
-export interface ServerOptionsRequired extends Required<Omit<ServerOptions, "ident">> {
+export interface ServerOptionsRequired
+    extends Required<Omit<ServerOptions, "ident" | "algorithms">> {
     ident?: string | Buffer
+    algorithms?: ServerAlgorithmOptions
 }
 
 function normalizeGreeting(greeting: string): string {
@@ -206,6 +215,13 @@ export default class Server extends EventEmitter<ServerEvents> {
         this.options.hostKeys ??= []
         this.options.sendAllHostKeys ??= true
         this.options.banner ??= ""
+        this.algorithmOffer = resolveServerAlgorithmOptions(this.options.algorithms, {
+            kex: [...kex_algorithms.keys()],
+            serverHostKey: [...PublicKey.algorithms.keys()],
+            cipher: [...encryption_algorithms.keys()],
+            hmac: [...mac_algorithms.keys()],
+            compress: ["none"],
+        })
         this.server = net.createServer((socket) => void this.acceptSocket(socket))
         this.server.on("error", (error) => this.emit("error", error))
         this.server.on("listening", () => this.emit("listening"))
@@ -229,6 +245,7 @@ export default class Server extends EventEmitter<ServerEvents> {
     hooker = new Hooker<ServerHooker>()
     server: net.Server
     clients = new Set<ServerClient>()
+    readonly algorithmOffer: ResolvedAlgorithmOptions
     private readonly hostKeysReady: Promise<void>
 
     listen(port?: number, hostname?: string, backlog?: number, listeningListener?: () => void): this

@@ -26,15 +26,7 @@ import {
     PacketTypeToName,
 } from "./constants.js"
 import KexInit from "./packets/KexInit.js"
-import {
-    EncryptionAlgorithm,
-    KexAlgorithm,
-    MACAlgorithm,
-    chooseAlgorithms,
-    encryption_algorithms,
-    kex_algorithms,
-    mac_algorithms,
-} from "./algorithms.js"
+import { EncryptionAlgorithm, KexAlgorithm, MACAlgorithm, chooseAlgorithms } from "./algorithms.js"
 import PublicKey, { PublicKeyAlgoritm } from "./utils/PublicKey.js"
 import KexDHReply from "./packets/KexDHReply.js"
 import assert from "node:assert"
@@ -311,16 +303,18 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     private createKexInit(): KexInit {
         return new KexInit({
             cookie: crypto.getRandomValues(Buffer.alloc(16)),
-            kex_algorithms: [...kex_algorithms.keys()],
+            kex_algorithms: [...this.server.algorithmOffer.kex],
             server_host_key_algorithms: [
-                ...new Set(this.server.options.hostKeys.map((key) => key.data.alg)),
+                ...this.server.algorithmOffer.serverHostKey.filter((name) =>
+                    this.server.options.hostKeys.some((key) => key.data.alg === name),
+                ),
             ],
-            encryption_algorithms_client_to_server: [...encryption_algorithms.keys()],
-            encryption_algorithms_server_to_client: [...encryption_algorithms.keys()],
-            mac_algorithms_client_to_server: [...mac_algorithms.keys()],
-            mac_algorithms_server_to_client: [...mac_algorithms.keys()],
-            compression_algorithms_client_to_server: ["none"],
-            compression_algorithms_server_to_client: ["none"],
+            encryption_algorithms_client_to_server: [...this.server.algorithmOffer.cipher],
+            encryption_algorithms_server_to_client: [...this.server.algorithmOffer.cipher],
+            mac_algorithms_client_to_server: [...this.server.algorithmOffer.hmac],
+            mac_algorithms_server_to_client: [...this.server.algorithmOffer.hmac],
+            compression_algorithms_client_to_server: [...this.server.algorithmOffer.compress],
+            compression_algorithms_server_to_client: [...this.server.algorithmOffer.compress],
             languages_client_to_server: [],
             languages_server_to_client: [],
             first_kex_packet_follows: false,

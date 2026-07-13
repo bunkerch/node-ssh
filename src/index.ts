@@ -153,6 +153,13 @@ export { default as PrivateKey, PrivateKeyAlgorithm } from "./utils/PrivateKey.j
 export type { PrivateKeyData } from "./utils/PrivateKey.js"
 export { default as EncodedSignature } from "./utils/Signature.js"
 export type { EncodedSignatureData } from "./utils/Signature.js"
+export type {
+    AlgorithmListChanges,
+    AlgorithmMatcher,
+    ClientAlgorithmList,
+    ClientAlgorithmOptions,
+    ServerAlgorithmOptions,
+} from "./AlgorithmOptions.js"
 
 export {
     decodeSFTPPacket,

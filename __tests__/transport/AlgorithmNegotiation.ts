@@ -1,6 +1,7 @@
 import { chooseAlgorithms } from "../../src/algorithms.js"
 import Client from "../../src/Client.js"
 import KexInit, { type KexInitData } from "../../src/packets/KexInit.js"
+import { resolveClientAlgorithmOptions } from "../../src/AlgorithmOptions.js"
 
 function offer(overrides: Partial<KexInitData>): KexInit {
     return new KexInit({
@@ -21,6 +22,37 @@ function offer(overrides: Partial<KexInitData>): KexInit {
 }
 
 describe("RFC 4253 algorithm negotiation", () => {
+    test("resolves exact and ordered modifier lists without changing defaults", () => {
+        const catalog = {
+            kex: ["kex-a", "kex-b"],
+            serverHostKey: ["key-a"],
+            cipher: ["aes128-ctr", "aes192-ctr", "aes256-ctr"],
+            hmac: ["mac-a"],
+            compress: ["none"],
+        }
+        const resolved = resolveClientAlgorithmOptions(
+            {
+                kex: ["kex-b"],
+                cipher: {
+                    remove: [/^aes(?:192|256)-ctr$/u],
+                    prepend: ["aes256-ctr"],
+                },
+            },
+            catalog,
+        )
+
+        expect(resolved.kex).toEqual(["kex-b"])
+        expect(resolved.cipher).toEqual(["aes256-ctr", "aes128-ctr"])
+        expect(catalog.kex).toEqual(["kex-a", "kex-b"])
+        expect(catalog.cipher).toEqual(["aes128-ctr", "aes192-ctr", "aes256-ctr"])
+        expect(() => resolveClientAlgorithmOptions({ hmac: ["unknown-mac"] }, catalog)).toThrow(
+            "Unsupported algorithm: unknown-mac",
+        )
+        expect(() =>
+            resolveClientAlgorithmOptions({ hmac: { append: "unknown-mac" } }, catalog),
+        ).toThrow("Unsupported algorithm: unknown-mac")
+    })
+
     test("selects the first client-preferred mutual algorithm in every direction", () => {
         const client = new Client({ hostname: "unused.invalid" })
         client.clientKexInit = offer({

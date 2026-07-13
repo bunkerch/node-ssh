@@ -72,6 +72,11 @@ import UserAuthPasswordChangeRequest from "./packets/UserAuthPasswordChangeReque
 import UserAuthInfoRequest, { UserAuthPrompt } from "./packets/UserAuthInfoRequest.js"
 import UserAuthInfoResponse from "./packets/UserAuthInfoResponse.js"
 import SFTPClient from "./sftp/SFTPClient.js"
+import {
+    resolveClientAlgorithmOptions,
+    type ClientAlgorithmOptions,
+    type ResolvedAlgorithmOptions,
+} from "./AlgorithmOptions.js"
 
 export interface ClientOptions {
     hostname?: string
@@ -92,6 +97,7 @@ export interface ClientOptions {
     ident?: string | Buffer
     /** Reject OpenSSH-specific APIs for peers without a compatible OpenSSH identifier. */
     strictVendor?: boolean
+    algorithms?: ClientAlgorithmOptions
     username?: string
     password?: string
     agent?: Agent
@@ -110,7 +116,13 @@ export interface ClientOptionsRequired
     extends Required<
         Omit<
             ClientOptions,
-            "sock" | "localAddress" | "localPort" | "hostHash" | "hostVerifier" | "ident"
+            | "sock"
+            | "localAddress"
+            | "localPort"
+            | "hostHash"
+            | "hostVerifier"
+            | "ident"
+            | "algorithms"
         >
     > {
     sock?: Duplex
@@ -119,6 +131,7 @@ export interface ClientOptionsRequired
     hostHash?: string
     hostVerifier?: ClientHostVerifier
     ident?: string | Buffer
+    algorithms?: ClientAlgorithmOptions
 }
 
 export type ClientHostVerifier = (
@@ -308,6 +321,13 @@ export default class Client extends EventEmitter<ClientEvents> {
                 )
             }
         }
+        this.algorithmOffer = resolveClientAlgorithmOptions(this.options.algorithms, {
+            kex: [...kex_algorithms.keys()],
+            serverHostKey: [...PublicKey.algorithms.keys()],
+            cipher: [...encryption_algorithms.keys()],
+            hmac: [...mac_algorithms.keys()],
+            compress: ["none"],
+        })
 
         setImmediate(() => {
             this.debug("Client created with options:", {
@@ -337,6 +357,7 @@ export default class Client extends EventEmitter<ClientEvents> {
     private socket?: Duplex
     private identificationParser = new IdentificationParser({ allowPreamble: true })
     private readonly greetingChunks: Buffer[] = []
+    readonly algorithmOffer: ResolvedAlgorithmOptions
     private packetDecoder = new BinaryPacketDecoder()
     private packetEncoder = new BinaryPacketEncoder()
     private packetProcessingPaused = false
@@ -877,14 +898,14 @@ export default class Client extends EventEmitter<ClientEvents> {
     private createKexInit(): KexInit {
         return new KexInit({
             cookie: crypto.getRandomValues(Buffer.alloc(16)),
-            kex_algorithms: [...kex_algorithms.keys()],
-            server_host_key_algorithms: [...PublicKey.algorithms.keys()],
-            encryption_algorithms_client_to_server: [...encryption_algorithms.keys()],
-            encryption_algorithms_server_to_client: [...encryption_algorithms.keys()],
-            mac_algorithms_client_to_server: [...mac_algorithms.keys()],
-            mac_algorithms_server_to_client: [...mac_algorithms.keys()],
-            compression_algorithms_client_to_server: ["none"],
-            compression_algorithms_server_to_client: ["none"],
+            kex_algorithms: [...this.algorithmOffer.kex],
+            server_host_key_algorithms: [...this.algorithmOffer.serverHostKey],
+            encryption_algorithms_client_to_server: [...this.algorithmOffer.cipher],
+            encryption_algorithms_server_to_client: [...this.algorithmOffer.cipher],
+            mac_algorithms_client_to_server: [...this.algorithmOffer.hmac],
+            mac_algorithms_server_to_client: [...this.algorithmOffer.hmac],
+            compression_algorithms_client_to_server: [...this.algorithmOffer.compress],
+            compression_algorithms_server_to_client: [...this.algorithmOffer.compress],
             languages_client_to_server: [],
             languages_server_to_client: [],
             first_kex_packet_follows: false,

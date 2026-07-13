@@ -22,6 +22,13 @@ describe("client/server integration", () => {
             hostKeys: [hostKey],
             sendAllHostKeys: false,
             greeting: "Authorized integration only\nMaintenance at 02:00",
+            algorithms: {
+                kex: ["diffie-hellman-group14-sha256"],
+                serverHostKey: ["ssh-ed25519"],
+                cipher: ["aes128-ctr"],
+                hmac: ["hmac-sha1"],
+                compress: ["none"],
+            },
         })
         const serverErrors: Error[] = []
         server.hooker.hook("noneAuthentication", (_hook, _context, controller) => {
@@ -75,6 +82,13 @@ describe("client/server integration", () => {
             username: "integration-test",
             ident: "modernssh_integration fixed-comment",
             strictVendor: false,
+            algorithms: {
+                kex: ["diffie-hellman-group14-sha256"],
+                serverHostKey: ["ssh-ed25519"],
+                cipher: ["aes128-ctr"],
+                hmac: ["hmac-sha1"],
+                compress: ["none"],
+            },
         })
         const clientErrors: Error[] = []
         let connectEvents = 0
@@ -98,6 +112,13 @@ describe("client/server integration", () => {
             expect(serverPeer?.clientProtocolVersion).toEqual(
                 new ProtocolVersionExchange("2.0", "modernssh_integration", "fixed-comment"),
             )
+            expect((client.kexAlgorithm?.constructor as { alg_name?: string }).alg_name).toBe(
+                "diffie-hellman-group14-sha256",
+            )
+            expect(client.clientEncryptionAlgorithm?.alg_name).toBe("aes128-ctr")
+            expect(client.clientMacAlgorithm?.alg_name).toBe("hmac-sha1")
+            expect(serverPeer?.serverEncryptionAlgorithm?.alg_name).toBe("aes128-ctr")
+            expect(serverPeer?.serverMacAlgorithm?.alg_name).toBe("hmac-sha1")
             await new Promise<void>((resolve, reject) => {
                 expect(
                     server.getConnections((error, count) => {

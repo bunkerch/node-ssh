@@ -1192,6 +1192,13 @@ describe("OpenSSH interoperability", () => {
                     verifiedHostHashes.push(hash)
                     setImmediate(() => verified(hash === expectedHostHash))
                 },
+                algorithms: {
+                    kex: ["diffie-hellman-group14-sha256"],
+                    serverHostKey: ["ssh-ed25519"],
+                    cipher: ["aes128-ctr"],
+                    hmac: ["hmac-sha2-256"],
+                    compress: ["none"],
+                },
             })
             const errors: Error[] = []
             const verifiedHostHashes: (string | Buffer)[] = []
@@ -1236,6 +1243,12 @@ describe("OpenSSH interoperability", () => {
             })
 
             await client.connect()
+            expect((client.kexAlgorithm?.constructor as { alg_name?: string }).alg_name).toBe(
+                "diffie-hellman-group14-sha256",
+            )
+            expect(client.hostKeyAlgorithm?.alg_name).toBe("ssh-ed25519")
+            expect(client.clientEncryptionAlgorithm?.alg_name).toBe("aes128-ctr")
+            expect(client.clientMacAlgorithm?.alg_name).toBe("hmac-sha2-256")
             await new Promise<void>((resolve) => setTimeout(resolve, 60))
             expect(keepalives).toBeGreaterThan(0)
             const sessionId = Buffer.from(client.sessionID!)
