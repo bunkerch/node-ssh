@@ -53,6 +53,26 @@ for (const entry of await sftp.readDirectory("incoming")) {
 }
 ```
 
+Whole-file helpers follow Node-style flags while returning Promises:
+
+```ts
+await sftp.writeFile("incoming/message.txt", "first line\n", { mode: 0o640 })
+await sftp.appendFile("incoming/message.txt", "second line\n")
+const message = await sftp.readFile("incoming/message.txt", "utf8")
+```
+
+`readFile` returns a `Buffer` unless an encoding is requested. Its optional `maxBytes` limit rejects
+oversized files before allocation when the server reports a size and while reading when it does
+not. `exists` returns `false` only for `SFTPStatusCode.NoSuchFile`; permission and transport errors
+remain visible.
+
+`fastGet(remotePath, localPath, options?)` and `fastPut(localPath, remotePath, options?)` transfer
+disjoint chunks concurrently. `concurrency` defaults to 64 and is bounded by the request engine;
+`chunkSize` defaults to 32 KiB and is clamped to negotiated server limits. A `step` callback receives
+the cumulative bytes, completed chunk size, and total size. `fastPut` also accepts a remote `mode`.
+All workers settle before either handle is closed, and an operation error is preserved over a
+secondary close failure.
+
 Call `sftp.end()` to send EOF to the subsystem once no requests remain. `sftp.destroy(error?)`
 aborts it.
 

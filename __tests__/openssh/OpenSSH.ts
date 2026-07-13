@@ -1109,6 +1109,7 @@ describe("OpenSSH interoperability", () => {
         ])
         const containerId = stdout.trim()
         let agentFixture: OpenSSHAgentFixture | undefined
+        let transferDirectory: string | undefined
 
         try {
             const { stdout: portOutput } = await execFileAsync("docker", [
@@ -1120,6 +1121,7 @@ describe("OpenSSH interoperability", () => {
             expect(Number.isInteger(port)).toBe(true)
             await waitForPort(port)
             agentFixture = await createOpenSSHAgentFixture()
+            transferDirectory = await mkdtemp(join(tmpdir(), "modernssh-sftp-client-"))
 
             const keyboardClient = new Client({
                 hostname: "127.0.0.1",
@@ -1214,6 +1216,8 @@ describe("OpenSSH interoperability", () => {
             const linkPath = `${sftpDirectory}/renamed.link`
             const hardlinkPath = `${sftpDirectory}/renamed.hardlink`
             const copiedPath = `${sftpDirectory}/copied.bin`
+            const helperPath = `${sftpDirectory}/helpers.txt`
+            const transferPath = `${sftpDirectory}/fast-transfer.bin`
             await sftp.mkdir(sftpDirectory, { permissions: 0o700 })
             const contents = Buffer.allocUnsafe(70_000)
             for (let index = 0; index < contents.length; index++) contents[index] = index % 251
@@ -1289,9 +1293,47 @@ describe("OpenSSH interoperability", () => {
             expect(missingError).toBeInstanceOf(SFTPStatusError)
             expect((missingError as SFTPStatusError).code).toBe(SFTPStatusCode.NoSuchFile)
 
+            await sftp.writeFile(helperPath, "first", { mode: "640" })
+            await sftp.appendFile(helperPath, Buffer.from("-second"))
+            expect(await sftp.readFile(helperPath, "utf8")).toBe("first-second")
+            expect(await sftp.exists(helperPath)).toBe(true)
+            expect(await sftp.exists(`${sftpDirectory}/still-missing`)).toBe(false)
+            await expect(sftp.readFile(helperPath, { maxBytes: 5 })).rejects.toThrow(
+                "exceeds the 5-byte read limit",
+            )
+
+            const transferContents = Buffer.allocUnsafe(350_000)
+            for (let index = 0; index < transferContents.length; index++) {
+                transferContents[index] = (index * 17) % 251
+            }
+            const uploadPath = join(transferDirectory, "upload.bin")
+            const downloadPath = join(transferDirectory, "download.bin")
+            await writeFile(uploadPath, transferContents)
+            let uploaded = 0
+            await sftp.fastPut(uploadPath, transferPath, {
+                chunkSize: 19_999,
+                concurrency: 7,
+                step: (total) => {
+                    uploaded = total
+                },
+            })
+            expect(uploaded).toBe(transferContents.length)
+            let downloaded = 0
+            await sftp.fastGet(transferPath, downloadPath, {
+                chunkSize: 17_777,
+                concurrency: 5,
+                step: (total) => {
+                    downloaded = total
+                },
+            })
+            expect(downloaded).toBe(transferContents.length)
+            expect(await readFile(downloadPath)).toEqual(transferContents)
+
             await sftp.unlink(linkPath)
             await sftp.unlink(hardlinkPath)
             if (sftp.supportsExtension("copy-data", "1")) await sftp.unlink(copiedPath)
+            await sftp.unlink(helperPath)
+            await sftp.unlink(transferPath)
             await sftp.unlink(renamedPath)
             await sftp.rmdir(sftpDirectory)
             const sftpClosed = new Promise<void>((resolve) => sftp.channel.once("close", resolve))
@@ -1400,6 +1442,9 @@ describe("OpenSSH interoperability", () => {
         } finally {
             await execFileAsync("docker", ["rm", "--force", containerId]).catch(() => undefined)
             await agentFixture?.close()
+            if (transferDirectory !== undefined) {
+                await rm(transferDirectory, { recursive: true, force: true })
+            }
         }
     }, 120_000)
 })

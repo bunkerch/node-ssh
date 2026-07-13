@@ -68,6 +68,9 @@ behavior.
   negotiate advertised `limits@openssh.com` v1, retain exact limit values as `bigint`, and keep
   conservative sizes when the server rejects the request. Never accept a malformed successful
   limits reply as a downgrade.
+- Keep high-level SFTP transfers within negotiated request sizes. Parallel workers must stop
+  scheduling after the first error but settle every in-flight operation before closing handles;
+  preserve the primary operation error if cleanup also fails.
 - Implement vendor extensions from their upstream protocol documents (for example OpenSSH's
   `PROTOCOL`), and keep them explicitly named and separately tested from RFC behavior.
 - Treat local and remote channel identifiers, windows, maximum packet sizes, EOF, and CLOSE state as

@@ -64,7 +64,9 @@ subsystem for multi-packet upload and download, concurrent reads with request-id
 directory handles, attributes and timestamps, rename, canonicalization, directory scanning, and
 OpenSSH's documented reversed `SSH_FXP_SYMLINK` arguments. It also negotiates OpenSSH limits and
 executes advertised fsync, statvfs, POSIX rename, hard-link, path expansion, server-side copy, home
-directory, and identity lookup extensions. The system OpenSSH `sftp` client uploads, lists, renames,
+directory, and identity lookup extensions. Whole-file helpers are exercised for encoded reads,
+write, append, size limits, and existence checks; parallel upload and download use deliberately
+uneven chunks against the real server. The system OpenSSH `sftp` client uploads, lists, renames,
 symlinks, downloads, and removes files through a policy-controlled modern server. Independent
 literal vectors cover every baseline request and response layout and every extension payload;
 malformed framing, counts, flags, handles, response types, request identifiers, and extension

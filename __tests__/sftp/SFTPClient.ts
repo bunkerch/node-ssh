@@ -43,6 +43,91 @@ function asClientChannel(channel: SFTPServerFixture): ClientSessionChannel {
 }
 
 describe("SFTP client request engine", () => {
+    test("provides whole-file helpers without leaking handles on success or limits", async () => {
+        const files = new Map<string, Buffer>()
+        const openHandles = new Set<string>()
+        const status = (requestId: number, code = SFTPStatusCode.Ok): void => {
+            fixture.send({
+                type: SFTPPacketType.Status,
+                requestId,
+                code,
+                message: "",
+                languageTag: "",
+            })
+        }
+        const fixture = new SFTPServerFixture((packet) => {
+            if (packet.type === SFTPPacketType.Init) {
+                fixture.send({ type: SFTPPacketType.Version, version: 3, extensions: [] })
+            } else if (packet.type === SFTPPacketType.Open) {
+                const path = packet.filename.toString()
+                if ((packet.flags & SFTPOpenFlags.Truncate) !== 0) files.set(path, Buffer.alloc(0))
+                if (!files.has(path) && (packet.flags & SFTPOpenFlags.Create) === 0) {
+                    status(packet.requestId, SFTPStatusCode.NoSuchFile)
+                    return
+                }
+                files.set(path, files.get(path) ?? Buffer.alloc(0))
+                openHandles.add(path)
+                fixture.send({
+                    type: SFTPPacketType.Handle,
+                    requestId: packet.requestId,
+                    handle: Buffer.from(path),
+                })
+            } else if (packet.type === SFTPPacketType.FStat) {
+                const file = files.get(packet.handle.toString())!
+                fixture.send({
+                    type: SFTPPacketType.Attrs,
+                    requestId: packet.requestId,
+                    attributes: { size: BigInt(file.length) },
+                })
+            } else if (packet.type === SFTPPacketType.Read) {
+                const file = files.get(packet.handle.toString())!
+                const offset = Number(packet.offset)
+                if (offset >= file.length) status(packet.requestId, SFTPStatusCode.EOF)
+                else {
+                    fixture.send({
+                        type: SFTPPacketType.Data,
+                        requestId: packet.requestId,
+                        data: file.subarray(offset, offset + Math.min(packet.length, 2)),
+                    })
+                }
+            } else if (packet.type === SFTPPacketType.Write) {
+                const path = packet.handle.toString()
+                const current = files.get(path)!
+                const offset = Number(packet.offset)
+                const next = Buffer.alloc(Math.max(current.length, offset + packet.data.length))
+                current.copy(next)
+                packet.data.copy(next, offset)
+                files.set(path, next)
+                status(packet.requestId)
+            } else if (packet.type === SFTPPacketType.Close) {
+                openHandles.delete(packet.handle.toString())
+                status(packet.requestId)
+            } else if (packet.type === SFTPPacketType.Stat) {
+                const file = files.get(packet.path.toString())
+                if (file === undefined) status(packet.requestId, SFTPStatusCode.NoSuchFile)
+                else {
+                    fixture.send({
+                        type: SFTPPacketType.Attrs,
+                        requestId: packet.requestId,
+                        attributes: { size: BigInt(file.length) },
+                    })
+                }
+            }
+        })
+
+        const client = await SFTPClient.connect(asClientChannel(fixture))
+        await client.writeFile("notes", "alpha")
+        await client.appendFile("notes", "-beta")
+        expect(await client.readFile("notes", "utf8")).toBe("alpha-beta")
+        expect(await client.exists("notes")).toBe(true)
+        expect(await client.exists("missing")).toBe(false)
+        await expect(client.readFile("notes", { maxBytes: 5 })).rejects.toThrow(
+            "exceeds the 5-byte read limit",
+        )
+        expect(openHandles.size).toBe(0)
+        fixture.destroy()
+    })
+
     test("negotiates advertised OpenSSH limits from a literal extension payload", async () => {
         const fixture = new SFTPServerFixture((packet) => {
             if (packet.type === SFTPPacketType.Init) {

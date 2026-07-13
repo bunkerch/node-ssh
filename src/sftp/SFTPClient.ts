@@ -1,4 +1,7 @@
 import type ClientSessionChannel from "../channels/ClientSessionChannel.js"
+import { constants as bufferConstants } from "node:buffer"
+import { open as openLocalFile } from "node:fs/promises"
+import type { FileHandle } from "node:fs/promises"
 import { encodeSFTPPacket, SFTPPacketParser, SFTPProtocolError } from "./codec.js"
 import {
     MAX_SFTP_HANDLE_LENGTH,
@@ -99,6 +102,28 @@ interface PendingRequest {
 export type SFTPPath = string | Buffer
 export type SFTPPosition = number | bigint
 
+export interface SFTPReadFileOptions {
+    encoding?: BufferEncoding | null
+    flag?: string | number
+    maxBytes?: number
+}
+
+export interface SFTPWriteFileOptions {
+    encoding?: BufferEncoding
+    flag?: string | number
+    mode?: number | string
+}
+
+export interface SFTPFastGetOptions {
+    chunkSize?: number
+    concurrency?: number
+    step?: (totalTransferred: number, chunk: number, total: number) => void
+}
+
+export interface SFTPFastPutOptions extends SFTPFastGetOptions {
+    mode?: number | string
+}
+
 export class SFTPStatusError extends Error {
     readonly code: number
     readonly requestId: number
@@ -195,6 +220,169 @@ export default class SFTPClient {
                 extension.name === name &&
                 (version === undefined || extension.data.toString("ascii") === version),
         )
+    }
+
+    async exists(path: SFTPPath): Promise<boolean> {
+        try {
+            await this.stat(path)
+            return true
+        } catch (error) {
+            if (error instanceof SFTPStatusError && error.code === SFTPStatusCode.NoSuchFile) {
+                return false
+            }
+            throw error
+        }
+    }
+
+    async readFile(path: SFTPPath): Promise<Buffer>
+    async readFile(path: SFTPPath, encoding: BufferEncoding): Promise<string>
+    async readFile(
+        path: SFTPPath,
+        options: SFTPReadFileOptions & { encoding: BufferEncoding },
+    ): Promise<string>
+    async readFile(path: SFTPPath, options?: SFTPReadFileOptions): Promise<Buffer>
+    async readFile(
+        path: SFTPPath,
+        options: BufferEncoding | SFTPReadFileOptions = {},
+    ): Promise<Buffer | string> {
+        const normalized = normalizeReadFileOptions(options)
+        const maxBytes = normalized.maxBytes ?? bufferConstants.MAX_LENGTH
+        validateMaximumFileBytes(maxBytes)
+
+        const contents = await this.withFileHandle(
+            path,
+            normalized.flag ?? "r",
+            {},
+            async (handle) => {
+                const attributes = await this.fstat(handle)
+                if (attributes.size !== undefined && attributes.size > BigInt(maxBytes)) {
+                    throw new RangeError(`SFTP file exceeds the ${maxBytes}-byte read limit`)
+                }
+
+                const chunks: Buffer[] = []
+                let total = 0
+                let position = 0n
+                while (true) {
+                    const knownRemaining =
+                        attributes.size === undefined ? undefined : attributes.size - position
+                    if (knownRemaining !== undefined && knownRemaining <= 0n) break
+                    const length =
+                        knownRemaining === undefined
+                            ? this.maxReadLength
+                            : Number(
+                                  knownRemaining < BigInt(this.maxReadLength)
+                                      ? knownRemaining
+                                      : BigInt(this.maxReadLength),
+                              )
+                    let chunk: Buffer
+                    try {
+                        chunk = await this.read(handle, length, position)
+                    } catch (error) {
+                        if (error instanceof SFTPStatusError && error.code === SFTPStatusCode.EOF)
+                            break
+                        throw error
+                    }
+                    if (chunk.length === 0) break
+                    total += chunk.length
+                    if (total > maxBytes) {
+                        throw new RangeError(`SFTP file exceeds the ${maxBytes}-byte read limit`)
+                    }
+                    chunks.push(chunk)
+                    position += BigInt(chunk.length)
+                }
+                return Buffer.concat(chunks, total)
+            },
+        )
+
+        return normalized.encoding ? contents.toString(normalized.encoding) : contents
+    }
+
+    async writeFile(
+        path: SFTPPath,
+        data: string | Buffer,
+        options: BufferEncoding | SFTPWriteFileOptions = {},
+    ): Promise<void> {
+        const normalized = normalizeWriteFileOptions(options)
+        const contents = Buffer.isBuffer(data)
+            ? data
+            : Buffer.from(data, normalized.encoding ?? "utf8")
+        const flag = normalized.flag ?? "w"
+        const mode = parseMode(normalized.mode ?? 0o666)
+        await this.withFileHandle(path, flag, { permissions: mode }, async (handle) => {
+            const append = (sftpOpenFlags(flag) & SFTPOpenFlags.Append) !== 0
+            const position = append ? ((await this.fstat(handle)).size ?? 0n) : 0n
+            await this.write(handle, contents, position)
+        })
+    }
+
+    appendFile(
+        path: SFTPPath,
+        data: string | Buffer,
+        options: BufferEncoding | SFTPWriteFileOptions = {},
+    ): Promise<void> {
+        const normalized = normalizeWriteFileOptions(options)
+        return this.writeFile(path, data, { ...normalized, flag: normalized.flag ?? "a" })
+    }
+
+    async fastGet(
+        remotePath: SFTPPath,
+        localPath: string,
+        options: SFTPFastGetOptions = {},
+    ): Promise<void> {
+        const total = transferFileSize((await this.stat(remotePath)).size)
+        const chunkSize = transferChunkSize(options.chunkSize, this.maxReadLength)
+        const concurrency = transferConcurrency(options.concurrency)
+        const remoteHandle = await this.open(remotePath, "r")
+        let localHandle: FileHandle | undefined
+        let operationError: unknown
+        try {
+            localHandle = await openLocalFile(localPath, "w")
+            let transferred = 0
+            await runConcurrentTransfer(total, chunkSize, concurrency, async (offset, length) => {
+                const data = await readRemoteChunk(this, remoteHandle, length, offset, total)
+                await writeLocalChunk(localHandle!, data, offset)
+                transferred += data.length
+                options.step?.(transferred, data.length, total)
+            })
+        } catch (error) {
+            operationError = error
+        }
+        operationError = await closeLocalFile(localHandle, operationError)
+        operationError = await closeRemoteFile(this, remoteHandle, operationError)
+        if (operationError !== undefined) throw operationError
+    }
+
+    async fastPut(
+        localPath: string,
+        remotePath: SFTPPath,
+        options: SFTPFastPutOptions = {},
+    ): Promise<void> {
+        const localHandle = await openLocalFile(localPath, "r")
+        let remoteHandle: Buffer | undefined
+        let operationError: unknown
+        try {
+            const localAttributes = await localHandle.stat({ bigint: true })
+            const total = transferFileSize(localAttributes.size)
+            const chunkSize = transferChunkSize(options.chunkSize, this.maxWriteLength)
+            const concurrency = transferConcurrency(options.concurrency)
+            remoteHandle = await this.open(remotePath, "w", {
+                permissions: parseMode(options.mode ?? Number(localAttributes.mode & 0o777n)),
+            })
+            let transferred = 0
+            await runConcurrentTransfer(total, chunkSize, concurrency, async (offset, length) => {
+                const data = await readLocalChunk(localHandle, length, offset)
+                await this.write(remoteHandle!, data, BigInt(offset))
+                transferred += data.length
+                options.step?.(transferred, data.length, total)
+            })
+        } catch (error) {
+            operationError = error
+        }
+        if (remoteHandle !== undefined) {
+            operationError = await closeRemoteFile(this, remoteHandle, operationError)
+        }
+        operationError = await closeLocalFile(localHandle, operationError)
+        if (operationError !== undefined) throw operationError
     }
 
     async open(
@@ -522,8 +710,28 @@ export default class SFTPClient {
         )
     }
 
+    ext_copy_data(
+        sourceHandle: Buffer,
+        sourceOffset: SFTPPosition,
+        length: SFTPPosition,
+        destinationHandle: Buffer,
+        destinationOffset: SFTPPosition,
+    ): Promise<void> {
+        return this.copyData(
+            sourceHandle,
+            sourceOffset,
+            length,
+            destinationHandle,
+            destinationOffset,
+        )
+    }
+
     homeDirectory(username: string | Buffer = ""): Promise<string> {
         return this.extensionSingleName("home-directory", "1", encodeSFTPExtensionString(username))
+    }
+
+    ext_home_dir(username: string | Buffer = ""): Promise<string> {
+        return this.homeDirectory(username)
     }
 
     async usersGroups(
@@ -540,6 +748,13 @@ export default class SFTPClient {
             throw new SFTPProtocolError("Expected EXTENDED_REPLY")
         }
         return decodeSFTPUsersGroups(response.data)
+    }
+
+    ext_users_groups(
+        uids: readonly number[],
+        gids: readonly number[],
+    ): Promise<Readonly<SFTPUserGroupNames>> {
+        return this.usersGroups(uids, gids)
     }
 
     async opensshLimits(): Promise<Readonly<SFTPLimits>> {
@@ -600,6 +815,25 @@ export default class SFTPClient {
     destroy(error?: Error): void {
         if (!this.closed) this.channel.destroy(error)
         this.fail(error ?? new Error("SFTP session closed"))
+    }
+
+    private async withFileHandle<T>(
+        path: SFTPPath,
+        flags: string | number,
+        attributes: SFTPAttributes,
+        operation: (handle: Buffer) => Promise<T>,
+    ): Promise<T> {
+        const handle = await this.open(path, flags, attributes)
+        let value: T | undefined
+        let operationError: unknown
+        try {
+            value = await operation(handle)
+        } catch (error) {
+            operationError = error
+        }
+        operationError = await closeRemoteFile(this, handle, operationError)
+        if (operationError !== undefined) throw operationError
+        return value as T
     }
 
     private async pathAttributes(
@@ -869,6 +1103,187 @@ function negotiatedLength(length: bigint, packetLength: bigint): number {
     const implementationMaximum = BigInt(MAX_EXTENSION_READ_WRITE_LENGTH)
     if (implementationMaximum < negotiated) negotiated = implementationMaximum
     return safeLimitNumber(negotiated)
+}
+
+function normalizeReadFileOptions(
+    options: BufferEncoding | SFTPReadFileOptions,
+): SFTPReadFileOptions {
+    const normalized = typeof options === "string" ? { encoding: options } : options
+    if (normalized === null || typeof normalized !== "object") {
+        throw new TypeError("SFTP readFile options must be an encoding or object")
+    }
+    if (normalized.encoding !== undefined && normalized.encoding !== null) {
+        validateEncoding(normalized.encoding)
+    }
+    return normalized
+}
+
+function normalizeWriteFileOptions(
+    options: BufferEncoding | SFTPWriteFileOptions,
+): SFTPWriteFileOptions {
+    const normalized = typeof options === "string" ? { encoding: options } : options
+    if (normalized === null || typeof normalized !== "object") {
+        throw new TypeError("SFTP writeFile options must be an encoding or object")
+    }
+    if (normalized.encoding !== undefined) validateEncoding(normalized.encoding)
+    return normalized
+}
+
+function validateEncoding(encoding: string): asserts encoding is BufferEncoding {
+    if (!Buffer.isEncoding(encoding)) throw new TypeError(`Unknown encoding: ${encoding}`)
+}
+
+function validateMaximumFileBytes(maxBytes: number): void {
+    if (!Number.isSafeInteger(maxBytes) || maxBytes < 0 || maxBytes > bufferConstants.MAX_LENGTH) {
+        throw new RangeError(
+            `SFTP readFile maxBytes must be between 0 and ${bufferConstants.MAX_LENGTH}`,
+        )
+    }
+}
+
+function transferFileSize(size: bigint | undefined): number {
+    if (size === undefined) throw new SFTPProtocolError("SFTP server omitted the file size")
+    if (size > BigInt(Number.MAX_SAFE_INTEGER)) {
+        throw new RangeError("SFTP transfer size exceeds JavaScript's safe integer range")
+    }
+    return Number(size)
+}
+
+function transferChunkSize(requested: number | undefined, maximum: number): number {
+    const chunkSize = requested ?? DEFAULT_READ_WRITE_LENGTH
+    if (!Number.isSafeInteger(chunkSize) || chunkSize <= 0) {
+        throw new RangeError("SFTP transfer chunkSize must be a positive safe integer")
+    }
+    return Math.min(chunkSize, maximum)
+}
+
+function transferConcurrency(requested: number | undefined): number {
+    const concurrency = requested ?? 64
+    if (
+        !Number.isSafeInteger(concurrency) ||
+        concurrency <= 0 ||
+        concurrency > MAX_PENDING_REQUESTS
+    ) {
+        throw new RangeError(
+            `SFTP transfer concurrency must be between 1 and ${MAX_PENDING_REQUESTS}`,
+        )
+    }
+    return concurrency
+}
+
+async function runConcurrentTransfer(
+    total: number,
+    chunkSize: number,
+    concurrency: number,
+    transfer: (offset: number, length: number) => Promise<void>,
+): Promise<void> {
+    let nextOffset = 0
+    let firstError: unknown
+    const worker = async (): Promise<void> => {
+        while (firstError === undefined && nextOffset < total) {
+            const offset = nextOffset
+            const length = Math.min(chunkSize, total - offset)
+            nextOffset += length
+            try {
+                await transfer(offset, length)
+            } catch (error) {
+                firstError ??= error
+            }
+        }
+    }
+    await Promise.all(
+        Array.from({ length: Math.min(concurrency, Math.ceil(total / chunkSize)) }, worker),
+    )
+    if (firstError !== undefined) throw firstError
+}
+
+async function readLocalChunk(
+    handle: FileHandle,
+    length: number,
+    position: number,
+): Promise<Buffer> {
+    const data = Buffer.allocUnsafe(length)
+    let offset = 0
+    while (offset < length) {
+        const { bytesRead } = await handle.read(data, offset, length - offset, position + offset)
+        if (bytesRead === 0) {
+            throw new Error(`Local file ended after ${position + offset} bytes`)
+        }
+        offset += bytesRead
+    }
+    return data
+}
+
+async function readRemoteChunk(
+    client: SFTPClient,
+    handle: Buffer,
+    length: number,
+    position: number,
+    total: number,
+): Promise<Buffer> {
+    const chunks: Buffer[] = []
+    let offset = 0
+    while (offset < length) {
+        let chunk: Buffer
+        try {
+            chunk = await client.read(handle, length - offset, BigInt(position + offset))
+        } catch (error) {
+            if (error instanceof SFTPStatusError && error.code === SFTPStatusCode.EOF) {
+                throw new SFTPProtocolError(
+                    `SFTP file ended after ${position + offset} of ${total} bytes`,
+                )
+            }
+            throw error
+        }
+        if (chunk.length === 0) {
+            throw new SFTPProtocolError(
+                `SFTP read made no progress after ${position + offset} of ${total} bytes`,
+            )
+        }
+        chunks.push(chunk)
+        offset += chunk.length
+    }
+    return chunks.length === 1 ? chunks[0]! : Buffer.concat(chunks, length)
+}
+
+async function writeLocalChunk(handle: FileHandle, data: Buffer, position: number): Promise<void> {
+    let offset = 0
+    while (offset < data.length) {
+        const { bytesWritten } = await handle.write(
+            data,
+            offset,
+            data.length - offset,
+            position + offset,
+        )
+        if (bytesWritten === 0) throw new Error("Local file write made no progress")
+        offset += bytesWritten
+    }
+}
+
+async function closeLocalFile(
+    handle: FileHandle | undefined,
+    operationError: unknown,
+): Promise<unknown> {
+    if (handle === undefined) return operationError
+    try {
+        await handle.close()
+    } catch (error) {
+        return operationError ?? error
+    }
+    return operationError
+}
+
+async function closeRemoteFile(
+    client: SFTPClient,
+    handle: Buffer,
+    operationError: unknown,
+): Promise<unknown> {
+    try {
+        await client.close(handle)
+    } catch (error) {
+        return operationError ?? error
+    }
+    return operationError
 }
 
 function parseMode(mode: number | string): number {
