@@ -40,6 +40,11 @@ channel opens, X11 requests and channel opens, `no-more-sessions@openssh.com`, w
 `keepalive@openssh.com`, standard data, stderr extended data, EOF, and CLOSE. Every vector is parsed
 into asserted fields and serialized back to the exact original bytes.
 
+In-process forwarding tests additionally open server-initiated TCP and UNIX channels through the
+public connection APIs only after matching requests have been accepted. They assert every source
+and destination field, exchange data in both directions through the bounded channel streams, cover
+the callback and promise forms, and reject attempts after cancellation.
+
 Transport tests likewise use deterministic identification, binary framing, encryption-boundary,
 MAC, AEAD, fragmentation, and maximum-size vectors. AES-GCM is checked against a published NIST
 primitive vector. ChaCha20 and Poly1305 are checked against RFC 8439 vectors. Both AEAD packet

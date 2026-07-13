@@ -9,6 +9,9 @@ import ProtocolVersionExchange from "../../src/ProtocolVersionExchange.js"
 import Server from "../../src/Server.js"
 import ServerClient from "../../src/ServerClient.js"
 import SessionChannel from "../../src/channels/SessionChannel.js"
+import ClientForwardedTCPIPChannel from "../../src/channels/ClientForwardedTCPIPChannel.js"
+import ClientForwardedStreamLocalChannel from "../../src/channels/ClientForwardedStreamLocalChannel.js"
+import ForwardedTCPIPChannel from "../../src/channels/ForwardedTCPIPChannel.js"
 import RequestFailure from "../../src/packets/RequestFailure.js"
 import GlobalRequest from "../../src/packets/GlobalRequest.js"
 import PrivateKey from "../../src/utils/PrivateKey.js"
@@ -234,7 +237,54 @@ describe("client/server integration", () => {
             const forwardedPort = await client.forwardIn("127.0.0.1", 0)
             expect(forwardedPort).toBeGreaterThan(0)
             expect(forwardedPort).toBeLessThanOrEqual(65_535)
+            await expect(
+                serverPeer!.forwardOut("127.0.0.1", -1, "192.0.2.50", 51_234),
+            ).rejects.toThrow("between 0 and 65535")
+            const incomingTCP = new Promise<{
+                details: {
+                    destinationHost: string
+                    destinationPort: number
+                    sourceHost: string
+                    sourcePort: number
+                }
+                channel: ClientForwardedTCPIPChannel
+            }>((resolve) => {
+                client.once("tcp connection", (details, accept) => {
+                    resolve({ details, channel: accept()! })
+                })
+            })
+            const serverTCP = new Promise<ForwardedTCPIPChannel>((resolve, reject) => {
+                expect(
+                    serverPeer!.forwardOut(
+                        "127.0.0.1",
+                        forwardedPort,
+                        "192.0.2.50",
+                        51_234,
+                        (error, channel) => (error ? reject(error) : resolve(channel!)),
+                    ),
+                ).toBe(serverPeer!)
+            })
+            const [{ details: tcpDetails, channel: clientTCP }, serverTCPChannel] =
+                await Promise.all([incomingTCP, serverTCP])
+            expect(tcpDetails).toEqual({
+                destinationHost: "127.0.0.1",
+                destinationPort: forwardedPort,
+                sourceHost: "192.0.2.50",
+                sourcePort: 51_234,
+            })
+            const serverTCPData = new Promise<Buffer>((resolve) =>
+                serverTCPChannel.stream.once("data", resolve),
+            )
+            clientTCP.write(Buffer.from("client-to-server"))
+            expect(await serverTCPData).toEqual(Buffer.from("client-to-server"))
+            const clientTCPData = new Promise<Buffer>((resolve) => clientTCP.once("data", resolve))
+            serverTCPChannel.stream.write(Buffer.from("server-to-client"))
+            expect(await clientTCPData).toEqual(Buffer.from("server-to-client"))
+            clientTCP.close()
             await client.unforwardIn("127.0.0.1", forwardedPort)
+            await expect(
+                serverPeer!.forwardOut("127.0.0.1", forwardedPort, "192.0.2.50", 51_234),
+            ).rejects.toThrow("did not request forwarding")
             const listenerStillAccepts = await new Promise<boolean>((resolve) => {
                 const probe = createConnection({ host: "127.0.0.1", port: forwardedPort })
                 probe.once("connect", () => {
@@ -247,7 +297,31 @@ describe("client/server integration", () => {
 
             await client.openssh_forwardInStreamLocal(streamLocalPath)
             await access(streamLocalPath)
+            await expect(serverPeer!.openssh_forwardOutStreamLocal("bad\0path")).rejects.toThrow(
+                "contain no NUL",
+            )
+            const incomingUnix = new Promise<ClientForwardedStreamLocalChannel>((resolve) => {
+                client.once("unix connection", (_details, accept) => resolve(accept()!))
+            })
+            const [clientUnix, serverUnix] = await Promise.all([
+                incomingUnix,
+                serverPeer!.openssh_forwardOutStreamLocal(streamLocalPath),
+            ])
+            const serverUnixData = new Promise<Buffer>((resolve) =>
+                serverUnix.stream.once("data", resolve),
+            )
+            clientUnix.write(Buffer.from("unix-client"))
+            expect(await serverUnixData).toEqual(Buffer.from("unix-client"))
+            const clientUnixData = new Promise<Buffer>((resolve) =>
+                clientUnix.once("data", resolve),
+            )
+            serverUnix.stream.write(Buffer.from("unix-server"))
+            expect(await clientUnixData).toEqual(Buffer.from("unix-server"))
+            clientUnix.close()
             await client.openssh_unforwardInStreamLocal(streamLocalPath)
+            await expect(
+                serverPeer!.openssh_forwardOutStreamLocal(streamLocalPath),
+            ).rejects.toThrow("did not request stream-local forwarding")
             for (let attempt = 0; attempt < 50; attempt++) {
                 try {
                     await access(streamLocalPath)

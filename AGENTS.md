@@ -191,6 +191,9 @@ meaningful wire-level behavior.
 - Scope remote-forwarding TCP and UNIX-socket listeners to the authenticated connection that
   requested them. Stop accepting immediately on cancellation and close every owned listener on SSH
   disconnect. Never unlink a pre-existing UNIX-socket path on the client's behalf.
+- Server-initiated forwarded TCP and stream-local channels must match a currently accepted request
+  on that authenticated connection. Preserve all RFC source/destination metadata, expose bounded
+  channel streams, and reject explicit opens immediately after cancellation.
 - Do not add temporary compatibility shims, test-only production branches, or silent protocol
   fallbacks. Fail malformed or out-of-order protocol input explicitly.
 

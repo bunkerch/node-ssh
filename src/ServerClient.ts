@@ -106,6 +106,11 @@ interface RemoteForwardListener {
     server: net.Server
 }
 
+export type ServerForwardCallback<T extends Channel> = (
+    error: Error | undefined,
+    channel?: T,
+) => void
+
 export interface ServerClientEvents {
     error: [error: Error]
     close: []
@@ -247,6 +252,48 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             channel.abort(error as Error)
             throw error
         }
+    }
+
+    forwardOut(
+        boundAddress: string,
+        boundPort: number,
+        remoteAddress: string,
+        remotePort: number,
+    ): Promise<ForwardedTCPIPChannel>
+    forwardOut(
+        boundAddress: string,
+        boundPort: number,
+        remoteAddress: string,
+        remotePort: number,
+        callback: ServerForwardCallback<ForwardedTCPIPChannel>,
+    ): this
+    forwardOut(
+        boundAddress: string,
+        boundPort: number,
+        remoteAddress: string,
+        remotePort: number,
+        callback?: ServerForwardCallback<ForwardedTCPIPChannel>,
+    ): Promise<ForwardedTCPIPChannel> | this {
+        const operation = this.openForwardedTCPIPChannel(
+            boundAddress,
+            boundPort,
+            remoteAddress,
+            remotePort,
+        )
+        return this.withOptionalForwardCallback(operation, callback)
+    }
+
+    openssh_forwardOutStreamLocal(socketPath: string): Promise<ForwardedStreamLocalChannel>
+    openssh_forwardOutStreamLocal(
+        socketPath: string,
+        callback: ServerForwardCallback<ForwardedStreamLocalChannel>,
+    ): this
+    openssh_forwardOutStreamLocal(
+        socketPath: string,
+        callback?: ServerForwardCallback<ForwardedStreamLocalChannel>,
+    ): Promise<ForwardedStreamLocalChannel> | this {
+        const operation = this.openForwardedStreamLocalChannel(socketPath)
+        return this.withOptionalForwardCallback(operation, callback)
     }
 
     registerX11Forwarding(sessionId: number, single: boolean): void {
@@ -903,6 +950,79 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             sourcePort: socket.remotePort ?? 0,
         })
         await this.connectForwardedChannel(socket, channel)
+    }
+
+    private async openForwardedTCPIPChannel(
+        boundAddress: string,
+        boundPort: number,
+        remoteAddress: string,
+        remotePort: number,
+    ): Promise<ForwardedTCPIPChannel> {
+        this.validateForwardingPort(boundPort, "forwarded TCP bound port")
+        this.validateForwardingPort(remotePort, "forwarded TCP originator port")
+        if (!this.remoteForwardListeners.has(this.remoteForwardingKey(boundAddress, boundPort))) {
+            throw new Error(
+                `The SSH client did not request forwarding for ${boundAddress}:${boundPort}`,
+            )
+        }
+        return this.openForwardedChannel(
+            new ForwardedTCPIPChannel(this, {
+                destinationHost: boundAddress,
+                destinationPort: boundPort,
+                sourceHost: remoteAddress,
+                sourcePort: remotePort,
+            }),
+        )
+    }
+
+    private async openForwardedStreamLocalChannel(
+        socketPath: string,
+    ): Promise<ForwardedStreamLocalChannel> {
+        if (socketPath.length === 0 || socketPath.includes("\0")) {
+            throw new Error("SSH stream-local forwarding path must be non-empty and contain no NUL")
+        }
+        if (!this.remoteStreamLocalListeners.has(socketPath)) {
+            throw new Error(
+                `The SSH client did not request stream-local forwarding for ${socketPath}`,
+            )
+        }
+        return this.openForwardedChannel(new ForwardedStreamLocalChannel(this, socketPath))
+    }
+
+    private async openForwardedChannel<
+        T extends ForwardedTCPIPChannel | ForwardedStreamLocalChannel,
+    >(channel: T): Promise<T> {
+        if (!this.isConnected || !this.hasAuthenticated) {
+            throw new Error("Cannot open a forwarded channel before authentication completes")
+        }
+        this.channels.set(channel.localId, channel)
+        try {
+            this.sendPacket(channel.getChannelOpenPacket())
+            await channel.waitUntilOpen()
+            return channel
+        } catch (error) {
+            this.channels.delete(channel.localId)
+            channel.abort(error as Error)
+            throw error
+        }
+    }
+
+    private withOptionalForwardCallback<T extends Channel>(
+        operation: Promise<T>,
+        callback?: ServerForwardCallback<T>,
+    ): Promise<T> | this {
+        if (!callback) return operation
+        operation.then(
+            (channel) => callback(undefined, channel),
+            (error: Error) => callback(error),
+        )
+        return this
+    }
+
+    private validateForwardingPort(port: number, name: string): void {
+        if (!Number.isSafeInteger(port) || port < 0 || port > 65_535) {
+            throw new RangeError(`${name} must be between 0 and 65535`)
+        }
     }
 
     private async handleForwardedStreamLocalConnection(

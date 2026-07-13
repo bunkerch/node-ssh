@@ -109,7 +109,7 @@ export type {
 } from "./Server.js"
 export type { UserAuthPrompt } from "./packets/UserAuthInfoRequest.js"
 export { default as ServerClient } from "./ServerClient.js"
-export type { ServerClientEvents } from "./ServerClient.js"
+export type { ServerClientEvents, ServerForwardCallback } from "./ServerClient.js"
 
 export {
     default as Channel,

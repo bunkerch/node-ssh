@@ -108,6 +108,28 @@ requesting client for each connection. Requests for port zero receive the alloca
 connection also closes all of its listeners. Existing tunnel channels retain the normal independent
 EOF and CLOSE lifecycle.
 
+An application may also represent an incoming connection explicitly after the client has requested
+and the server has accepted the exact bind. `ServerClient.forwardOut()` checks that authorization,
+opens the RFC 4254 `forwarded-tcpip` channel, and returns its flow-controlled channel:
+
+```ts
+server.on("connection", (connection) => {
+    incomingConnections.on("connection", async (socket, acceptedBind) => {
+        const channel = await connection.forwardOut(
+            acceptedBind.address,
+            acceptedBind.port,
+            socket.remoteAddress ?? "",
+            socket.remotePort ?? 0,
+        )
+        socket.pipe(channel.stream).pipe(socket)
+    })
+})
+```
+
+The bound address and port must identify a currently active forwarding request. This prevents an
+application bug from opening an unsolicited server-initiated channel. Both promise and callback
+forms are available; channel-open rejection is reported through the returned promise or callback.
+
 ## OpenSSH UNIX-domain socket forwarding
 
 [OpenSSH's `streamlocal` extension](https://github.com/openssh/openssh-portable/blob/master/PROTOCOL)
@@ -170,6 +192,11 @@ After approval, `modernssh` owns the UNIX listener and opens a `ForwardedStreamL
 to the requesting client for each connection. A matching cancellation stops accepting new
 connections, and disconnecting SSH closes every listener owned by that connection. Existing paths
 are never unlinked to make room for a listener: a stale or occupied path makes the request fail.
+
+For an explicitly represented incoming UNIX connection, call
+`connection.openssh_forwardOutStreamLocal(socketPath)`. The path must exactly match a currently
+accepted stream-local forwarding request and contain no NUL. It resolves to a
+`ForwardedStreamLocalChannel`; pipe the local socket through `channel.stream` as with TCP.
 
 Incoming `direct-streamlocal@openssh.com` channels use the normal `channelOpenRequest` policy and
 are also denied by default. Inspect the exact destination before connecting it to a local socket:
