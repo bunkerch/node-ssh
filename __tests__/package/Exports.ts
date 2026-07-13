@@ -14,11 +14,13 @@ import {
     DiskAgent,
     EncodedSignature,
     encodeSFTPPacket,
+    flagsToString,
     ForwardedTCPIPChannel,
     ForwardedAgentChannel,
     ForwardedStreamLocalChannel,
     ForwardedX11Channel,
     OnePasswordAgent,
+    OPEN_MODE,
     PrivateKey,
     ProtocolVersionExchange,
     PublicKey,
@@ -32,7 +34,10 @@ import {
     SFTPClient,
     SFTPReadStream,
     SFTPServer,
+    SFTPStats,
     SFTPWriteStream,
+    STATUS_CODE,
+    stringToFlags,
     SSHAgent,
     SSHAuthenticationMethods,
     type ClientOptions,
@@ -84,7 +89,11 @@ describe("package exports", () => {
         expect(SFTPClient).toBeFunction()
         expect(SFTPReadStream).toBeFunction()
         expect(SFTPServer).toBeFunction()
+        expect(SFTPStats).toBeFunction()
         expect(SFTPWriteStream).toBeFunction()
+        expect(stringToFlags("r")).toBe(OPEN_MODE.READ)
+        expect(flagsToString(OPEN_MODE.READ)).toBe("r")
+        expect(STATUS_CODE.OK).toBe(0)
     })
 
     test("compiled entry point provides the same side-effect-free API", async () => {
@@ -113,7 +122,10 @@ describe("package exports", () => {
         expect(entry.SFTPClient).toBeDefined()
         expect(entry.SFTPReadStream).toBeDefined()
         expect(entry.SFTPServer).toBeDefined()
+        expect(entry.SFTPStats).toBeDefined()
         expect(entry.SFTPWriteStream).toBeDefined()
+        expect(entry.OPEN_MODE.READ).toBe(1)
+        expect(entry.STATUS_CODE.OK).toBe(0)
         expect(entry.decodeSFTPLimits).toBeDefined()
     })
 })

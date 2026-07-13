@@ -67,11 +67,12 @@ executes advertised fsync, statvfs, POSIX rename, hard-link, path expansion, ser
 directory, and identity lookup extensions. Whole-file helpers are exercised for encoded reads,
 write, append, size limits, and existence checks; parallel upload and download use deliberately
 uneven chunks against the real server. Writable and inclusive-range readable Node streams are also
-round-tripped through OpenSSH. The system OpenSSH `sftp` client uploads, lists, renames, symlinks,
-downloads, and removes files through a policy-controlled modern server. Independent literal vectors
-cover every baseline request and response layout and every extension payload; malformed framing,
-counts, flags, handles, response types, request identifiers, and extension replies are rejected
-without relying on another JavaScript SSH implementation.
+round-tripped through OpenSSH, and returned mode bits are checked through `SFTPStats` file-type
+predicates. The system OpenSSH `sftp` client uploads, lists, renames, symlinks, downloads, and removes
+files through a policy-controlled modern server. Independent literal vectors cover every baseline
+request and response layout and every extension payload; malformed framing, counts, flags, handles,
+response types, request identifiers, and extension replies are rejected without relying on another
+JavaScript SSH implementation.
 
 Together, the OpenSSH tests and known vectors exercise identification exchange, KEXINIT
 negotiation, exchange-hash and signature verification, `NEWKEYS`, encrypted and authenticated

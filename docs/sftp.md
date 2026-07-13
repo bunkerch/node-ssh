@@ -122,6 +122,17 @@ interface SFTPAttributes {
 The paired `uid`/`gid` and `accessTime`/`modificationTime` fields must be supplied together when
 encoding an attribute update.
 
+Client `stat`, `lstat`, and `fstat` results—and directory-entry attributes—are `SFTPStats`
+instances. They retain the exact fields above and add `isDirectory`, `isFile`, `isBlockDevice`,
+`isCharacterDevice`, `isSymbolicLink`, `isFIFO`, and `isSocket`. The ssh2-compatible `mode`, `atime`,
+and `mtime` aliases map to `permissions`, `accessTime`, and `modificationTime`; sizes remain `bigint`
+rather than losing uint64 precision.
+
+`stringToFlags` and `flagsToString` provide the ssh2-compatible nullable conversion API. The
+`OPEN_MODE` and `STATUS_CODE` exports use ssh2's uppercase keys, while `SFTPOpenFlags` and
+`SFTPStatusCode` remain the typed modern enums. `sftpOpenFlags` is the strict converter used for
+requests and throws on invalid strings, unknown bits, or invalid flag combinations.
+
 ## Errors and limits
 
 Remote failure statuses reject with `SFTPStatusError`. Its numeric `code`, `requestId`, and

@@ -22,6 +22,7 @@ import {
     encodeSFTPUsersGroupsExtension,
 } from "./openssh.js"
 import type { SFTPLimits, SFTPStatVFS, SFTPUserGroupNames } from "./openssh.js"
+import { SFTPStats, sftpNameEntry, sftpStats, type SFTPClientNameEntry } from "./SFTPStats.js"
 import {
     SFTPReadStream,
     SFTPWriteStream,
@@ -31,7 +32,6 @@ import {
 import type {
     SFTPAttributes,
     SFTPExtension,
-    SFTPNameEntry,
     SFTPPacket,
     SFTPRequestPacketBase,
     SFTPStatusPacket,
@@ -98,6 +98,27 @@ const STRING_OPEN_FLAGS: Readonly<Record<string, number>> = {
         SFTPOpenFlags.Append |
         SFTPOpenFlags.Exclusive,
 }
+
+export const OPEN_MODE = Object.freeze({
+    READ: SFTPOpenFlags.Read,
+    WRITE: SFTPOpenFlags.Write,
+    APPEND: SFTPOpenFlags.Append,
+    CREAT: SFTPOpenFlags.Create,
+    TRUNC: SFTPOpenFlags.Truncate,
+    EXCL: SFTPOpenFlags.Exclusive,
+})
+
+export const STATUS_CODE = Object.freeze({
+    OK: SFTPStatusCode.Ok,
+    EOF: SFTPStatusCode.EOF,
+    NO_SUCH_FILE: SFTPStatusCode.NoSuchFile,
+    PERMISSION_DENIED: SFTPStatusCode.PermissionDenied,
+    FAILURE: SFTPStatusCode.Failure,
+    BAD_MESSAGE: SFTPStatusCode.BadMessage,
+    NO_CONNECTION: SFTPStatusCode.NoConnection,
+    CONNECTION_LOST: SFTPStatusCode.ConnectionLost,
+    OP_UNSUPPORTED: SFTPStatusCode.OperationUnsupported,
+})
 
 interface PendingRequest {
     expectedTypes: ReadonlySet<SFTPPacketType>
@@ -168,6 +189,17 @@ export function sftpOpenFlags(flags: string | number): number {
     const value = STRING_OPEN_FLAGS[flags]
     if (value === undefined) throw new Error(`Unknown SFTP open flags: ${flags}`)
     return value
+}
+
+export function stringToFlags(flags: string): number | null {
+    return STRING_OPEN_FLAGS[flags] ?? null
+}
+
+export function flagsToString(flags: number): string | null {
+    for (const [name, value] of Object.entries(STRING_OPEN_FLAGS)) {
+        if (value === flags) return name
+    }
+    return null
 }
 
 export default class SFTPClient {
@@ -463,15 +495,15 @@ export default class SFTPClient {
         }
     }
 
-    stat(path: SFTPPath): Promise<SFTPAttributes> {
+    stat(path: SFTPPath): Promise<SFTPStats> {
         return this.pathAttributes(SFTPPacketType.Stat, path)
     }
 
-    lstat(path: SFTPPath): Promise<SFTPAttributes> {
+    lstat(path: SFTPPath): Promise<SFTPStats> {
         return this.pathAttributes(SFTPPacketType.LStat, path)
     }
 
-    async fstat(handle: Buffer): Promise<SFTPAttributes> {
+    async fstat(handle: Buffer): Promise<SFTPStats> {
         const response = await this.request(
             {
                 type: SFTPPacketType.FStat,
@@ -481,7 +513,7 @@ export default class SFTPClient {
             SFTPPacketType.Attrs,
         )
         if (response.type !== SFTPPacketType.Attrs) throw new SFTPProtocolError("Expected ATTRS")
-        return response.attributes
+        return sftpStats(response.attributes)
     }
 
     async setstat(path: SFTPPath, attributes: SFTPAttributes): Promise<void> {
@@ -515,7 +547,7 @@ export default class SFTPClient {
         return response.handle
     }
 
-    async readdir(handle: Buffer): Promise<readonly SFTPNameEntry[] | null> {
+    async readdir(handle: Buffer): Promise<readonly SFTPClientNameEntry[] | null> {
         try {
             const response = await this.request(
                 {
@@ -526,16 +558,16 @@ export default class SFTPClient {
                 SFTPPacketType.Name,
             )
             if (response.type !== SFTPPacketType.Name) throw new SFTPProtocolError("Expected NAME")
-            return response.names
+            return response.names.map(sftpNameEntry)
         } catch (error) {
             if (error instanceof SFTPStatusError && error.code === SFTPStatusCode.EOF) return null
             throw error
         }
     }
 
-    async readDirectory(path: SFTPPath): Promise<readonly SFTPNameEntry[]> {
+    async readDirectory(path: SFTPPath): Promise<readonly SFTPClientNameEntry[]> {
         const directory = await this.opendir(path)
-        const entries: SFTPNameEntry[] = []
+        const entries: SFTPClientNameEntry[] = []
         let operationError: unknown
         try {
             while (true) {
@@ -853,13 +885,13 @@ export default class SFTPClient {
     private async pathAttributes(
         type: SFTPPacketType.Stat | SFTPPacketType.LStat,
         path: SFTPPath,
-    ): Promise<SFTPAttributes> {
+    ): Promise<SFTPStats> {
         const response = await this.request(
             { type, requestId: this.allocateRequestId(), path: pathBuffer(path) },
             SFTPPacketType.Attrs,
         )
         if (response.type !== SFTPPacketType.Attrs) throw new SFTPProtocolError("Expected ATTRS")
-        return response.attributes
+        return sftpStats(response.attributes)
     }
 
     private async pathStatus(

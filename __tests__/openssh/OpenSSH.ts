@@ -1245,6 +1245,8 @@ describe("OpenSSH interoperability", () => {
             await sftp.utimes(originalPath, 1_700_000_000, 1_700_000_001)
             const attributes = await sftp.stat(originalPath)
             expect(attributes.size).toBe(70_000n)
+            expect(attributes.isFile()).toBe(true)
+            expect(attributes.isDirectory()).toBe(false)
             expect(attributes.permissions! & 0o777).toBe(0o600)
             expect(attributes.accessTime).toBe(1_700_000_000)
             expect(attributes.modificationTime).toBe(1_700_000_001)
@@ -1255,7 +1257,9 @@ describe("OpenSSH interoperability", () => {
             await sftp.opensshHardlink(renamedPath, hardlinkPath)
             await sftp.symlink("renamed.bin", linkPath)
             expect(await sftp.readlink(linkPath)).toBe("renamed.bin")
-            expect((await sftp.lstat(linkPath)).permissions! & 0o170000).toBe(0o120000)
+            const linkAttributes = await sftp.lstat(linkPath)
+            expect(linkAttributes.permissions! & 0o170000).toBe(0o120000)
+            expect(linkAttributes.isSymbolicLink()).toBe(true)
             expect(await sftp.realpath(renamedPath)).toBe(renamedPath)
             const expectedDirectoryEntries = ["renamed.bin", "renamed.hardlink", "renamed.link"]
             if (sftp.supportsExtension("copy-data", "1")) {

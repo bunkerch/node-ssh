@@ -17,7 +17,15 @@ export type {
     ClientSessionCallback,
     ClientStreamLocalCallback,
 } from "./Client.js"
-export { default as SFTPClient, SFTPStatusError, sftpOpenFlags } from "./sftp/SFTPClient.js"
+export {
+    default as SFTPClient,
+    flagsToString,
+    OPEN_MODE,
+    STATUS_CODE,
+    SFTPStatusError,
+    sftpOpenFlags,
+    stringToFlags,
+} from "./sftp/SFTPClient.js"
 export type {
     SFTPFastGetOptions,
     SFTPFastPutOptions,
@@ -28,6 +36,8 @@ export type {
 } from "./sftp/SFTPClient.js"
 export { SFTPReadStream, SFTPWriteStream } from "./sftp/streams.js"
 export type { SFTPReadStreamOptions, SFTPWriteStreamOptions } from "./sftp/streams.js"
+export { SFTPStats, SFTPStats as Stats } from "./sftp/SFTPStats.js"
+export type { SFTPClientNameEntry } from "./sftp/SFTPStats.js"
 export { default as SFTPServer } from "./sftp/SFTPServer.js"
 export type { SFTPServerEvents, SFTPServerOptions, SFTPSymlinkPaths } from "./sftp/SFTPServer.js"
 export {
