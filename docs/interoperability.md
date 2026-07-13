@@ -11,7 +11,8 @@ connections in both directions:
 After authentication, both directions open multiple RFC 4254 session channels. The coverage
 includes exec, interactive shell, named subsystem, PTY allocation and terminal modes, environment
 variables, resize notifications, signals, stdin, multi-window stdout, stderr, exit status, EOF, and
-CLOSE acknowledgement.
+CLOSE acknowledgement. The suite also opens bidirectional `direct-tcpip` channels and verifies
+source/destination metadata plus duplex data transfer.
 
 The deterministic baseline currently forces algorithms implemented by both libraries:
 

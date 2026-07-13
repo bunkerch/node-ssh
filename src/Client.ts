@@ -42,6 +42,7 @@ import IdentificationParser from "./IdentificationParser.js"
 import { BinaryPacketDecoder, BinaryPacketEncoder } from "./BinaryPacket.js"
 import ClientChannel from "./channels/ClientChannel.js"
 import ClientSessionChannel from "./channels/ClientSessionChannel.js"
+import ClientTCPIPChannel from "./channels/ClientTCPIPChannel.js"
 import ChannelOpen from "./packets/ChannelOpen.js"
 import ChannelOpenConfirmation from "./packets/ChannelOpenConfirmation.js"
 import ChannelOpenFailure, { ChannelOpenFailureReasonCodes } from "./packets/ChannelOpenFailure.js"
@@ -104,10 +105,12 @@ export type ClientHooker = {
     ]
 }
 
-export type ClientSessionCallback = (
+export type ClientChannelCallback<T extends ClientChannel = ClientChannel> = (
     error: Error | undefined,
-    channel?: ClientSessionChannel,
+    channel?: T,
 ) => void
+export type ClientSessionCallback = ClientChannelCallback<ClientSessionChannel>
+export type ClientForwardCallback = ClientChannelCallback<ClientTCPIPChannel>
 
 export default class Client extends EventEmitter<ClientEvents> {
     options: ClientOptionsRequired
@@ -259,12 +262,46 @@ export default class Client extends EventEmitter<ClientEvents> {
         return callback ? this.subsystem(name, callback) : this.subsystem(name)
     }
 
+    forwardOut(
+        sourceHost: string,
+        sourcePort: number,
+        destinationHost: string,
+        destinationPort: number,
+    ): Promise<ClientTCPIPChannel>
+    forwardOut(
+        sourceHost: string,
+        sourcePort: number,
+        destinationHost: string,
+        destinationPort: number,
+        callback: ClientForwardCallback,
+    ): this
+    forwardOut(
+        sourceHost: string,
+        sourcePort: number,
+        destinationHost: string,
+        destinationPort: number,
+        callback?: ClientForwardCallback,
+    ): Promise<ClientTCPIPChannel> | this {
+        const operation = this.openClientChannel(
+            new ClientTCPIPChannel(this, {
+                sourceHost,
+                sourcePort,
+                destinationHost,
+                destinationPort,
+            }),
+        )
+        return this.withOptionalChannelCallback(operation, callback)
+    }
+
     private async openSessionChannel(): Promise<ClientSessionChannel> {
+        return this.openClientChannel(new ClientSessionChannel(this))
+    }
+
+    private async openClientChannel<T extends ClientChannel>(channel: T): Promise<T> {
         if (!this.isConnected || !this.hasAuthenticated) {
             throw new Error("Cannot open an SSH channel before authentication completes")
         }
 
-        const channel = new ClientSessionChannel(this)
         this.channels.set(channel.localId, channel)
         try {
             this.sendPacket(channel.getOpenPacket())
@@ -277,10 +314,10 @@ export default class Client extends EventEmitter<ClientEvents> {
         }
     }
 
-    private withOptionalChannelCallback(
-        operation: Promise<ClientSessionChannel>,
-        callback?: ClientSessionCallback,
-    ): Promise<ClientSessionChannel> | this {
+    private withOptionalChannelCallback<T extends ClientChannel>(
+        operation: Promise<T>,
+        callback?: ClientChannelCallback<T>,
+    ): Promise<T> | this {
         if (!callback) return operation
         operation.then(
             (channel) => callback(undefined, channel),

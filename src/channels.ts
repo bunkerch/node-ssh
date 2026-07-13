@@ -4,9 +4,11 @@ import Client from "./Client.js"
 import ChannelOpen from "./packets/ChannelOpen.js"
 import { ChannelOpenError, ChannelOpenFailureReasonCodes } from "./packets/ChannelOpenFailure.js"
 import ServerClient from "./ServerClient.js"
+import DirectTCPIPChannel from "./channels/DirectTCPIPChannel.js"
 
 export const channels = new Map<string, typeof Channel>([
     [SessionChannel.channel_type, SessionChannel],
+    [DirectTCPIPChannel.channel_type, DirectTCPIPChannel],
 ])
 
 export function channelFromChannelOpenPacket(packet: ChannelOpen, client: Client | ServerClient) {

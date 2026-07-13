@@ -1,6 +1,8 @@
 export { default as Client } from "./Client.js"
 export type {
     ClientEvents,
+    ClientChannelCallback,
+    ClientForwardCallback,
     ClientHooker,
     ClientHookerHostKeyController,
     ClientHookerPasswordAuthContext,
@@ -15,6 +17,8 @@ export {
 } from "./channels/ClientChannel.js"
 export { default as ClientSessionChannel } from "./channels/ClientSessionChannel.js"
 export type { ClientPtyOptions, ClientWindowDimensions } from "./channels/ClientSessionChannel.js"
+export { default as ClientTCPIPChannel } from "./channels/ClientTCPIPChannel.js"
+export type { TCPIPConnectionDetails } from "./channels/ClientTCPIPChannel.js"
 
 export { default as Server } from "./Server.js"
 export type {
@@ -40,6 +44,7 @@ export {
     DEFAULT_SERVER_CHANNEL_WINDOW_SIZE,
 } from "./Channel.js"
 export { default as SessionChannel } from "./channels/SessionChannel.js"
+export { default as DirectTCPIPChannel } from "./channels/DirectTCPIPChannel.js"
 export type {
     SessionChannelEvents,
     SessionChannelHooker,

@@ -5,6 +5,7 @@ import Server from "../../src/Server.js"
 import PrivateKey from "../../src/utils/PrivateKey.js"
 import { DEFAULT_CHANNEL_WINDOW_SIZE } from "../../src/channels/ClientChannel.js"
 import SessionChannel from "../../src/channels/SessionChannel.js"
+import DirectTCPIPChannel from "../../src/channels/DirectTCPIPChannel.js"
 
 const algorithms: Algorithms = {
     kex: ["diffie-hellman-group14-sha256"],
@@ -25,6 +26,9 @@ describe("ssh2 interoperability", () => {
         let windowChange: { cols: number; rows: number; width: number; height: number } | undefined
         let signal = ""
         let subsystemName = ""
+        let forwardingDetails:
+            | { srcIP: string; srcPort: number; destIP: string; destPort: number }
+            | undefined
         const expectedStdout = Buffer.alloc(DEFAULT_CHANNEL_WINDOW_SIZE + 65_536, "o")
         const server = new SSH2Server({ hostKeys: [hostKey.toString()], algorithms })
         server.on("error", (error) => serverErrors.push(error))
@@ -70,6 +74,13 @@ describe("ssh2 interoperability", () => {
                     const stream = acceptSubsystem()
                     stream.end("subsystem ready")
                 })
+            })
+            connection.on("tcpip", (accept, _reject, info) => {
+                forwardingDetails = info
+                const stream = accept()
+                const input: Buffer[] = []
+                stream.on("data", (data: Buffer) => input.push(data))
+                stream.on("end", () => stream.end(Buffer.concat(input).toString().toUpperCase()))
             })
         })
         server.listen(0, "127.0.0.1")
@@ -127,6 +138,24 @@ describe("ssh2 interoperability", () => {
             await new Promise<void>((resolve) => subsystem.once("close", resolve))
             expect(subsystemName).toBe("test-service")
             expect(Buffer.concat(subsystemOutput).toString()).toBe("subsystem ready")
+
+            const forwarding = await client.forwardOut(
+                "192.0.2.10",
+                12_345,
+                "service.internal",
+                8080,
+            )
+            const forwardedOutput: Buffer[] = []
+            forwarding.on("data", (data: Buffer) => forwardedOutput.push(data))
+            forwarding.end("forwarded data")
+            await new Promise<void>((resolve) => forwarding.once("close", resolve))
+            expect(forwardingDetails).toEqual({
+                srcIP: "192.0.2.10",
+                srcPort: 12_345,
+                destIP: "service.internal",
+                destPort: 8080,
+            })
+            expect(Buffer.concat(forwardedOutput).toString()).toBe("FORWARDED DATA")
             expect(clientErrors).toEqual([])
             expect(serverErrors).toEqual([])
         } finally {
@@ -156,12 +185,14 @@ describe("ssh2 interoperability", () => {
         }[] = []
         const signals: string[] = []
         const subsystems: string[] = []
+        const forwardingDetails: DirectTCPIPChannel["details"][] = []
         const expectedStdout = Buffer.alloc(DEFAULT_CHANNEL_WINDOW_SIZE + 65_536, "s")
         server.hooker.hook("noneAuthentication", (_hook, context, decision) => {
             decision.allowLogin = context.username === "interop"
         })
         server.hooker.hook("channelOpenRequest", (_hook, channel, decision) => {
-            decision.allowOpen = channel instanceof SessionChannel
+            decision.allowOpen =
+                channel instanceof SessionChannel || channel instanceof DirectTCPIPChannel
         })
         server.on("connection", (connection) => {
             connection.on("error", (error) => serverErrors.push(error))
@@ -169,6 +200,15 @@ describe("ssh2 interoperability", () => {
                 serverReady = true
             })
             connection.on("channel", (channel) => {
+                if (channel instanceof DirectTCPIPChannel) {
+                    forwardingDetails.push(channel.details)
+                    const input: Buffer[] = []
+                    channel.stream.on("data", (data: Buffer) => input.push(data))
+                    channel.stream.on("end", () => {
+                        channel.stream.end(Buffer.concat(input).toString().toUpperCase())
+                    })
+                    return
+                }
                 if (!(channel instanceof SessionChannel)) return
                 channel.hooker.hook("execRequest", (_hook, context, decision) => {
                     commands.push(context.command)
@@ -294,6 +334,23 @@ describe("ssh2 interoperability", () => {
                 })
             })
 
+            const forwardedOutput = await new Promise<Buffer>((resolve, reject) => {
+                client.forwardOut(
+                    "198.51.100.20",
+                    23_456,
+                    "database.internal",
+                    5432,
+                    (error, stream) => {
+                        if (error) return reject(error)
+                        const output: Buffer[] = []
+                        stream.on("data", (data: Buffer) => output.push(data))
+                        stream.on("error", reject)
+                        stream.on("close", () => resolve(Buffer.concat(output)))
+                        stream.end("tunnel data")
+                    },
+                )
+            })
+
             expect(serverReady).toBe(true)
             expect(commands).toEqual(["consume-input"])
             expect(environments).toContainEqual(["TEST_VARIABLE", "accepted"])
@@ -312,6 +369,15 @@ describe("ssh2 interoperability", () => {
             expect(shellOutput.toString()).toBe("INTERACTIVE INPUT")
             expect(subsystems).toEqual(["test-subsystem"])
             expect(subsystemOutput.toString()).toBe("modern subsystem")
+            expect(forwardingDetails).toEqual([
+                {
+                    sourceHost: "198.51.100.20",
+                    sourcePort: 23_456,
+                    destinationHost: "database.internal",
+                    destinationPort: 5432,
+                },
+            ])
+            expect(forwardedOutput.toString()).toBe("TUNNEL DATA")
             expect(clientErrors).toEqual([])
             expect(serverErrors).toEqual([])
         } finally {
