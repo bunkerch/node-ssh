@@ -53,6 +53,28 @@ liveness response. The client emits an `SSH keepalive timeout` error and destroy
 after more than `keepaliveCountMax` consecutive probes go unanswered. The timer does not keep the
 Node.js process alive; both options default to ssh2-compatible values of `0` (disabled) and `3`.
 
+## Connection hopping
+
+Pass an already-connected Node `Duplex` as `sock` to run SSH over an application-owned transport.
+A common use is opening a second SSH connection through a jump host:
+
+```ts
+const jump = new Client({ hostname: "jump.example.com", username: "deploy" })
+await jump.connect()
+
+const tunnel = await jump.forwardOut("127.0.0.1", 0, "target.internal", 22)
+const target = new Client({ sock: tunnel, username: "deploy" })
+await target.connect()
+
+const command = await target.exec("hostname")
+command.pipe(process.stdout)
+```
+
+When `sock` is supplied, `hostname` is optional and no new TCP connection is created. The client
+installs the same framing, error, close, keepalive, rekey, and channel cleanup handlers used for a
+normal socket. `end()` and `destroy()` own and close the supplied transport; a destroyed transport
+cannot be reused for another connection.
+
 ## Server connection
 
 ```ts

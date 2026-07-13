@@ -95,6 +95,9 @@ behavior.
 - Injected server sockets must pass through the same `preconnect`, client tracking, authentication,
   error cleanup, and close cleanup as listener-accepted sockets. Keep ownership of the outer
   listener with the injector and ownership of the connected socket with `ServerClient`.
+- A client-supplied duplex transport is already connected and is owned by the `Client` after
+  `connect()`. Apply the same data/error/close cleanup as TCP sockets, never wait for a synthetic
+  `connect` event, reject destroyed transports, and validate hopping through a real SSH channel.
 - Treat local and remote channel identifiers, windows, maximum packet sizes, EOF, and CLOSE state as
   independent protocol state. All channel streams must preserve bounded backpressure.
 - New public APIs and public types must be exported from `src/index.ts`, documented under `docs/`,

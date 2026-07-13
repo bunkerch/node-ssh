@@ -1,6 +1,7 @@
 import crypto from "crypto"
 import EventEmitter from "node:events"
 import net from "node:net"
+import type { Duplex } from "node:stream"
 import {
     SocketState,
     SSHAuthenticationMethods,
@@ -73,7 +74,7 @@ import UserAuthInfoResponse from "./packets/UserAuthInfoResponse.js"
 import SFTPClient from "./sftp/SFTPClient.js"
 
 export interface ClientOptions {
-    hostname: string
+    hostname?: string
     port?: number
     username?: string
     password?: string
@@ -83,10 +84,13 @@ export interface ClientOptions {
     authenticationMethodsOrder?: SSHAuthenticationMethods[]
     keepaliveInterval?: number
     keepaliveCountMax?: number
+    /** Already-connected duplex transport, such as an SSH direct-tcpip channel. */
+    sock?: Duplex
 }
 
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
-export interface ClientOptionsRequired extends Required<ClientOptions> {}
+export interface ClientOptionsRequired extends Required<Omit<ClientOptions, "sock">> {
+    sock?: Duplex
+}
 
 export interface ClientEvents {
     debug: [...message: unknown[]]
@@ -208,6 +212,7 @@ export default class Client extends EventEmitter<ClientEvents> {
         super()
 
         this.options = options as ClientOptionsRequired
+        this.options.hostname ??= "localhost"
         this.options.port ??= 22
         this.options.username ??= "root"
         this.options.password ??= ""
@@ -258,7 +263,7 @@ export default class Client extends EventEmitter<ClientEvents> {
 
     hooker = new Hooker<ClientHooker>()
 
-    private socket?: net.Socket
+    private socket?: Duplex
     private identificationParser = new IdentificationParser({ allowPreamble: true })
     private packetDecoder = new BinaryPacketDecoder()
     private packetEncoder = new BinaryPacketEncoder()
@@ -331,7 +336,9 @@ export default class Client extends EventEmitter<ClientEvents> {
     }
 
     setNoDelay(noDelay = true): this {
-        this.socket?.setNoDelay(noDelay)
+        if (this.socket && "setNoDelay" in this.socket) {
+            ;(this.socket as net.Socket).setNoDelay(noDelay)
+        }
         return this
     }
 
@@ -883,18 +890,25 @@ export default class Client extends EventEmitter<ClientEvents> {
             throw new Error("Cannot initiate connection; client is not in a state to connect")
         }
         this.state = SocketState.Connecting
-        this.socket = net.createConnection({
-            host: this.options.hostname,
-            port: this.options.port,
-        })
+        const suppliedSocket = this.options.sock
+        if (suppliedSocket?.destroyed) {
+            this.state = SocketState.Closed
+            throw new Error("The supplied SSH transport is already destroyed")
+        }
+        this.socket =
+            suppliedSocket ??
+            net.createConnection({
+                host: this.options.hostname,
+                port: this.options.port,
+            })
 
-        let connected = false
+        let connected = suppliedSocket !== undefined
         await new Promise<void>((resolve, reject) => {
             const connectListener = () => {
                 connected = true
                 resolve()
             }
-            this.socket!.on("connect", connectListener)
+            if (suppliedSocket === undefined) this.socket!.once("connect", connectListener)
             const errorListener = (error: Error) => {
                 this.state = SocketState.Closed
                 this.debug("Socket error:", error)
@@ -927,6 +941,7 @@ export default class Client extends EventEmitter<ClientEvents> {
                 this.emit("close")
             }
             this.socket!.on("close", closeListener)
+            if (suppliedSocket !== undefined) resolve()
         })
 
         this.socket!.on("data", (data) => {

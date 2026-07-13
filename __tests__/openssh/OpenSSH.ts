@@ -1507,6 +1507,28 @@ describe("OpenSSH interoperability", () => {
             expect(streamLocalOutput).toBe("REMOTE STREAM LOCAL")
             await client.openssh_unforwardInStreamLocal(forwardedSocketPath)
 
+            const jumpTransport = await client.forwardOut("127.0.0.1", 12_345, "127.0.0.1", 22)
+            const nestedClient = new Client({
+                sock: jumpTransport,
+                username: "interop",
+                password: "correct-horse-battery-staple",
+            })
+            const nestedErrors: Error[] = []
+            nestedClient.on("error", (error) => nestedErrors.push(error))
+            nestedClient.hooker.hook("hostKey", (_hook, decision) => {
+                decision.allowHostKey = true
+            })
+            await nestedClient.connect()
+            const nestedSession = await nestedClient.exec("printf nested-ssh-ok")
+            const nestedOutput: Buffer[] = []
+            nestedSession.on("data", (data: Buffer) => nestedOutput.push(data))
+            await new Promise<void>((resolve) => nestedSession.once("close", resolve))
+            expect(Buffer.concat(nestedOutput).toString()).toBe("nested-ssh-ok")
+            expect(nestedErrors).toEqual([])
+            const nestedClosed = new Promise<void>((resolve) => nestedClient.once("close", resolve))
+            nestedClient.end()
+            await nestedClosed
+
             const closed = new Promise<void>((resolve) => client.once("close", resolve))
             await client.openssh_noMoreSessions()
             await expect(client.openSession()).rejects.toThrow()
