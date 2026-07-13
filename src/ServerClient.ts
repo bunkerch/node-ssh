@@ -32,15 +32,18 @@ import {
     MACAlgorithm,
     chooseAlgorithms,
     describeNegotiatedAlgorithms,
+    host_key_algorithms,
+    type HostKeyAlgorithm,
 } from "./algorithms.js"
 import type { NegotiatedAlgorithms } from "./AlgorithmOptions.js"
-import PublicKey, { PublicKeyAlgoritm } from "./utils/PublicKey.js"
+import PublicKey from "./utils/PublicKey.js"
 import KexDHReply from "./packets/KexDHReply.js"
 import assert from "node:assert"
 import Packet, { packets } from "./packet.js"
 import Disconnect, { DisconnectError, DisconnectReason } from "./packets/Disconnect.js"
 import KexDHInit from "./packets/KexDHInit.js"
 import NewKeys from "./packets/NewKeys.js"
+import ExtInfo from "./packets/ExtInfo.js"
 import { KeyExchangeError } from "./algorithms/kex/key-exchange.js"
 import ServiceRequest from "./packets/ServiceRequest.js"
 import ServiceAccept from "./packets/ServiceAccept.js"
@@ -166,7 +169,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     clientKexInit?: KexInit
     serverKexInit?: KexInit
     kexAlgorithm?: KexAlgorithm
-    hostKeyAlgorithm?: typeof PublicKeyAlgoritm
+    hostKeyAlgorithm?: HostKeyAlgorithm
     clientEncryptionAlgorithm?: typeof EncryptionAlgorithm
     serverEncryptionAlgorithm?: typeof EncryptionAlgorithm
     clientEncryption?: EncryptionAlgorithm
@@ -311,11 +314,17 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     private createKexInit(): KexInit {
         return new KexInit({
             cookie: crypto.getRandomValues(Buffer.alloc(16)),
-            kex_algorithms: [...this.server.algorithmOffer.kex],
+            kex_algorithms: [
+                ...this.server.algorithmOffer.kex,
+                ...(this.sessionID === undefined ? ["ext-info-s"] : []),
+            ],
             server_host_key_algorithms: [
-                ...this.server.algorithmOffer.serverHostKey.filter((name) =>
-                    this.server.options.hostKeys.some((key) => key.data.alg === name),
-                ),
+                ...this.server.algorithmOffer.serverHostKey.filter((name) => {
+                    const algorithm = host_key_algorithms.get(name)
+                    return this.server.options.hostKeys.some(
+                        (key) => key.data.alg === algorithm?.key_format,
+                    )
+                }),
             ],
             encryption_algorithms_client_to_server: [...this.server.algorithmOffer.cipher],
             encryption_algorithms_server_to_client: [...this.server.algorithmOffer.cipher],
@@ -356,7 +365,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             kexAlgorithm.computeSharedSecret(clientKexDHInit.data.e)
 
             const hostKey = this.server.options.hostKeys.find(
-                (key) => key.data.alg === this.hostKeyAlgorithm!.alg_name,
+                (key) => key.data.alg === this.hostKeyAlgorithm!.key_format,
             )
             assert(hostKey, "No host key found for the negotiated algorithm")
             const publicKey = hostKey.data.publicKey.serialize()
@@ -365,7 +374,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 new KexDHReply({
                     K_S: publicKey,
                     f: kexAlgorithm.getPublicKey(),
-                    H_sig: hostKey.data.algorithm.sign(h).serialize(),
+                    H_sig: hostKey.sign(h, this.hostKeyAlgorithm!.signature_algorithm).serialize(),
                     encoding: kexAlgorithm.exchangeValueEncoding,
                 }),
             )
@@ -395,6 +404,21 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 macLength: this.serverMacAlgorithm!.digest_length,
                 encryptThenMac: this.serverMacAlgorithm!.encrypt_then_mac,
             })
+            if (!isRekey && clientKexInit.data.kex_algorithms.includes("ext-info-c")) {
+                this.sendPacket(
+                    new ExtInfo({
+                        extensions: [
+                            {
+                                name: "server-sig-algs",
+                                value: Buffer.from(
+                                    [...host_key_algorithms.keys()].join(","),
+                                    "ascii",
+                                ),
+                            },
+                        ],
+                    }),
+                )
+            }
             while (this.packetsQueuedDuringKeyExchange.length > 0) {
                 this.writePacket(this.packetsQueuedDuringKeyExchange.shift()!)
             }
@@ -966,6 +990,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                         const context: ServerHookerPublicKeyAuthenticationContext = {
                             username: authRequest.data.username,
                             publicKey: method.data.publicKey,
+                            algorithm: method.data.algorithm!,
                             signature: method.data.signature,
                             signatureMessage: authRequest.serializeForSignature(this),
                         }
@@ -1002,6 +1027,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                             this.sendPacket(
                                 new UserAuthPKOK({
                                     publicKey: method.data.publicKey,
+                                    algorithm: method.data.algorithm,
                                 }),
                             )
                             break

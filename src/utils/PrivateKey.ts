@@ -30,8 +30,8 @@ export default class PrivateKey {
         this.data = data
     }
 
-    sign(data: Buffer): EncodedSignature {
-        return this.data.algorithm.sign(data)
+    sign(data: Buffer, algorithm = this.data.alg): EncodedSignature {
+        return this.data.algorithm.sign(data, algorithm)
     }
 
     serialize(): Buffer {
@@ -230,7 +230,7 @@ export abstract class PrivateKeyAlgorithm {
     }
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    sign(data: Buffer): EncodedSignature {
+    sign(data: Buffer, algorithm?: string): EncodedSignature {
         throw new Error("Not implemented")
     }
 
@@ -262,9 +262,13 @@ export class SSHED25519PrivateKey implements PrivateKeyAlgorithm {
         this.data = data
     }
 
-    sign(data: Buffer): EncodedSignature {
+    sign(data: Buffer, algorithm = SSHED25519PrivateKey.alg_name): EncodedSignature {
+        assert(
+            algorithm === SSHED25519PrivateKey.alg_name,
+            `Unsupported Ed25519 signature algorithm: ${algorithm}`,
+        )
         return new EncodedSignature({
-            alg: SSHED25519PrivateKey.alg_name,
+            alg: algorithm,
             data: Buffer.from(nacl.sign.detached(data, this.data.privateKey)),
         })
     }
@@ -326,7 +330,16 @@ export class SSHRSAPrivateKey implements PrivateKeyAlgorithm {
         this.data = data
     }
 
-    sign(data: Buffer): EncodedSignature {
+    sign(data: Buffer, algorithm = SSHRSAPrivateKey.alg_name): EncodedSignature {
+        const hash =
+            algorithm === "rsa-sha2-512"
+                ? "sha512"
+                : algorithm === "rsa-sha2-256"
+                  ? "sha256"
+                  : algorithm === SSHRSAPrivateKey.alg_name
+                    ? "sha1"
+                    : undefined
+        assert(hash, `Unsupported RSA signature algorithm: ${algorithm}`)
         const d = decodeBigIntBE(this.data.privateExponent)
         const p = decodeBigIntBE(this.data.p)
         const q = decodeBigIntBE(this.data.q)
@@ -347,11 +360,11 @@ export class SSHRSAPrivateKey implements PrivateKeyAlgorithm {
             format: "jwk",
         })
 
-        const signer = createSign("sha1")
+        const signer = createSign(hash)
         signer.update(data)
 
         return new EncodedSignature({
-            alg: SSHRSAPrivateKey.alg_name,
+            alg: algorithm,
             data: signer.sign(key),
         })
     }

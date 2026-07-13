@@ -39,7 +39,7 @@ const channel = await client.exec("stty size; printf '%s' \"$LANG\"", {
 })
 ```
 
-Environment requests from this convenience API do not ask for replies, matching ssh2 and common
+Environment requests from this convenience API do not ask for replies, matching common
 OpenSSH behavior; servers may silently ignore variables outside their `AcceptEnv` policy. PTY, X11,
 and agent-forwarding requests require success before `exec` starts. `shell()` accepts the same
 options and requests a default PTY unless `pty: false` is supplied. `sftp(environment)` sends the
@@ -77,7 +77,7 @@ await client.opensshNoMoreSessions()
 ```
 
 `opensshNoMoreSessions()` is the promise API; `openssh_noMoreSessions()` additionally provides the
-ssh2-compatible callback form. The request is irreversible for the connection. Existing session
+callback form. The request is irreversible for the connection. Existing session
 channels and non-session channel types are unaffected, while a `modernssh` server rejects later
 session opens before invoking application channel policy. OpenSSH may enforce the request by
 disconnecting a client that attempts another session, so pending channel operations are rejected

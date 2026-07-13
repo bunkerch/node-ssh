@@ -12,6 +12,7 @@ import ChannelSuccess from "./packets/ChannelSuccess.js"
 import ChannelWindowAdjust from "./packets/ChannelWindowAdjust.js"
 import Debug from "./packets/Debug.js"
 import Disconnect from "./packets/Disconnect.js"
+import ExtInfo from "./packets/ExtInfo.js"
 import GlobalRequest from "./packets/GlobalRequest.js"
 import Ignore from "./packets/Ignore.js"
 import KexDHInit from "./packets/KexDHInit.js"
@@ -65,6 +66,7 @@ export const packets = {
     SSH_MSG_DEBUG: Debug,
     SSH_MSG_SERVICE_REQUEST: ServiceRequest,
     SSH_MSG_SERVICE_ACCEPT: ServiceAccept,
+    SSH_MSG_EXT_INFO: ExtInfo,
 
     SSH_MSG_KEXINIT: KexInit,
     SSH_MSG_NEWKEYS: NewKeys,

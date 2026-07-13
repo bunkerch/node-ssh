@@ -112,7 +112,7 @@ EOF and CLOSE lifecycle.
 
 [OpenSSH's `streamlocal` extension](https://github.com/openssh/openssh-portable/blob/master/PROTOCOL)
 applies the same direct and remote forwarding model to UNIX-domain sockets. It is not part of RFC
-4254, so these APIs use the `openssh_` prefix used by `ssh2` and require a peer that implements the
+4254, so these APIs use an `openssh_` prefix and require a peer that implements the
 OpenSSH extension.
 
 `Client` defaults `strictVendor` to `true`, so these methods reject before sending a request unless

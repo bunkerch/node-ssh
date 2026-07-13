@@ -44,7 +44,6 @@
     },
     "keywords": [
         "ssh",
-        "ssh2",
         "typescript",
         "client",
         "server"

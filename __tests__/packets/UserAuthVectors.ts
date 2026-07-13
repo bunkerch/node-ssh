@@ -3,6 +3,7 @@ import UserAuthInfoRequest from "../../src/packets/UserAuthInfoRequest.js"
 import UserAuthInfoResponse from "../../src/packets/UserAuthInfoResponse.js"
 import UserAuthPasswordChangeRequest from "../../src/packets/UserAuthPasswordChangeRequest.js"
 import UserAuthRequest, { UnknownAuthMethod } from "../../src/packets/UserAuthRequest.js"
+import PublicKeyAuthMethod from "../../src/auth/publickey.js"
 
 const banner = Buffer.from(
     "3500000018417574686f72697a656420616363657373206f6e6c790d0a" + "00000005656e2d5553",
@@ -29,6 +30,13 @@ const changedPasswordRequest = Buffer.from(
 const unknownRequest = Buffer.from(
     "3200000005616c6963650000000e7373682d636f6e6e656374696f6e" +
         "0000000b6675747572652d61757468deadbeef",
+    "hex",
+)
+const rsaSha512Request = Buffer.from(
+    "3200000005616c6963650000000e7373682d636f6e6e656374696f6e" +
+        "000000097075626c69636b6579010000000c7273612d736861322d353132" +
+        "0000001b000000077373682d727361000000030100010000000500deadbeef" +
+        "000000180000000c7273612d736861322d3531320000000401020304",
     "hex",
 )
 
@@ -105,5 +113,18 @@ describe("RFC 4252 and RFC 4256 authentication vectors", () => {
             Buffer.from("deadbeef", "hex"),
         )
         expect(packet.serialize()).toEqual(unknownRequest)
+    })
+
+    test("parses and serializes an independently written RFC 8332 RSA SHA-512 request", () => {
+        const packet = UserAuthRequest.parse(rsaSha512Request)
+        const method = packet.data.method as PublicKeyAuthMethod
+
+        expect(method.data.algorithm).toBe("rsa-sha2-512")
+        expect(method.data.publicKey.data.alg).toBe("ssh-rsa")
+        expect(method.data.signature?.data).toEqual({
+            alg: "rsa-sha2-512",
+            data: Buffer.from("01020304", "hex"),
+        })
+        expect(packet.serialize()).toEqual(rsaSha512Request)
     })
 })

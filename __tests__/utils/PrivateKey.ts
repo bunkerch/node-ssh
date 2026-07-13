@@ -101,6 +101,11 @@ describe("OpenSSH private keys", () => {
 
             expect(privateKey.data.publicKey.equals(fixture.publicKey)).toBe(true)
             expect(fixture.publicKey.verifySignature(data, privateKey.sign(data))).toBe(true)
+            for (const algorithm of ["rsa-sha2-256", "rsa-sha2-512"] as const) {
+                const signature = privateKey.sign(data, algorithm)
+                expect(signature.data.alg).toBe(algorithm)
+                expect(fixture.publicKey.verifySignature(data, signature)).toBe(true)
+            }
         } finally {
             await rm(directory, { recursive: true, force: true })
         }

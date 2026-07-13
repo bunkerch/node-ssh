@@ -97,4 +97,24 @@ describe("RFC 4253 algorithm negotiation", () => {
         expect(client.kexAlgorithm).toBeUndefined()
         expect(client.hostKeyAlgorithm).toBeUndefined()
     })
+
+    test("negotiates an RSA SHA-2 signature while retaining the ssh-rsa key format", () => {
+        const client = new Client({ hostname: "unused.invalid" })
+        client.clientKexInit = offer({
+            server_host_key_algorithms: ["rsa-sha2-512", "rsa-sha2-256"],
+        })
+        client.serverKexInit = offer({
+            server_host_key_algorithms: ["rsa-sha2-256", "rsa-sha2-512"],
+        })
+
+        chooseAlgorithms(client)
+
+        expect(client.hostKeyAlgorithm).toEqual({
+            alg_name: "rsa-sha2-512",
+            key_format: "ssh-rsa",
+            signature_algorithm: "rsa-sha2-512",
+            has_encryption: false,
+            has_signature: true,
+        })
+    })
 })

@@ -86,7 +86,7 @@ describe("SSHAgent", () => {
     test("lists and signs with a real OpenSSH agent", async () => {
         const directory = await mkdtemp(join(tmpdir(), "modernssh-openssh-agent-"))
         const socketPath = join(directory, "agent.sock")
-        const keyPath = join(directory, "id_ed25519")
+        const keyPath = join(directory, "id_rsa")
         const process = spawn("ssh-agent", ["-D", "-a", socketPath], { stdio: "ignore" })
 
         try {
@@ -102,7 +102,9 @@ describe("SSHAgent", () => {
             await execFileAsync("ssh-keygen", [
                 "-q",
                 "-t",
-                "ed25519",
+                "rsa",
+                "-b",
+                "2048",
                 "-N",
                 "",
                 "-C",
@@ -119,8 +121,11 @@ describe("SSHAgent", () => {
             expect(identities).toHaveLength(1)
             expect(identities[0][1].data.comment).toBe("modernssh-agent-test")
             const data = Buffer.from("signed through the OpenSSH agent")
-            const signature = await agent.sign(identities[0][0], data)
-            expect(identities[0][1].verifySignature(data, signature)).toBe(true)
+            for (const algorithm of ["rsa-sha2-256", "rsa-sha2-512"] as const) {
+                const signature = await agent.sign(identities[0][0], data, algorithm)
+                expect(signature.data.alg).toBe(algorithm)
+                expect(identities[0][1].verifySignature(data, signature)).toBe(true)
+            }
         } finally {
             process.kill("SIGTERM")
             await new Promise<void>((resolve) => {

@@ -21,13 +21,16 @@ import {
     chooseAlgorithms,
     describeNegotiatedAlgorithms,
     encryption_algorithms,
+    host_key_algorithms,
     kex_algorithms,
     mac_algorithms,
+    type HostKeyAlgorithm,
 } from "./algorithms.js"
 import KexDHInit from "./packets/KexDHInit.js"
 import KexDHReply from "./packets/KexDHReply.js"
 import EncodedSignature from "./utils/Signature.js"
-import PublicKey, { PublicKeyAlgoritm } from "./utils/PublicKey.js"
+import ExtInfo from "./packets/ExtInfo.js"
+import PublicKey from "./utils/PublicKey.js"
 import { Hooker } from "./utils/Hooker.js"
 import NewKeys from "./packets/NewKeys.js"
 import { KeyExchangeError } from "./algorithms/kex/key-exchange.js"
@@ -326,7 +329,7 @@ export default class Client extends EventEmitter<ClientEvents> {
         }
         this.algorithmOffer = resolveClientAlgorithmOptions(this.options.algorithms, {
             kex: [...kex_algorithms.keys()],
-            serverHostKey: [...PublicKey.algorithms.keys()],
+            serverHostKey: [...host_key_algorithms.keys()],
             cipher: [...encryption_algorithms.keys()],
             hmac: [...mac_algorithms.keys()],
             compress: ["none"],
@@ -371,7 +374,8 @@ export default class Client extends EventEmitter<ClientEvents> {
     clientKexInit?: KexInit
     serverKexInit?: KexInit
     kexAlgorithm?: KexAlgorithm
-    hostKeyAlgorithm?: typeof PublicKeyAlgoritm
+    hostKeyAlgorithm?: HostKeyAlgorithm
+    serverSignatureAlgorithms?: readonly string[]
     clientEncryptionAlgorithm?: typeof EncryptionAlgorithm
     serverEncryptionAlgorithm?: typeof EncryptionAlgorithm
     clientEncryption?: EncryptionAlgorithm
@@ -901,7 +905,10 @@ export default class Client extends EventEmitter<ClientEvents> {
     private createKexInit(): KexInit {
         return new KexInit({
             cookie: crypto.getRandomValues(Buffer.alloc(16)),
-            kex_algorithms: [...this.algorithmOffer.kex],
+            kex_algorithms: [
+                ...this.algorithmOffer.kex,
+                ...(this.sessionID === undefined ? ["ext-info-c"] : []),
+            ],
             server_host_key_algorithms: [...this.algorithmOffer.serverHostKey],
             encryption_algorithms_client_to_server: [...this.algorithmOffer.cipher],
             encryption_algorithms_server_to_client: [...this.algorithmOffer.cipher],
@@ -950,12 +957,12 @@ export default class Client extends EventEmitter<ClientEvents> {
             kexAlgorithm.computeSharedSecret(serverKexDHReply.data.f)
             const hostKey = PublicKey.parse(serverKexDHReply.data.K_S)
             assert(
-                hostKey.data.alg === this.hostKeyAlgorithm!.alg_name,
+                hostKey.data.alg === this.hostKeyAlgorithm!.key_format,
                 "Server did not use the negotiated host key algorithm",
             )
             const signature = EncodedSignature.parse(serverKexDHReply.data.H_sig)
             assert(
-                signature.data.alg === this.hostKeyAlgorithm!.alg_name,
+                signature.data.alg === this.hostKeyAlgorithm!.signature_algorithm,
                 "Server did not use the negotiated signature algorithm",
             )
             const h = kexAlgorithm.computeHClient(this, serverKexInitBuffer)
@@ -1489,6 +1496,21 @@ export default class Client extends EventEmitter<ClientEvents> {
             case PacketNameToType.SSH_MSG_USERAUTH_BANNER: {
                 const banner = p as UserAuthBanner
                 this.emit("banner", banner.data.message, banner.data.languageTag)
+                break
+            }
+
+            case PacketNameToType.SSH_MSG_EXT_INFO: {
+                const extension = (p as ExtInfo).data.extensions.find(
+                    ({ name }) => name === "server-sig-algs",
+                )
+                if (extension) {
+                    this.serverSignatureAlgorithms = Object.freeze(
+                        extension.value
+                            .toString("ascii")
+                            .split(",")
+                            .filter((name) => name.length > 0),
+                    )
+                }
                 break
             }
 

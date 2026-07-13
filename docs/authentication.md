@@ -64,6 +64,12 @@ client.hooker.hook("passwordChange", async (_hook, context, decision) => {
 Do not log prompt responses, passwords, or replacement passwords. Password and keyboard-interactive
 authentication should only be used over an authenticated, encrypted transport.
 
+RSA identities use RFC 8332 SHA-2 signatures by preference: `rsa-sha2-512`, then
+`rsa-sha2-256`. The public key blob remains in the `ssh-rsa` format. When a server supplies the RFC
+8308 `server-sig-algs` extension, the client restricts its attempts to the advertised signature
+algorithms. `DiskAgent` selects the requested hash locally, while `SSHAgent` sends the corresponding
+RFC 9987 RSA SHA-2 flag to the external agent.
+
 ## Server authentication
 
 Set `banner` to send a login notice once after the user-authentication service starts and before
@@ -124,3 +130,10 @@ server.hooker.hook("passwordAuthentication", (_hook, context, decision) => {
 
 The server advertises only methods with registered policy hooks. Unknown methods are rejected, and
 `none` is omitted from every continuation list as required by RFC 4252.
+
+The public-key hook receives `context.algorithm` separately from `context.publicKey.data.alg`; for
+an RSA SHA-2 request these are, for example, `rsa-sha2-512` and `ssh-rsa`. When a request has no
+signature, set `requestSignature` after authorizing the key and algorithm. On the signed retry,
+verify `context.signatureMessage` with
+`context.publicKey.verifySignature(context.signatureMessage, context.signature)` before setting
+`allowLogin`. Hook handlers may be async and are awaited before the protocol reply is sent.

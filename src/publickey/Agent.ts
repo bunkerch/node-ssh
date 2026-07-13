@@ -12,7 +12,7 @@ export default abstract class Agent<Id = string> {
 
     getStream?(): Promise<Duplex>
 
-    abstract sign(id: Id, data: Buffer): Promise<EncodedSignature>
+    abstract sign(id: Id, data: Buffer, algorithm?: string): Promise<EncodedSignature>
     abstract getPublicKeys(): Promise<[Id, PublicKey][]>
     abstract getPublicKey(id: Id): Promise<PublicKey>
 }

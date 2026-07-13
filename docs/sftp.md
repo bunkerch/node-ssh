@@ -124,12 +124,12 @@ encoding an attribute update.
 
 Client `stat`, `lstat`, and `fstat` results—and directory-entry attributes—are `SFTPStats`
 instances. They retain the exact fields above and add `isDirectory`, `isFile`, `isBlockDevice`,
-`isCharacterDevice`, `isSymbolicLink`, `isFIFO`, and `isSocket`. The ssh2-compatible `mode`, `atime`,
+`isCharacterDevice`, `isSymbolicLink`, `isFIFO`, and `isSocket`. The convenience `mode`, `atime`,
 and `mtime` aliases map to `permissions`, `accessTime`, and `modificationTime`; sizes remain `bigint`
 rather than losing uint64 precision.
 
-`stringToFlags` and `flagsToString` provide the ssh2-compatible nullable conversion API. The
-`OPEN_MODE` and `STATUS_CODE` exports use ssh2's uppercase keys, while `SFTPOpenFlags` and
+`stringToFlags` and `flagsToString` provide nullable conversions. The legacy `OPEN_MODE` and
+`STATUS_CODE` exports use uppercase keys, while `SFTPOpenFlags` and
 `SFTPStatusCode` remain the typed modern enums. `sftpOpenFlags` is the strict converter used for
 requests and throws on invalid strings, unknown bits, or invalid flag combinations.
 
@@ -157,8 +157,8 @@ request. The client supports OpenSSH's published `posix-rename`, `statvfs`, `fst
 
 The main methods are `opensshPosixRename`, `opensshStatVFS`, `opensshFStatVFS`, `opensshHardlink`,
 `opensshFSync`, `opensshLSetStat`, `opensshLimits`, `opensshExpandPath`, `copyData`, `homeDirectory`,
-and `usersGroups`. The `ext_openssh_*` aliases match the corresponding ssh2 method names where ssh2
-exposes one.
+and `usersGroups`. The `ext_openssh_*` aliases preserve earlier public spellings where they differ
+from the preferred method names.
 
 When `limits@openssh.com` version 1 is advertised, session setup requests it automatically. The
 exact unsigned 64-bit reply remains available as `sftp.limits`; safe request sizes are reflected in

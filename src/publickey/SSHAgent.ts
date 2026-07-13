@@ -15,6 +15,8 @@ const SSH_AGENTC_REQUEST_IDENTITIES = 11
 const SSH_AGENT_IDENTITIES_ANSWER = 12
 const SSH_AGENTC_SIGN_REQUEST = 13
 const SSH_AGENT_SIGN_RESPONSE = 14
+const SSH_AGENT_RSA_SHA2_256 = 2
+const SSH_AGENT_RSA_SHA2_512 = 4
 const MAX_AGENT_MESSAGE_LENGTH = 256 * 1024
 
 export default class SSHAgent implements Agent<string> {
@@ -35,14 +37,26 @@ export default class SSHAgent implements Agent<string> {
         this.socketPath = socketPath
     }
 
-    async sign(id: string, data: Buffer): Promise<EncodedSignature> {
+    async sign(id: string, data: Buffer, algorithm?: string): Promise<EncodedSignature> {
         const publicKey = await this.getPublicKey(id)
+        const requestedAlgorithm = algorithm ?? publicKey.data.alg
+        if (!publicKey.supportsSignatureAlgorithm(requestedAlgorithm)) {
+            throw new SSHAgentError(
+                `Signature algorithm ${requestedAlgorithm} is incompatible with ${publicKey.data.alg}`,
+            )
+        }
+        const flags =
+            requestedAlgorithm === "rsa-sha2-512"
+                ? SSH_AGENT_RSA_SHA2_512
+                : requestedAlgorithm === "rsa-sha2-256"
+                  ? SSH_AGENT_RSA_SHA2_256
+                  : 0
         const response = await this.request(
             Buffer.concat([
                 Buffer.from([SSH_AGENTC_SIGN_REQUEST]),
                 serializeBuffer(publicKey.serialize()),
                 serializeBuffer(data),
-                serializeUint32(0),
+                serializeUint32(flags),
             ]),
         )
         this.expectResponseType(response, SSH_AGENT_SIGN_RESPONSE, "sign data")
@@ -50,7 +64,13 @@ export default class SSHAgent implements Agent<string> {
         try {
             const [signature, remaining] = readNextBuffer(response.subarray(1))
             if (remaining.length !== 0) throw new Error("signature response has trailing data")
-            return EncodedSignature.parse(signature)
+            const encoded = EncodedSignature.parse(signature)
+            if (encoded.data.alg !== requestedAlgorithm) {
+                throw new Error(
+                    `agent returned ${encoded.data.alg} instead of ${requestedAlgorithm}`,
+                )
+            }
+            return encoded
         } catch (error) {
             throw new SSHAgentError("SSH agent returned an invalid signature response", {
                 cause: error,

@@ -2,9 +2,9 @@
 
 A typed, ESM-native SSH client and server library for Node.js.
 
-The project is implementing the SSH protocol from its RFCs and is actively expanding toward the
-feature surface of `ssh2`. Transport identification, binary packet framing, key exchange,
-encryption, MAC verification, host keys, and core authentication flows are implemented today.
+The project implements SSH from its standards and is actively expanding its client and server
+feature surface. Transport identification, binary packet framing, key exchange, encryption, MAC
+verification, host keys, and core authentication flows are implemented today.
 
 Until the first registry release, build a local installable archive with `pnpm pack` and add the
 resulting `modernssh-1.0.0.tgz` file to an application with its package manager.

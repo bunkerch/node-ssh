@@ -17,7 +17,7 @@ accepts an LF-only peer identifier for compatibility with older implementations.
 limited to 255 encoded bytes, may not contain NUL, and software versions must use the printable
 US-ASCII characters permitted by RFC 4253 section 4.2.
 
-Set the client `ident` option to an ssh2-compatible software identifier and optional comment,
+Set the client `ident` option to a software identifier and optional comment,
 without the `SSH-2.0-` prefix. A `Buffer` is accepted for byte-exact configuration, but it is still
 validated as an RFC 4253 identifier. `ident` and the lower-level `protocolVersionExchange` option
 are mutually exclusive.
@@ -82,6 +82,13 @@ four-byte packet length unencrypted, encrypt the remaining packet body, and auth
 sequence number followed by that header and ciphertext. Inbound ETM verifies the tag before any
 ciphertext is decrypted.
 
+RSA host keys support the RFC 8332 `rsa-sha2-512` and `rsa-sha2-256` algorithms. The negotiated
+algorithm selects the SHA-2 signature while the serialized public key remains `ssh-rsa`, preserving
+the key blob and fingerprint. The legacy `ssh-rsa` SHA-1 signature remains available when selected
+explicitly. Initial key exchange also advertises RFC 8308 extension negotiation; servers send
+`server-sig-algs` immediately after `NEWKEYS` so clients can select an accepted user-authentication
+signature without guessing.
+
 Both `ClientOptions` and `ServerOptions` accept an `algorithms` object with `kex`, `serverHostKey`,
 `cipher`, `hmac`, and `compress` categories. Server values are exact ordered arrays. Client values
 may be exact arrays or `{ remove, prepend, append }` changes whose entries are names or regular
@@ -101,7 +108,7 @@ const client = new Client({
 
 `Client` and each accepted `ServerClient` emit `handshake` after both directions have activated the
 negotiated keys. The event fires for the initial exchange and every rekey, before the corresponding
-`rekey` event, and reports the ssh2-compatible `{ kex, srvHostKey, cs, sc }` structure with each
+`rekey` event, and reports the `{ kex, srvHostKey, cs, sc }` structure with each
 direction's cipher, MAC, compression, and language.
 
 ## Key re-exchange
@@ -114,7 +121,7 @@ await client.rekey()
 await serverConnection.rekey()
 ```
 
-Both methods also have ssh2-compatible callback overloads and emit `rekey` after the new inbound
+Both methods also have callback overloads and emit `rekey` after the new inbound
 and outbound protection is active. A re-exchange generates a fresh ephemeral key pair,
 exchange hash, IVs, encryption keys, and MAC keys. The session identifier remains the exchange hash
 from the first key exchange, as required for authentication identity continuity.

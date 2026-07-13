@@ -19,12 +19,18 @@ export default class PublicKey {
         this.data = data
     }
 
-    verifySignature(data: Buffer, signature: EncodedSignature): boolean {
-        if (signature.data.alg !== this.data.alg) {
-            return false
-        }
+    get signatureAlgorithms(): readonly string[] {
+        return this.data.alg === SSHRSAPublicKey.alg_name
+            ? ["rsa-sha2-512", "rsa-sha2-256", SSHRSAPublicKey.alg_name]
+            : [this.data.alg]
+    }
 
-        return this.data.algorithm.verifySignature(data, signature.data.data)
+    supportsSignatureAlgorithm(algorithm: string): boolean {
+        return this.signatureAlgorithms.includes(algorithm)
+    }
+
+    verifySignature(data: Buffer, signature: EncodedSignature): boolean {
+        return this.data.algorithm.verifySignature(data, signature.data.data, signature.data.alg)
     }
 
     toString(): string {
@@ -121,7 +127,7 @@ export abstract class PublicKeyAlgoritm {
     }
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    verifySignature(data: Buffer, signature: Buffer): boolean {
+    verifySignature(data: Buffer, signature: Buffer, algorithm?: string): boolean {
         throw new Error("Not implemented")
     }
 
@@ -153,7 +159,12 @@ export class SSHED25519PublicKey implements PublicKeyAlgoritm {
         this.data = data
     }
 
-    verifySignature(data: Buffer, signature: Buffer): boolean {
+    verifySignature(
+        data: Buffer,
+        signature: Buffer,
+        algorithm = SSHED25519PublicKey.alg_name,
+    ): boolean {
+        if (algorithm !== SSHED25519PublicKey.alg_name) return false
         if (signature.length != 64) return false
 
         return nacl.sign.detached.verify(data, signature, this.data.publicKey)
@@ -218,14 +229,27 @@ export class SSHRSAPublicKey implements PublicKeyAlgoritm {
         return `-----BEGIN RSA PUBLIC KEY-----\n${key}-----END RSA PUBLIC KEY-----`
     }
 
-    verifySignature(data: Buffer, signature: Buffer): boolean {
+    verifySignature(
+        data: Buffer,
+        signature: Buffer,
+        algorithm = SSHRSAPublicKey.alg_name,
+    ): boolean {
+        const hash =
+            algorithm === "rsa-sha2-512"
+                ? "sha512"
+                : algorithm === "rsa-sha2-256"
+                  ? "sha256"
+                  : algorithm === SSHRSAPublicKey.alg_name
+                    ? "sha1"
+                    : undefined
+        if (!hash) return false
         const key = crypto.createPublicKey({
             key: this.toPEM(),
             format: "pem",
             type: "pkcs1",
         })
 
-        const verifier = crypto.createVerify("sha1")
+        const verifier = crypto.createVerify(hash)
         verifier.update(data)
 
         return verifier.verify(key, signature)

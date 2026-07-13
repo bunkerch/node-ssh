@@ -16,7 +16,12 @@ import {
     type ResolvedAlgorithmOptions,
     type ServerAlgorithmOptions,
 } from "./AlgorithmOptions.js"
-import { encryption_algorithms, kex_algorithms, mac_algorithms } from "./algorithms.js"
+import {
+    encryption_algorithms,
+    host_key_algorithms,
+    kex_algorithms,
+    mac_algorithms,
+} from "./algorithms.js"
 
 export interface ServerOptions {
     protocolVersionExchange?: ProtocolVersionExchange
@@ -89,6 +94,7 @@ export interface ServerAuthenticationContinuation {
 export type ServerHookerPublicKeyAuthenticationContext = Readonly<{
     username: string
     publicKey: PublicKey
+    algorithm: string
     signature?: EncodedSignature
     signatureMessage: Buffer
 }>
@@ -217,7 +223,7 @@ export default class Server extends EventEmitter<ServerEvents> {
         this.options.banner ??= ""
         this.algorithmOffer = resolveServerAlgorithmOptions(this.options.algorithms, {
             kex: [...kex_algorithms.keys()],
-            serverHostKey: [...PublicKey.algorithms.keys()],
+            serverHostKey: [...host_key_algorithms.keys()],
             cipher: [...encryption_algorithms.keys()],
             hmac: [...mac_algorithms.keys()],
             compress: ["none"],

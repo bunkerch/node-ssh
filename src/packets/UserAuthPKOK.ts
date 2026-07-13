@@ -6,6 +6,7 @@ import PublicKey from "../utils/PublicKey.js"
 
 export interface UserAuthPKOKData {
     publicKey: PublicKey
+    algorithm?: string
 }
 export default class UserAuthPKOK implements Packet {
     static type = PacketNameToType.SSH_MSG_USERAUTH_PK_OK
@@ -13,6 +14,8 @@ export default class UserAuthPKOK implements Packet {
     data: UserAuthPKOKData
     constructor(data: UserAuthPKOKData) {
         this.data = data
+        this.data.algorithm ??= this.data.publicKey.data.alg
+        assert(this.data.publicKey.supportsSignatureAlgorithm(this.data.algorithm))
     }
 
     serialize(): Buffer {
@@ -20,7 +23,7 @@ export default class UserAuthPKOK implements Packet {
 
         buffers.push(serializeUint8(UserAuthPKOK.type))
 
-        buffers.push(serializeBuffer(Buffer.from(this.data.publicKey.data.alg, "utf-8")))
+        buffers.push(serializeBuffer(Buffer.from(this.data.algorithm!, "utf-8")))
         buffers.push(serializeBuffer(this.data.publicKey.serialize()))
 
         return Buffer.concat(buffers)
@@ -40,10 +43,12 @@ export default class UserAuthPKOK implements Packet {
         assert(raw.length === 0)
 
         const publicKey = PublicKey.parse(data)
-        assert(alg.toString("utf-8") === publicKey.data.alg)
+        const algorithm = alg.toString("utf-8")
+        assert(publicKey.supportsSignatureAlgorithm(algorithm))
 
         return new UserAuthPKOK({
             publicKey: publicKey,
+            algorithm,
         })
     }
 }

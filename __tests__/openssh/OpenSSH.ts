@@ -34,7 +34,7 @@ interface OpenSSHAgentFixture {
 async function createOpenSSHAgentFixture(): Promise<OpenSSHAgentFixture> {
     const directory = await mkdtemp(join(tmpdir(), "modernssh-agent-forward-"))
     const socketPath = join(directory, "agent.sock")
-    const keyPath = join(directory, "id_ed25519")
+    const keyPath = join(directory, "id_rsa")
     const child = spawn("ssh-agent", ["-D", "-a", socketPath], { stdio: "ignore" })
     try {
         for (let attempt = 0; attempt < 100; attempt++) {
@@ -49,7 +49,9 @@ async function createOpenSSHAgentFixture(): Promise<OpenSSHAgentFixture> {
         await execFileAsync("ssh-keygen", [
             "-q",
             "-t",
-            "ed25519",
+            "rsa",
+            "-b",
+            "2048",
             "-N",
             "",
             "-C",
@@ -688,6 +690,132 @@ describe("OpenSSH interoperability", () => {
         }
     }, 30_000)
 
+    test("OpenSSH uses RSA SHA-512 host and user signatures with a modernssh server", async () => {
+        const directory = await mkdtemp(join(tmpdir(), "modernssh-rsa-sha2-openssh-client-"))
+        const hostKeyPath = join(directory, "host_rsa")
+        const userKeyPath = join(directory, "user_rsa")
+        await execFileAsync("ssh-keygen", [
+            "-q",
+            "-t",
+            "rsa",
+            "-b",
+            "2048",
+            "-N",
+            "",
+            "-f",
+            hostKeyPath,
+        ])
+        await execFileAsync("ssh-keygen", [
+            "-q",
+            "-t",
+            "rsa",
+            "-b",
+            "2048",
+            "-N",
+            "",
+            "-f",
+            userKeyPath,
+        ])
+        const hostKey = PrivateKey.fromString(await readFile(hostKeyPath, "utf8"))
+        const userKey = PublicKey.parseString(await readFile(`${userKeyPath}.pub`, "utf8"))
+        const server = new Server({
+            hostKeys: [hostKey],
+            sendAllHostKeys: false,
+            algorithms: { serverHostKey: ["rsa-sha2-512"] },
+        })
+        const errors: Error[] = []
+        const authAlgorithms: string[] = []
+        const input: Buffer[] = []
+        let rekeys = 0
+        server.hooker.hook("publicKeyAuthentication", (_hook, context, decision) => {
+            authAlgorithms.push(context.algorithm)
+            if (!context.publicKey.equals(userKey) || context.algorithm !== "rsa-sha2-512") return
+            if (!context.signature) {
+                decision.requestSignature = true
+                return
+            }
+            decision.allowLogin = context.publicKey.verifySignature(
+                context.signatureMessage,
+                context.signature,
+            )
+        })
+        server.hooker.hook("channelOpenRequest", (_hook, channel, decision) => {
+            decision.allowOpen = channel instanceof SessionChannel
+        })
+        server.on("connection", (connection) => {
+            connection.on("error", (error) => errors.push(error))
+            connection.on("rekey", () => rekeys++)
+            connection.on("channel", (channel) => {
+                if (!(channel instanceof SessionChannel)) return
+                channel.hooker.hook("execRequest", (_hook, _context, decision) => {
+                    decision.success = true
+                })
+                channel.events.on("exec", (_command, shell) => {
+                    shell.on("data", (data: Buffer) => input.push(data))
+                    shell.on("end", () => {
+                        shell.stdout.write("rsa-sha2-ok\n", () => shell.exit(0).end())
+                    })
+                })
+            })
+        })
+        server.listen({ host: "127.0.0.1", port: 0 })
+        await new Promise<void>((resolve) => server.server!.once("listening", resolve))
+        const port = (server.server!.address() as AddressInfo).port
+
+        try {
+            const result = await collectProcess(
+                "/usr/bin/ssh",
+                [
+                    "-F",
+                    "/dev/null",
+                    "-T",
+                    "-p",
+                    String(port),
+                    "-i",
+                    userKeyPath,
+                    "-o",
+                    "BatchMode=yes",
+                    "-o",
+                    "IdentitiesOnly=yes",
+                    "-o",
+                    "PreferredAuthentications=publickey",
+                    "-o",
+                    "HostKeyAlgorithms=rsa-sha2-512",
+                    "-o",
+                    "PubkeyAcceptedAlgorithms=rsa-sha2-512",
+                    "-o",
+                    "RekeyLimit=1K",
+                    "-o",
+                    "StrictHostKeyChecking=no",
+                    "-o",
+                    "UserKnownHostsFile=/dev/null",
+                    "-o",
+                    "LogLevel=ERROR",
+                    "interop@127.0.0.1",
+                    "rsa-sha2-test",
+                ],
+                "x".repeat(65_536),
+            )
+            if (result.code !== 0) {
+                throw new Error(
+                    `RSA SHA-2 OpenSSH client failed: ${JSON.stringify({ result, authAlgorithms, errors: errors.map(String) })}`,
+                )
+            }
+
+            expect(result).toEqual({ code: 0, stdout: "rsa-sha2-ok\n", stderr: "" })
+            expect(Buffer.concat(input).toString()).toBe("x".repeat(65_536))
+            expect(authAlgorithms).toEqual(["rsa-sha2-512", "rsa-sha2-512"])
+            expect(rekeys).toBeGreaterThan(0)
+            expect(errors).toEqual([])
+        } finally {
+            for (const client of server.clients) client.terminate()
+            await new Promise<void>((resolve, reject) => {
+                server.server!.close((error) => (error ? reject(error) : resolve()))
+            })
+            await rm(directory, { recursive: true, force: true })
+        }
+    }, 30_000)
+
     test("OpenSSH client forwards its agent to a modernssh server", async () => {
         const agent = await createOpenSSHAgentFixture()
         const hostKey = await PrivateKey.generate("ssh-ed25519")
@@ -1145,12 +1273,46 @@ describe("OpenSSH interoperability", () => {
             expect(Number.isInteger(port)).toBe(true)
             await waitForPort(port)
             agentFixture = await createOpenSSHAgentFixture()
+            await execFileAsync("docker", [
+                "exec",
+                containerId,
+                "mkdir",
+                "-p",
+                "/home/interop/.ssh",
+            ])
+            await execFileAsync("docker", [
+                "cp",
+                join(agentFixture.directory, "id_rsa.pub"),
+                `${containerId}:/home/interop/.ssh/authorized_keys`,
+            ])
+            await execFileAsync("docker", [
+                "exec",
+                containerId,
+                "chown",
+                "-R",
+                "interop:interop",
+                "/home/interop/.ssh",
+            ])
+            await execFileAsync("docker", [
+                "exec",
+                containerId,
+                "chmod",
+                "700",
+                "/home/interop/.ssh",
+            ])
+            await execFileAsync("docker", [
+                "exec",
+                containerId,
+                "chmod",
+                "600",
+                "/home/interop/.ssh/authorized_keys",
+            ])
             transferDirectory = await mkdtemp(join(tmpdir(), "modernssh-sftp-client-"))
             const { stdout: hostKeyText } = await execFileAsync("docker", [
                 "exec",
                 containerId,
                 "cat",
-                "/etc/ssh/ssh_host_ed25519_key.pub",
+                "/etc/ssh/ssh_host_rsa_key.pub",
             ])
             const expectedHostHash = createHash("sha256")
                 .update(PublicKey.parseString(hostKeyText).serialize())
@@ -1202,7 +1364,7 @@ describe("OpenSSH interoperability", () => {
                 hostname: "127.0.0.1",
                 port,
                 username: "interop",
-                password: "correct-horse-battery-staple",
+                password: "public-key-authentication-must-succeed",
                 agent: new SSHAgent(agentFixture.socketPath),
                 keepaliveInterval: 20,
                 keepaliveCountMax: 3,
@@ -1213,7 +1375,7 @@ describe("OpenSSH interoperability", () => {
                 },
                 algorithms: {
                     kex: ["curve25519-sha256"],
-                    serverHostKey: ["ssh-ed25519"],
+                    serverHostKey: ["rsa-sha2-512"],
                     cipher: ["aes128-ctr"],
                     hmac: ["hmac-sha2-256"],
                     compress: ["none"],
@@ -1267,12 +1429,12 @@ describe("OpenSSH interoperability", () => {
             expect((client.kexAlgorithm?.constructor as { alg_name?: string }).alg_name).toBe(
                 "curve25519-sha256",
             )
-            expect(client.hostKeyAlgorithm?.alg_name).toBe("ssh-ed25519")
+            expect(client.hostKeyAlgorithm?.alg_name).toBe("rsa-sha2-512")
             expect(client.clientEncryptionAlgorithm?.alg_name).toBe("aes128-ctr")
             expect(client.clientMacAlgorithm?.alg_name).toBe("hmac-sha2-256")
             const expectedNegotiated = {
                 kex: "curve25519-sha256",
-                srvHostKey: "ssh-ed25519",
+                srvHostKey: "rsa-sha2-512",
                 cs: {
                     cipher: "aes128-ctr",
                     mac: "hmac-sha2-256",

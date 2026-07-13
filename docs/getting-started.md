@@ -68,7 +68,7 @@ When `keepaliveInterval` is greater than zero, the client sends
 `keepalive@openssh.com` global requests after authentication. Either success or failure is a valid
 liveness response. The client emits an `SSH keepalive timeout` error and destroys the connection
 after more than `keepaliveCountMax` consecutive probes go unanswered. The timer does not keep the
-Node.js process alive; both options default to ssh2-compatible values of `0` (disabled) and `3`.
+Node.js process alive; the options default to `0` (disabled) and `3`, respectively.
 
 ## Connection hopping
 

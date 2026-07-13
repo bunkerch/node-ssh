@@ -29,8 +29,39 @@ import HMACSHA1ETM from "./algorithms/mac/hmac-sha1-etm.js"
 import Client from "./Client.js"
 import ServerClient from "./ServerClient.js"
 import assert from "assert"
-import PublicKey, { PublicKeyAlgoritm } from "./utils/PublicKey.js"
+import PublicKey from "./utils/PublicKey.js"
 import type { NegotiatedAlgorithms } from "./AlgorithmOptions.js"
+
+export interface HostKeyAlgorithm {
+    readonly alg_name: string
+    readonly key_format: string
+    readonly signature_algorithm: string
+    readonly has_encryption: boolean
+    readonly has_signature: boolean
+}
+
+function hostKeyAlgorithm(
+    alg_name: string,
+    key_format = alg_name,
+    signature_algorithm = alg_name,
+): HostKeyAlgorithm {
+    const key = PublicKey.algorithms.get(key_format)
+    assert(key, `Unsupported host key format: ${key_format}`)
+    return Object.freeze({
+        alg_name,
+        key_format,
+        signature_algorithm,
+        has_encryption: key.has_encryption,
+        has_signature: key.has_signature,
+    })
+}
+
+export const host_key_algorithms = new Map<string, HostKeyAlgorithm>([
+    ["ssh-ed25519", hostKeyAlgorithm("ssh-ed25519")],
+    ["rsa-sha2-512", hostKeyAlgorithm("rsa-sha2-512", "ssh-rsa")],
+    ["rsa-sha2-256", hostKeyAlgorithm("rsa-sha2-256", "ssh-rsa")],
+    ["ssh-rsa", hostKeyAlgorithm("ssh-rsa")],
+])
 
 export abstract class KexAlgorithm {
     static alg_name: string
@@ -147,27 +178,27 @@ export function chooseAlgorithms(client: Client | ServerClient) {
     client.clientMacAlgorithm = undefined
     client.serverMacAlgorithm = undefined
 
-    const server_host_key_algorithms: (typeof PublicKeyAlgoritm)[] = []
+    const server_host_key_algorithms: HostKeyAlgorithm[] = []
     for (const alg of client.serverKexInit.data.server_host_key_algorithms) {
-        const algorithm = PublicKey.algorithms.get(alg)
+        const algorithm = host_key_algorithms.get(alg)
         if (!algorithm) continue
 
         server_host_key_algorithms.push(algorithm)
     }
-    const host_key_algorithms: (typeof PublicKeyAlgoritm)[] = []
+    const mutual_host_key_algorithms: HostKeyAlgorithm[] = []
     for (const alg of client.clientKexInit.data.server_host_key_algorithms) {
-        const algorithm = PublicKey.algorithms.get(alg)
+        const algorithm = host_key_algorithms.get(alg)
         if (!algorithm) continue
         if (!server_host_key_algorithms.includes(algorithm)) continue
 
-        host_key_algorithms.push(algorithm)
+        mutual_host_key_algorithms.push(algorithm)
     }
 
     for (const name of client.clientKexInit.data.kex_algorithms) {
         if (!client.serverKexInit.data.kex_algorithms.includes(name)) continue
         const algorithm = kex_algorithms.get(name)
         if (!algorithm) continue
-        const hostKeyAlgorithm = host_key_algorithms.find((alg) => {
+        const hostKeyAlgorithm = mutual_host_key_algorithms.find((alg) => {
             if (algorithm.requires_encryption && !alg.has_encryption) {
                 return false
             }

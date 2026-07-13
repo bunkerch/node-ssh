@@ -42,10 +42,9 @@ for protocol changes.
 Packet parsing and serialization tests must use fixed, independently written known byte vectors
 from the applicable RFC or protocol document. Do not generate an expected packet with the codec
 being tested. Cross-implementation tests must use OpenSSH (`/usr/bin/ssh` or the containerized
-`sshd` fixture), not `ssh2`; `ssh2` is the feature-parity reference, not the protocol oracle. Keep
-external-process assertions deterministic and suppress incidental client logging. No numeric
-coverage threshold is configured; prioritize focused regression tests and meaningful wire-level
-behavior.
+`sshd` fixture). Keep external-process assertions deterministic and suppress incidental client
+logging. No numeric coverage threshold is configured; prioritize focused regression tests and
+meaningful wire-level behavior.
 
 ## Protocol and Library Practices
 
@@ -122,6 +121,12 @@ behavior.
   and uses the full digest. OpenSSH ETM leaves the packet length clear, encrypts the packet body,
   authenticates sequence number plus clear length plus ciphertext, and must verify the tag before
   decrypting. Keep ETM padding aligned to the encrypted body rather than the clear length.
+- RFC 8332 RSA SHA-2 keeps the serialized public-key format as `ssh-rsa` while negotiating and
+  encoding `rsa-sha2-256` or `rsa-sha2-512` signatures. Advertise user-auth signature support with
+  RFC 8308 `server-sig-algs`, and validate both host and user signatures against OpenSSH.
+- Use `Hooker` for application request and policy surfaces whose handlers may need asynchronous
+  work. Await hooks before sending protocol success or failure; reserve `EventEmitter` for
+  observation and stream-style notifications that do not control a reply.
 - High-level session helpers must issue setup requests before the program request: agent forwarding,
   environment, PTY, X11, then exec/shell/subsystem. Treat automatic environment requests as
   best-effort without replies, but require replies for security- or terminal-sensitive setup.

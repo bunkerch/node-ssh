@@ -14,6 +14,7 @@ import EncodedSignature from "../utils/Signature.js"
 
 export interface PublicKeyAuthMethodData {
     publicKey: PublicKey
+    algorithm?: string
     signature?: EncodedSignature
 }
 export default class PublicKeyAuthMethod implements AuthMethod {
@@ -25,6 +26,11 @@ export default class PublicKeyAuthMethod implements AuthMethod {
     data: PublicKeyAuthMethodData
     constructor(data: PublicKeyAuthMethodData) {
         this.data = data
+        this.data.algorithm ??= this.data.publicKey.data.alg
+        assert(
+            this.data.publicKey.supportsSignatureAlgorithm(this.data.algorithm),
+            `Signature algorithm ${this.data.algorithm} is incompatible with ${this.data.publicKey.data.alg}`,
+        )
     }
 
     serialize(): Buffer {
@@ -33,7 +39,7 @@ export default class PublicKeyAuthMethod implements AuthMethod {
         buffers.push(serializeBuffer(Buffer.from(PublicKeyAuthMethod.method_name, "utf-8")))
 
         buffers.push(serializeBinaryBoolean(this.data.signature !== undefined))
-        buffers.push(serializeBuffer(Buffer.from(this.data.publicKey.data.alg, "utf-8")))
+        buffers.push(serializeBuffer(Buffer.from(this.data.algorithm!, "utf-8")))
         buffers.push(serializeBuffer(this.data.publicKey.serialize()))
 
         if (this.data.signature) {
@@ -49,7 +55,7 @@ export default class PublicKeyAuthMethod implements AuthMethod {
         buffers.push(serializeBuffer(Buffer.from(PublicKeyAuthMethod.method_name, "utf-8")))
 
         buffers.push(serializeBinaryBoolean(true))
-        buffers.push(serializeBuffer(Buffer.from(this.data.publicKey.data.alg, "utf-8")))
+        buffers.push(serializeBuffer(Buffer.from(this.data.algorithm!, "utf-8")))
         buffers.push(serializeBuffer(this.data.publicKey.serialize()))
 
         return Buffer.concat(buffers)
@@ -66,7 +72,8 @@ export default class PublicKeyAuthMethod implements AuthMethod {
         ;[publicKeyBlob, raw] = readNextBuffer(raw)
 
         const publicKey = PublicKey.parse(publicKeyBlob)
-        assert(publicKeyAlgorithmName.toString("utf-8") === publicKey.data.alg)
+        const algorithm = publicKeyAlgorithmName.toString("utf-8")
+        assert(publicKey.supportsSignatureAlgorithm(algorithm))
 
         let signature: Buffer | undefined
         if (hasSignature) {
@@ -75,88 +82,106 @@ export default class PublicKeyAuthMethod implements AuthMethod {
 
         assert(raw.length === 0)
 
+        const encodedSignature = signature ? EncodedSignature.parse(signature) : undefined
+        assert(!encodedSignature || encodedSignature.data.alg === algorithm)
         return new PublicKeyAuthMethod({
             publicKey: publicKey,
-            signature: signature ? EncodedSignature.parse(signature) : undefined,
+            algorithm,
+            signature: encodedSignature,
         })
     }
 
     static async handleAuthentication(client: Client): Promise<boolean> {
         const keys = await client.options.agent.getPublicKeys()
         for (const key of keys) {
-            try {
-                client.debug(
-                    `[Authentication]`,
-                    `[PublicKey]`,
-                    `Trying publickey authentication with key ${key[0]} ${key[1].toString()}`,
-                )
-
-                const method = new PublicKeyAuthMethod({
-                    publicKey: key[1],
-                })
-                const packet = new UserAuthRequest({
-                    username: client.options.username,
-                    service_name: SSHServiceNames.Connection,
-                    method: method,
-                })
-
-                // if this does not require unknown input from the user
-                // that would be otherwise annoying, we directly sign
-                // the packet. That will save us one packet if the pk
-                // is correct.
-                if (client.options.agent.type === AgentType.NonInteractive) {
-                    method.data.signature = await client.options.agent.sign(
-                        key[0],
-                        packet.serializeForSignature(client),
+            const algorithms = key[1].signatureAlgorithms.filter(
+                (algorithm) =>
+                    !client.serverSignatureAlgorithms ||
+                    client.serverSignatureAlgorithms.includes(algorithm),
+            )
+            for (const algorithm of algorithms) {
+                try {
+                    client.debug(
+                        `[Authentication]`,
+                        `[PublicKey]`,
+                        `Trying publickey authentication with key ${key[0]} ${key[1].toString()}`,
                     )
-                }
 
-                while (true) {
-                    const seqno = client.sendPacket(packet)
-                    const answer = await AuthMethod.waitForAnswer!(client, seqno)
+                    const method = new PublicKeyAuthMethod({
+                        publicKey: key[1],
+                        algorithm,
+                    })
+                    const packet = new UserAuthRequest({
+                        username: client.options.username,
+                        service_name: SSHServiceNames.Connection,
+                        method: method,
+                    })
 
-                    if (answer instanceof UserAuthSuccess) {
-                        // public key accepted
-                        // tell the client it's ok
-                        return true
-                    } else if (answer instanceof UserAuthFailure) {
-                        // this public key won't be accepted.
-                        // go try another one or fail
-                        break
-                    } else if (answer instanceof UserAuthPKOK) {
-                        assert(
-                            !method.data.signature,
-                            "Server requested a public key signature, but a signature was already provided.",
-                        )
-
-                        const keys = await client.options.agent.getPublicKeys()
-                        const key = keys.find((key) => key[1].equals(method.data.publicKey))
-                        assert(
-                            key,
-                            "Server requested a signature from a public key that was not provided by the agent",
-                        )
-
+                    // if this does not require unknown input from the user
+                    // that would be otherwise annoying, we directly sign
+                    // the packet. That will save us one packet if the pk
+                    // is correct.
+                    if (client.options.agent.type === AgentType.NonInteractive) {
                         method.data.signature = await client.options.agent.sign(
                             key[0],
                             packet.serializeForSignature(client),
+                            algorithm,
                         )
-                    } else {
-                        client.debug(
-                            `[Authentication]`,
-                            `[PublicKey]`,
-                            `Unknown response to "UserAuthRequest" with method "publickey":`,
-                            answer,
-                        )
-                        break
                     }
+
+                    while (true) {
+                        const seqno = client.sendPacket(packet)
+                        const answer = await AuthMethod.waitForAnswer!(client, seqno)
+
+                        if (answer instanceof UserAuthSuccess) {
+                            // public key accepted
+                            // tell the client it's ok
+                            return true
+                        } else if (answer instanceof UserAuthFailure) {
+                            // this public key won't be accepted.
+                            // go try another one or fail
+                            break
+                        } else if (answer instanceof UserAuthPKOK) {
+                            assert(
+                                !method.data.signature,
+                                "Server requested a public key signature, but a signature was already provided.",
+                            )
+
+                            const keys = await client.options.agent.getPublicKeys()
+                            const key = keys.find((key) => key[1].equals(method.data.publicKey))
+                            assert(
+                                key,
+                                "Server requested a signature from a public key that was not provided by the agent",
+                            )
+                            assert(
+                                answer.data.algorithm === algorithm &&
+                                    answer.data.publicKey.equals(method.data.publicKey),
+                                "Server requested a different public key algorithm",
+                            )
+
+                            method.data.signature = await client.options.agent.sign(
+                                key[0],
+                                packet.serializeForSignature(client),
+                                algorithm,
+                            )
+                        } else {
+                            client.debug(
+                                `[Authentication]`,
+                                `[PublicKey]`,
+                                `Unknown response to "UserAuthRequest" with method "publickey":`,
+                                answer,
+                            )
+                            break
+                        }
+                    }
+                } catch (err) {
+                    client.debug(
+                        `[Authentication]`,
+                        `[PublicKey]`,
+                        `Public Key authentication threw an error`,
+                        err,
+                    )
                 }
-            } catch (err) {
-                client.debug(
-                    `[Authentication]`,
-                    `[PublicKey]`,
-                    `Public Key authentication threw an error`,
-                    err,
-                )
             }
         }
 

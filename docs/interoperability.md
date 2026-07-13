@@ -64,6 +64,13 @@ An in-process integration test proves that a partial password success can change
 method set and cause an earlier failed keyboard-interactive method to be retried as the second
 factor.
 
+RSA SHA-2 interoperability covers RFC 8332 host and user signatures in both peer roles. The system
+OpenSSH client forces `rsa-sha2-512`, authenticates with an RSA key, and initiates rekeying against
+the modern server. The modern client uses a real OpenSSH RSA agent and an explicitly forced RSA
+SHA-512 host key against the containerized server; an invalid password prevents fallback. Fixed
+vectors independently cover the RFC 8308 `server-sig-algs` message and the distinct RSA signature
+algorithm and `ssh-rsa` key-format fields.
+
 SFTP interoperability runs in both directions. The modern client uses OpenSSH's revision 3
 subsystem for multi-packet upload and download, concurrent reads with request-id matching, file and
 directory handles, attributes and timestamps, rename, canonicalization, directory scanning, and
