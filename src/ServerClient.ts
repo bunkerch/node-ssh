@@ -11,6 +11,8 @@ import Server, {
     ServerAuthenticationContinuation,
     ServerHookerPublicKeyAuthenticationContext,
     ServerHookerPublicKeyAuthenticationController,
+    ServerHookerHostbasedAuthenticationContext,
+    ServerHookerHostbasedAuthenticationController,
     ServerHookerStreamLocalForwardContext,
     ServerHookerTCPIPForwardContext,
 } from "./Server.js"
@@ -93,6 +95,7 @@ import ForwardedStreamLocalChannel from "./channels/ForwardedStreamLocalChannel.
 import ForwardedAgentChannel from "./channels/ForwardedAgentChannel.js"
 import ForwardedX11Channel from "./channels/ForwardedX11Channel.js"
 import KeyboardInteractiveAuthMethod from "./auth/keyboard-interactive.js"
+import HostbasedAuthMethod from "./auth/hostbased.js"
 import UserAuthInfoRequest from "./packets/UserAuthInfoRequest.js"
 import UserAuthInfoResponse from "./packets/UserAuthInfoResponse.js"
 import UserAuthPasswordChangeRequest from "./packets/UserAuthPasswordChangeRequest.js"
@@ -946,6 +949,9 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         if (this.server.hooker.hasHooks("publicKeyAuthentication")) {
             authenticationMethods.push(SSHAuthenticationMethods.PublicKey)
         }
+        if (this.server.hooker.hasHooks("hostbasedAuthentication")) {
+            authenticationMethods.push(SSHAuthenticationMethods.Hostbased)
+        }
         if (this.server.hooker.hasHooks("passwordAuthentication")) {
             authenticationMethods.push(SSHAuthenticationMethods.Password)
         }
@@ -1070,6 +1076,45 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                         }
 
                         sendAuthenticationFailure(controller, SSHAuthenticationMethods.PublicKey)
+                        break
+                    }
+                    case SSHAuthenticationMethods.Hostbased: {
+                        const method = authRequest.data.method as HostbasedAuthMethod
+                        const signatureMessage = authRequest.serializeForSignature(this)
+                        if (
+                            !method.data.publicKey.verifySignature(
+                                signatureMessage,
+                                method.data.signature,
+                            )
+                        ) {
+                            sendAuthenticationFailure({}, SSHAuthenticationMethods.Hostbased)
+                            break
+                        }
+                        const context: ServerHookerHostbasedAuthenticationContext = {
+                            username: authRequest.data.username,
+                            publicKey: method.data.publicKey,
+                            algorithm: method.data.algorithm,
+                            clientHostname: method.data.clientHostname,
+                            clientUsername: method.data.clientUsername,
+                            signature: method.data.signature,
+                            signatureMessage,
+                            remoteAddress: this.socket.remoteAddress,
+                            remotePort: this.socket.remotePort,
+                        }
+                        const controller: ServerHookerHostbasedAuthenticationController = {
+                            allowLogin: false,
+                        }
+                        await this.server.hooker.triggerHook(
+                            "hostbasedAuthentication",
+                            Object.freeze(context),
+                            controller,
+                            this,
+                        )
+                        if (controller.allowLogin) {
+                            allowLogin = true
+                            break authentication
+                        }
+                        sendAuthenticationFailure(controller, SSHAuthenticationMethods.Hostbased)
                         break
                     }
                     case SSHAuthenticationMethods.Password: {

@@ -96,6 +96,15 @@ import {
     type NegotiatedAlgorithms,
     type ResolvedAlgorithmOptions,
 } from "./AlgorithmOptions.js"
+import type PrivateKey from "./utils/PrivateKey.js"
+
+export interface ClientHostbasedOptions {
+    key: PrivateKey
+    localHostname: string
+    localUsername: string
+    /** Signature algorithm; defaults to the strongest algorithm supported by the key. */
+    algorithm?: string
+}
 
 export interface ClientOptions {
     hostname?: string
@@ -120,6 +129,8 @@ export interface ClientOptions {
     username?: string
     password?: string
     agent?: Agent
+    /** RFC 4252 host-based authentication identity. */
+    hostbased?: ClientHostbasedOptions
     protocolVersionExchange?: ProtocolVersionExchange
     serverClient?: boolean
     authenticationMethodsOrder?: SSHAuthenticationMethods[]
@@ -140,6 +151,7 @@ export interface ClientOptionsRequired
             | "localPort"
             | "hostHash"
             | "hostVerifier"
+            | "hostbased"
             | "ident"
             | "algorithms"
         >
@@ -149,6 +161,7 @@ export interface ClientOptionsRequired
     localPort?: number
     hostHash?: string
     hostVerifier?: ClientHostVerifier
+    hostbased?: ClientHostbasedOptions
     ident?: string | Buffer
     algorithms?: ClientAlgorithmOptions
 }
@@ -307,6 +320,7 @@ export default class Client extends EventEmitter<ClientEvents> {
             SSHAuthenticationMethods.None,
             SSHAuthenticationMethods.PublicKey,
             SSHAuthenticationMethods.Password,
+            SSHAuthenticationMethods.Hostbased,
         ]
         this.options.keepaliveInterval ??= 0
         this.options.keepaliveCountMax ??= 3

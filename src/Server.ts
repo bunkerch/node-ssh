@@ -104,6 +104,21 @@ export interface ServerHookerPublicKeyAuthenticationController
     requestSignature: boolean
     allowLogin: boolean
 }
+export type ServerHookerHostbasedAuthenticationContext = Readonly<{
+    username: string
+    publicKey: PublicKey
+    algorithm: string
+    clientHostname: string
+    clientUsername: string
+    signature: EncodedSignature
+    signatureMessage: Buffer
+    remoteAddress?: string
+    remotePort?: number
+}>
+export interface ServerHookerHostbasedAuthenticationController
+    extends ServerAuthenticationContinuation {
+    allowLogin: boolean
+}
 export type ServerHookerPasswordAuthenticationContext = Readonly<{
     username: string
     password: string
@@ -166,6 +181,11 @@ export type ServerHooker = {
     publicKeyAuthentication: [
         publicKeyAuthenticationContext: Readonly<ServerHookerPublicKeyAuthenticationContext>,
         publicKeyAuthenticationController: ServerHookerPublicKeyAuthenticationController,
+        client: ServerClient,
+    ]
+    hostbasedAuthentication: [
+        hostbasedAuthenticationContext: ServerHookerHostbasedAuthenticationContext,
+        hostbasedAuthenticationController: ServerHookerHostbasedAuthenticationController,
         client: ServerClient,
     ]
     passwordAuthentication: [

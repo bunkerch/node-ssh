@@ -81,6 +81,13 @@ An in-process integration test proves that a partial password success can change
 method set and cause an earlier failed keyboard-interactive method to be retried as the second
 factor.
 
+Host-based authentication is exercised in both peer roles with real OpenSSH machine keys. OpenSSH
+signs a request with the isolated container's Ed25519 host key and the modern server authorizes its
+claimed hostname, local user, target user, public key, and observed address through an awaited hook.
+The modern client then uses an OpenSSH host private key to authenticate to the containerized server,
+explicitly rekeys, and executes a command. A fixed RFC 4252 request and signature preimage cover the
+wire format, while an invalid signature is rejected before application policy runs.
+
 RSA SHA-2 interoperability covers RFC 8332 host and user signatures in both peer roles. The system
 OpenSSH client forces `rsa-sha2-512`, authenticates with an RSA key, and initiates rekeying against
 the modern server. The modern client uses a real OpenSSH RSA agent and an explicitly forced RSA

@@ -4,6 +4,8 @@ import UserAuthInfoResponse from "../../src/packets/UserAuthInfoResponse.js"
 import UserAuthPasswordChangeRequest from "../../src/packets/UserAuthPasswordChangeRequest.js"
 import UserAuthRequest, { UnknownAuthMethod } from "../../src/packets/UserAuthRequest.js"
 import PublicKeyAuthMethod from "../../src/auth/publickey.js"
+import HostbasedAuthMethod from "../../src/auth/hostbased.js"
+import type Client from "../../src/Client.js"
 
 const banner = Buffer.from(
     "3500000018417574686f72697a656420616363657373206f6e6c790d0a" + "00000005656e2d5553",
@@ -37,6 +39,24 @@ const rsaSha512Request = Buffer.from(
         "000000097075626c69636b6579010000000c7273612d736861322d353132" +
         "0000001b000000077373682d727361000000030100010000000500deadbeef" +
         "000000180000000c7273612d736861322d3531320000000401020304",
+    "hex",
+)
+const hostbasedRequest = Buffer.from(
+    "320000000672656d6f74650000000e7373682d636f6e6e656374696f6e" +
+        "00000009686f737462617365640000000b7373682d6564323535313900000033" +
+        "0000000b7373682d6564323535313900000020000102030405060708090a0b0c0d0e0f" +
+        "101112131415161718191a1b1c1d1e1f0000000e636c69656e742e6578616d706c65" +
+        "00000005616c696365000000530000000b7373682d6564323535313900000040" +
+        "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f" +
+        "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
+    "hex",
+)
+const hostbasedSignatureMessage = Buffer.from(
+    "0000000401020304320000000672656d6f74650000000e7373682d636f6e6e656374696f6e" +
+        "00000009686f737462617365640000000b7373682d6564323535313900000033" +
+        "0000000b7373682d6564323535313900000020000102030405060708090a0b0c0d0e0f" +
+        "101112131415161718191a1b1c1d1e1f0000000e636c69656e742e6578616d706c65" +
+        "00000005616c696365",
     "hex",
 )
 
@@ -126,5 +146,35 @@ describe("RFC 4252 and RFC 4256 authentication vectors", () => {
             data: Buffer.from("01020304", "hex"),
         })
         expect(packet.serialize()).toEqual(rsaSha512Request)
+    })
+
+    test("parses and serializes an independently written RFC 4252 hostbased request", () => {
+        const packet = UserAuthRequest.parse(hostbasedRequest)
+        const method = packet.data.method as HostbasedAuthMethod
+
+        expect(packet.data.username).toBe("remote")
+        expect(method.data.algorithm).toBe("ssh-ed25519")
+        expect(method.data.publicKey.data.alg).toBe("ssh-ed25519")
+        expect(method.data.clientHostname).toBe("client.example")
+        expect(method.data.clientUsername).toBe("alice")
+        expect(method.data.signature.data).toEqual({
+            alg: "ssh-ed25519",
+            data: Buffer.from(Array.from({ length: 64 }, (_, index) => index)),
+        })
+        expect(packet.serialize()).toEqual(hostbasedRequest)
+        expect(
+            packet.serializeForSignature({ sessionID: Buffer.from("01020304", "hex") } as Client),
+        ).toEqual(hostbasedSignatureMessage)
+    })
+
+    test("rejects malformed hostbased identity fields", () => {
+        const packet = UserAuthRequest.parse(hostbasedRequest)
+        const method = packet.data.method as HostbasedAuthMethod
+        expect(
+            () => new HostbasedAuthMethod({ ...method.data, clientHostname: "not a hostname!" }),
+        ).toThrow("valid ASCII FQDN")
+        expect(() => new HostbasedAuthMethod({ ...method.data, clientUsername: "" })).toThrow(
+            "username is invalid",
+        )
     })
 })

@@ -1,6 +1,6 @@
 # User authentication
 
-`modernssh` implements the RFC 4252 `none`, public-key, and password methods plus RFC 4256
+`modernssh` implements the RFC 4252 `none`, public-key, host-based, and password methods plus RFC 4256
 `keyboard-interactive` authentication. The client uses the configured order, but only attempts
 methods that the server advertises. When a factor returns partial success, selection starts a new
 stage using the server's new continuation list; this supports multi-factor policies without
@@ -74,6 +74,28 @@ ECDSA identities on `nistp256`, `nistp384`, and `nistp521` use the matching RFC 
 and SHA-2 hash. Disk-backed OpenSSH ECDSA keys and delegated agent signatures use the same public-key
 authentication path as Ed25519 and RSA identities.
 
+Host-based authentication proves possession of a client machine's private host key and sends the
+claimed client hostname and local username for authorization. Configure all three explicitly and
+include `Hostbased` in the method order. The hostname must be a non-empty ASCII DNS name; a trailing
+root dot is accepted.
+
+```ts
+const client = new Client({
+    hostname: "ssh.example.com",
+    username: "deploy",
+    hostbased: {
+        key: clientHostPrivateKey,
+        localHostname: "build01.example.com",
+        localUsername: "builder",
+    },
+    authenticationMethodsOrder: [SSHAuthenticationMethods.None, SSHAuthenticationMethods.Hostbased],
+})
+```
+
+The strongest signature algorithm supported by the key is selected unless `algorithm` is set.
+Protect a client host key more strictly than an ordinary user's key: anyone who obtains it may be
+able to impersonate users from that host wherever host-based trust is configured.
+
 ## Server authentication
 
 Set `banner` to send a login notice once after the user-authentication service starts and before
@@ -141,3 +163,22 @@ signature, set `requestSignature` after authorizing the key and algorithm. On th
 verify `context.signatureMessage` with
 `context.publicKey.verifySignature(context.signatureMessage, context.signature)` before setting
 `allowLogin`. Hook handlers may be async and are awaited before the protocol reply is sent.
+
+The `hostbasedAuthentication` hook runs only after the library has cryptographically verified the
+RFC 4252 signature. It receives the target username, claimed client hostname and username, host
+public key, signature algorithm, observed remote address and port, and signed message. The hook must
+still establish that the public key belongs to the claimed host and that this host/user pair may log
+in as the target user. Correlate `clientHostname` with `remoteAddress` through trusted forward and
+reverse DNS or an equivalent inventory; neither the name nor source address alone proves ownership.
+
+```ts
+server.hooker.hook("hostbasedAuthentication", async (_hook, context, decision) => {
+    decision.allowLogin = await hostTrustPolicy.authorize({
+        targetUser: context.username,
+        clientUser: context.clientUsername,
+        clientHostname: context.clientHostname,
+        remoteAddress: context.remoteAddress,
+        hostKey: context.publicKey,
+    })
+})
+```

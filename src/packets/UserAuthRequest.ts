@@ -9,6 +9,7 @@ import PublicKeyAuthMethod from "../auth/publickey.js"
 import type ServerClient from "../ServerClient.js"
 import KeyboardInteractiveAuthMethod from "../auth/keyboard-interactive.js"
 import AuthMethod from "../auth/AuthMethod.js"
+import HostbasedAuthMethod from "../auth/hostbased.js"
 import type { AuthMethodClass } from "../auth/AuthMethod.js"
 
 export { default as AuthMethod } from "../auth/AuthMethod.js"
@@ -36,6 +37,7 @@ export default class UserAuthRequest implements Packet {
         [
             NoneAuthMethod,
             PublicKeyAuthMethod,
+            HostbasedAuthMethod,
             PasswordAuthMethod,
             KeyboardInteractiveAuthMethod,
         ].map((method) => [method.method_name, method]),
@@ -50,7 +52,8 @@ export default class UserAuthRequest implements Packet {
         return this.data.username
     }
     get publicKey() {
-        return this.data.method instanceof PublicKeyAuthMethod
+        return this.data.method instanceof PublicKeyAuthMethod ||
+            this.data.method instanceof HostbasedAuthMethod
             ? this.data.method.data.publicKey
             : undefined
     }
@@ -78,8 +81,9 @@ export default class UserAuthRequest implements Packet {
 
     serializeForSignature(client: Client | ServerClient): Buffer {
         assert(
-            this.data.method instanceof PublicKeyAuthMethod,
-            "Only PublicKeyAuthMethod is supported for signature serialization",
+            this.data.method instanceof PublicKeyAuthMethod ||
+                this.data.method instanceof HostbasedAuthMethod,
+            "Authentication method does not support signature serialization",
         )
         assert(client.sessionID, "Client sessionID is not set")
         const buffers = []
@@ -90,7 +94,7 @@ export default class UserAuthRequest implements Packet {
 
         buffers.push(serializeBuffer(Buffer.from(this.data.username, "utf-8")))
         buffers.push(serializeBuffer(Buffer.from(this.data.service_name, "utf-8")))
-        buffers.push((this.data.method as PublicKeyAuthMethod).serializeForSignature())
+        buffers.push(this.data.method.serializeForSignature())
 
         return Buffer.concat(buffers)
     }

@@ -59,6 +59,11 @@ meaningful wire-level behavior.
   active authentication context, never as a globally fixed packet. Honor advertised continuation
   lists and partial success, keep at most one keyboard-interactive request outstanding, and test
   prompts, banners, and password changes with fixed vectors plus OpenSSH.
+- RFC 4252 host-based authentication signs the session identifier and complete request fields,
+  including the claimed client hostname and username. Verify that signature before invoking the
+  awaited server policy hook; the hook must separately authorize the target user, host key,
+  hostname, client user, and observed peer address. Validate with a fixed signature preimage,
+  invalid-signature rejection, and real OpenSSH machine keys in both roles.
 - SFTP follows revision 3 of `draft-ietf-secsh-filexfer-02`, matching OpenSSH. Preserve uint64
   values as `bigint`, treat paths and handles as opaque bytes in the wire layer, bound messages to
   256 KiB and handles to 256 bytes, and test codecs with independently written vectors. Keep

@@ -69,6 +69,7 @@ export enum SSHServiceNames {
 export enum SSHAuthenticationMethods {
     None = "none",
     PublicKey = "publickey",
+    Hostbased = "hostbased",
     Password = "password",
     KeyboardInteractive = "keyboard-interactive",
 }

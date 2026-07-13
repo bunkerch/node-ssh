@@ -995,6 +995,108 @@ describe("OpenSSH interoperability", () => {
         }
     }, 30_000)
 
+    test("OpenSSH authenticates to a modernssh server with an RFC 4252 client host key", async () => {
+        await execFileAsync("docker", ["build", "--quiet", "--tag", imageName, "__tests__/openssh"])
+        const { stdout: clientHostKeyText } = await execFileAsync("docker", [
+            "run",
+            "--rm",
+            imageName,
+            "cat",
+            "/etc/ssh/ssh_host_ed25519_key.pub",
+        ])
+        const clientHostKey = PublicKey.parseString(clientHostKeyText)
+        const serverHostKey = await PrivateKey.generate("ssh-ed25519")
+        const server = new Server({ hostKeys: [serverHostKey], sendAllHostKeys: false })
+        const errors: Error[] = []
+        const contexts: { hostname: string; username: string; remoteAddress?: string }[] = []
+        server.hooker.hook("hostbasedAuthentication", async (_hook, context, decision) => {
+            await Promise.resolve()
+            contexts.push({
+                hostname: context.clientHostname,
+                username: context.clientUsername,
+                remoteAddress: context.remoteAddress,
+            })
+            decision.allowLogin =
+                context.username === "interop" &&
+                context.clientHostname === "localhost." &&
+                context.clientUsername === "root" &&
+                context.publicKey.equals(clientHostKey)
+        })
+        server.hooker.hook("channelOpenRequest", (_hook, channel, decision) => {
+            decision.allowOpen = channel instanceof SessionChannel
+        })
+        server.on("connection", (connection) => {
+            connection.on("error", (error) => errors.push(error))
+            connection.on("channel", (channel) => {
+                if (!(channel instanceof SessionChannel)) return
+                channel.hooker.hook("execRequest", (_hook, _context, decision) => {
+                    decision.success = true
+                })
+                channel.events.on("exec", (_command, shell) => {
+                    shell.stdout.write("hostbased-ok\n", () => shell.exit(0).end())
+                })
+            })
+        })
+        server.listen({ host: "127.0.0.1", port: 0 })
+        await new Promise<void>((resolve) => server.server!.once("listening", resolve))
+        const port = (server.server!.address() as AddressInfo).port
+
+        try {
+            const result = await collectProcess("docker", [
+                "run",
+                "--rm",
+                "--network",
+                "host",
+                "--hostname",
+                "client.example",
+                imageName,
+                "/usr/bin/ssh",
+                "-F",
+                "/dev/null",
+                "-T",
+                "-p",
+                String(port),
+                "-o",
+                "BatchMode=yes",
+                "-o",
+                "PreferredAuthentications=hostbased",
+                "-o",
+                "HostbasedAuthentication=yes",
+                "-o",
+                "EnableSSHKeysign=yes",
+                "-o",
+                "HostbasedAcceptedAlgorithms=ssh-ed25519",
+                "-o",
+                "PubkeyAuthentication=no",
+                "-o",
+                "PasswordAuthentication=no",
+                "-o",
+                "StrictHostKeyChecking=no",
+                "-o",
+                "UserKnownHostsFile=/dev/null",
+                "-o",
+                "LogLevel=ERROR",
+                "interop@127.0.0.1",
+                "hostbased-test",
+            ])
+            if (result.code !== 0) {
+                throw new Error(
+                    `OpenSSH hostbased client failed: ${JSON.stringify({ result, contexts, errors: errors.map(String) })}`,
+                )
+            }
+            expect(result).toEqual({ code: 0, stdout: "hostbased-ok\n", stderr: "" })
+            expect(contexts).toEqual([
+                { hostname: "localhost.", username: "root", remoteAddress: "127.0.0.1" },
+            ])
+            expect(errors).toEqual([])
+        } finally {
+            for (const client of server.clients) client.terminate()
+            await new Promise<void>((resolve, reject) => {
+                server.server!.close((error) => (error ? reject(error) : resolve()))
+            })
+        }
+    }, 30_000)
+
     test("OpenSSH client exchanges AEAD traffic with a modernssh server across rekey", async () => {
         const ciphers = [
             "chacha20-poly1305@openssh.com",
@@ -1769,6 +1871,12 @@ describe("OpenSSH interoperability", () => {
             const expectedHostHash = createHash("sha256")
                 .update(PublicKey.parseString(hostKeyText).serialize())
                 .digest("hex")
+            const { stdout: clientHostPrivateKeyText } = await execFileAsync("docker", [
+                "exec",
+                containerId,
+                "cat",
+                "/etc/ssh/ssh_host_ed25519_key",
+            ])
 
             const keyboardClient = new Client({
                 hostname: "127.0.0.1",
@@ -1811,6 +1919,39 @@ describe("OpenSSH interoperability", () => {
             expect(Buffer.concat(keyboardOutput).toString()).toBe("keyboard-ok")
             expect(keyboardBanners).toEqual(["OpenSSH authentication banner\n"])
             keyboardClient.end()
+
+            const hostbasedClient = new Client({
+                hostname: "127.0.0.1",
+                port,
+                username: "interop",
+                hostbased: {
+                    key: PrivateKey.fromString(clientHostPrivateKeyText),
+                    localHostname: "modern-client.test",
+                    localUsername: "localuser",
+                },
+                authenticationMethodsOrder: [
+                    SSHAuthenticationMethods.None,
+                    SSHAuthenticationMethods.Hostbased,
+                ],
+            })
+            const hostbasedErrors: Error[] = []
+            hostbasedClient.on("error", (error) => hostbasedErrors.push(error))
+            hostbasedClient.hooker.hook("hostKey", (_hook, decision) => {
+                decision.allowHostKey = true
+            })
+            await hostbasedClient.connect()
+            await hostbasedClient.rekey()
+            const hostbasedSession = await hostbasedClient.exec("printf hostbased-client-ok")
+            const hostbasedOutput: Buffer[] = []
+            hostbasedSession.on("data", (data: Buffer) => hostbasedOutput.push(data))
+            await new Promise<void>((resolve) => hostbasedSession.once("close", resolve))
+            expect(Buffer.concat(hostbasedOutput).toString()).toBe("hostbased-client-ok")
+            expect(hostbasedErrors).toEqual([])
+            const hostbasedClosed = new Promise<void>((resolve) =>
+                hostbasedClient.once("close", resolve),
+            )
+            hostbasedClient.end()
+            await hostbasedClosed
 
             for (const kex of [
                 "diffie-hellman-group-exchange-sha256",

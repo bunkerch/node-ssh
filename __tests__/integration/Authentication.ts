@@ -4,8 +4,109 @@ import { SSHAuthenticationMethods } from "../../src/constants.js"
 import Server from "../../src/Server.js"
 import type ServerClient from "../../src/ServerClient.js"
 import PrivateKey from "../../src/utils/PrivateKey.js"
+import EncodedSignature from "../../src/utils/Signature.js"
 
 describe("RFC 4252 multi-method authentication", () => {
+    test("authenticates a client host through an awaited server policy hook", async () => {
+        const serverHostKey = await PrivateKey.generate("ssh-ed25519")
+        const clientHostKey = await PrivateKey.generate("ssh-ed25519")
+        const server = new Server({ hostKeys: [serverHostKey], sendAllHostKeys: false })
+        const contexts: unknown[] = []
+        const errors: Error[] = []
+        server.hooker.hook("hostbasedAuthentication", async (_hook, context, decision) => {
+            await Promise.resolve()
+            contexts.push(context)
+            decision.allowLogin =
+                context.username === "remote" &&
+                context.clientHostname === "client.example" &&
+                context.clientUsername === "alice" &&
+                context.publicKey.equals(clientHostKey.data.publicKey) &&
+                context.publicKey.verifySignature(context.signatureMessage, context.signature)
+        })
+        server.on("connection", (connection) =>
+            connection.on("error", (error) => errors.push(error)),
+        )
+        server.listen({ host: "127.0.0.1", port: 0 })
+        await new Promise<void>((resolve) => server.server!.once("listening", resolve))
+        const port = (server.server!.address() as AddressInfo).port
+
+        const client = new Client({
+            hostname: "127.0.0.1",
+            port,
+            username: "remote",
+            hostbased: {
+                key: clientHostKey,
+                localHostname: "client.example",
+                localUsername: "alice",
+            },
+            authenticationMethodsOrder: [
+                SSHAuthenticationMethods.None,
+                SSHAuthenticationMethods.Hostbased,
+            ],
+        })
+        client.on("error", (error) => errors.push(error))
+        client.hooker.hook("hostKey", (_hook, decision) => {
+            decision.allowHostKey = true
+        })
+
+        try {
+            await client.connect()
+            expect(client.isConnected).toBe(true)
+            expect(contexts).toHaveLength(1)
+            expect((contexts[0] as { remoteAddress?: string }).remoteAddress).toBe("127.0.0.1")
+            expect(errors).toEqual([])
+        } finally {
+            client.destroy()
+            for (const connection of server.clients) connection.terminate()
+            await new Promise<void>((resolve, reject) => {
+                server.server!.close((error) => (error ? reject(error) : resolve()))
+            })
+        }
+    }, 15_000)
+
+    test("rejects an invalid hostbased signature before invoking application policy", async () => {
+        const serverHostKey = await PrivateKey.generate("ssh-ed25519")
+        const clientHostKey = await PrivateKey.generate("ssh-ed25519")
+        clientHostKey.sign = (_data, algorithm = "ssh-ed25519") =>
+            new EncodedSignature({ alg: algorithm, data: Buffer.alloc(64) })
+        const server = new Server({ hostKeys: [serverHostKey], sendAllHostKeys: false })
+        let policyCalls = 0
+        server.hooker.hook("hostbasedAuthentication", () => {
+            policyCalls++
+        })
+        server.listen({ host: "127.0.0.1", port: 0 })
+        await new Promise<void>((resolve) => server.server!.once("listening", resolve))
+        const port = (server.server!.address() as AddressInfo).port
+        const client = new Client({
+            hostname: "127.0.0.1",
+            port,
+            username: "remote",
+            hostbased: {
+                key: clientHostKey,
+                localHostname: "client.example",
+                localUsername: "alice",
+            },
+            authenticationMethodsOrder: [
+                SSHAuthenticationMethods.None,
+                SSHAuthenticationMethods.Hostbased,
+            ],
+        })
+        client.hooker.hook("hostKey", (_hook, decision) => {
+            decision.allowHostKey = true
+        })
+
+        try {
+            await expect(client.connect()).rejects.toThrow("All authentication methods failed")
+            expect(policyCalls).toBe(0)
+        } finally {
+            client.destroy()
+            for (const connection of server.clients) connection.terminate()
+            await new Promise<void>((resolve, reject) => {
+                server.server!.close((error) => (error ? reject(error) : resolve()))
+            })
+        }
+    }, 15_000)
+
     test("restarts advertised method selection after partial success", async () => {
         const hostKey = await PrivateKey.generate("ssh-ed25519")
         const server = new Server({ hostKeys: [hostKey], sendAllHostKeys: false })

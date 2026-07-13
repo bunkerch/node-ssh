@@ -10,6 +10,12 @@ RUN apt-get update \
     && ssh-keygen -A \
     && ssh-keygen -q -t ecdsa -b 384 -N '' -f /etc/ssh/ssh_host_ecdsa_384_key \
     && ssh-keygen -q -t ecdsa -b 521 -N '' -f /etc/ssh/ssh_host_ecdsa_521_key \
+    && printf 'modern-client.test ' > /etc/ssh/ssh_known_hosts \
+    && cut -d ' ' -f 1,2 /etc/ssh/ssh_host_ed25519_key.pub >> /etc/ssh/ssh_known_hosts \
+    && printf '%s\n' 'modern-client.test localuser' > /home/interop/.shosts \
+    && chown interop:interop /home/interop/.shosts \
+    && chmod 0600 /home/interop/.shosts \
+    && printf '%s\n' 'Host *' '    EnableSSHKeysign yes' >> /etc/ssh/ssh_config \
     && sed -i 's/^KbdInteractiveAuthentication .*/KbdInteractiveAuthentication yes/' /etc/ssh/sshd_config \
     && printf '%s\n' \
         'PasswordAuthentication yes' \
@@ -19,6 +25,9 @@ RUN apt-get update \
         'Banner /etc/modernssh-banner' \
         'Ciphers chacha20-poly1305@openssh.com,aes128-gcm@openssh.com,aes256-gcm@openssh.com,aes128-ctr,aes192-ctr,aes256-ctr,aes128-cbc,aes192-cbc,aes256-cbc,3des-cbc' \
         'KexAlgorithms +diffie-hellman-group-exchange-sha1' \
+        'HostbasedAuthentication yes' \
+        'HostbasedUsesNameFromPacketOnly yes' \
+        'IgnoreRhosts no' \
         'HostKey /etc/ssh/ssh_host_ed25519_key' \
         'HostKey /etc/ssh/ssh_host_rsa_key' \
         'HostKey /etc/ssh/ssh_host_ecdsa_key' \
