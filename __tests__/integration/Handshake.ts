@@ -5,6 +5,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
 import Client from "../../src/Client.js"
+import ProtocolVersionExchange from "../../src/ProtocolVersionExchange.js"
 import Server from "../../src/Server.js"
 import ServerClient from "../../src/ServerClient.js"
 import SessionChannel from "../../src/channels/SessionChannel.js"
@@ -16,7 +17,11 @@ const execFileAsync = promisify(execFile)
 describe("client/server integration", () => {
     test("completes an encrypted handshake and none authentication over fragmented-safe transport", async () => {
         const hostKey = await PrivateKey.generate("ssh-ed25519")
-        const server = new Server({ hostKeys: [hostKey], sendAllHostKeys: false })
+        const server = new Server({
+            hostKeys: [hostKey],
+            sendAllHostKeys: false,
+            greeting: "Authorized integration only\nMaintenance at 02:00",
+        })
         const serverErrors: Error[] = []
         server.hooker.hook("noneAuthentication", (_hook, _context, controller) => {
             controller.allowLogin = true
@@ -67,11 +72,14 @@ describe("client/server integration", () => {
             hostname: "127.0.0.1",
             port: address.port,
             username: "integration-test",
+            ident: "modernssh_integration fixed-comment",
         })
         const clientErrors: Error[] = []
         let connectEvents = 0
         let clientRekeys = 0
+        const greetings: string[] = []
         client.on("error", (error) => clientErrors.push(error))
+        client.on("greeting", (greeting) => greetings.push(greeting))
         client.on("connect", () => connectEvents++)
         client.on("rekey", () => clientRekeys++)
 
@@ -84,6 +92,10 @@ describe("client/server integration", () => {
             expect(connectEvents).toBe(1)
             expect(serverErrors).toEqual([])
             expect(clientErrors).toEqual([])
+            expect(greetings).toEqual(["Authorized integration only\r\nMaintenance at 02:00\r\n"])
+            expect(serverPeer?.clientProtocolVersion).toEqual(
+                new ProtocolVersionExchange("2.0", "modernssh_integration", "fixed-comment"),
+            )
             await new Promise<void>((resolve, reject) => {
                 expect(
                     server.getConnections((error, count) => {

@@ -21,6 +21,21 @@ describe("transport message scheduling", () => {
         expect(events).toEqual(["identification", "packet"])
     })
 
+    test("emits a complete fixed server greeting before identification", () => {
+        const client = new Client({ hostname: "unused.invalid" })
+        const greetings: string[] = []
+        const wrapperLines: string[] = []
+        client.on("greeting", (greeting) => greetings.push(greeting))
+        client.on("tcpWrapperLog", (line) => wrapperLines.push(line))
+
+        client.onMessage(Buffer.from("Authorized access only\r\nMaintenance at 02:00\n"))
+        expect(greetings).toEqual([])
+        client.onMessage(Buffer.from("SSH-2.0-OpenSSH_9.2\r\n"))
+
+        expect(greetings).toEqual(["Authorized access only\r\nMaintenance at 02:00\n"])
+        expect(wrapperLines).toEqual(["Authorized access only", "Maintenance at 02:00"])
+    })
+
     test("yields between complete packets from one TCP read", async () => {
         const client = new Client({ hostname: "unused.invalid" })
         client.onMessage(Buffer.from("SSH-2.0-test_server\r\n"))

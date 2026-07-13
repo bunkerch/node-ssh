@@ -295,6 +295,7 @@ describe("OpenSSH interoperability", () => {
             hostKeys: [hostKey],
             sendAllHostKeys: false,
             banner: "modernssh authentication banner\r\n",
+            ident: "modernssh_interop openssh-client",
         })
         const errors: Error[] = []
         const rounds: (readonly string[] | undefined)[] = []

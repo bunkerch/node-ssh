@@ -19,6 +19,16 @@ describe("ProtocolVersionExchange", () => {
         expect(version.protocol_software).toBe("legacy_ssh")
     })
 
+    test("builds a custom SSH 2.0 identification from a fixed ident suffix", () => {
+        const version = ProtocolVersionExchange.fromIdent(
+            Buffer.from("modernssh_1.0 compliance-suite"),
+        )
+        expect(version).toEqual(
+            new ProtocolVersionExchange("2.0", "modernssh_1.0", "compliance-suite"),
+        )
+        expect(version.toString()).toBe("SSH-2.0-modernssh_1.0 compliance-suite\r\n")
+    })
+
     test("accepts an identification exactly 255 bytes long", () => {
         const prefix = "SSH-2.0-test "
         const comments = "a".repeat(MAX_IDENTIFICATION_LENGTH - prefix.length - 2)

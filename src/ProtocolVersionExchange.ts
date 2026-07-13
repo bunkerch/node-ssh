@@ -70,6 +70,14 @@ export default class ProtocolVersionExchange {
         return new ProtocolVersionExchange(protocol_version, protocol_software, comments)
     }
 
+    /** Builds an SSH 2.0 identification from an ssh2-compatible software/comment suffix. */
+    static fromIdent(ident: string | Buffer): ProtocolVersionExchange {
+        const suffix = Buffer.isBuffer(ident) ? Buffer.from(ident) : Buffer.from(ident, "utf8")
+        return ProtocolVersionExchange.parse(
+            Buffer.concat([Buffer.from("SSH-2.0-"), suffix, Buffer.from("\r\n")]),
+        )
+    }
+
     static readonly defaultValue = ProtocolVersionExchange.parse(defaultProtocolVersionExchange)
 
     toString(): string {

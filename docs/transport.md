@@ -17,13 +17,23 @@ accepts an LF-only peer identifier for compatibility with older implementations.
 limited to 255 encoded bytes, may not contain NUL, and software versions must use the printable
 US-ASCII characters permitted by RFC 4253 section 4.2.
 
+Set the client `ident` option to an ssh2-compatible software identifier and optional comment,
+without the `SSH-2.0-` prefix. A `Buffer` is accepted for byte-exact configuration, but it is still
+validated as an RFC 4253 identifier. `ident` and the lower-level `protocolVersionExchange` option
+are mutually exclusive.
+
+Servers accept the same `ident` shorthand. The `greeting` server option sends informational lines
+before that identifier; line endings are normalized to CRLF and the same line-length and line-count
+bounds enforced by the client parser are applied before listening.
+
 Network reads do not correspond to SSH messages. The incremental identification parser therefore
 handles an identifier split across any number of TCP chunks and preserves binary packet bytes that
 arrive in the same chunk as the identifier.
 
-An SSH server may send informational lines before its identifier. `Client` emits each such complete
-line through `message`, and emits its decoded contents without the line ending through
-`tcpWrapperLog`. To place finite bounds on unauthenticated input, a preamble line is limited to 8192
+An SSH server may send informational lines before its identifier. `Client` emits their complete
+concatenation, including line endings, once through `greeting`; it also emits each line through
+`message`, and its decoded contents without the line ending through `tcpWrapperLog`. To place finite
+bounds on unauthenticated input, a preamble line is limited to 8192
 bytes and a preamble is limited to 1024 lines. RFC 4253 prohibits clients from sending equivalent
 preamble lines, so `ServerClient` rejects them.
 

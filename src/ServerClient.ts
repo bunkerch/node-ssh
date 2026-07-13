@@ -409,7 +409,9 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         const clientProtocolVersionPromise = this.waitEvent("clientProtocolVersion")
 
         this.debug(`Socket connected, sending protocol version exchange packet...`)
-        this.socket.write(this.server.options.protocolVersionExchange.toString())
+        this.socket.write(
+            this.server.options.greeting + this.server.options.protocolVersionExchange.toString(),
+        )
         if (this.buffering.length > 0) {
             this.onMessage(Buffer.alloc(0))
         }

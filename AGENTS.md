@@ -92,6 +92,10 @@ behavior.
   before `NEWKEYS`. Pass the exact serialized host-key blob (or the requested Node hash as lowercase
   hex), honor synchronous and callback decisions once, and reverify the key on every rekey. Use a
   real OpenSSH host key to prove the public verifier contract.
+- Identification compatibility options must still pass through the RFC 4253 validator. Preserve
+  greeting bytes and line endings until the peer identifier arrives, emit the combined greeting
+  once, and retain the existing per-line observability events. Normalize configured server
+  greetings to CRLF and reject values that could be mistaken for an SSH identification.
 - RFC 4253 rekeying preserves the first exchange hash as the session identifier while deriving all
   new transport keys from the current exchange hash. Queue application output after sending
   `KEXINIT`, switch each direction exactly at its own `NEWKEYS`, preserve sequence numbers and open

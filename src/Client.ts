@@ -88,6 +88,8 @@ export interface ClientOptions {
     hostHash?: string
     /** Verify the raw serialized host key, or its `hostHash` digest, before NEWKEYS. */
     hostVerifier?: ClientHostVerifier
+    /** Custom SSH software identifier and optional comments, without the `SSH-2.0-` prefix. */
+    ident?: string | Buffer
     username?: string
     password?: string
     agent?: Agent
@@ -104,13 +106,17 @@ export interface ClientOptions {
 
 export interface ClientOptionsRequired
     extends Required<
-        Omit<ClientOptions, "sock" | "localAddress" | "localPort" | "hostHash" | "hostVerifier">
+        Omit<
+            ClientOptions,
+            "sock" | "localAddress" | "localPort" | "hostHash" | "hostVerifier" | "ident"
+        >
     > {
     sock?: Duplex
     localAddress?: string
     localPort?: number
     hostHash?: string
     hostVerifier?: ClientHostVerifier
+    ident?: string | Buffer
 }
 
 export type ClientHostVerifier = (
@@ -132,6 +138,8 @@ export interface ClientEvents {
     clientNewKeys: []
     serverNewKeys: []
     rekey: []
+    /** Complete server pre-identification greeting, including its line endings. */
+    greeting: [greeting: string]
     banner: [message: string, languageTag: string]
     "tcp connection": [
         details: Readonly<TCPIPConnectionDetails>,
@@ -245,7 +253,18 @@ export default class Client extends EventEmitter<ClientEvents> {
         this.options.username ??= "root"
         this.options.password ??= ""
         this.options.agent ??= new NoneAgent()
-        this.options.protocolVersionExchange ??= ProtocolVersionExchange.defaultValue
+        if (
+            this.options.ident !== undefined &&
+            this.options.protocolVersionExchange !== undefined
+        ) {
+            throw new TypeError(
+                "SSH ident and protocolVersionExchange options are mutually exclusive",
+            )
+        }
+        this.options.protocolVersionExchange =
+            this.options.ident === undefined
+                ? (this.options.protocolVersionExchange ?? ProtocolVersionExchange.defaultValue)
+                : ProtocolVersionExchange.fromIdent(this.options.ident)
         this.options.authenticationMethodsOrder ??= [
             SSHAuthenticationMethods.None,
             SSHAuthenticationMethods.PublicKey,
@@ -314,6 +333,7 @@ export default class Client extends EventEmitter<ClientEvents> {
 
     private socket?: Duplex
     private identificationParser = new IdentificationParser({ allowPreamble: true })
+    private readonly greetingChunks: Buffer[] = []
     private packetDecoder = new BinaryPacketDecoder()
     private packetEncoder = new BinaryPacketEncoder()
     private packetProcessingPaused = false
@@ -1306,6 +1326,7 @@ export default class Client extends EventEmitter<ClientEvents> {
         if (!this.serverProtocolVersion) {
             const result = this.identificationParser.push(message)
             for (const lineBuf of result.preamble) {
+                this.greetingChunks.push(Buffer.from(lineBuf))
                 this.emit("message", lineBuf)
                 const line = lineBuf.toString("utf8").replace(/\r?\n$/u, "")
                 this.emit("tcpWrapperLog", line)
@@ -1313,6 +1334,10 @@ export default class Client extends EventEmitter<ClientEvents> {
             }
 
             if (!result.version || !result.identification) return
+
+            if (this.greetingChunks.length > 0) {
+                this.emit("greeting", Buffer.concat(this.greetingChunks).toString("utf8"))
+            }
 
             this.emit("message", result.identification)
             this.serverProtocolVersion = result.version

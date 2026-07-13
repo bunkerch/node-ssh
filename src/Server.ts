@@ -10,9 +10,14 @@ import PublicKey from "./utils/PublicKey.js"
 import EncodedSignature from "./utils/Signature.js"
 import Channel from "./Channel.js"
 import { SSHAuthenticationMethods } from "./constants.js"
+import { MAX_PREAMBLE_LINE_LENGTH, MAX_PREAMBLE_LINES } from "./IdentificationParser.js"
 
 export interface ServerOptions {
     protocolVersionExchange?: ProtocolVersionExchange
+    /** Custom SSH software identifier and optional comments, without the `SSH-2.0-` prefix. */
+    ident?: string | Buffer
+    /** Informational text sent before the SSH identification. */
+    greeting?: string
     hostKeys?: PrivateKey[]
     // by default, the Server will send all available hostkeys
     // to the client after login (USERAUTH_SUCCESS)
@@ -24,8 +29,32 @@ export interface ServerOptions {
     /** RFC 4252 banner sent once before authentication begins. */
     banner?: string
 }
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
-export interface ServerOptionsRequired extends Required<ServerOptions> {}
+export interface ServerOptionsRequired extends Required<Omit<ServerOptions, "ident">> {
+    ident?: string | Buffer
+}
+
+function normalizeGreeting(greeting: string): string {
+    if (greeting.length === 0) return ""
+    if (greeting.includes("\0") || /\r(?!\n)/u.test(greeting)) {
+        throw new TypeError("SSH server greeting must not contain NUL or a bare CR")
+    }
+    const lines = greeting.split(/\r?\n/u)
+    if (lines.at(-1) === "") lines.pop()
+    if (lines.length > MAX_PREAMBLE_LINES) {
+        throw new RangeError(`SSH server greeting must not exceed ${MAX_PREAMBLE_LINES} lines`)
+    }
+    for (const line of lines) {
+        if (line.startsWith("SSH-")) {
+            throw new TypeError("SSH server greeting lines must not begin with SSH-")
+        }
+        if (Buffer.byteLength(line, "utf8") + 2 > MAX_PREAMBLE_LINE_LENGTH) {
+            throw new RangeError(
+                `SSH server greeting lines must not exceed ${MAX_PREAMBLE_LINE_LENGTH} bytes`,
+            )
+        }
+    }
+    return lines.map((line) => `${line}\r\n`).join("")
+}
 
 export interface ServerEvents {
     debug: unknown[]
@@ -161,7 +190,19 @@ export default class Server extends EventEmitter<ServerEvents> {
     constructor(options: ServerOptions = {}) {
         super()
         this.options = options as ServerOptionsRequired
-        this.options.protocolVersionExchange ??= ProtocolVersionExchange.defaultValue
+        if (
+            this.options.ident !== undefined &&
+            this.options.protocolVersionExchange !== undefined
+        ) {
+            throw new TypeError(
+                "SSH ident and protocolVersionExchange options are mutually exclusive",
+            )
+        }
+        this.options.protocolVersionExchange =
+            this.options.ident === undefined
+                ? (this.options.protocolVersionExchange ?? ProtocolVersionExchange.defaultValue)
+                : ProtocolVersionExchange.fromIdent(this.options.ident)
+        this.options.greeting = normalizeGreeting(this.options.greeting ?? "")
         this.options.hostKeys ??= []
         this.options.sendAllHostKeys ??= true
         this.options.banner ??= ""
