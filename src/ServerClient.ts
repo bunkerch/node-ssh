@@ -31,6 +31,8 @@ import {
     KexAlgorithm,
     MACAlgorithm,
     chooseAlgorithms,
+    createInboundPacketProtection,
+    createOutboundPacketProtection,
     describeNegotiatedAlgorithms,
     host_key_algorithms,
     type HostKeyAlgorithm,
@@ -390,20 +392,21 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 this.encryptionKeyServerToClient!,
                 this.ivServerToClient!,
             )
-            this.clientMac = this.clientMacAlgorithm!.instantiate(this.integrityKeyClientToServer!)
-            this.serverMac = this.serverMacAlgorithm!.instantiate(this.integrityKeyServerToClient!)
+            this.clientMac = this.clientMacAlgorithm?.instantiate(this.integrityKeyClientToServer!)
+            this.serverMac = this.serverMacAlgorithm?.instantiate(this.integrityKeyServerToClient!)
             this.resumePacketProcessing()
 
             if (!this.hasReceivedNewKeys) await this.waitEvent("clientNewKeys")
             this.sendPacket(new NewKeys({}))
             this.hasSentNewKeys = true
-            this.packetEncoder.setProtection({
-                cipher: this.serverEncryption,
-                mac: this.serverMac,
-                blockSize: this.serverEncryptionAlgorithm!.block_size,
-                macLength: this.serverMacAlgorithm!.digest_length,
-                encryptThenMac: this.serverMacAlgorithm!.encrypt_then_mac,
-            })
+            this.packetEncoder.setProtection(
+                createOutboundPacketProtection(
+                    this.serverEncryptionAlgorithm!,
+                    this.serverEncryption,
+                    this.serverMacAlgorithm,
+                    this.serverMac,
+                ),
+            )
             if (!isRekey && clientKexInit.data.kex_algorithms.includes("ext-info-c")) {
                 this.sendPacket(
                     new ExtInfo({
@@ -1321,13 +1324,14 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
 
             case PacketNameToType.SSH_MSG_NEWKEYS:
                 this.hasReceivedNewKeys = true
-                this.packetDecoder.setProtection({
-                    cipher: this.clientEncryption!,
-                    mac: this.clientMac!,
-                    blockSize: this.clientEncryptionAlgorithm!.block_size,
-                    macLength: this.clientMacAlgorithm!.digest_length,
-                    encryptThenMac: this.clientMacAlgorithm!.encrypt_then_mac,
-                })
+                this.packetDecoder.setProtection(
+                    createInboundPacketProtection(
+                        this.clientEncryptionAlgorithm!,
+                        this.clientEncryption!,
+                        this.clientMacAlgorithm,
+                        this.clientMac,
+                    ),
+                )
                 this.emit("clientNewKeys")
                 break
 

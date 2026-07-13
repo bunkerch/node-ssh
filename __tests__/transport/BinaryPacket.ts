@@ -4,6 +4,7 @@ import {
     MAXIMUM_BINARY_PACKET_SIZE,
 } from "../../src/BinaryPacket.js"
 import AES128CTR from "../../src/algorithms/encryption/aes128-ctr.js"
+import AES128GCMOpenSSH from "../../src/algorithms/encryption/aes128-gcm-openssh.js"
 import HMACSHA2256 from "../../src/algorithms/mac/hmac-sha2-256.js"
 
 const deterministicPadding = (size: number): Buffer => Buffer.alloc(size, 0xa5)
@@ -34,6 +35,25 @@ function createETMProtectionPair() {
     return {
         outbound: { ...protection.outbound, encryptThenMac: true },
         inbound: { ...protection.inbound, encryptThenMac: true },
+    }
+}
+
+function createAEADProtectionPair() {
+    const key = Buffer.alloc(16)
+    const iv = Buffer.alloc(12)
+    return {
+        outbound: {
+            aead: true as const,
+            cipher: new AES128GCMOpenSSH(key, iv),
+            blockSize: AES128GCMOpenSSH.block_size,
+            authTagLength: AES128GCMOpenSSH.auth_tag_length,
+        },
+        inbound: {
+            aead: true as const,
+            cipher: new AES128GCMOpenSSH(key, iv),
+            blockSize: AES128GCMOpenSSH.block_size,
+            authTagLength: AES128GCMOpenSSH.auth_tag_length,
+        },
     }
 }
 
@@ -169,6 +189,50 @@ describe("BinaryPacket", () => {
 
         expect(() => decoder.read()).toThrow("MAC verification failed")
         expect(decryptions).toBe(0)
+    })
+
+    test("matches fixed independently generated AES-GCM SSH packets", () => {
+        const payload = Buffer.from("3200000000", "hex")
+        const expected = [
+            Buffer.from(
+                "0000001009badace60b60637568d671cd4175bdd9a5bcd4e0f1b1df5e1cb8d501abdb81d",
+                "hex",
+            ),
+            Buffer.from(
+                "000000106433d9300788d718fe974931c058e23da259872c073de091f471d5ffc0ef318d",
+                "hex",
+            ),
+        ]
+
+        const encoder = new BinaryPacketEncoder({ randomBytes: deterministicPadding })
+        encoder.setProtection(createAEADProtectionPair().outbound)
+        expect(encoder.encode(payload).data).toEqual(expected[0])
+        expect(encoder.encode(payload).data).toEqual(expected[1])
+
+        for (let split = 0; split <= expected[0].length; split++) {
+            const decoder = new BinaryPacketDecoder()
+            decoder.setProtection(createAEADProtectionPair().inbound)
+            decoder.push(expected[0].subarray(0, split))
+            const beforeRemainder = decoder.read()
+            if (split < expected[0].length) expect(beforeRemainder).toBeUndefined()
+            decoder.push(expected[0].subarray(split))
+            expect((beforeRemainder ?? decoder.read())?.payload).toEqual(payload)
+        }
+    })
+
+    test("rejects modified AES-GCM packet lengths, ciphertext, and tags", () => {
+        const encoder = new BinaryPacketEncoder({ randomBytes: deterministicPadding })
+        encoder.setProtection(createAEADProtectionPair().outbound)
+        const encoded = encoder.encode(Buffer.from("3200000000", "hex")).data
+
+        for (const offset of [3, 4, encoded.length - 1]) {
+            const modified = Buffer.from(encoded)
+            modified[offset] ^= 0x01
+            const decoder = new BinaryPacketDecoder()
+            decoder.setProtection(createAEADProtectionPair().inbound)
+            decoder.push(modified)
+            expect(() => decoder.read()).toThrow()
+        }
     })
 
     test("rejects a modified MAC", () => {

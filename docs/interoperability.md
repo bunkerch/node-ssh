@@ -41,8 +41,10 @@ channel opens, X11 requests and channel opens, `no-more-sessions@openssh.com`, w
 into asserted fields and serialized back to the exact original bytes.
 
 Transport tests likewise use deterministic identification, binary framing, encryption-boundary,
-MAC, fragmentation, and maximum-size vectors. This keeps exact packet parsing failures local and
-diagnosable instead of relying on an external implementation to reject malformed bytes.
+MAC, AEAD, fragmentation, and maximum-size vectors. AES-GCM is checked against a published NIST
+primitive vector and fixed SSH packets generated independently of the TypeScript codec. This keeps
+exact packet parsing failures local and diagnosable instead of relying on an external implementation
+to reject malformed bytes.
 
 The agent suite sends fixed RFC 9987 identity-list and signing frames through fragmented UNIX-socket
 reads. A separate integration test starts the system OpenSSH `ssh-agent`, loads an independently
@@ -80,6 +82,11 @@ initiates low-limit rekeys against the modern server for P-256, P-384, and P-521
 clients force each corresponding OpenSSH host key, explicitly rekey, authenticate, and execute a
 command.
 
+AES-GCM interoperability forces both 128- and 256-bit variants in both peer roles. OpenSSH streams
+enough data to initiate low-limit rekeys against the modern server; separate modern clients force
+each cipher against the containerized server, explicitly rekey, and execute a command. Negotiated
+handshake details prove that both directions use implicit integrity rather than a separate MAC.
+
 SFTP interoperability runs in both directions. The modern client uses OpenSSH's revision 3
 subsystem for multi-packet upload and download, concurrent reads with request-id matching, file and
 directory handles, attributes and timestamps, rename, canonicalization, directory scanning, and
@@ -98,7 +105,8 @@ JavaScript SSH implementation.
 Together, the OpenSSH tests and known vectors exercise identification exchange, KEXINIT
 negotiation, exchange-hash and signature verification, `NEWKEYS`, encrypted and authenticated
 packet framing, OpenSSH encrypt-then-MAC ordering, RFC 8731 Curve25519 and RFC 5656 ECDH in both
-peer roles, bidirectional key re-exchange, service negotiation, authentication, session
+peer roles, RFC 5647 AES-GCM packet protection, bidirectional key re-exchange, service negotiation,
+authentication, session
 streams, client- and server-side
 remote forwarding, and graceful disconnect behavior. Passing these tests proves the covered
 algorithms and features; it does not imply that every OpenSSH algorithm or extension has been

@@ -16,21 +16,52 @@ export interface PacketDecryptor {
     decrypt(ciphertext: Buffer): Buffer
 }
 
-export interface OutboundPacketProtection {
+export interface PacketAEADEncryptor {
+    encryptPacket(
+        plaintext: Buffer,
+        associatedData: Buffer,
+    ): { ciphertext: Buffer; authenticationTag: Buffer }
+}
+
+export interface PacketAEADDecryptor {
+    decryptPacket(ciphertext: Buffer, associatedData: Buffer, authenticationTag: Buffer): Buffer
+}
+
+export interface OutboundPacketCipherProtection {
     cipher: PacketEncryptor
     mac: PacketMAC
     blockSize: number
     macLength: number
     encryptThenMac?: boolean
+    aead?: false
 }
 
-export interface InboundPacketProtection {
+export interface InboundPacketCipherProtection {
     cipher: PacketDecryptor
     mac: PacketMAC
     blockSize: number
     macLength: number
     encryptThenMac?: boolean
+    aead?: false
 }
+
+export interface OutboundPacketAEADProtection {
+    cipher: PacketAEADEncryptor
+    blockSize: number
+    authTagLength: number
+    aead: true
+}
+
+export interface InboundPacketAEADProtection {
+    cipher: PacketAEADDecryptor
+    blockSize: number
+    authTagLength: number
+    aead: true
+}
+
+export type OutboundPacketProtection = OutboundPacketCipherProtection | OutboundPacketAEADProtection
+
+export type InboundPacketProtection = InboundPacketCipherProtection | InboundPacketAEADProtection
 
 export interface EncodedBinaryPacket {
     sequenceNumber: number
@@ -63,12 +94,25 @@ function validateMaximumPacketSize(maximumPacketSize: number): void {
     }
 }
 
-function validateProtection(protection: { blockSize: number; macLength: number }): void {
+function validateProtection(
+    protection: { blockSize: number } & (
+        | { aead: true; authTagLength: number }
+        | { aead?: false; macLength: number }
+    ),
+): void {
     if (!Number.isSafeInteger(protection.blockSize) || protection.blockSize < 8) {
         throw new Error("SSH cipher block size must be an integer of at least 8 bytes")
     }
-    if (!Number.isSafeInteger(protection.macLength) || protection.macLength < 0) {
-        throw new Error("SSH MAC length must be a non-negative integer")
+    const authenticationLength = protection.aead ? protection.authTagLength : protection.macLength
+    if (
+        !Number.isSafeInteger(authenticationLength) ||
+        authenticationLength < (protection.aead ? 1 : 0)
+    ) {
+        throw new Error(
+            protection.aead
+                ? "SSH AEAD authentication tag length must be a positive integer"
+                : "SSH MAC length must be a non-negative integer",
+        )
     }
 }
 
@@ -95,8 +139,11 @@ export class BinaryPacketEncoder {
         }
 
         const blockSize = Math.max(8, this.protection?.blockSize ?? 8)
-        const encryptThenMac = this.protection?.encryptThenMac === true
-        const alignedLength = (encryptThenMac ? 1 : 5) + payload.length
+        const aead = this.protection?.aead === true
+        const encryptThenMac =
+            this.protection?.aead !== true && this.protection?.encryptThenMac === true
+        const clearPacketLength = aead || encryptThenMac
+        const alignedLength = (clearPacketLength ? 1 : 5) + payload.length
         let paddingLength = blockSize - (alignedLength % blockSize)
         if (paddingLength < 4) paddingLength += blockSize
         if (paddingLength > 255) {
@@ -104,8 +151,11 @@ export class BinaryPacketEncoder {
         }
 
         const packetLength = 1 + payload.length + paddingLength
-        const macLength = this.protection?.macLength ?? 0
-        const totalLength = 4 + packetLength + macLength
+        const authenticationLength =
+            this.protection?.aead === true
+                ? this.protection.authTagLength
+                : (this.protection?.macLength ?? 0)
+        const totalLength = 4 + packetLength + authenticationLength
         if (totalLength > this.maximumPacketSize) {
             throw new Error(
                 `SSH binary packet size ${totalLength} exceeds maximum ${this.maximumPacketSize}`,
@@ -125,30 +175,46 @@ export class BinaryPacketEncoder {
 
         const sequenceNumber = this.sequenceNumber
         let packet: Buffer
-        let authenticated: Buffer
-        if (this.protection && encryptThenMac) {
+        let authentication: Buffer
+        if (this.protection?.aead) {
+            const result = this.protection.cipher.encryptPacket(
+                plaintext.subarray(4),
+                plaintext.subarray(0, 4),
+            )
+            if (result.ciphertext.length !== plaintext.length - 4) {
+                throw new Error("SSH AEAD cipher changed the binary packet length")
+            }
+            if (result.authenticationTag.length !== authenticationLength) {
+                throw new Error(
+                    `SSH AEAD cipher produced a ${result.authenticationTag.length}-byte authentication tag; expected ${authenticationLength}`,
+                )
+            }
+            packet = Buffer.concat([plaintext.subarray(0, 4), result.ciphertext])
+            authentication = result.authenticationTag
+        } else if (this.protection && encryptThenMac) {
             const ciphertext = this.protection.cipher.encrypt(plaintext.subarray(4))
             if (ciphertext.length !== plaintext.length - 4) {
                 throw new Error("SSH cipher changed the binary packet length")
             }
             packet = Buffer.concat([plaintext.subarray(0, 4), ciphertext])
-            authenticated = packet
+            authentication = this.protection.mac.computeMAC(sequenceNumber, packet)
         } else {
             packet = this.protection?.cipher.encrypt(plaintext) ?? plaintext
             if (packet.length !== plaintext.length) {
                 throw new Error("SSH cipher changed the binary packet length")
             }
-            authenticated = plaintext
+            authentication =
+                this.protection?.mac.computeMAC(sequenceNumber, plaintext) ?? Buffer.alloc(0)
         }
 
-        const mac =
-            this.protection?.mac.computeMAC(sequenceNumber, authenticated) ?? Buffer.alloc(0)
-        if (mac.length !== macLength) {
-            throw new Error(`SSH MAC produced ${mac.length} bytes; expected ${macLength}`)
+        if (authentication.length !== authenticationLength) {
+            throw new Error(
+                `SSH MAC produced ${authentication.length} bytes; expected ${authenticationLength}`,
+            )
         }
 
         this.sequenceNumber = (this.sequenceNumber + 1) % SEQUENCE_NUMBER_MODULO
-        return { sequenceNumber, data: Buffer.concat([packet, mac]) }
+        return { sequenceNumber, data: Buffer.concat([packet, authentication]) }
     }
 }
 
@@ -183,49 +249,75 @@ export class BinaryPacketDecoder {
 
     read(): DecodedBinaryPacket | undefined {
         const blockSize = Math.max(8, this.protection?.blockSize ?? 8)
-        const encryptThenMac = this.protection?.encryptThenMac === true
+        const aead = this.protection?.aead === true
+        const encryptThenMac =
+            this.protection?.aead !== true && this.protection?.encryptThenMac === true
+        const clearPacketLength = aead || encryptThenMac
         const minimumPacketLength = Math.max(MINIMUM_BINARY_PACKET_LENGTH, blockSize)
-        if (this.buffered.length < (encryptThenMac ? 4 : minimumPacketLength)) return undefined
+        if (this.buffered.length < (clearPacketLength ? 4 : minimumPacketLength)) return undefined
 
         let firstBlock: Buffer
-        if (this.protection && !encryptThenMac) {
-            this.decryptedFirstBlock ??= this.protection.cipher.decrypt(
-                this.buffered.subarray(0, blockSize),
-            )
-            firstBlock = this.decryptedFirstBlock
-        } else if (!encryptThenMac) {
+        if (this.protection?.aead !== true && this.protection && !clearPacketLength) {
+            const decryptedFirstBlock =
+                this.decryptedFirstBlock ??
+                this.protection.cipher.decrypt(this.buffered.subarray(0, blockSize))
+            this.decryptedFirstBlock = decryptedFirstBlock
+            firstBlock = decryptedFirstBlock
+        } else if (!clearPacketLength) {
             firstBlock = this.buffered.subarray(0, blockSize)
         } else {
             firstBlock = this.buffered.subarray(0, 4)
         }
-        if (!encryptThenMac && firstBlock.length !== blockSize) {
+        if (!clearPacketLength && firstBlock.length !== blockSize) {
             throw new Error("SSH cipher returned an incomplete first packet block")
         }
 
         const packetLength = firstBlock.readUInt32BE(0)
-        const macLength = this.protection?.macLength ?? 0
+        const authenticationLength =
+            this.protection?.aead === true
+                ? this.protection.authTagLength
+                : (this.protection?.macLength ?? 0)
         const encryptedLength = 4 + packetLength
-        const totalLength = encryptedLength + macLength
+        const totalLength = encryptedLength + authenticationLength
 
         if (totalLength > this.maximumPacketSize) {
             throw new Error(
                 `SSH binary packet size ${totalLength} exceeds maximum ${this.maximumPacketSize}`,
             )
         }
-        if (encryptedLength < (encryptThenMac ? 4 + blockSize : minimumPacketLength)) {
+        if (encryptedLength < (clearPacketLength ? 4 + blockSize : minimumPacketLength)) {
             throw new Error(`SSH binary packet is shorter than ${minimumPacketLength} bytes`)
         }
-        if ((encryptThenMac ? packetLength : encryptedLength) % blockSize !== 0) {
+        if ((clearPacketLength ? packetLength : encryptedLength) % blockSize !== 0) {
             throw new Error("SSH binary packet length is not a cipher block multiple")
         }
         if (this.buffered.length < totalLength) return undefined
 
         let plaintext: Buffer
-        if (this.protection && encryptThenMac) {
+        if (this.protection?.aead) {
+            const associatedData = this.buffered.subarray(0, 4)
+            const ciphertext = this.buffered.subarray(4, encryptedLength)
+            const authenticationTag = this.buffered.subarray(encryptedLength, totalLength)
+            if (authenticationTag.length !== authenticationLength) {
+                throw new Error("SSH binary packet has an invalid authentication tag length")
+            }
+            const body = this.protection.cipher.decryptPacket(
+                ciphertext,
+                associatedData,
+                authenticationTag,
+            )
+            if (body.length !== packetLength) {
+                throw new Error("SSH AEAD cipher returned an incomplete packet")
+            }
+            plaintext = Buffer.concat([associatedData, body])
+        } else if (this.protection && encryptThenMac) {
             const authenticated = this.buffered.subarray(0, encryptedLength)
             const receivedMAC = this.buffered.subarray(encryptedLength, totalLength)
             const expectedMAC = this.protection.mac.computeMAC(this.sequenceNumber, authenticated)
-            if (expectedMAC.length !== macLength || receivedMAC.length !== macLength) {
+            if (
+                expectedMAC.length !== authenticationLength ||
+                receivedMAC.length !== authenticationLength
+            ) {
                 throw new Error("SSH binary packet has an invalid MAC length")
             }
             if (!timingSafeEqual(expectedMAC, receivedMAC)) {
@@ -247,7 +339,10 @@ export class BinaryPacketDecoder {
 
             const receivedMAC = this.buffered.subarray(encryptedLength, totalLength)
             const expectedMAC = this.protection.mac.computeMAC(this.sequenceNumber, plaintext)
-            if (expectedMAC.length !== macLength || receivedMAC.length !== macLength) {
+            if (
+                expectedMAC.length !== authenticationLength ||
+                receivedMAC.length !== authenticationLength
+            ) {
                 throw new Error("SSH binary packet has an invalid MAC length")
             }
             if (!timingSafeEqual(expectedMAC, receivedMAC)) {

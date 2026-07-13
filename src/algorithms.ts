@@ -18,6 +18,8 @@ import {
 import AES128CTR from "./algorithms/encryption/aes128-ctr.js"
 import AES192CTR from "./algorithms/encryption/aes192-ctr.js"
 import AES256CTR from "./algorithms/encryption/aes256-ctr.js"
+import AES128GCMOpenSSH from "./algorithms/encryption/aes128-gcm-openssh.js"
+import AES256GCMOpenSSH from "./algorithms/encryption/aes256-gcm-openssh.js"
 
 import HMACSHA2256 from "./algorithms/mac/hmac-sha2-256.js"
 import HMACSHA2512 from "./algorithms/mac/hmac-sha2-512.js"
@@ -31,6 +33,7 @@ import ServerClient from "./ServerClient.js"
 import assert from "assert"
 import PublicKey from "./utils/PublicKey.js"
 import type { NegotiatedAlgorithms } from "./AlgorithmOptions.js"
+import type { InboundPacketProtection, OutboundPacketProtection } from "./BinaryPacket.js"
 
 export interface HostKeyAlgorithm {
     readonly alg_name: string
@@ -112,6 +115,8 @@ export abstract class EncryptionAlgorithm {
     static key_length: number
     static iv_length: number
     static block_size: number
+    static aead?: boolean
+    static auth_tag_length?: number
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     constructor(key: Buffer, iv: Buffer) {
@@ -132,8 +137,21 @@ export abstract class EncryptionAlgorithm {
     decrypt(ciphertext: Buffer): Buffer {
         throw new Error("Not implemented")
     }
+
+    encryptPacket?: (
+        plaintext: Buffer,
+        associatedData: Buffer,
+    ) => { ciphertext: Buffer; authenticationTag: Buffer }
+
+    decryptPacket?: (
+        ciphertext: Buffer,
+        associatedData: Buffer,
+        authenticationTag: Buffer,
+    ) => Buffer
 }
 export const encryption_algorithms = new Map<string, typeof EncryptionAlgorithm>([
+    ["aes256-gcm@openssh.com", AES256GCMOpenSSH],
+    ["aes128-gcm@openssh.com", AES128GCMOpenSSH],
     ["aes256-ctr", AES256CTR],
     ["aes192-ctr", AES192CTR],
     ["aes128-ctr", AES128CTR],
@@ -234,18 +252,22 @@ export function chooseAlgorithms(client: Client | ServerClient) {
     )
     assert(client.serverEncryptionAlgorithm, "No server to client encryption algorithm found")
 
-    client.clientMacAlgorithm = firstRegisteredMutual(
-        client.clientKexInit.data.mac_algorithms_client_to_server,
-        client.serverKexInit.data.mac_algorithms_client_to_server,
-        mac_algorithms,
-    )
-    assert(client.clientMacAlgorithm, "No client to server mac algorithm found")
-    client.serverMacAlgorithm = firstRegisteredMutual(
-        client.clientKexInit.data.mac_algorithms_server_to_client,
-        client.serverKexInit.data.mac_algorithms_server_to_client,
-        mac_algorithms,
-    )
-    assert(client.serverMacAlgorithm, "No server to client mac algorithm found")
+    if (!client.clientEncryptionAlgorithm.aead) {
+        client.clientMacAlgorithm = firstRegisteredMutual(
+            client.clientKexInit.data.mac_algorithms_client_to_server,
+            client.serverKexInit.data.mac_algorithms_client_to_server,
+            mac_algorithms,
+        )
+        assert(client.clientMacAlgorithm, "No client to server mac algorithm found")
+    }
+    if (!client.serverEncryptionAlgorithm.aead) {
+        client.serverMacAlgorithm = firstRegisteredMutual(
+            client.clientKexInit.data.mac_algorithms_server_to_client,
+            client.serverKexInit.data.mac_algorithms_server_to_client,
+            mac_algorithms,
+        )
+        assert(client.serverMacAlgorithm, "No server to client mac algorithm found")
+    }
 
     assert(
         client.clientKexInit.data.compression_algorithms_client_to_server.includes("none") &&
@@ -271,8 +293,14 @@ export function chooseAlgorithms(client: Client | ServerClient) {
         "Server to Client Encryption Algorithm chosen:",
         client.serverEncryptionAlgorithm.alg_name,
     )
-    client.debug("Client to Server MAC Algorithm chosen:", client.clientMacAlgorithm.alg_name)
-    client.debug("Server to Client MAC Algorithm chosen:", client.serverMacAlgorithm.alg_name)
+    client.debug(
+        "Client to Server MAC Algorithm chosen:",
+        client.clientMacAlgorithm?.alg_name ?? "<implicit>",
+    )
+    client.debug(
+        "Server to Client MAC Algorithm chosen:",
+        client.serverMacAlgorithm?.alg_name ?? "<implicit>",
+    )
 }
 
 export function describeNegotiatedAlgorithms(
@@ -282,24 +310,87 @@ export function describeNegotiatedAlgorithms(
     assert(client.hostKeyAlgorithm, "Host key algorithm not selected")
     assert(client.clientEncryptionAlgorithm, "Client cipher not selected")
     assert(client.serverEncryptionAlgorithm, "Server cipher not selected")
-    assert(client.clientMacAlgorithm, "Client MAC not selected")
-    assert(client.serverMacAlgorithm, "Server MAC not selected")
     return Object.freeze({
         kex: (client.kexAlgorithm.constructor as typeof KexAlgorithm).alg_name,
         srvHostKey: client.hostKeyAlgorithm.alg_name,
         cs: Object.freeze({
             cipher: client.clientEncryptionAlgorithm.alg_name,
-            mac: client.clientMacAlgorithm.alg_name,
+            mac: client.clientMacAlgorithm?.alg_name ?? "",
             compress: "none",
             lang: "",
         }),
         sc: Object.freeze({
             cipher: client.serverEncryptionAlgorithm.alg_name,
-            mac: client.serverMacAlgorithm.alg_name,
+            mac: client.serverMacAlgorithm?.alg_name ?? "",
             compress: "none",
             lang: "",
         }),
     })
+}
+
+export function createOutboundPacketProtection(
+    algorithm: typeof EncryptionAlgorithm,
+    cipher: EncryptionAlgorithm,
+    macAlgorithm: typeof MACAlgorithm | undefined,
+    mac: MACAlgorithm | undefined,
+): OutboundPacketProtection {
+    if (algorithm.aead) {
+        assert(cipher.encryptPacket, "AEAD cipher does not implement packet encryption")
+        const authTagLength = validateAEADAlgorithm(algorithm)
+        return {
+            aead: true,
+            cipher: { encryptPacket: cipher.encryptPacket.bind(cipher) },
+            blockSize: algorithm.block_size,
+            authTagLength,
+        }
+    }
+    assert(macAlgorithm, "MAC algorithm not selected for non-AEAD cipher")
+    assert(mac, "MAC not initialized for non-AEAD cipher")
+    return {
+        cipher,
+        mac,
+        blockSize: algorithm.block_size,
+        macLength: macAlgorithm.digest_length,
+        encryptThenMac: macAlgorithm.encrypt_then_mac,
+    }
+}
+
+export function createInboundPacketProtection(
+    algorithm: typeof EncryptionAlgorithm,
+    cipher: EncryptionAlgorithm,
+    macAlgorithm: typeof MACAlgorithm | undefined,
+    mac: MACAlgorithm | undefined,
+): InboundPacketProtection {
+    if (algorithm.aead) {
+        assert(cipher.decryptPacket, "AEAD cipher does not implement packet decryption")
+        const authTagLength = validateAEADAlgorithm(algorithm)
+        return {
+            aead: true,
+            cipher: { decryptPacket: cipher.decryptPacket.bind(cipher) },
+            blockSize: algorithm.block_size,
+            authTagLength,
+        }
+    }
+    assert(macAlgorithm, "MAC algorithm not selected for non-AEAD cipher")
+    assert(mac, "MAC not initialized for non-AEAD cipher")
+    return {
+        cipher,
+        mac,
+        blockSize: algorithm.block_size,
+        macLength: macAlgorithm.digest_length,
+        encryptThenMac: macAlgorithm.encrypt_then_mac,
+    }
+}
+
+function validateAEADAlgorithm(algorithm: typeof EncryptionAlgorithm): number {
+    const authTagLength = algorithm.auth_tag_length
+    assert(
+        Number.isSafeInteger(authTagLength) &&
+            typeof authTagLength === "number" &&
+            authTagLength > 0,
+        "AEAD cipher has an invalid authentication tag length",
+    )
+    return authTagLength
 }
 
 function firstRegisteredMutual<T>(

@@ -85,6 +85,29 @@ describe("RFC 4253 algorithm negotiation", () => {
         expect(client.serverMacAlgorithm?.alg_name).toBe("hmac-sha2-256")
     })
 
+    test("treats the MAC as implicit when AES-GCM is negotiated", () => {
+        const client = new Client({ hostname: "unused.invalid" })
+        client.clientKexInit = offer({
+            encryption_algorithms_client_to_server: ["aes128-gcm@openssh.com"],
+            encryption_algorithms_server_to_client: ["aes256-gcm@openssh.com"],
+            mac_algorithms_client_to_server: ["client-only-mac@example.test"],
+            mac_algorithms_server_to_client: ["client-only-mac@example.test"],
+        })
+        client.serverKexInit = offer({
+            encryption_algorithms_client_to_server: ["aes128-gcm@openssh.com"],
+            encryption_algorithms_server_to_client: ["aes256-gcm@openssh.com"],
+            mac_algorithms_client_to_server: ["server-only-mac@example.test"],
+            mac_algorithms_server_to_client: ["server-only-mac@example.test"],
+        })
+
+        chooseAlgorithms(client)
+
+        expect(client.clientEncryptionAlgorithm?.alg_name).toBe("aes128-gcm@openssh.com")
+        expect(client.serverEncryptionAlgorithm?.alg_name).toBe("aes256-gcm@openssh.com")
+        expect(client.clientMacAlgorithm).toBeUndefined()
+        expect(client.serverMacAlgorithm).toBeUndefined()
+    })
+
     test("clears a prior selection before rejecting a later exchange with no overlap", () => {
         const client = new Client({ hostname: "unused.invalid" })
         client.clientKexInit = offer({})

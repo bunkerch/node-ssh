@@ -125,6 +125,10 @@ meaningful wire-level behavior.
   and uses the full digest. OpenSSH ETM leaves the packet length clear, encrypts the packet body,
   authenticates sequence number plus clear length plus ciphertext, and must verify the tag before
   decrypting. Keep ETM padding aligned to the encrypted body rather than the clear length.
+- RFC 5647 AES-GCM leaves the four-byte packet length clear as authenticated data, encrypts the
+  block-aligned body, appends the full 16-byte tag, and uses no separate MAC key. Treat the IV's
+  trailing eight bytes as a per-packet invocation counter, never permit it to wrap, and validate
+  with authoritative primitive vectors plus OpenSSH in both roles across rekey.
 - RFC 8332 RSA SHA-2 keeps the serialized public-key format as `ssh-rsa` while negotiating and
   encoding `rsa-sha2-256` or `rsa-sha2-512` signatures. Advertise user-auth signature support with
   RFC 8308 `server-sig-algs`, and validate both host and user signatures against OpenSSH.

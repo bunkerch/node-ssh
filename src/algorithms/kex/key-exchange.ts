@@ -40,8 +40,8 @@ export default abstract class KeyExchange implements KexAlgorithm {
             client.serverEncryptionAlgorithm!.iv_length,
             client.clientEncryptionAlgorithm!.key_length,
             client.serverEncryptionAlgorithm!.key_length,
-            client.clientMacAlgorithm!.key_length,
-            client.serverMacAlgorithm!.key_length,
+            client.clientMacAlgorithm?.key_length ?? 0,
+            client.serverMacAlgorithm?.key_length ?? 0,
         ])
         client.ivClientToServer = ivClientToServer
         client.ivServerToClient = ivServerToClient

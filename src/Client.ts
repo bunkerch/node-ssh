@@ -19,6 +19,8 @@ import {
     KexAlgorithm,
     MACAlgorithm,
     chooseAlgorithms,
+    createInboundPacketProtection,
+    createOutboundPacketProtection,
     describeNegotiatedAlgorithms,
     encryption_algorithms,
     host_key_algorithms,
@@ -987,19 +989,20 @@ export default class Client extends EventEmitter<ClientEvents> {
                 this.encryptionKeyServerToClient!,
                 this.ivServerToClient!,
             )
-            this.clientMac = this.clientMacAlgorithm!.instantiate(this.integrityKeyClientToServer!)
-            this.serverMac = this.serverMacAlgorithm!.instantiate(this.integrityKeyServerToClient!)
+            this.clientMac = this.clientMacAlgorithm?.instantiate(this.integrityKeyClientToServer!)
+            this.serverMac = this.serverMacAlgorithm?.instantiate(this.integrityKeyServerToClient!)
             this.resumePacketProcessing()
 
             this.sendPacket(new NewKeys({}))
             this.hasSentNewKeys = true
-            this.packetEncoder.setProtection({
-                cipher: this.clientEncryption,
-                mac: this.clientMac,
-                blockSize: this.clientEncryptionAlgorithm!.block_size,
-                macLength: this.clientMacAlgorithm!.digest_length,
-                encryptThenMac: this.clientMacAlgorithm!.encrypt_then_mac,
-            })
+            this.packetEncoder.setProtection(
+                createOutboundPacketProtection(
+                    this.clientEncryptionAlgorithm!,
+                    this.clientEncryption,
+                    this.clientMacAlgorithm,
+                    this.clientMac,
+                ),
+            )
             while (this.packetsQueuedDuringKeyExchange.length > 0) {
                 this.writePacket(this.packetsQueuedDuringKeyExchange.shift()!)
             }
@@ -1525,13 +1528,14 @@ export default class Client extends EventEmitter<ClientEvents> {
 
             case PacketNameToType.SSH_MSG_NEWKEYS:
                 this.hasReceivedNewKeys = true
-                this.packetDecoder.setProtection({
-                    cipher: this.serverEncryption!,
-                    mac: this.serverMac!,
-                    blockSize: this.serverEncryptionAlgorithm!.block_size,
-                    macLength: this.serverMacAlgorithm!.digest_length,
-                    encryptThenMac: this.serverMacAlgorithm!.encrypt_then_mac,
-                })
+                this.packetDecoder.setProtection(
+                    createInboundPacketProtection(
+                        this.serverEncryptionAlgorithm!,
+                        this.serverEncryption!,
+                        this.serverMacAlgorithm,
+                        this.serverMac,
+                    ),
+                )
                 this.emit("serverNewKeys")
                 break
 

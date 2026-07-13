@@ -44,8 +44,9 @@ Malformed identification input terminates processing through the connection's no
 After identification, both sides use the binary packet format from RFC 4253 section 6. The shared
 transport codec handles arbitrary TCP fragmentation and multiple packets in one read. It generates
 at least four random padding bytes, enforces cipher-block alignment, maintains the 32-bit packet
-sequence number, encrypts the complete packet, and authenticates the plaintext packet with the
-negotiated MAC.
+sequence number, and applies the negotiated packet protection. Conventional ciphers encrypt the
+complete packet and authenticate its plaintext with the negotiated MAC. Encrypt-then-MAC and AEAD
+ciphers use their separately documented layouts.
 
 Inbound framing is validated before the decoder waits for the claimed packet body. Packets with
 invalid padding, empty payloads, incorrect block alignment, invalid MACs, or total sizes above
@@ -60,10 +61,11 @@ yields between coalesced messages so the key-exchange state machine can derive a
 before decoding the next protected packet from the same TCP read.
 
 Algorithm negotiation follows the client's name-list preference order independently for key
-exchange, host keys, both cipher directions, and both MAC directions. Every exchange clears prior
-selections before matching, so a rekey with no mutual algorithm fails rather than retaining stale
-transport state. The currently supported compression method is `none`, and both directions must
-negotiate it explicitly.
+exchange, host keys, and both transport directions. Non-AEAD ciphers also negotiate each MAC
+direction independently; AES-GCM supplies integrity itself and therefore reports an empty MAC name.
+Every exchange clears prior selections before matching, so a rekey with no mutual algorithm fails
+rather than retaining stale transport state. The currently supported compression method is `none`,
+and both directions must negotiate it explicitly.
 
 The default key-exchange preference starts with the RFC 8731 `curve25519-sha256` method and its
 wire-equivalent deployed alias `curve25519-sha256@libssh.org`, the RFC 5656
@@ -81,6 +83,13 @@ by the plaintext packet. The OpenSSH `hmac-sha2-256-etm@openssh.com`,
 four-byte packet length unencrypted, encrypt the remaining packet body, and authenticate the
 sequence number followed by that header and ciphertext. Inbound ETM verifies the tag before any
 ciphertext is decrypted.
+
+The `aes128-gcm@openssh.com` and `aes256-gcm@openssh.com` AEAD ciphers use the RFC 5647 AES-GCM
+packet construction. The four-byte packet length is clear authenticated data; the padding length,
+payload, and random padding are encrypted; and the complete 16-byte authentication tag terminates
+the packet. Each direction derives a 12-byte IV consisting of a four-byte fixed field and an
+eight-byte invocation counter that advances once per packet and must never wrap. No separate MAC
+algorithm or integrity key is used, and inbound plaintext is not accepted until its tag verifies.
 
 RSA host keys support the RFC 8332 `rsa-sha2-512` and `rsa-sha2-256` algorithms. The negotiated
 algorithm selects the SHA-2 signature while the serialized public key remains `ssh-rsa`, preserving
@@ -129,8 +138,9 @@ await serverConnection.rekey()
 
 Both methods also have callback overloads and emit `rekey` after the new inbound
 and outbound protection is active. A re-exchange generates a fresh ephemeral key pair,
-exchange hash, IVs, encryption keys, and MAC keys. The session identifier remains the exchange hash
-from the first key exchange, as required for authentication identity continuity.
+exchange hash, IVs, encryption keys, and any separately required MAC keys. The session identifier
+remains the exchange hash from the first key exchange, as required for authentication identity
+continuity.
 
 Once either side sends `SSH_MSG_KEXINIT`, outbound service and application packets are queued until
 that side has sent `SSH_MSG_NEWKEYS`; transport and KEX packets remain permitted. Packets already in
