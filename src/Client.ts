@@ -44,6 +44,8 @@ import {
 } from "./algorithms/kex/diffie-hellman-group-exchange.js"
 import EncodedSignature from "./utils/Signature.js"
 import ExtInfo from "./packets/ExtInfo.js"
+import Ping from "./packets/Ping.js"
+import Pong from "./packets/Pong.js"
 import PublicKey from "./utils/PublicKey.js"
 import { Hooker } from "./utils/Hooker.js"
 import NewKeys from "./packets/NewKeys.js"
@@ -273,6 +275,7 @@ export type ClientSFTPCallback = (error: Error | undefined, sftp?: SFTPClient) =
 export type ClientForwardCallback = ClientChannelCallback<ClientTCPIPChannel>
 export type ClientForwardInCallback = (error: Error | undefined, port?: number) => void
 export type ClientStreamLocalCallback = ClientChannelCallback<ClientDirectStreamLocalChannel>
+export type ClientPingCallback = (error: Error | undefined, data?: Buffer) => void
 export type ClientEnvironment = Readonly<Record<string, string>>
 export interface ClientSessionOptions {
     agentForward?: boolean
@@ -289,6 +292,12 @@ export class GlobalRequestError extends Error {
 interface PendingGlobalRequest {
     name: string
     resolve: (args: Buffer) => void
+    reject: (error: Error) => void
+}
+
+interface PendingPing {
+    data: Buffer
+    resolve: (data: Buffer) => void
     reject: (error: Error) => void
 }
 
@@ -449,6 +458,8 @@ export default class Client extends EventEmitter<ClientEvents> {
     localChannelIndex = 0
     channels = new Map<number, ClientChannel>()
     private readonly pendingGlobalRequests: PendingGlobalRequest[] = []
+    private readonly pendingPings: PendingPing[] = []
+    private transportPingSupported = false
     private readonly remoteForwardings = new Map<string, RemoteForwarding>()
     private readonly remoteStreamLocalForwardings = new Set<string>()
     private readonly x11Forwardings = new Map<number, { single: boolean }>()
@@ -515,6 +526,44 @@ export default class Client extends EventEmitter<ClientEvents> {
         if (!callback) return operation
         operation.then(
             () => callback(),
+            (error: Error) => callback(error),
+        )
+        return this
+    }
+
+    ping(data?: Buffer): Promise<Buffer>
+    ping(callback: ClientPingCallback): this
+    ping(data: Buffer, callback: ClientPingCallback): this
+    ping(
+        dataOrCallback: Buffer | ClientPingCallback = Buffer.alloc(0),
+        callback?: ClientPingCallback,
+    ): Promise<Buffer> | this {
+        const data = typeof dataOrCallback === "function" ? Buffer.alloc(0) : dataOrCallback
+        callback = typeof dataOrCallback === "function" ? dataOrCallback : callback
+        let operation: Promise<Buffer>
+        if (!this.isConnected) {
+            operation = Promise.reject(new Error("Cannot ping before the SSH connection is ready"))
+        } else if (!this.transportPingSupported) {
+            operation = Promise.reject(
+                new Error("SSH server did not advertise transport ping support"),
+            )
+        } else if (!Buffer.isBuffer(data)) {
+            operation = Promise.reject(new TypeError("SSH transport ping data must be a buffer"))
+        } else {
+            const sent = Buffer.from(data)
+            operation = new Promise<Buffer>((resolve, reject) => {
+                this.pendingPings.push({ data: sent, resolve, reject })
+                try {
+                    this.sendPacket(new Ping({ data: sent }))
+                } catch (error) {
+                    this.pendingPings.pop()
+                    reject(error as Error)
+                }
+            })
+        }
+        if (!callback) return operation
+        operation.then(
+            (reply) => callback(undefined, reply),
             (error: Error) => callback(error),
         )
         return this
@@ -1223,6 +1272,11 @@ export default class Client extends EventEmitter<ClientEvents> {
                         new Error(`SSH connection closed during global request ${request.name}`),
                     )
                 }
+                while (this.pendingPings.length > 0) {
+                    this.pendingPings
+                        .shift()!
+                        .reject(new Error("SSH connection closed during transport ping"))
+                }
                 this.remoteForwardings.clear()
                 this.remoteStreamLocalForwardings.clear()
                 this.x11Forwardings.clear()
@@ -1451,6 +1505,8 @@ export default class Client extends EventEmitter<ClientEvents> {
         if (
             this.keyExchangeInProgress &&
             (type >= 50 ||
+                type === PacketNameToType.SSH_MSG_PING ||
+                type === PacketNameToType.SSH_MSG_PONG ||
                 type === PacketNameToType.SSH_MSG_SERVICE_REQUEST ||
                 type === PacketNameToType.SSH_MSG_SERVICE_ACCEPT)
         ) {
@@ -1621,6 +1677,31 @@ export default class Client extends EventEmitter<ClientEvents> {
                             .filter((name) => name.length > 0),
                     )
                 }
+                const ping = (p as ExtInfo).data.extensions.find(
+                    ({ name }) => name === "ping@openssh.com",
+                )
+                if (ping?.value.equals(Buffer.from("0", "ascii"))) {
+                    this.transportPingSupported = true
+                }
+                break
+            }
+
+            case PacketNameToType.SSH_MSG_PING: {
+                const ping = p as Ping
+                this.sendPacket(new Pong({ data: ping.data.data }))
+                break
+            }
+
+            case PacketNameToType.SSH_MSG_PONG: {
+                const pong = p as Pong
+                const pending = this.pendingPings.shift()
+                if (!pending) break
+                if (!pong.data.data.equals(pending.data)) {
+                    const error = new Error("SSH transport pong did not echo the ping data")
+                    pending.reject(error)
+                    throw error
+                }
+                pending.resolve(Buffer.from(pong.data.data))
                 break
             }
 

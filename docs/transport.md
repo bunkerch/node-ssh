@@ -142,6 +142,13 @@ and duplicate KEX messages during the initial exchange, and resets each directio
 packet sequence immediately after every NEWKEYS. These checks prevent unauthenticated transport
 messages from changing sequence state that survives into the protected connection.
 
+The server advertises version `0` of `ping@openssh.com` in its initial RFC 8308 extension message.
+Transport PING and PONG use opcodes 192 and 193 and carry one opaque SSH string; the response must
+copy that string exactly. Client `ping()` calls are matched in FIFO order, reject mismatched data,
+and are available only after the advertisement is received. Pings and replies created during a
+rekey are queued until NEWKEYS completes, while server replies otherwise require no application
+event handler.
+
 ECDSA host keys support all three curves required by RFC 5656: `ecdsa-sha2-nistp256`,
 `ecdsa-sha2-nistp384`, and `ecdsa-sha2-nistp521`. Received SEC1 points are validated before use,
 their original encoding remains part of the serialized key and fingerprint, and ECDSA `r` and `s`

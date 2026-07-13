@@ -130,6 +130,24 @@ describe("client/server integration", () => {
         try {
             await client.connect()
 
+            expect(
+                await Promise.all([
+                    client.ping(Buffer.from("first-ping")),
+                    client.ping(Buffer.from("second-ping")),
+                ]),
+            ).toEqual([Buffer.from("first-ping"), Buffer.from("second-ping")])
+            await new Promise<void>((resolve, reject) => {
+                expect(
+                    client.ping(Buffer.from("callback-ping"), (error, reply) => {
+                        if (error) reject(error)
+                        else {
+                            expect(reply).toEqual(Buffer.from("callback-ping"))
+                            resolve()
+                        }
+                    }),
+                ).toBe(client)
+            })
+
             expect(client.hasAuthenticated).toBe(true)
             expect(client.isConnected).toBe(true)
             expect(client.setNoDelay()).toBe(client)
@@ -183,8 +201,10 @@ describe("client/server integration", () => {
             const initialServerExchangeHash = Buffer.from(serverPeer!.H!)
 
             const clientRekey = client.rekey()
+            const pingDuringRekey = client.ping(Buffer.from("queued-during-rekey"))
             const sessionDuringRekey = client.openSession()
             await clientRekey
+            expect(await pingDuringRekey).toEqual(Buffer.from("queued-during-rekey"))
             const existingSession = await sessionDuringRekey
             expect(clientRekeys).toBe(1)
             expect(serverRekeys).toBe(1)

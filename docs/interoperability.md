@@ -68,6 +68,11 @@ each packet boundary. They prove dictionary continuity across packets, exact pay
 malformed-stream rejection, and bounded expansion. In-process peers exercise both immediate `zlib`
 and delayed `zlib@openssh.com` through multi-packet bidirectional transfers and rekeying.
 
+Transport ping coverage uses fixed opcode 192/193 packet vectors and exercises concurrent ordered
+echoes plus a ping queued across rekey against the in-process server. The pinned OpenSSH fixture
+predates `ping@openssh.com`; the client verifies that absence of its RFC 8308 advertisement rejects
+the API call before any extension packet is sent.
+
 The agent suite sends fixed RFC 9987 identity-list and signing frames through fragmented UNIX-socket
 reads. A separate integration test starts the system OpenSSH `ssh-agent`, loads an independently
 generated Ed25519 key with `ssh-add`, lists it through `modernssh`, and verifies a delegated

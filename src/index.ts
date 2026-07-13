@@ -15,6 +15,7 @@ export type {
     ClientHookerPasswordChangeContext,
     ClientHookerPasswordChangeController,
     ClientOptions,
+    ClientPingCallback,
     ClientSessionOptions,
     ClientSFTPCallback,
     ClientSessionCallback,

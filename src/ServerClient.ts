@@ -57,6 +57,8 @@ import KexDHGexRequestOld from "./packets/KexDHGexRequestOld.js"
 import { DiffieHellmanGroupExchange } from "./algorithms/kex/diffie-hellman-group-exchange.js"
 import NewKeys from "./packets/NewKeys.js"
 import ExtInfo from "./packets/ExtInfo.js"
+import Ping from "./packets/Ping.js"
+import Pong from "./packets/Pong.js"
 import { KeyExchangeError } from "./algorithms/kex/key-exchange.js"
 import ServiceRequest from "./packets/ServiceRequest.js"
 import ServiceAccept from "./packets/ServiceAccept.js"
@@ -529,6 +531,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                                     "ascii",
                                 ),
                             },
+                            { name: "ping@openssh.com", value: Buffer.from("0", "ascii") },
                         ],
                     }),
                 )
@@ -1474,6 +1477,8 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         if (
             this.keyExchangeInProgress &&
             (type >= 50 ||
+                type === PacketNameToType.SSH_MSG_PING ||
+                type === PacketNameToType.SSH_MSG_PONG ||
                 type === PacketNameToType.SSH_MSG_SERVICE_REQUEST ||
                 type === PacketNameToType.SSH_MSG_SERVICE_ACCEPT)
         ) {
@@ -1630,6 +1635,15 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 this.debug(`Received debug packet:`, [debug.data.message])
                 break
             }
+
+            case PacketNameToType.SSH_MSG_PING: {
+                const ping = p as Ping
+                this.sendPacket(new Pong({ data: ping.data.data }))
+                break
+            }
+
+            case PacketNameToType.SSH_MSG_PONG:
+                break
 
             case PacketNameToType.SSH_MSG_KEXINIT:
                 if (this.state === SocketState.Connected && !this.keyExchangeInProgress) {

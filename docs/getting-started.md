@@ -87,6 +87,17 @@ liveness response. The client emits an `SSH keepalive timeout` error and destroy
 after more than `keepaliveCountMax` consecutive probes go unanswered. The timer does not keep the
 Node.js process alive; the options default to `0` (disabled) and `3`, respectively.
 
+Servers that advertise the `ping@openssh.com` transport extension may also be probed directly.
+`ping()` echoes opaque bytes. Calls made during rekey are queued until the exchange finishes, and
+concurrent replies retain request order.
+
+```ts
+const reply = await client.ping(Buffer.from("health-check"))
+```
+
+The method rejects without sending a vendor packet when the server did not advertise version `0`
+of the extension. This is separate from the periodic `keepaliveInterval` global request above.
+
 ## Connection hopping
 
 Pass an already-connected Node `Duplex` as `sock` to run SSH over an application-owned transport.

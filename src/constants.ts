@@ -50,6 +50,9 @@ export const PacketNameToType = {
     SSH_MSG_CHANNEL_REQUEST: 98,
     SSH_MSG_CHANNEL_SUCCESS: 99,
     SSH_MSG_CHANNEL_FAILURE: 100,
+
+    SSH_MSG_PING: 192,
+    SSH_MSG_PONG: 193,
 } as const
 export const PacketTypeToName = Object.fromEntries(
     Object.entries(PacketNameToType).map(([key, value]) => [value, key]),

@@ -22,6 +22,8 @@ import KexDHGexReply from "./packets/KexDHGexReply.js"
 import KexDHGexRequest from "./packets/KexDHGexRequest.js"
 import KexInit from "./packets/KexInit.js"
 import NewKeys from "./packets/NewKeys.js"
+import Ping from "./packets/Ping.js"
+import Pong from "./packets/Pong.js"
 import RequestFailure from "./packets/RequestFailure.js"
 import RequestSuccess from "./packets/RequestSuccess.js"
 import ServiceAccept from "./packets/ServiceAccept.js"
@@ -103,6 +105,9 @@ export const packets = {
     SSH_MSG_CHANNEL_REQUEST: ChannelRequest,
     SSH_MSG_CHANNEL_SUCCESS: ChannelSuccess,
     SSH_MSG_CHANNEL_FAILURE: ChannelFailure,
+
+    SSH_MSG_PING: Ping,
+    SSH_MSG_PONG: Pong,
 } as const
 ;({}) as unknown as keyof typeof packets satisfies PacketName
 ;({}) as unknown as ValueOf<typeof packets> satisfies typeof Packet

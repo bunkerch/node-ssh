@@ -93,6 +93,10 @@ meaningful wire-level behavior.
 - SSH keepalives use reply-requesting `keepalive@openssh.com` global requests. Count both success
   and failure as liveness, bound consecutive unanswered requests, unref timers, and clear them on
   every connection shutdown path.
+- Transport ping uses negotiated `ping@openssh.com` version 0 and opcodes 192/193 with an opaque
+  echoed string. Never send it without the RFC 8308 advertisement, preserve FIFO reply ordering,
+  reject mismatched echoes, settle pending calls on close, and queue pings and pongs across rekey.
+  Cover its codec with literal vectors and keep older OpenSSH peers as a negative negotiation case.
 - Client readiness deadlines cover TCP connection, identification, key exchange, and
   authentication, including supplied duplex transports. Clear the timer on authentication and
   every terminal path; test expiry against a real silent TCP peer rather than a mocked transport.
