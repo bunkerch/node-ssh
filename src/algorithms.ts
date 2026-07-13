@@ -115,9 +115,12 @@ export function chooseAlgorithms(client: Client | ServerClient) {
     assert(client.serverKexInit, "Server KexInit not set")
     client.debug("Choosing algorithms...")
 
-    // TODO: I feel like client code could be cleaned a bit...
-    // I tried to follow the spec word by word.
-    // https://datatracker.ietf.org/doc/html/rfc4253#section-7.1
+    client.kexAlgorithm = undefined
+    client.hostKeyAlgorithm = undefined
+    client.clientEncryptionAlgorithm = undefined
+    client.serverEncryptionAlgorithm = undefined
+    client.clientMacAlgorithm = undefined
+    client.serverMacAlgorithm = undefined
 
     const server_host_key_algorithms: (typeof PublicKeyAlgoritm)[] = []
     for (const alg of client.serverKexInit.data.server_host_key_algorithms) {
@@ -135,19 +138,11 @@ export function chooseAlgorithms(client: Client | ServerClient) {
         host_key_algorithms.push(algorithm)
     }
 
-    if (
-        client.clientKexInit.data.kex_algorithms[0] == client.serverKexInit.data.kex_algorithms[0]
-    ) {
-        client.debug(
-            "Key Exchange Algorithm guessed right:",
-            client.clientKexInit.data.kex_algorithms[0],
-        )
-
-        const algorithm = kex_algorithms.get(client.clientKexInit.data.kex_algorithms[0])!
-        assert(algorithm, "Invalid key exchange algorithm")
-        client.kexAlgorithm = algorithm.instantiate()
-
-        const host_key_algorithm = host_key_algorithms.find((alg) => {
+    for (const name of client.clientKexInit.data.kex_algorithms) {
+        if (!client.serverKexInit.data.kex_algorithms.includes(name)) continue
+        const algorithm = kex_algorithms.get(name)
+        if (!algorithm) continue
+        const hostKeyAlgorithm = host_key_algorithms.find((alg) => {
             if (algorithm.requires_encryption && !alg.has_encryption) {
                 return false
             }
@@ -156,95 +151,50 @@ export function chooseAlgorithms(client: Client | ServerClient) {
             }
             return true
         })
-        assert(host_key_algorithm, "No compatible host key algorithm found")
-        client.hostKeyAlgorithm = host_key_algorithm
-    } else {
-        for (const alg of client.clientKexInit.data.kex_algorithms) {
-            if (!client.serverKexInit.data.kex_algorithms.includes(alg)) {
-                continue
-            }
-            const algorithm = kex_algorithms.get(alg)!
-            // client is the client algorithms
-            // we shouldn't have put an algorithm we don't support
-            // assert is fine, it means we have a bug if it throws
-            assert(algorithm, "Invalid key exchange algorithm")
-
-            // need a compatible host key to provide encryption and signature if needed
-            const host_key_algorithm = host_key_algorithms.find((alg) => {
-                if (algorithm.requires_encryption && !alg.has_encryption) {
-                    return false
-                }
-                if (algorithm.requires_signature && !alg.has_signature) {
-                    return false
-                }
-                return true
-            })
-            if (!host_key_algorithm) {
-                continue
-            }
-
-            client.kexAlgorithm = algorithm.instantiate()
-            client.hostKeyAlgorithm = host_key_algorithm
-            break
-        }
-        assert(client.kexAlgorithm, "No key exchange algorithm found")
-        assert(client.hostKeyAlgorithm, "No host key algorithm found")
+        if (!hostKeyAlgorithm) continue
+        client.kexAlgorithm = algorithm.instantiate()
+        client.hostKeyAlgorithm = hostKeyAlgorithm
+        break
     }
+    assert(client.kexAlgorithm, "No key exchange algorithm found")
+    assert(client.hostKeyAlgorithm, "No host key algorithm found")
 
-    // TODO: Figure out why this needs a reverse
-    // I will rewrite this to be cleaner later.
-    for (const alg of [
-        ...client.clientKexInit.data.encryption_algorithms_client_to_server,
-    ].reverse()) {
-        if (!client.serverKexInit.data.encryption_algorithms_client_to_server.includes(alg)) {
-            continue
-        }
-
-        const algorithm = encryption_algorithms.get(alg)!
-        assert(algorithm, "Invalid encryption algorithm")
-
-        client.clientEncryptionAlgorithm = algorithm
-    }
+    client.clientEncryptionAlgorithm = firstRegisteredMutual(
+        client.clientKexInit.data.encryption_algorithms_client_to_server,
+        client.serverKexInit.data.encryption_algorithms_client_to_server,
+        encryption_algorithms,
+    )
     assert(client.clientEncryptionAlgorithm, "No client to server encryption algorithm found")
-    for (const alg of [
-        ...client.clientKexInit.data.encryption_algorithms_server_to_client,
-    ].reverse()) {
-        if (!client.serverKexInit.data.encryption_algorithms_server_to_client.includes(alg)) {
-            continue
-        }
-
-        const algorithm = encryption_algorithms.get(alg)!
-        assert(algorithm, "Invalid encryption algorithm")
-
-        client.serverEncryptionAlgorithm = algorithm
-    }
+    client.serverEncryptionAlgorithm = firstRegisteredMutual(
+        client.clientKexInit.data.encryption_algorithms_server_to_client,
+        client.serverKexInit.data.encryption_algorithms_server_to_client,
+        encryption_algorithms,
+    )
     assert(client.serverEncryptionAlgorithm, "No server to client encryption algorithm found")
 
-    for (const alg of [...client.clientKexInit.data.mac_algorithms_client_to_server].reverse()) {
-        if (!client.serverKexInit.data.mac_algorithms_client_to_server.includes(alg)) {
-            continue
-        }
-
-        const algorithm = mac_algorithms.get(alg)!
-        assert(algorithm, "Invalid mac algorithm")
-
-        client.clientMacAlgorithm = algorithm
-    }
+    client.clientMacAlgorithm = firstRegisteredMutual(
+        client.clientKexInit.data.mac_algorithms_client_to_server,
+        client.serverKexInit.data.mac_algorithms_client_to_server,
+        mac_algorithms,
+    )
     assert(client.clientMacAlgorithm, "No client to server mac algorithm found")
-    for (const alg of [...client.clientKexInit.data.mac_algorithms_server_to_client].reverse()) {
-        if (!client.serverKexInit.data.mac_algorithms_server_to_client.includes(alg)) {
-            continue
-        }
-
-        const algorithm = mac_algorithms.get(alg)!
-        assert(algorithm, "Invalid mac algorithm")
-
-        client.serverMacAlgorithm = algorithm
-    }
+    client.serverMacAlgorithm = firstRegisteredMutual(
+        client.clientKexInit.data.mac_algorithms_server_to_client,
+        client.serverKexInit.data.mac_algorithms_server_to_client,
+        mac_algorithms,
+    )
     assert(client.serverMacAlgorithm, "No server to client mac algorithm found")
 
-    // TODO: Implement languages (?)
-    // TODO: Implement compression
+    assert(
+        client.clientKexInit.data.compression_algorithms_client_to_server.includes("none") &&
+            client.serverKexInit.data.compression_algorithms_client_to_server.includes("none"),
+        "No supported client to server compression algorithm found",
+    )
+    assert(
+        client.clientKexInit.data.compression_algorithms_server_to_client.includes("none") &&
+            client.serverKexInit.data.compression_algorithms_server_to_client.includes("none"),
+        "No supported server to client compression algorithm found",
+    )
 
     client.debug(
         "Key Exchange Algorithm chosen:",
@@ -261,4 +211,17 @@ export function chooseAlgorithms(client: Client | ServerClient) {
     )
     client.debug("Client to Server MAC Algorithm chosen:", client.clientMacAlgorithm.alg_name)
     client.debug("Server to Client MAC Algorithm chosen:", client.serverMacAlgorithm.alg_name)
+}
+
+function firstRegisteredMutual<T>(
+    preferred: readonly string[],
+    offered: readonly string[],
+    registry: ReadonlyMap<string, T>,
+): T | undefined {
+    for (const name of preferred) {
+        if (!offered.includes(name)) continue
+        const algorithm = registry.get(name)
+        if (algorithm) return algorithm
+    }
+    return undefined
 }

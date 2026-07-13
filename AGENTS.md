@@ -103,6 +103,9 @@ behavior.
   new transport keys from the current exchange hash. Queue application output after sending
   `KEXINIT`, switch each direction exactly at its own `NEWKEYS`, preserve sequence numbers and open
   channels, and test both initiator roles against OpenSSH.
+- RFC 4253 algorithm negotiation follows the client's name-list order independently for every
+  category and direction. Clear all prior selections before each exchange, reject missing overlap
+  instead of retaining rekey state, and validate supported compression explicitly.
 - High-level session helpers must issue setup requests before the program request: agent forwarding,
   environment, PTY, X11, then exec/shell/subsystem. Treat automatic environment requests as
   best-effort without replies, but require replies for security- or terminal-sensitive setup.

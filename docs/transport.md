@@ -59,6 +59,12 @@ receiver protects packets immediately after receiving its peer's `NEWKEYS`. Pack
 yields between coalesced messages so the key-exchange state machine can derive and install keys
 before decoding the next protected packet from the same TCP read.
 
+Algorithm negotiation follows the client's name-list preference order independently for key
+exchange, host keys, both cipher directions, and both MAC directions. Every exchange clears prior
+selections before matching, so a rekey with no mutual algorithm fails rather than retaining stale
+transport state. The currently supported compression method is `none`, and both directions must
+negotiate it explicitly.
+
 ## Key re-exchange
 
 Clients and accepted server connections support RFC 4253 section 9 key re-exchange. Either peer may
