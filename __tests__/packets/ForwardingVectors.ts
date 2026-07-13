@@ -1,5 +1,7 @@
 import ClientForwardedTCPIPChannel from "../../src/channels/ClientForwardedTCPIPChannel.js"
 import ChannelOpen from "../../src/packets/ChannelOpen.js"
+import ChannelOpenConfirmation from "../../src/packets/ChannelOpenConfirmation.js"
+import ChannelOpenFailure from "../../src/packets/ChannelOpenFailure.js"
 import GlobalRequest from "../../src/packets/GlobalRequest.js"
 import RequestFailure from "../../src/packets/RequestFailure.js"
 import RequestSuccess from "../../src/packets/RequestSuccess.js"
@@ -59,5 +61,26 @@ describe("RFC 4254 TCP forwarding packet vectors", () => {
             sourcePort: 12_345,
         })
         expect(packet.serialize()).toEqual(raw)
+    })
+
+    test("round-trips fixed forwarded channel confirmation and rejection packets", () => {
+        const confirmation = vector("5b 0000000b 0000002a 00200000 00008000")
+        const rejection = vector("5c 0000000b 00000001 00000006 64656e696564 00000000")
+
+        expect(ChannelOpenConfirmation.parse(confirmation).data).toEqual({
+            recipient_channel_id: 11,
+            sender_channel_id: 42,
+            initial_window_size: 2_097_152,
+            maximum_packet_size: 32_768,
+            args: Buffer.alloc(0),
+        })
+        expect(ChannelOpenConfirmation.parse(confirmation).serialize()).toEqual(confirmation)
+        expect(ChannelOpenFailure.parse(rejection).data).toEqual({
+            recipient_channel_id: 11,
+            reason_code: 1,
+            description: "denied",
+            language_tag: "",
+        })
+        expect(ChannelOpenFailure.parse(rejection).serialize()).toEqual(rejection)
     })
 })

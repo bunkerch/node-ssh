@@ -86,3 +86,24 @@ A port of zero requests dynamic allocation; `forwardIn()` resolves to the alloca
 by the server. Bind addresses have server-specific exposure rules. In particular, wildcard binds
 can expose a listener beyond loopback when the SSH server permits gateway ports, so validate both
 the requested bind and every connection's source metadata.
+
+### Allowing remote forwarding on a server
+
+Server-side remote forwarding is denied by default. The `tcpipForward` policy hook receives the
+requested bind before any TCP listener is created. Restrict both address and port; allowing a
+wildcard address grants the authenticated client network exposure through the SSH server.
+
+```ts
+server.hooker.hook("tcpipForward", (_hook, context, decision, connection) => {
+    decision.allow =
+        connection.credentials?.data.username === "deploy" &&
+        context.bindAddress === "127.0.0.1" &&
+        (context.bindPort === 0 || context.bindPort >= 40_000)
+})
+```
+
+After approval, `modernssh` owns the TCP listener and opens a `ForwardedTCPIPChannel` back to the
+requesting client for each connection. Requests for port zero receive the allocated port. A matching
+`cancel-tcpip-forward` request stops accepting new connections immediately; disconnecting the SSH
+connection also closes all of its listeners. Existing tunnel channels retain the normal independent
+EOF and CLOSE lifecycle.

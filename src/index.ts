@@ -35,6 +35,8 @@ export type {
     ServerHookerPreconnectController,
     ServerHookerPublicKeyAuthenticationContext,
     ServerHookerPublicKeyAuthenticationController,
+    ServerHookerTCPIPForwardContext,
+    ServerHookerTCPIPForwardController,
     ServerOptions,
 } from "./Server.js"
 export { default as ServerClient } from "./ServerClient.js"
@@ -47,6 +49,7 @@ export {
 } from "./Channel.js"
 export { default as SessionChannel } from "./channels/SessionChannel.js"
 export { default as DirectTCPIPChannel } from "./channels/DirectTCPIPChannel.js"
+export { default as ForwardedTCPIPChannel } from "./channels/ForwardedTCPIPChannel.js"
 export type {
     SessionChannelEvents,
     SessionChannelHooker,

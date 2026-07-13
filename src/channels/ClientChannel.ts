@@ -81,6 +81,7 @@ export default class ClientChannel extends Duplex {
     private receivedEOF = false
     private sentClose = false
     private receivedClose = false
+    private transportClosed = false
 
     constructor(
         client: Client,
@@ -147,6 +148,7 @@ export default class ClientChannel extends Duplex {
     }
 
     abort(error: Error | null = null): void {
+        this.transportClosed = true
         if (this.remoteId === undefined) {
             this.openReject(error ?? new Error(`SSH channel ${this.localId} closed before opening`))
         }
@@ -336,7 +338,9 @@ export default class ClientChannel extends Duplex {
     }
 
     _destroy(error: Error | null, callback: (error?: Error | null) => void): void {
-        if (!this.sentClose && this.remoteId !== undefined) this.sendClose()
+        if (!this.transportClosed && !this.sentClose && this.remoteId !== undefined) {
+            this.sendClose()
+        }
         if (this.pendingWrite) {
             const pending = this.pendingWrite
             this.pendingWrite = undefined

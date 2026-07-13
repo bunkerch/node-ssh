@@ -8,6 +8,7 @@ import ChannelExtendedData from "./packets/ChannelExtendedData.js"
 import ChannelFailure from "./packets/ChannelFailure.js"
 import ChannelOpen from "./packets/ChannelOpen.js"
 import ChannelOpenConfirmation from "./packets/ChannelOpenConfirmation.js"
+import ChannelOpenFailure, { ChannelOpenError } from "./packets/ChannelOpenFailure.js"
 import ChannelRequest from "./packets/ChannelRequest.js"
 import ChannelWindowAdjust from "./packets/ChannelWindowAdjust.js"
 import { MAXIMUM_CHANNEL_WINDOW_SIZE } from "./constants.js"
@@ -48,6 +49,10 @@ export default class Channel {
     private receivedEOF = false
     private sentClose = false
     private receivedClose = false
+    private openSettled = false
+    private openResolve!: () => void
+    private openReject!: (error: Error) => void
+    private readonly openPromise: Promise<void>
 
     constructor(
         client: Client | ServerClient,
@@ -58,6 +63,10 @@ export default class Channel {
         this.channel_type = channel_type
         this.localId = client.localChannelIndex++
         this.clientArgs = clientArgs
+        this.openPromise = new Promise<void>((resolve, reject) => {
+            this.openResolve = resolve
+            this.openReject = reject
+        })
     }
 
     get isOpen(): boolean {
@@ -73,11 +82,43 @@ export default class Channel {
     }
 
     configureRemote(open: ChannelOpen): void {
+        if (this.openSettled)
+            throw new Error(`SSH channel ${this.localId} was opened more than once`)
         this.remoteId = open.data.sender_channel_id
         this.remote_initial_window_size = open.data.initial_window_size
         this.remote_window_size = open.data.initial_window_size
         this.remote_maximum_packet_size = open.data.maximum_packet_size
         this.local_window_size = this.local_initial_window_size
+        this.openSettled = true
+        this.openResolve()
+    }
+
+    confirmOpen(confirmation: ChannelOpenConfirmation): void {
+        if (this.openSettled)
+            throw new Error(`SSH channel ${this.localId} was opened more than once`)
+        this.remoteId = confirmation.data.sender_channel_id
+        this.remote_initial_window_size = confirmation.data.initial_window_size
+        this.remote_window_size = confirmation.data.initial_window_size
+        this.remote_maximum_packet_size = confirmation.data.maximum_packet_size
+        this.local_window_size = this.local_initial_window_size
+        this.openSettled = true
+        this.openResolve()
+    }
+
+    failOpen(failure: ChannelOpenFailure): void {
+        if (this.openSettled) throw new Error(`SSH channel ${this.localId} open was settled twice`)
+        this.openSettled = true
+        this.openReject(
+            new ChannelOpenError(
+                failure.data.reason_code,
+                failure.data.recipient_channel_id,
+                failure.data.description || `SSH channel ${this.localId} could not be opened`,
+            ),
+        )
+    }
+
+    waitUntilOpen(): Promise<void> {
+        return this.openPromise
     }
 
     getChannelOpenPacket(): ChannelOpen {
@@ -216,6 +257,10 @@ export default class Channel {
     }
 
     abort(error = new Error(`SSH channel ${this.localId} connection closed`)): void {
+        if (!this.openSettled) {
+            this.openSettled = true
+            this.openReject(error)
+        }
         this.failPendingWrites(error)
         this.handleClose()
     }

@@ -1,4 +1,5 @@
-import { Socket } from "node:net"
+import net, { Socket } from "node:net"
+import { PassThrough } from "node:stream"
 import Server, {
     ServerHookerChannelOpenRequestController,
     ServerHookerNoneAuthenticationContext,
@@ -7,6 +8,7 @@ import Server, {
     ServerHookerPasswordAuthenticationController,
     ServerHookerPublicKeyAuthenticationContext,
     ServerHookerPublicKeyAuthenticationController,
+    ServerHookerTCPIPForwardContext,
 } from "./Server.js"
 import ProtocolVersionExchange from "./ProtocolVersionExchange.js"
 import crypto from "node:crypto"
@@ -49,7 +51,7 @@ import { randomBase36 } from "./utils/base36.js"
 import Debug from "./packets/Debug.js"
 import Channel from "./Channel.js"
 import GlobalRequest from "./packets/GlobalRequest.js"
-import { readNextBuffer, serializeBuffer } from "./utils/Buffer.js"
+import { readNextBuffer, readNextUint32, serializeBuffer, serializeUint32 } from "./utils/Buffer.js"
 import RequestFailure from "./packets/RequestFailure.js"
 import RequestSuccess from "./packets/RequestSuccess.js"
 import ChannelOpen from "./packets/ChannelOpen.js"
@@ -65,8 +67,14 @@ import ChannelExtendedData from "./packets/ChannelExtendedData.js"
 import ChannelWindowAdjust from "./packets/ChannelWindowAdjust.js"
 import ChannelEOF from "./packets/ChannelEOF.js"
 import ChannelClose from "./packets/ChannelClose.js"
+import ChannelOpenConfirmation from "./packets/ChannelOpenConfirmation.js"
 import IdentificationParser from "./IdentificationParser.js"
 import { BinaryPacketDecoder, BinaryPacketEncoder } from "./BinaryPacket.js"
+import ForwardedTCPIPChannel from "./channels/ForwardedTCPIPChannel.js"
+
+interface RemoteForwardListener {
+    server: net.Server
+}
 
 export interface ServerClientEvents {
     error: [error: Error]
@@ -114,6 +122,9 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         })
 
         this.socket.on("close", () => {
+            this.state = SocketState.Disconnected
+            for (const forwarding of this.remoteForwardListeners.values()) forwarding.server.close()
+            this.remoteForwardListeners.clear()
             for (const channel of this.channels.values()) channel.abort()
             this.channels.clear()
             this.emit("close")
@@ -159,6 +170,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
 
     localChannelIndex = 0
     channels = new Map<number, Channel>()
+    private readonly remoteForwardListeners = new Map<string, RemoteForwardListener>()
 
     state = SocketState.Closed
     get isConnected(): boolean {
@@ -310,6 +322,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
 
         await this.handleAuthentication()
         // user is logged in!
+        this.state = SocketState.Connected
         // emit the event
         this.emit("connect")
 
@@ -318,68 +331,12 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
 
         this.on("packet", (packet) => {
             if (!(packet instanceof GlobalRequest)) return
-
-            this.debug(`Received global request packet:`, packet)
-
-            switch (packet.data.request_name) {
-                case "hostkeys-prove-00@openssh.com": {
-                    const hostkeys = []
-                    let raw = packet.data.args
-                    while (raw.length != 0) {
-                        let arg: Buffer
-                        ;[arg, raw] = readNextBuffer(raw)
-
-                        try {
-                            hostkeys.push(PublicKey.parse(arg))
-                        } catch (err) {
-                            // unsupported host key algorithm
-                            // or parse error
-                            // either way don't care and silently fail.
-                            this.debug(`Error while trying to parse host key:`, err)
-                        }
-                    }
-
-                    this.debug(`Client asked us to prove ownership of`, hostkeys.length, `keys.`)
-
-                    const signatures = []
-                    for (const pubkey of hostkeys) {
-                        const hostkey = this.server.options.hostKeys.find((privkey) =>
-                            privkey.data.publicKey.equals(pubkey),
-                        )
-
-                        if (!hostkey) {
-                            this.debug(
-                                `Client asked us to prove ownership of a public key we do not control!`,
-                            )
-                            this.sendPacket(new RequestFailure({}))
-                            return
-                        }
-
-                        const message = Buffer.concat([
-                            serializeBuffer(Buffer.from("hostkeys-prove-00@openssh.com", "utf8")),
-                            serializeBuffer(this.sessionID!),
-                            serializeBuffer(pubkey.serialize()),
-                        ])
-                        signatures.push(serializeBuffer(hostkey.sign(message).serialize()))
-                    }
-
-                    this.sendPacket(
-                        new RequestSuccess({
-                            args: Buffer.concat(signatures),
-                        }),
-                    )
-                    break
-                }
-                default: {
-                    this.debug(`Unknown global request name: ${packet.data.request_name}`)
-                    if (packet.data.want_reply) {
-                        // this might be a keep alive lol
-                        // shitty spec
-                        // either way, send a failure response.
-                        this.sendPacket(new RequestFailure({}))
-                    }
-                }
-            }
+            void this.queue
+                .queueAction("globalRequest", () => this.handleGlobalRequest(packet))
+                .catch((error: Error) => {
+                    this.emit("error", error)
+                    this.terminate()
+                })
         })
 
         if (this.server.options.sendAllHostKeys) {
@@ -478,6 +435,191 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 lock.release()
             }
         })
+    }
+
+    private async handleGlobalRequest(packet: GlobalRequest): Promise<void> {
+        this.debug(`Received global request packet:`, packet)
+
+        switch (packet.data.request_name) {
+            case "hostkeys-prove-00@openssh.com":
+                this.handleHostKeysProof(packet)
+                return
+            case "tcpip-forward":
+                await this.handleTCPIPForward(packet)
+                return
+            case "cancel-tcpip-forward":
+                await this.handleCancelTCPIPForward(packet)
+                return
+            default:
+                this.debug(`Unknown global request name: ${packet.data.request_name}`)
+                if (packet.data.want_reply) this.sendPacket(new RequestFailure({}))
+        }
+    }
+
+    private handleHostKeysProof(packet: GlobalRequest): void {
+        const hostkeys = []
+        let raw = packet.data.args
+        while (raw.length !== 0) {
+            let arg: Buffer
+            ;[arg, raw] = readNextBuffer(raw)
+
+            try {
+                hostkeys.push(PublicKey.parse(arg))
+            } catch (error) {
+                this.debug(`Error while trying to parse host key:`, error)
+            }
+        }
+
+        this.debug(`Client asked us to prove ownership of`, hostkeys.length, `keys.`)
+        const signatures = []
+        for (const publicKey of hostkeys) {
+            const hostKey = this.server.options.hostKeys.find((privateKey) =>
+                privateKey.data.publicKey.equals(publicKey),
+            )
+            if (!hostKey) {
+                this.debug(`Client requested proof for a public key the server does not control`)
+                if (packet.data.want_reply) this.sendPacket(new RequestFailure({}))
+                return
+            }
+
+            const message = Buffer.concat([
+                serializeBuffer(Buffer.from("hostkeys-prove-00@openssh.com", "utf8")),
+                serializeBuffer(this.sessionID!),
+                serializeBuffer(publicKey.serialize()),
+            ])
+            signatures.push(serializeBuffer(hostKey.sign(message).serialize()))
+        }
+
+        if (packet.data.want_reply) {
+            this.sendPacket(new RequestSuccess({ args: Buffer.concat(signatures) }))
+        }
+    }
+
+    private async handleTCPIPForward(packet: GlobalRequest): Promise<void> {
+        try {
+            const context = this.parseTCPIPForwardArgs(packet.data.args)
+            const controller = { allow: false }
+            await this.server.hooker.triggerHook("tcpipForward", context, controller, this)
+            if (!controller.allow) {
+                if (packet.data.want_reply) this.sendPacket(new RequestFailure({}))
+                return
+            }
+
+            const listener = net.createServer((socket) => {
+                void this.handleForwardedTCPIPConnection(context.bindAddress, socket)
+            })
+            const actualPort = await new Promise<number>((resolve, reject) => {
+                listener.once("error", reject)
+                listener.listen(
+                    { host: context.bindAddress || undefined, port: context.bindPort },
+                    () => {
+                        listener.removeListener("error", reject)
+                        const address = listener.address()
+                        if (!address || typeof address === "string") {
+                            reject(new Error("TCP forwarding listener has no IP address"))
+                            return
+                        }
+                        resolve(address.port)
+                    },
+                )
+            })
+            listener.on("error", (error) => {
+                this.debug(`Remote forwarding listener error:`, error)
+            })
+            if (!this.isConnected) {
+                listener.close()
+                return
+            }
+
+            const key = this.remoteForwardingKey(context.bindAddress, actualPort)
+            this.remoteForwardListeners.set(key, { server: listener })
+            listener.once("close", () => {
+                if (this.remoteForwardListeners.get(key)?.server === listener) {
+                    this.remoteForwardListeners.delete(key)
+                }
+            })
+            if (packet.data.want_reply) {
+                this.sendPacket(
+                    new RequestSuccess({
+                        args:
+                            context.bindPort === 0 ? serializeUint32(actualPort) : Buffer.alloc(0),
+                    }),
+                )
+            }
+        } catch (error) {
+            this.debug(`Could not establish remote forwarding listener:`, error)
+            if (packet.data.want_reply) this.sendPacket(new RequestFailure({}))
+        }
+    }
+
+    private async handleCancelTCPIPForward(packet: GlobalRequest): Promise<void> {
+        try {
+            const context = this.parseTCPIPForwardArgs(packet.data.args)
+            const key = this.remoteForwardingKey(context.bindAddress, context.bindPort)
+            const forwarding = this.remoteForwardListeners.get(key)
+            if (!forwarding) {
+                if (packet.data.want_reply) this.sendPacket(new RequestFailure({}))
+                return
+            }
+
+            forwarding.server.close()
+            this.remoteForwardListeners.delete(key)
+            if (packet.data.want_reply)
+                this.sendPacket(new RequestSuccess({ args: Buffer.alloc(0) }))
+        } catch (error) {
+            this.debug(`Could not cancel remote forwarding listener:`, error)
+            if (packet.data.want_reply) this.sendPacket(new RequestFailure({}))
+        }
+    }
+
+    private parseTCPIPForwardArgs(args: Buffer): ServerHookerTCPIPForwardContext {
+        const [bindAddress, afterAddress] = readNextBuffer(args)
+        const [bindPort, remaining] = readNextUint32(afterAddress)
+        assert(remaining.length === 0, "TCP forwarding request has trailing data")
+        assert(bindPort <= 65_535, "TCP forwarding port exceeds 65535")
+        return Object.freeze({ bindAddress: bindAddress.toString("utf8"), bindPort })
+    }
+
+    private remoteForwardingKey(bindAddress: string, bindPort: number): string {
+        return `${bindAddress}\0${bindPort}`
+    }
+
+    private async handleForwardedTCPIPConnection(
+        bindAddress: string,
+        socket: Socket,
+    ): Promise<void> {
+        const pendingInput = new PassThrough()
+        socket.pipe(pendingInput)
+        const localAddress = socket.localAddress ?? bindAddress
+        const localPort = socket.localPort ?? 0
+        const channel = new ForwardedTCPIPChannel(this, {
+            destinationHost: bindAddress || localAddress,
+            destinationPort: localPort,
+            sourceHost: socket.remoteAddress ?? "",
+            sourcePort: socket.remotePort ?? 0,
+        })
+        this.channels.set(channel.localId, channel)
+        socket.on("error", () => channel.terminate())
+        socket.on("close", () => channel.close())
+
+        try {
+            this.sendPacket(channel.getChannelOpenPacket())
+            await channel.waitUntilOpen()
+            if (socket.destroyed) {
+                pendingInput.destroy()
+                channel.close()
+                return
+            }
+            channel.stream.on("error", () => socket.destroy())
+            channel.stream.on("close", () => socket.destroy())
+            pendingInput.pipe(channel.stream)
+            channel.stream.pipe(socket)
+        } catch (error) {
+            this.channels.delete(channel.localId)
+            channel.abort(error as Error)
+            pendingInput.destroy()
+            socket.destroy(error as Error)
+        }
     }
 
     async handleAuthentication() {
@@ -778,6 +920,31 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             case PacketNameToType.SSH_MSG_CHANNEL_OPEN:
                 this.emit("channelOpenRequest", p as ChannelOpen)
                 break
+            case PacketNameToType.SSH_MSG_CHANNEL_OPEN_CONFIRMATION: {
+                const confirmation = p as ChannelOpenConfirmation
+                const channel = this.channels.get(confirmation.data.recipient_channel_id)
+                if (!channel) {
+                    throw new DisconnectError(
+                        DisconnectReason.SSH_DISCONNECT_PROTOCOL_ERROR,
+                        `Received confirmation for unknown SSH channel ${confirmation.data.recipient_channel_id}`,
+                    )
+                }
+                channel.confirmOpen(confirmation)
+                break
+            }
+            case PacketNameToType.SSH_MSG_CHANNEL_OPEN_FAILURE: {
+                const failure = p as ChannelOpenFailure
+                const channel = this.channels.get(failure.data.recipient_channel_id)
+                if (!channel) {
+                    throw new DisconnectError(
+                        DisconnectReason.SSH_DISCONNECT_PROTOCOL_ERROR,
+                        `Received failure for unknown SSH channel ${failure.data.recipient_channel_id}`,
+                    )
+                }
+                channel.failOpen(failure)
+                this.channels.delete(channel.localId)
+                break
+            }
             case PacketNameToType.SSH_MSG_CHANNEL_REQUEST:
                 this.emit("channelRequest", p as ChannelRequest)
                 break

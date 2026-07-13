@@ -1,5 +1,5 @@
 import { execFile, spawn } from "node:child_process"
-import { AddressInfo, createConnection } from "node:net"
+import { AddressInfo, createConnection, createServer, type Socket } from "node:net"
 import { promisify } from "node:util"
 import Client from "../../src/Client.js"
 import Server from "../../src/Server.js"
@@ -23,6 +23,23 @@ async function waitForPort(port: number): Promise<void> {
         await new Promise<void>((resolve) => setTimeout(resolve, 100))
     }
     throw new Error(`OpenSSH server did not listen on port ${port}`)
+}
+
+async function listenOnEphemeralPort(
+    connectionListener?: Parameters<typeof createServer>[0],
+): Promise<{ server: ReturnType<typeof createServer>; port: number }> {
+    const server = createServer(connectionListener)
+    server.listen({ host: "127.0.0.1", port: 0 })
+    await new Promise<void>((resolve) => server.once("listening", resolve))
+    return { server, port: (server.address() as AddressInfo).port }
+}
+
+async function reservePort(): Promise<number> {
+    const { server, port } = await listenOnEphemeralPort()
+    await new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()))
+    })
+    return port
 }
 
 async function collectProcess(
@@ -66,6 +83,22 @@ async function exchangeTCP(port: number, input: string, expectedBytes: number): 
         })
         socket.once("connect", () => socket.write(input))
     })
+}
+
+async function exchangeTCPWhenReady(
+    port: number,
+    input: string,
+    expectedBytes: number,
+): Promise<string> {
+    for (let attempt = 0; attempt < 100; attempt++) {
+        try {
+            return await exchangeTCP(port, input, expectedBytes)
+        } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== "ECONNREFUSED") throw error
+            await new Promise<void>((resolve) => setTimeout(resolve, 20))
+        }
+    }
+    throw new Error(`Remote forwarding listener did not open on port ${port}`)
 }
 
 describe("OpenSSH interoperability", () => {
@@ -145,6 +178,99 @@ describe("OpenSSH interoperability", () => {
             })
         }
     }, 15_000)
+
+    test("OpenSSH client uses remote forwarding on a modernssh server", async () => {
+        const hostKey = await PrivateKey.generate("ssh-ed25519")
+        const remotePort = await reservePort()
+        const targetSockets = new Set<Socket>()
+        const target = await listenOnEphemeralPort((socket) => {
+            targetSockets.add(socket)
+            socket.on("close", () => targetSockets.delete(socket))
+            socket.on("data", (data: Buffer) => socket.write(data.toString().toUpperCase()))
+            socket.on("end", () => socket.end())
+        })
+        const server = new Server({ hostKeys: [hostKey], sendAllHostKeys: false })
+        const errors: Error[] = []
+        server.hooker.hook("noneAuthentication", (_hook, context, decision) => {
+            decision.allowLogin = context.username === "interop"
+        })
+        server.hooker.hook("tcpipForward", (_hook, context, decision) => {
+            decision.allow = context.bindAddress === "127.0.0.1" && context.bindPort === remotePort
+        })
+        server.on("connection", (connection) => {
+            connection.on("error", (error) => errors.push(error))
+        })
+        server.listen({ host: "127.0.0.1", port: 0 })
+        await new Promise<void>((resolve) => server.server!.once("listening", resolve))
+        const serverPort = (server.server!.address() as AddressInfo).port
+        const ssh = spawn(
+            "/usr/bin/ssh",
+            [
+                "-F",
+                "/dev/null",
+                "-N",
+                "-T",
+                "-p",
+                String(serverPort),
+                "-R",
+                `127.0.0.1:${remotePort}:127.0.0.1:${target.port}`,
+                "-o",
+                "BatchMode=yes",
+                "-o",
+                "PreferredAuthentications=none",
+                "-o",
+                "PubkeyAuthentication=no",
+                "-o",
+                "PasswordAuthentication=no",
+                "-o",
+                "StrictHostKeyChecking=no",
+                "-o",
+                "UserKnownHostsFile=/dev/null",
+                "-o",
+                "LogLevel=ERROR",
+                "-o",
+                "ExitOnForwardFailure=yes",
+                "interop@127.0.0.1",
+            ],
+            { stdio: "pipe" },
+        )
+        const stderr: Buffer[] = []
+        ssh.stderr.on("data", (data: Buffer) => stderr.push(data))
+
+        try {
+            let forwardingOutput: string
+            try {
+                forwardingOutput = await Promise.race([
+                    exchangeTCPWhenReady(remotePort, "openssh remote", 14),
+                    new Promise<never>((_resolve, reject) => {
+                        ssh.once("close", (code) =>
+                            reject(new Error(`OpenSSH exited unexpectedly with code ${code}`)),
+                        )
+                    }),
+                ])
+            } catch (error) {
+                throw new Error(
+                    `${String(error)}; stderr=${Buffer.concat(stderr).toString()}; server errors=${errors.map(String)}`,
+                )
+            }
+            expect(forwardingOutput).toBe("OPENSSH REMOTE")
+            expect(errors).toEqual([])
+        } finally {
+            ssh.kill("SIGTERM")
+            await new Promise<void>((resolve) => {
+                if (ssh.exitCode !== null || ssh.signalCode !== null) resolve()
+                else ssh.once("close", () => resolve())
+            })
+            for (const socket of targetSockets) socket.destroy()
+            await new Promise<void>((resolve, reject) => {
+                target.server.close((error) => (error ? reject(error) : resolve()))
+            })
+            for (const client of server.clients) client.terminate()
+            await new Promise<void>((resolve, reject) => {
+                server.server!.close((error) => (error ? reject(error) : resolve()))
+            })
+        }
+    }, 30_000)
 
     test("modernssh client executes a command on an OpenSSH server", async () => {
         await execFileAsync("docker", ["build", "--quiet", "--tag", imageName, "__tests__/openssh"])

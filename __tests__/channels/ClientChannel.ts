@@ -1,5 +1,6 @@
 import Client from "../../src/Client.js"
 import ClientChannel from "../../src/channels/ClientChannel.js"
+import ChannelClose from "../../src/packets/ChannelClose.js"
 import ChannelData from "../../src/packets/ChannelData.js"
 import ChannelOpenConfirmation from "../../src/packets/ChannelOpenConfirmation.js"
 import ChannelRequest from "../../src/packets/ChannelRequest.js"
@@ -87,5 +88,13 @@ describe("ClientChannel", () => {
         await expect(first).resolves.toBeUndefined()
         expect(await secondResult).toBeInstanceOf(Error)
         channel.destroy()
+    })
+
+    test("does not send CLOSE after the transport has already closed", () => {
+        const { channel, sent } = createChannel()
+
+        channel.abort()
+
+        expect(sent.some((packet) => packet instanceof ChannelClose)).toBe(false)
     })
 })
