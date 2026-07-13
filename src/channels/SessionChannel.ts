@@ -70,8 +70,19 @@ export interface SessionX11Request {
 export interface SessionChannelHookerX11RequestController {
     success: boolean
 }
+export interface SessionBreakRequestContext {
+    /** Requested BREAK duration in milliseconds; zero asks for the device default. */
+    duration: number
+}
+export interface SessionChannelHookerBreakRequestController {
+    success: boolean
+}
 // eslint-disable-next-line @typescript-eslint/consistent-type-definitions
 export type SessionChannelHooker = {
+    breakRequest: [
+        breakRequestContext: Readonly<SessionBreakRequestContext>,
+        breakRequestController: SessionChannelHookerBreakRequestController,
+    ]
     agentForwardRequest: [
         agentForwardRequestController: SessionChannelHookerAgentForwardRequestController,
     ]
@@ -100,6 +111,7 @@ export type SessionChannelHooker = {
 
 export interface SessionChannelEvents {
     agentForward: []
+    break: [duration: number]
     env: [name: string, value: string]
     exec: [command: string, shell: Shell]
     pty: [pty: Readonly<SessionPtyInfo>]
@@ -337,6 +349,20 @@ export default class SessionChannel extends Channel {
                 const signal = this.parseSignalRequest(request.data.args)
                 this.events.emit("signal", signal)
                 return
+            }
+            case "break": {
+                assert(this.consumed, "Cannot send BREAK before an SSH session program starts")
+                const [duration, remaining] = readNextUint32(request.data.args)
+                assert(remaining.length === 0, "SSH BREAK request has trailing data")
+                const context = Object.freeze({ duration })
+                const controller: SessionChannelHookerBreakRequestController = { success: false }
+                await this.hooker.triggerHook("breakRequest", context, controller)
+                if (controller.success) {
+                    this.sendRequestSuccess(request)
+                    this.events.emit("break", duration)
+                    return
+                }
+                break
             }
             case "xon-xoff": {
                 // This notification travels from server to client, never in this direction.

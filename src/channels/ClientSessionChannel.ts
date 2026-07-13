@@ -1,9 +1,10 @@
 import { randomBytes } from "node:crypto"
 import Client from "../Client.js"
 import { serializeBinaryBoolean } from "../utils/BinaryBoolean.js"
-import { serializeBuffer, serializeUint32 } from "../utils/Buffer.js"
+import { readNextBinaryBoolean, serializeBuffer, serializeUint32 } from "../utils/Buffer.js"
 import { normalizeSSHSignal } from "../utils/Signal.js"
 import ClientChannel from "./ClientChannel.js"
+import ChannelRequest from "../packets/ChannelRequest.js"
 
 export interface ClientPtyOptions {
     term?: string
@@ -177,6 +178,30 @@ export default class ClientSessionChannel extends ClientChannel {
             serializeBuffer(Buffer.from(normalizeSSHSignal(name), "ascii")),
             false,
         )
+    }
+
+    sendBreak(duration = 0): Promise<void> {
+        this.ensureStarted("send a terminal BREAK")
+        return this.request("break", serializeUint32(this.uint32(duration, "BREAK duration")))
+    }
+
+    break(duration = 0): Promise<void> {
+        return this.sendBreak(duration)
+    }
+
+    override receiveRequest(packet: ChannelRequest): void {
+        if (packet.data.request_type === "xon-xoff") {
+            if (packet.data.want_reply) {
+                throw new Error("SSH xon-xoff notification must not request a reply")
+            }
+            const [clientCanDo, remaining] = readNextBinaryBoolean(packet.data.args)
+            if (remaining.length !== 0) {
+                throw new Error("SSH xon-xoff notification has trailing data")
+            }
+            this.emit("xonXoff", clientCanDo)
+            return
+        }
+        super.receiveRequest(packet)
     }
 
     private reserveProgram(): void {

@@ -1,5 +1,6 @@
 import Client from "../../src/Client.js"
 import ClientChannel from "../../src/channels/ClientChannel.js"
+import ClientSessionChannel from "../../src/channels/ClientSessionChannel.js"
 import ChannelClose from "../../src/packets/ChannelClose.js"
 import ChannelData from "../../src/packets/ChannelData.js"
 import ChannelOpenConfirmation from "../../src/packets/ChannelOpenConfirmation.js"
@@ -96,5 +97,52 @@ describe("ClientChannel", () => {
         channel.abort()
 
         expect(sent.some((packet) => packet instanceof ChannelClose)).toBe(false)
+    })
+
+    test("validates one-way RFC 4254 xon-xoff notifications", () => {
+        const client = new Client({ hostname: "unused" })
+        client.sendPacket = () => 0
+        const channel = new ClientSessionChannel(client)
+        channel.confirmOpen(
+            new ChannelOpenConfirmation({
+                recipient_channel_id: channel.localId,
+                sender_channel_id: 42,
+                initial_window_size: 5,
+                maximum_packet_size: 3,
+                args: Buffer.alloc(0),
+            }),
+        )
+        const values: boolean[] = []
+        channel.on("xonXoff", (value: boolean) => values.push(value))
+        channel.receiveRequest(
+            new ChannelRequest({
+                recipient_channel_id: channel.localId,
+                request_type: "xon-xoff",
+                want_reply: false,
+                args: Buffer.from([1]),
+            }),
+        )
+        expect(values).toEqual([true])
+        expect(() =>
+            channel.receiveRequest(
+                new ChannelRequest({
+                    recipient_channel_id: channel.localId,
+                    request_type: "xon-xoff",
+                    want_reply: true,
+                    args: Buffer.from([0]),
+                }),
+            ),
+        ).toThrow("must not request a reply")
+        expect(() =>
+            channel.receiveRequest(
+                new ChannelRequest({
+                    recipient_channel_id: channel.localId,
+                    request_type: "xon-xoff",
+                    want_reply: false,
+                    args: Buffer.from([0, 0]),
+                }),
+            ),
+        ).toThrow("trailing data")
+        channel.destroy()
     })
 })

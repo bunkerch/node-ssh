@@ -12,6 +12,7 @@ import SessionChannel from "../../src/channels/SessionChannel.js"
 import ClientForwardedTCPIPChannel from "../../src/channels/ClientForwardedTCPIPChannel.js"
 import ClientForwardedStreamLocalChannel from "../../src/channels/ClientForwardedStreamLocalChannel.js"
 import ForwardedTCPIPChannel from "../../src/channels/ForwardedTCPIPChannel.js"
+import Shell from "../../src/channels/Session/Shell.js"
 import RequestFailure from "../../src/packets/RequestFailure.js"
 import GlobalRequest from "../../src/packets/GlobalRequest.js"
 import PrivateKey from "../../src/utils/PrivateKey.js"
@@ -55,6 +56,8 @@ describe("client/server integration", () => {
         const serverHandshakes: unknown[] = []
         const serverExchangeEvents: string[] = []
         let configuredSession: SessionChannel | undefined
+        let configuredShell: Shell | undefined
+        const breakDurations: number[] = []
         server.on("connection", (peer) => {
             serverPeer = peer
             peer.on("error", (error) => serverErrors.push(error))
@@ -75,6 +78,14 @@ describe("client/server integration", () => {
                 channel.hooker.hook("execRequest", (_hook, context, controller) => {
                     controller.success = context.command === "configured-command"
                     if (controller.success) configuredSession = channel
+                })
+                channel.hooker.hook("breakRequest", async (_hook, context, controller) => {
+                    await Promise.resolve()
+                    breakDurations.push(context.duration)
+                    controller.success = context.duration === 750
+                })
+                channel.events.on("exec", (_command, shell) => {
+                    configuredShell = shell
                 })
             })
         })
@@ -228,6 +239,13 @@ describe("client/server integration", () => {
                 columns: 101,
                 rows: 37,
             })
+            await configured.break(750)
+            expect(breakDurations).toEqual([750])
+            await expect(configured.sendBreak(4_000)).rejects.toThrow("request failed")
+            expect(breakDurations).toEqual([750, 4_000])
+            const xonXoff = new Promise<boolean>((resolve) => configured.once("xonXoff", resolve))
+            expect(configuredShell!.setXonXoff(false)).toBe(configuredShell!)
+            expect(await xonXoff).toBe(false)
             const configuredClosed = new Promise<void>((resolve) =>
                 configured.once("close", resolve),
             )

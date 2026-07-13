@@ -56,12 +56,18 @@ await channel.setEnv("LANG", "en_US.UTF-8")
 await channel.exec("top")
 
 await channel.setWindow({ columns: 160, rows: 50 })
+await channel.sendBreak(750)
 await channel.signal("SIGTERM")
 ```
 
 `subsystem(name)` starts a named subsystem instead of `exec()` or `shell()`. Only one program-start
 request can succeed on a session. PTY terminal modes can be supplied as numeric RFC 4254 opcode to
 uint32-value mappings; the encoder adds the required `TTY_OP_END` terminator.
+
+`sendBreak(duration)` implements RFC 4335 and waits for the server to confirm that it performed a
+terminal BREAK. The duration is an unsigned millisecond value; zero requests the device default.
+`break(duration)` is an equivalent short form. Servers commonly clamp nonzero requests to 500
+through 3,000 milliseconds as recommended by the RFC.
 
 Calling `channel.end()` finishes standard input by sending channel EOF. Calling `channel.close()`
 sends EOF followed by CLOSE. A peer CLOSE is always acknowledged before the stream is destroyed.
@@ -167,6 +173,22 @@ available in `channel.pty` and `channel.env`; the corresponding `pty`, `env`, an
 are emitted after acceptance. Runtime `windowChange` and `signal` notifications are exposed as
 events. PTY mode payloads are parsed and validated before a policy hook runs, and malformed setup
 requests that ask for a reply receive channel failure.
+
+RFC 4335 BREAK is denied unless the session has started a program and an awaited `breakRequest`
+policy hook confirms that the operation was performed. The hook receives the requested duration
+unchanged so device-specific code can apply its own default and safe limits:
+
+```ts
+channel.hooker.hook("breakRequest", async (_hook, context, decision) => {
+    const duration = context.duration === 0 ? 500 : Math.min(3_000, Math.max(500, context.duration))
+    decision.success = await serialConsole.sendBreak(duration)
+})
+```
+
+Treat BREAK authorization as security-sensitive: consoles may interpret it as a request to halt a
+system or enter privileged configuration. After accepting a PTY, the server may also call
+`stream.setXonXoff(clientCanDo)` to send RFC 4254's one-way local-flow-control notification. Clients
+emit `xonXoff` with the boolean value and never reply to this notification.
 
 Agent forwarding is separately denied by default even for an allowed session. The server must
 approve `agentForwardRequest`; after approval it may open one or more bounded agent channels:

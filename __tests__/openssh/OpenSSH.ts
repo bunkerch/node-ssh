@@ -518,6 +518,7 @@ describe("OpenSSH interoperability", () => {
         const input: Buffer[] = []
         let command = ""
         let rekeys = 0
+        let xonXoffNotifications = 0
         server.hooker.hook("noneAuthentication", (_hook, context, decision) => {
             decision.allowLogin = context.username === "interop"
         })
@@ -534,6 +535,8 @@ describe("OpenSSH interoperability", () => {
                     decision.success = true
                 })
                 channel.events.on("exec", (_command, stream) => {
+                    expect(stream.setXonXoff(true)).toBe(stream)
+                    xonXoffNotifications++
                     stream.on("data", (data: Buffer) => input.push(data))
                     stream.on("end", () => {
                         stream.stderr.write("openssh stderr\n")
@@ -589,6 +592,7 @@ describe("OpenSSH interoperability", () => {
             expect(command).toBe("vector-command")
             expect(Buffer.concat(input).toString()).toBe("x".repeat(65_536))
             expect(rekeys).toBeGreaterThan(0)
+            expect(xonXoffNotifications).toBe(1)
             expect(errors).toEqual([])
         } finally {
             await new Promise<void>((resolve, reject) => {
@@ -2258,6 +2262,10 @@ describe("OpenSSH interoperability", () => {
             ptySession.on("data", (data: Buffer) => ptyOutput.push(data))
             await new Promise<void>((resolve) => ptySession.once("close", resolve))
             expect(Buffer.concat(ptyOutput).toString().trim()).toBe("37 101")
+
+            const breakSession = await client.exec("sleep 1", { pty: true })
+            await breakSession.sendBreak(750)
+            await new Promise<void>((resolve) => breakSession.once("close", resolve))
 
             const sftp = await client.sftp()
             expect(sftp.protocolVersion).toBe(3)

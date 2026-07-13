@@ -78,6 +78,11 @@ export default class Shell extends Duplex {
         return this
     }
 
+    setXonXoff(clientCanDo: boolean): this {
+        this.channel.sendRequest("xon-xoff", serializeBinaryBoolean(clientCanDo))
+        return this
+    }
+
     exit(status: number): this
     exit(signal: string, coreDumped?: boolean, message?: string): this
     exit(statusOrSignal: number | string, coreDumped = false, message = ""): this {

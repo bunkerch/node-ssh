@@ -169,6 +169,10 @@ meaningful wire-level behavior.
 - High-level session helpers must issue setup requests before the program request: agent forwarding,
   environment, PTY, X11, then exec/shell/subsystem. Treat automatic environment requests as
   best-effort without replies, but require replies for security- or terminal-sensitive setup.
+- RFC 4335 BREAK requests are valid only for a started session program and require an awaited,
+  deny-by-default policy decision after the application performs the operation. Preserve the uint32
+  requested duration, document the RFC's safe 500-to-3000 ms guidance, and treat console BREAK as
+  privileged. RFC 4254 `xon-xoff` travels only from server to client and must never request a reply.
 - Injected server sockets must pass through the same `preconnect`, client tracking, authentication,
   error cleanup, and close cleanup as listener-accepted sockets. Keep ownership of the outer
   listener with the injector and ownership of the connected socket with `ServerClient`.

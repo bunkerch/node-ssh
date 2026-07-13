@@ -127,6 +127,8 @@ export type {
     SessionChannelEvents,
     SessionChannelHooker,
     SessionChannelHookerAgentForwardRequestController,
+    SessionBreakRequestContext,
+    SessionChannelHookerBreakRequestController,
     SessionChannelHookerEnvRequestContext,
     SessionChannelHookerEnvRequestController,
     SessionChannelHookerExecRequestContext,

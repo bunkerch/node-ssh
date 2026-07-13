@@ -35,10 +35,16 @@ image makes the operating-system fixture reproducible, while installing the dist
 Wire codecs are tested independently of OpenSSH with fixed byte strings derived from the protocol
 formats. The channel vector suites cover `direct-tcpip`, `forwarded-tcpip`, TCP forwarding global
 requests, all four OpenSSH stream-local forwarding messages, allocated-port responses, PTY and
-terminal modes, environment, window changes, signals, subsystems, agent forwarding requests and
+terminal modes, environment, window changes, signals, RFC 4254 `xon-xoff`, RFC 4335 BREAK,
+subsystems, agent forwarding requests and
 channel opens, X11 requests and channel opens, `no-more-sessions@openssh.com`, window adjustment,
 `keepalive@openssh.com`, standard data, stderr extended data, EOF, and CLOSE. Every vector is parsed
 into asserted fields and serialized back to the exact original bytes.
+
+Session interoperability sends a BREAK from the modern client to a real OpenSSH PTY and delivers
+an `xon-xoff` notification from the modern server to the system OpenSSH client. In-process peers
+also prove that BREAK policy hooks are awaited, success and failure replies match the completed
+operation, requested durations are preserved, and client notifications carry the exact boolean.
 
 In-process forwarding tests additionally open server-initiated TCP and UNIX channels through the
 public connection APIs only after matching requests have been accepted. They assert every source
