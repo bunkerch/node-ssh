@@ -59,8 +59,8 @@ The implementation follows RFC 4254 channel rules:
 - Data after EOF, oversized data, window overruns, duplicate confirmations, and packets for unknown
   channels are treated as protocol errors.
 
-The interoperability suite exercises session opening, `exec`, stdout larger than the initial
-window, stderr, exit status, EOF, and CLOSE against the pinned `ssh2` implementation.
+The interoperability suite exercises session opening, `exec`, stdin, stdout, stderr, exit status,
+EOF, and CLOSE against OpenSSH. Fixed RFC byte vectors cover the exact channel request encodings.
 
 ## Serving exec and shell requests
 
