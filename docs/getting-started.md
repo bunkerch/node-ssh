@@ -14,6 +14,8 @@ const client = new Client({
     port: 22,
     username: "deploy",
     password: process.env.SSH_PASSWORD,
+    keepaliveInterval: 15_000,
+    keepaliveCountMax: 3,
 })
 
 client.hooker.hook("hostKey", (_hook, decision, hostKey) => {
@@ -42,7 +44,14 @@ that behavior is convenient for controlled tests but does not authenticate an un
 
 `end()` sends `SSH_MSG_DISCONNECT` with the `BY_APPLICATION` reason and gracefully ends the TCP
 connection. `destroy()` immediately destroys the underlying connection. Both methods return the
-client instance.
+client instance. `setNoDelay()` controls Nagle's algorithm on the underlying TCP socket and also
+returns the client.
+
+When `keepaliveInterval` is greater than zero, the client sends
+`keepalive@openssh.com` global requests after authentication. Either success or failure is a valid
+liveness response. The client emits an `SSH keepalive timeout` error and destroys the connection
+after more than `keepaliveCountMax` consecutive probes go unanswered. The timer does not keep the
+Node.js process alive; both options default to ssh2-compatible values of `0` (disabled) and `3`.
 
 ## Server connection
 

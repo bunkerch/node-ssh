@@ -82,6 +82,9 @@ behavior.
 - Treat OpenSSH's `no-more-sessions@openssh.com` request as irreversible. Existing sessions remain
   usable, later session opens bypass application policy and fail, and an incoming SSH disconnect
   must close the transport so pending channel and global-request promises settle.
+- SSH keepalives use reply-requesting `keepalive@openssh.com` global requests. Count both success
+  and failure as liveness, bound consecutive unanswered requests, unref timers, and clear them on
+  every connection shutdown path.
 - Treat local and remote channel identifiers, windows, maximum packet sizes, EOF, and CLOSE state as
   independent protocol state. All channel streams must preserve bounded backpressure.
 - New public APIs and public types must be exported from `src/index.ts`, documented under `docs/`,

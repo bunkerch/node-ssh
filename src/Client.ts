@@ -80,6 +80,8 @@ export interface ClientOptions {
     protocolVersionExchange?: ProtocolVersionExchange
     serverClient?: boolean
     authenticationMethodsOrder?: SSHAuthenticationMethods[]
+    keepaliveInterval?: number
+    keepaliveCountMax?: number
 }
 
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
@@ -206,6 +208,20 @@ export default class Client extends EventEmitter<ClientEvents> {
             SSHAuthenticationMethods.PublicKey,
             SSHAuthenticationMethods.Password,
         ]
+        this.options.keepaliveInterval ??= 0
+        this.options.keepaliveCountMax ??= 3
+        if (
+            !Number.isFinite(this.options.keepaliveInterval) ||
+            this.options.keepaliveInterval < 0
+        ) {
+            throw new RangeError("SSH keepalive interval must be a non-negative number")
+        }
+        if (
+            !Number.isInteger(this.options.keepaliveCountMax) ||
+            this.options.keepaliveCountMax < 0
+        ) {
+            throw new RangeError("SSH keepalive count maximum must be a non-negative integer")
+        }
 
         setImmediate(() => {
             this.debug("Client created with options:", {
@@ -279,6 +295,8 @@ export default class Client extends EventEmitter<ClientEvents> {
     private readonly remoteStreamLocalForwardings = new Set<string>()
     private readonly x11Forwardings = new Map<number, { single: boolean }>()
     agentForwardingEnabled = false
+    private keepaliveTimer?: ReturnType<typeof setTimeout>
+    private unansweredKeepalives = 0
 
     registerX11Forwarding(sessionId: number, single: boolean): void {
         this.x11Forwardings.set(sessionId, { single })
@@ -298,6 +316,11 @@ export default class Client extends EventEmitter<ClientEvents> {
 
     debug(...message: unknown[]): void {
         this.emit("debug", ...message)
+    }
+
+    setNoDelay(noDelay = true): this {
+        this.socket?.setNoDelay(noDelay)
+        return this
     }
 
     openSession(): Promise<ClientSessionChannel>
@@ -693,6 +716,7 @@ export default class Client extends EventEmitter<ClientEvents> {
             }
             this.socket!.on("error", errorListener)
             const closeListener = () => {
+                this.clearKeepalive()
                 this.state = SocketState.Closed
                 this.debug("Socket closed")
                 this.socket = undefined
@@ -971,10 +995,12 @@ export default class Client extends EventEmitter<ClientEvents> {
         // we are connected and logged in
         // we can now open channels
         this.state = SocketState.Connected
+        this.resetKeepalive()
         this.emit("connect")
     }
 
     end(): this {
+        this.clearKeepalive()
         if (this.socket && !this.socket.destroyed && this.socket.writable) {
             if (this.serverProtocolVersion) {
                 this.sendPacket(
@@ -992,6 +1018,7 @@ export default class Client extends EventEmitter<ClientEvents> {
     }
 
     destroy(): this {
+        this.clearKeepalive()
         if (this.socket && !this.socket.destroyed) {
             this.state = SocketState.Disconnected
             this.socket.destroy()
@@ -1299,6 +1326,42 @@ export default class Client extends EventEmitter<ClientEvents> {
         } else {
             request.reject(new GlobalRequestError(`SSH global request ${request.name} failed`))
         }
+    }
+
+    private resetKeepalive(): void {
+        this.clearKeepalive()
+        this.unansweredKeepalives = 0
+        this.scheduleKeepalive()
+    }
+
+    private scheduleKeepalive(): void {
+        if (this.options.keepaliveInterval === 0 || !this.isConnected) return
+        this.keepaliveTimer = setTimeout(() => this.sendKeepalive(), this.options.keepaliveInterval)
+        this.keepaliveTimer.unref()
+    }
+
+    private clearKeepalive(): void {
+        if (this.keepaliveTimer !== undefined) clearTimeout(this.keepaliveTimer)
+        this.keepaliveTimer = undefined
+    }
+
+    private sendKeepalive(): void {
+        this.keepaliveTimer = undefined
+        if (!this.isConnected) return
+        this.unansweredKeepalives++
+        if (this.unansweredKeepalives > this.options.keepaliveCountMax) {
+            this.emit("error", new Error("SSH keepalive timeout"))
+            this.destroy()
+            return
+        }
+
+        void this.sendGlobalRequest("keepalive@openssh.com", Buffer.alloc(0)).then(
+            () => this.resetKeepalive(),
+            (error: unknown) => {
+                if (error instanceof GlobalRequestError) this.resetKeepalive()
+            },
+        )
+        this.scheduleKeepalive()
     }
 
     private handleIncomingChannelOpen(packet: ChannelOpen): void {

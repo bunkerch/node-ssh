@@ -6,6 +6,7 @@ import Client from "../../src/Client.js"
 import Server from "../../src/Server.js"
 import ServerClient from "../../src/ServerClient.js"
 import SessionChannel from "../../src/channels/SessionChannel.js"
+import RequestFailure from "../../src/packets/RequestFailure.js"
 import PrivateKey from "../../src/utils/PrivateKey.js"
 
 describe("client/server integration", () => {
@@ -54,6 +55,7 @@ describe("client/server integration", () => {
 
             expect(client.hasAuthenticated).toBe(true)
             expect(client.isConnected).toBe(true)
+            expect(client.setNoDelay()).toBe(client)
             expect(connectEvents).toBe(1)
             expect(serverErrors).toEqual([])
             expect(clientErrors).toEqual([])
@@ -112,4 +114,39 @@ describe("client/server integration", () => {
             await rm(streamLocalPath, { force: true })
         }
     }, 15_000)
+
+    test("disconnects after the configured unanswered keepalive limit", async () => {
+        const hostKey = await PrivateKey.generate("ssh-ed25519")
+        const server = new Server({ hostKeys: [hostKey], sendAllHostKeys: false })
+        server.hooker.hook("noneAuthentication", (_hook, _context, controller) => {
+            controller.allowLogin = true
+        })
+        server.on("connection", (peer) => {
+            const sendPacket = peer.sendPacket.bind(peer)
+            peer.sendPacket = (packet) =>
+                packet instanceof RequestFailure ? 0 : sendPacket(packet)
+            peer.on("error", () => undefined)
+        })
+        server.listen({ host: "127.0.0.1", port: 0 })
+        await new Promise<void>((resolve) => server.server!.once("listening", resolve))
+
+        const client = new Client({
+            hostname: "127.0.0.1",
+            port: (server.server!.address() as AddressInfo).port,
+            username: "keepalive-test",
+            keepaliveInterval: 20,
+            keepaliveCountMax: 1,
+        })
+        const errors: Error[] = []
+        client.on("error", (error) => errors.push(error))
+
+        await client.connect()
+        await new Promise<void>((resolve) => client.once("close", resolve))
+        expect(errors.map((error) => error.message)).toEqual(["SSH keepalive timeout"])
+        expect(client.isConnected).toBe(false)
+
+        await new Promise<void>((resolve, reject) => {
+            server.server!.close((error) => (error ? reject(error) : resolve()))
+        })
+    })
 })

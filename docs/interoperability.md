@@ -16,7 +16,8 @@ establishes real TCP connections in both directions:
   stdout/stderr, receives its exit status, establishes and cancels a remote TCP listener, exchanges
   data over the resulting `forwarded-tcpip` channel, opens direct and remote OpenSSH stream-local
   forwarding channels, disables additional sessions with `no-more-sessions@openssh.com`, verifies
-  OpenSSH's enforcement, and handles the resulting disconnect without leaving a channel pending.
+  OpenSSH's enforcement, exchanges SSH-level keepalives, and handles the resulting disconnect
+  without leaving a channel pending.
   The same test requests agent forwarding and runs `ssh-add -L` on OpenSSH to prove that the remote
   process sees the modern client's local OpenSSH agent. It also requests X11 forwarding, connects
   to the display allocated by sshd, and exchanges data through the resulting `x11` channel.
@@ -33,8 +34,8 @@ formats. The channel vector suites cover `direct-tcpip`, `forwarded-tcpip`, TCP 
 requests, all four OpenSSH stream-local forwarding messages, allocated-port responses, PTY and
 terminal modes, environment, window changes, signals, subsystems, agent forwarding requests and
 channel opens, X11 requests and channel opens, `no-more-sessions@openssh.com`, window adjustment,
-standard data, stderr extended data, EOF, and CLOSE. Every vector is parsed into asserted fields
-and serialized back to the exact original bytes.
+`keepalive@openssh.com`, standard data, stderr extended data, EOF, and CLOSE. Every vector is parsed
+into asserted fields and serialized back to the exact original bytes.
 
 Transport tests likewise use deterministic identification, binary framing, encryption-boundary,
 MAC, fragmentation, and maximum-size vectors. This keeps exact packet parsing failures local and

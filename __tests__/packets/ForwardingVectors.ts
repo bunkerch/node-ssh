@@ -11,6 +11,18 @@ function vector(hex: string): Buffer {
 }
 
 describe("RFC 4254 TCP forwarding packet vectors", () => {
+    test("parses and serializes the fixed OpenSSH keepalive request", () => {
+        const raw = vector("50 00000015 6b656570616c697665406f70656e7373682e636f6d 01")
+        const packet = GlobalRequest.parse(raw)
+
+        expect(packet.data).toEqual({
+            request_name: "keepalive@openssh.com",
+            want_reply: true,
+            args: Buffer.alloc(0),
+        })
+        expect(packet.serialize()).toEqual(raw)
+    })
+
     test("parses and serializes the fixed OpenSSH no-more-sessions request", () => {
         const raw = vector(
             "50 0000001c 6e6f2d6d6f72652d73657373696f6e73406f70656e7373682e636f6d 01",

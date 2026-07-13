@@ -17,6 +17,7 @@ import PublicKey from "../../src/utils/PublicKey.js"
 import { SSHAuthenticationMethods } from "../../src/constants.js"
 import { SFTPStatusError } from "../../src/sftp/SFTPClient.js"
 import { SFTPPacketType, SFTPStatusCode } from "../../src/sftp/constants.js"
+import GlobalRequest from "../../src/packets/GlobalRequest.js"
 import { attachFilesystemSFTPServer } from "./SFTPServerFixture.js"
 
 const execFileAsync = promisify(execFile)
@@ -1168,9 +1169,21 @@ describe("OpenSSH interoperability", () => {
                 username: "interop",
                 password: "correct-horse-battery-staple",
                 agent: new SSHAgent(agentFixture.socketPath),
+                keepaliveInterval: 20,
+                keepaliveCountMax: 3,
             })
             const errors: Error[] = []
+            let keepalives = 0
             client.on("error", (error) => errors.push(error))
+            client.on("debug", (message, packet) => {
+                if (
+                    message === "Sending packet:" &&
+                    packet instanceof GlobalRequest &&
+                    packet.data.request_name === "keepalive@openssh.com"
+                ) {
+                    keepalives++
+                }
+            })
             client.hooker.hook("hostKey", (_hook, decision) => {
                 decision.allowHostKey = true
             })
@@ -1202,6 +1215,8 @@ describe("OpenSSH interoperability", () => {
             })
 
             await client.connect()
+            await new Promise<void>((resolve) => setTimeout(resolve, 60))
+            expect(keepalives).toBeGreaterThan(0)
 
             const sftp = await client.sftp()
             expect(sftp.protocolVersion).toBe(3)
