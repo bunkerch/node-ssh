@@ -44,6 +44,12 @@ reads. A separate integration test starts the system OpenSSH `ssh-agent`, loads 
 generated Ed25519 key with `ssh-add`, lists it through `modernssh`, and verifies a delegated
 signature cryptographically.
 
+Private-key interoperability tests generate passphrase-protected Ed25519 keys with `ssh-keygen`
+using every cipher accepted by OpenSSH 9.6 (3DES-CBC, AES-CBC, AES-CTR, AES-GCM, and OpenSSH
+ChaCha20-Poly1305), then decrypt, sign, and verify each key. They also cover encrypted RSA keys,
+missing and incorrect passphrases, authenticated-data tampering, and `DiskAgent` passphrase
+resolution. No JavaScript SSH implementation supplies expected key data.
+
 Together, the OpenSSH tests and known vectors exercise identification exchange, KEXINIT
 negotiation, exchange-hash and signature verification, `NEWKEYS`, encrypted and authenticated
 packet framing, service negotiation, authentication, session streams, client- and server-side

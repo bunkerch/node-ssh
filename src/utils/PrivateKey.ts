@@ -13,8 +13,8 @@ import { createPrivateKey, createSign, generateKeyPair, KeyObject, randomBytes }
 import EncodedSignature from "./Signature.js"
 import asn1js from "asn1js"
 import { decodeBigIntBE, encodeBigIntBE } from "./BigInt.js"
+import { decryptOpenSSHPrivateKey } from "./OpenSSHPrivateKeyCipher.js"
 
-// TODO: Find a way to implement private key encryption
 export interface PrivateKeyData {
     publicKey: PublicKey
     alg: string
@@ -77,24 +77,29 @@ export default class PrivateKey {
         return Buffer.concat(buffers)
     }
 
-    static parse(raw: Buffer): PrivateKey {
+    static parse(raw: Buffer, passphrase?: string | Buffer): PrivateKey {
         let authMagic: Buffer
         ;[authMagic, raw] = readNextCString(raw)
 
         assert(authMagic.toString() === "openssh-key-v1", "Invalid magic string")
 
-        // TODO: Support encrypted private keys
         let cipherName: Buffer
         ;[cipherName, raw] = readNextBuffer(raw)
-        assert(cipherName.toString() === "none", "Unsupported cipher")
 
         let kdfName: Buffer
         ;[kdfName, raw] = readNextBuffer(raw)
-        assert(kdfName.toString() === "none", "Unsupported kdf")
 
         let kdfOptions: Buffer
         ;[kdfOptions, raw] = readNextBuffer(raw)
-        assert(kdfOptions.length === 0, "Unsupported kdf options")
+
+        const cipher = cipherName.toString("utf8")
+        const kdf = kdfName.toString("utf8")
+        if (cipher === "none") {
+            assert(kdf === "none", "Invalid KDF for unencrypted OpenSSH private key")
+            assert(kdfOptions.length === 0, "Invalid unencrypted OpenSSH private key KDF options")
+        } else {
+            assert(kdf !== "none", "Encrypted OpenSSH private key is missing a KDF")
+        }
 
         let numKeys: number
         ;[numKeys, raw] = readNextUint32(raw)
@@ -104,19 +109,35 @@ export default class PrivateKey {
         ;[sshpubkey, raw] = readNextBuffer(raw)
         const publicKey = PublicKey.parse(sshpubkey)
 
-        let rnd_prv_comment_pad_len: number
-        ;[rnd_prv_comment_pad_len, raw] = readNextUint32(raw)
+        let privatePayload: Buffer
+        ;[privatePayload, raw] = readNextBuffer(raw)
+        let blockLength = 8
+        if (cipher === "none") {
+            assert(raw.length === 0, "Unexpected data after OpenSSH private key")
+        } else {
+            const decrypted = decryptOpenSSHPrivateKey(
+                cipher,
+                kdf,
+                kdfOptions,
+                privatePayload,
+                raw,
+                passphrase,
+            )
+            privatePayload = decrypted.plaintext
+            blockLength = decrypted.blockLength
+            raw = Buffer.alloc(0)
+        }
         assert(
-            raw.length === rnd_prv_comment_pad_len,
-            "Unexpected private key length (Doesn't match rnd_prv_comment_pad_len)",
+            privatePayload.length % blockLength === 0,
+            "Unexpected OpenSSH private key block length",
         )
-        assert(raw.length % 8 === 0, "Unexpected private key length (length % 8 != 0)")
+        raw = privatePayload
 
         let rnd1: number
         ;[rnd1, raw] = readNextUint32(raw)
         let rnd2: number
         ;[rnd2, raw] = readNextUint32(raw)
-        assert(rnd1 === rnd2)
+        assert(rnd1 === rnd2, "OpenSSH key integrity check failed; wrong passphrase?")
 
         let alg: Buffer
         ;[alg, raw] = readNextBuffer(raw)
@@ -130,6 +151,25 @@ export default class PrivateKey {
 
         let prv: PrivateKeyAlgorithm
         ;[prv, raw] = algorithm.parse(raw)
+
+        let privatePublicKey: PublicKey
+        if (prv instanceof SSHED25519PrivateKey) {
+            privatePublicKey = new PublicKey({
+                alg: SSHED25519PrivateKey.alg_name,
+                algorithm: new SSHED25519PublicKey({ publicKey: prv.data.publicKey }),
+            })
+        } else if (prv instanceof SSHRSAPrivateKey) {
+            privatePublicKey = new PublicKey({
+                alg: SSHRSAPrivateKey.alg_name,
+                algorithm: new SSHRSAPublicKey({
+                    modulus: prv.data.modulus,
+                    publicExponent: prv.data.publicExponent,
+                }),
+            })
+        } else {
+            throw new Error("Unsupported private key algorithm")
+        }
+        assert(publicKey.equals(privatePublicKey), "Private and public key data do not match")
 
         let comment: Buffer
         ;[comment, raw] = readNextBuffer(raw)
@@ -158,7 +198,7 @@ export default class PrivateKey {
         return lines.join("\n")
     }
 
-    static fromString(data: string): PrivateKey {
+    static fromString(data: string, passphrase?: string | Buffer): PrivateKey {
         const lines = data
             .trim()
             .split(/[\n\r]+/)
@@ -170,7 +210,7 @@ export default class PrivateKey {
         const base64 = lines.slice(1, -1).join("")
         const raw = Buffer.from(base64, "base64")
 
-        return PrivateKey.parse(raw)
+        return PrivateKey.parse(raw, passphrase)
     }
 
     static generate(alg: string): Promise<PrivateKey> {
@@ -287,10 +327,24 @@ export class SSHRSAPrivateKey implements PrivateKeyAlgorithm {
     }
 
     sign(data: Buffer): EncodedSignature {
+        const d = decodeBigIntBE(this.data.privateExponent)
+        const p = decodeBigIntBE(this.data.p)
+        const q = decodeBigIntBE(this.data.q)
+        const base64URL = (value: Buffer): string =>
+            value.subarray(value.findIndex((byte) => byte !== 0)).toString("base64url")
         const key = createPrivateKey({
-            key: this.toPEM(),
-            format: "pem",
-            type: "pkcs1",
+            key: {
+                kty: "RSA",
+                n: base64URL(this.data.modulus),
+                e: base64URL(this.data.publicExponent),
+                d: base64URL(this.data.privateExponent),
+                p: base64URL(this.data.p),
+                q: base64URL(this.data.q),
+                dp: base64URL(encodeBigIntBE(d % (p - 1n))),
+                dq: base64URL(encodeBigIntBE(d % (q - 1n))),
+                qi: base64URL(this.data.iqmp),
+            },
+            format: "jwk",
         })
 
         const signer = createSign("sha1")

@@ -53,6 +53,9 @@ behavior.
   when needed.
 - The SSH agent client follows RFC 9987. Keep its framing bounded to OpenSSH's 256 KiB limit and
   validate it with fixed frames plus the system `ssh-agent`, never another JavaScript SSH library.
+- OpenSSH private-key encryption follows upstream `PROTOCOL.key`. Keep passphrase and derived-key
+  buffers short-lived, validate authenticated modes before parsing plaintext, compare the public
+  envelope with the private key, and exercise every supported cipher with real `ssh-keygen` output.
 - Implement vendor extensions from their upstream protocol documents (for example OpenSSH's
   `PROTOCOL`), and keep them explicitly named and separately tested from RFC behavior.
 - Treat local and remote channel identifiers, windows, maximum packet sizes, EOF, and CLOSE state as

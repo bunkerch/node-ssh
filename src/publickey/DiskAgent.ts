@@ -8,12 +8,21 @@ import assert from "assert"
 import PrivateKey from "../utils/PrivateKey.js"
 import EncodedSignature from "../utils/Signature.js"
 
+export type DiskAgentPassphrase = string | Buffer
+export interface DiskAgentOptions {
+    passphrase?:
+        | DiskAgentPassphrase
+        | ((privateKeyPath: string) => DiskAgentPassphrase | Promise<DiskAgentPassphrase>)
+}
+
 export default class DiskAgent implements Agent<string> {
     type = AgentType.NonInteractive
 
     directory: string
-    constructor(directory: string = join(homedir(), ".ssh")) {
+    options: DiskAgentOptions
+    constructor(directory: string = join(homedir(), ".ssh"), options: DiskAgentOptions = {}) {
         this.directory = directory
+        this.options = options
     }
 
     async sign(id: string, data: Buffer): Promise<EncodedSignature> {
@@ -23,7 +32,12 @@ export default class DiskAgent implements Agent<string> {
         const pub = await this.getPublicKey(path)
         const content = await readFile(path, "utf-8")
 
-        const privateKey = PrivateKey.fromString(content)
+        const configuredPassphrase = this.options.passphrase
+        const passphrase =
+            typeof configuredPassphrase === "function"
+                ? await configuredPassphrase(path)
+                : configuredPassphrase
+        const privateKey = PrivateKey.fromString(content, passphrase)
 
         // ensure public keys match before signing
         assert(

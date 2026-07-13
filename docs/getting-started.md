@@ -70,13 +70,48 @@ server.listen(22, "127.0.0.1")
 Supply persistent host keys in production. If `hostKeys` is empty, the server generates a temporary
 Ed25519 key, which changes identity after every restart.
 
+## Passphrase-protected private keys
+
+`PrivateKey.fromString()` and `PrivateKey.parse()` accept an optional string or `Buffer`
+passphrase. They read the `openssh-key-v1` format produced by `ssh-keygen`, including Ed25519 and
+RSA keys encrypted with any cipher accepted by current OpenSSH: 3DES-CBC, AES-CBC, AES-CTR,
+AES-GCM, and `chacha20-poly1305@openssh.com`.
+
+```ts
+import { readFile } from "node:fs/promises"
+import { PrivateKey } from "modernssh"
+
+const privateKey = PrivateKey.fromString(
+    await readFile("./id_ed25519", "utf8"),
+    process.env.SSH_KEY_PASSPHRASE,
+)
+```
+
+`DiskAgent` can receive a fixed passphrase or resolve one for each key path. A resolver is useful
+when the secret comes from an application credential store and should only be fetched when a
+signature is requested:
+
+```ts
+import { Client, DiskAgent } from "modernssh"
+
+const agent = new DiskAgent("/home/deploy/.ssh", {
+    passphrase: async (privateKeyPath) => secretStore.read(privateKeyPath),
+})
+const client = new Client({ hostname: "ssh.example.com", agent })
+```
+
+Passphrases and derived key material are copied into temporary buffers and cleared after the
+decryption attempt. JavaScript strings themselves cannot be cleared; use a `Buffer` when the
+caller also needs explicit control over its original secret storage.
+
 ## Public exports
 
 The package root currently exports:
 
 - `Client`, `Server`, and `ServerClient` plus their option, event, and hook types.
 - `ClientChannel`, `ClientSessionChannel`, `Channel`, `SessionChannel`, and `Shell`.
-- `Agent`, `DiskAgent`, `SSHAgent`, `OnePasswordAgent`, and their error and agent-type definitions.
+- `Agent`, `DiskAgent`, `SSHAgent`, `OnePasswordAgent`, and their option, error, and agent-type
+  definitions.
 - `PublicKey`, `PrivateKey`, `EncodedSignature`, and `ProtocolVersionExchange`.
 - Public service, authentication, connection-state, and extended-data enums.
 

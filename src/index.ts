@@ -89,6 +89,7 @@ export { default as Shell } from "./channels/Session/Shell.js"
 
 export { default as Agent, AgentError, AgentType } from "./publickey/Agent.js"
 export { default as DiskAgent, DiskAgentError } from "./publickey/DiskAgent.js"
+export type { DiskAgentOptions, DiskAgentPassphrase } from "./publickey/DiskAgent.js"
 export { default as SSHAgent, SSHAgentError } from "./publickey/SSHAgent.js"
 export { default as OnePasswordAgent, OnePasswordAgentError } from "./publickey/OnePasswordAgent.js"
 
