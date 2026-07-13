@@ -115,6 +115,9 @@ behavior.
   Interpret the X25519 output as a network-order unsigned integer only when encoding the shared
   secret mpint, reject incorrect point lengths and all-zero secrets, and validate with RFC 7748
   vectors plus OpenSSH in both peer roles.
+- RFC 5656 ECDH messages use SEC1-encoded point strings and the shared point's x-coordinate as the
+  secret mpint. Validate received points on the negotiated curve, select SHA-256/384/512 by curve
+  size, and cover every required NIST curve with RFC 5903 vectors plus both OpenSSH peer roles.
 - High-level session helpers must issue setup requests before the program request: agent forwarding,
   environment, PTY, X11, then exec/shell/subsystem. Treat automatic environment requests as
   best-effort without replies, but require replies for security- or terminal-sensitive setup.

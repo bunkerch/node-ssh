@@ -66,11 +66,13 @@ transport state. The currently supported compression method is `none`, and both 
 negotiate it explicitly.
 
 The default key-exchange preference starts with the RFC 8731 `curve25519-sha256` method and its
-wire-equivalent deployed alias `curve25519-sha256@libssh.org`, followed by the supported fixed-group
-Diffie-Hellman methods. Curve25519 ephemeral public keys remain exact 32-byte SSH strings, while
-the X25519 output is reinterpreted and encoded as an RFC 4251 `mpint` only for the exchange hash and
-transport-key derivation. Incorrect point lengths and all-zero shared secrets terminate key
-exchange.
+wire-equivalent deployed alias `curve25519-sha256@libssh.org`, the RFC 5656
+`ecdh-sha2-nistp256`, `ecdh-sha2-nistp384`, and `ecdh-sha2-nistp521` methods, then the supported
+fixed-group Diffie-Hellman methods. Curve25519 ephemeral public keys remain exact 32-byte SSH
+strings, while the X25519 output is reinterpreted and encoded as an RFC 4251 `mpint` only for the
+exchange hash and transport-key derivation. RFC 5656 ECDH accepts validated SEC1 curve points and
+encodes the shared point's x-coordinate as the secret mpint. Invalid points, incorrect Curve25519
+point lengths, and all-zero Curve25519 secrets terminate key exchange.
 
 Both `ClientOptions` and `ServerOptions` accept an `algorithms` object with `kex`, `serverHostKey`,
 `cipher`, `hmac`, and `compress` categories. Server values are exact ordered arrays. Client values

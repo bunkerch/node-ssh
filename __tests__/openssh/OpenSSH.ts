@@ -504,7 +504,11 @@ describe("OpenSSH interoperability", () => {
 
     test("OpenSSH client executes a command on a modernssh server", async () => {
         const hostKey = await PrivateKey.generate("ssh-ed25519")
-        const server = new Server({ hostKeys: [hostKey], sendAllHostKeys: false })
+        const server = new Server({
+            hostKeys: [hostKey],
+            sendAllHostKeys: false,
+            algorithms: { kex: ["ecdh-sha2-nistp384"] },
+        })
         const errors: Error[] = []
         const input: Buffer[] = []
         let command = ""
@@ -565,7 +569,7 @@ describe("OpenSSH interoperability", () => {
                     "-o",
                     "RekeyLimit=1K",
                     "-o",
-                    "KexAlgorithms=curve25519-sha256",
+                    "KexAlgorithms=ecdh-sha2-nistp384",
                     "interop@127.0.0.1",
                     "vector-command",
                 ],
@@ -1151,6 +1155,7 @@ describe("OpenSSH interoperability", () => {
                 hostname: "127.0.0.1",
                 port,
                 username: "interop",
+                algorithms: { kex: ["ecdh-sha2-nistp384"] },
                 authenticationMethodsOrder: [
                     SSHAuthenticationMethods.None,
                     SSHAuthenticationMethods.KeyboardInteractive,
