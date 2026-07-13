@@ -88,6 +88,10 @@ behavior.
 - Client readiness deadlines cover TCP connection, identification, key exchange, and
   authentication, including supplied duplex transports. Clear the timer on authentication and
   every terminal path; test expiry against a real silent TCP peer rather than a mocked transport.
+- Host verification runs only after the exchange-hash signature is cryptographically valid and
+  before `NEWKEYS`. Pass the exact serialized host-key blob (or the requested Node hash as lowercase
+  hex), honor synchronous and callback decisions once, and reverify the key on every rekey. Use a
+  real OpenSSH host key to prove the public verifier contract.
 - RFC 4253 rekeying preserves the first exchange hash as the session identifier while deriving all
   new transport keys from the current exchange hash. Queue application output after sending
   `KEXINIT`, switch each direction exactly at its own `NEWKEYS`, preserve sequence numbers and open

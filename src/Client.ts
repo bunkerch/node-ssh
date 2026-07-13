@@ -84,6 +84,10 @@ export interface ClientOptions {
     forceIPv4?: boolean
     /** Resolve `hostname` to IPv6 only. Has no effect when `forceIPv4` is also true. */
     forceIPv6?: boolean
+    /** Node.js hash name used to hex-encode the key passed to `hostVerifier`. */
+    hostHash?: string
+    /** Verify the raw serialized host key, or its `hostHash` digest, before NEWKEYS. */
+    hostVerifier?: ClientHostVerifier
     username?: string
     password?: string
     agent?: Agent
@@ -99,11 +103,20 @@ export interface ClientOptions {
 }
 
 export interface ClientOptionsRequired
-    extends Required<Omit<ClientOptions, "sock" | "localAddress" | "localPort">> {
+    extends Required<
+        Omit<ClientOptions, "sock" | "localAddress" | "localPort" | "hostHash" | "hostVerifier">
+    > {
     sock?: Duplex
     localAddress?: string
     localPort?: number
+    hostHash?: string
+    hostVerifier?: ClientHostVerifier
 }
+
+export type ClientHostVerifier = (
+    key: Buffer | string,
+    callback: (verified: boolean) => void,
+) => boolean | void
 
 export interface ClientEvents {
     debug: [...message: unknown[]]
@@ -263,6 +276,15 @@ export default class Client extends EventEmitter<ClientEvents> {
                 this.options.localPort > 65_535)
         ) {
             throw new RangeError("SSH local port must be an integer between 0 and 65535")
+        }
+        if (this.options.hostHash !== undefined) {
+            try {
+                crypto.createHash(this.options.hostHash)
+            } catch {
+                throw new RangeError(
+                    `Unsupported SSH host hash algorithm: ${this.options.hostHash}`,
+                )
+            }
         }
 
         setImmediate(() => {
@@ -872,6 +894,8 @@ export default class Client extends EventEmitter<ClientEvents> {
             const h = this.kexAlgorithm.computeHClient(this, serverKexInitBuffer)
             assert(hostKey.verifySignature(h, signature), "Invalid host key signature from server")
 
+            await this.verifyConfiguredHostKey(serverKexDHReply.data.K_S)
+
             if (this.hooker.hasHooks("hostKey")) {
                 const controller: ClientHookerHostKeyController = { allowHostKey: false }
                 await this.hooker.triggerHook("hostKey", controller, hostKey)
@@ -907,6 +931,9 @@ export default class Client extends EventEmitter<ClientEvents> {
             this.emit("clientNewKeys")
             if (!this.hasReceivedNewKeys) await this.waitEvent("serverNewKeys")
             if (isRekey) this.emit("rekey")
+        } catch (error) {
+            if (!isRekey) this.socket?.destroy()
+            throw error
         } finally {
             this.keyExchangeInProgress = false
             this.resetKeepalive()
@@ -1502,6 +1529,44 @@ export default class Client extends EventEmitter<ClientEvents> {
     private clearReadyTimeout(): void {
         if (this.readyTimer !== undefined) clearTimeout(this.readyTimer)
         this.readyTimer = undefined
+    }
+
+    private async verifyConfiguredHostKey(serializedHostKey: Buffer): Promise<void> {
+        const verifier = this.options.hostVerifier
+        if (!verifier) return
+
+        const presentedKey: Buffer | string = this.options.hostHash
+            ? crypto.createHash(this.options.hostHash).update(serializedHostKey).digest("hex")
+            : Buffer.from(serializedHostKey)
+        const allowed = await new Promise<boolean>((resolve, reject) => {
+            let completed = false
+            const cleanup = () => {
+                this.off("error", fail)
+                this.off("close", closed)
+            }
+            const complete = (verified: boolean) => {
+                if (completed) return
+                completed = true
+                cleanup()
+                resolve(verified === true)
+            }
+            const fail = (error: Error) => {
+                if (completed) return
+                completed = true
+                cleanup()
+                reject(error)
+            }
+            const closed = () => fail(new Error("SSH connection closed during host verification"))
+            this.once("error", fail)
+            this.once("close", closed)
+            try {
+                const result = verifier(presentedKey, complete)
+                if (result !== undefined) complete(result)
+            } catch (error) {
+                fail(error as Error)
+            }
+        })
+        if (!allowed) throw new Error("Host key not allowed by verifier")
     }
 
     private sendKeepalive(): void {

@@ -365,4 +365,37 @@ describe("client/server integration", () => {
             "SSH local port must be an integer between 0 and 65535",
         )
     })
+
+    test("rejects a disallowed raw host key and closes the transport", async () => {
+        const hostKey = await PrivateKey.generate("ssh-ed25519")
+        const server = new Server({ hostKeys: [hostKey], sendAllHostKeys: false })
+        server.hooker.hook("noneAuthentication", (_hook, _context, controller) => {
+            controller.allowLogin = true
+        })
+        server.on("connection", (peer) => peer.on("error", () => undefined))
+        server.listen({ host: "127.0.0.1", port: 0 })
+        await new Promise<void>((resolve) => server.server!.once("listening", resolve))
+
+        let presentedKey: Buffer | string | undefined
+        const client = new Client({
+            hostname: "127.0.0.1",
+            port: (server.address() as AddressInfo).port,
+            hostVerifier: (key) => {
+                presentedKey = key
+                return false
+            },
+        })
+        client.on("error", () => undefined)
+        await expect(client.connect()).rejects.toThrow("Host key not allowed by verifier")
+        if (!client.canConnect) await new Promise<void>((resolve) => client.once("close", resolve))
+        expect(presentedKey).toEqual(hostKey.data.publicKey.serialize())
+        expect(client.canConnect).toBe(true)
+
+        await new Promise<void>((resolve, reject) => {
+            server.close((error) => (error ? reject(error) : resolve()))
+        })
+        expect(() => new Client({ hostHash: "not-a-real-hash" })).toThrow(
+            "Unsupported SSH host hash algorithm: not-a-real-hash",
+        )
+    })
 })

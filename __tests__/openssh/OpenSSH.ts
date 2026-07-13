@@ -1,4 +1,5 @@
 import { execFile, spawn } from "node:child_process"
+import { createHash } from "node:crypto"
 import { once } from "node:events"
 import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { AddressInfo, createConnection, createServer, type Socket } from "node:net"
@@ -1129,6 +1130,15 @@ describe("OpenSSH interoperability", () => {
             await waitForPort(port)
             agentFixture = await createOpenSSHAgentFixture()
             transferDirectory = await mkdtemp(join(tmpdir(), "modernssh-sftp-client-"))
+            const { stdout: hostKeyText } = await execFileAsync("docker", [
+                "exec",
+                containerId,
+                "cat",
+                "/etc/ssh/ssh_host_ed25519_key.pub",
+            ])
+            const expectedHostHash = createHash("sha256")
+                .update(PublicKey.parseString(hostKeyText).serialize())
+                .digest("hex")
 
             const keyboardClient = new Client({
                 hostname: "127.0.0.1",
@@ -1176,8 +1186,14 @@ describe("OpenSSH interoperability", () => {
                 agent: new SSHAgent(agentFixture.socketPath),
                 keepaliveInterval: 20,
                 keepaliveCountMax: 3,
+                hostHash: "sha256",
+                hostVerifier: (hash, verified) => {
+                    verifiedHostHashes.push(hash)
+                    setImmediate(() => verified(hash === expectedHostHash))
+                },
             })
             const errors: Error[] = []
+            const verifiedHostHashes: (string | Buffer)[] = []
             let keepalives = 0
             let rekeys = 0
             client.on("error", (error) => errors.push(error))
@@ -1191,9 +1207,6 @@ describe("OpenSSH interoperability", () => {
                 }
             })
             client.on("rekey", () => rekeys++)
-            client.hooker.hook("hostKey", (_hook, decision) => {
-                decision.allowHostKey = true
-            })
             let forwardingDetails:
                 | {
                       destinationHost: string
@@ -1228,6 +1241,7 @@ describe("OpenSSH interoperability", () => {
             const exchangeHash = Buffer.from(client.H!)
             await client.rekey()
             expect(rekeys).toBe(1)
+            expect(verifiedHostHashes).toEqual([expectedHostHash, expectedHostHash])
             expect(client.sessionID).toEqual(sessionId)
             expect(client.H).not.toEqual(exchangeHash)
 

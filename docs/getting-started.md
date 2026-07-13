@@ -14,6 +14,8 @@ const client = new Client({
     port: 22,
     username: "deploy",
     password: process.env.SSH_PASSWORD,
+    hostHash: "sha256",
+    hostVerifier: (hash) => hash === process.env.SSH_HOST_KEY_SHA256_HEX,
     readyTimeout: 20_000,
     keepaliveInterval: 15_000,
     keepaliveCountMax: 3,
@@ -39,9 +41,12 @@ await new Promise<void>((resolve) => command.once("close", resolve))
 client.end()
 ```
 
-Register a `hostKey` hook in production and compare the received key with a value from a trusted
-source. When no hook is registered, the current client accepts the negotiated host key implicitly;
-that behavior is convenient for controlled tests but does not authenticate an unknown server.
+Configure `hostVerifier` in production and compare the received raw serialized key, or the
+lowercase hexadecimal `hostHash` digest shown above, with a value from a trusted source. The
+verifier may return a boolean or call its second argument asynchronously. The existing `hostKey`
+hook can perform richer verification with a parsed `PublicKey`; when both mechanisms are present,
+both must allow the key. With neither configured, the client accepts the cryptographically valid
+host key implicitly, which does not authenticate an unknown server.
 
 `readyTimeout` bounds the complete connection setup: opening a TCP connection (unless `sock` is
 supplied), exchanging SSH identification strings, negotiating transport keys, and authenticating.
