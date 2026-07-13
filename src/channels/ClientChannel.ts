@@ -144,10 +144,6 @@ export default class ClientChannel extends Duplex {
         if (this.remoteId !== undefined) {
             throw new Error(`SSH channel ${this.localId} was confirmed more than once`)
         }
-        if (packet.data.maximum_packet_size === 0) {
-            throw new Error("SSH channel maximum packet size must not be zero")
-        }
-
         this.remoteId = packet.data.sender_channel_id
         this.remoteWindowSize = packet.data.initial_window_size
         this.remoteMaximumPacketSize = packet.data.maximum_packet_size
@@ -374,7 +370,11 @@ export default class ClientChannel extends Duplex {
         const pending = this.pendingWrite
         if (!pending || this.remoteId === undefined) return
 
-        while (pending.offset < pending.data.length && this.remoteWindowSize > 0) {
+        while (
+            pending.offset < pending.data.length &&
+            this.remoteWindowSize > 0 &&
+            this.remoteMaximumPacketSize > 0
+        ) {
             const length = Math.min(
                 pending.data.length - pending.offset,
                 this.remoteWindowSize,

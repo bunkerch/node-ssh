@@ -33,7 +33,11 @@ export type {
 export { default as ServerClient } from "./ServerClient.js"
 export type { ServerClientEvents } from "./ServerClient.js"
 
-export { default as Channel } from "./Channel.js"
+export {
+    default as Channel,
+    DEFAULT_SERVER_CHANNEL_PACKET_SIZE,
+    DEFAULT_SERVER_CHANNEL_WINDOW_SIZE,
+} from "./Channel.js"
 export { default as SessionChannel } from "./channels/SessionChannel.js"
 export type {
     SessionChannelEvents,

@@ -39,6 +39,7 @@ export type SessionChannelHooker = {
 }
 
 export interface SessionChannelEvents {
+    exec: [command: string, shell: Shell]
     shell: [Shell]
 }
 
@@ -52,6 +53,8 @@ export default class SessionChannel extends Channel {
     consumed = false
 
     shell: Shell | undefined
+    private readonly pendingInput: Buffer[] = []
+    private inputEnded = false
 
     constructor(client: Client | ServerClient, channel_type: string, clientArgs = Buffer.alloc(0)) {
         if (client instanceof Client) {
@@ -123,10 +126,11 @@ export default class SessionChannel extends Channel {
                 const context: SessionChannelHookerExecRequestContext = {
                     command: command,
                 }
-                this.hooker.triggerHook("execRequest", Object.freeze(context), controller)
+                await this.hooker.triggerHook("execRequest", Object.freeze(context), controller)
 
                 if (controller.success) {
                     this.consumed = true
+                    const shell = this.activateShell()
 
                     if (request.data.want_reply) {
                         this.client.sendPacket(
@@ -136,6 +140,7 @@ export default class SessionChannel extends Channel {
                         )
                     }
 
+                    this.events.emit("exec", command, shell)
                     return
                 }
 
@@ -153,7 +158,7 @@ export default class SessionChannel extends Channel {
 
                 if (controller.success) {
                     this.consumed = true
-                    this.shell = new Shell(this)
+                    const shell = this.activateShell()
 
                     if (request.data.want_reply) {
                         this.client.sendPacket(
@@ -163,7 +168,7 @@ export default class SessionChannel extends Channel {
                         )
                     }
 
-                    this.events.emit("shell", this.shell!)
+                    this.events.emit("shell", shell)
 
                     return
                 }
@@ -264,5 +269,40 @@ export default class SessionChannel extends Channel {
         return {
             subsystem: subsystem,
         }
+    }
+
+    protected handleData(data: Buffer): boolean {
+        if (!this.shell) {
+            this.pendingInput.push(data)
+            return false
+        }
+        return this.shell.receive(data)
+    }
+
+    protected handleExtendedData(dataType: number, data: Buffer): boolean {
+        void dataType
+        void data
+        return true
+    }
+
+    protected handleEOF(): void {
+        this.inputEnded = true
+        this.shell?.receiveEOF()
+    }
+
+    protected handleClose(): void {
+        this.shell?.closeFromRemote()
+    }
+
+    private activateShell(): Shell {
+        this.shell = new Shell(this)
+        let hasCapacity = true
+        for (const data of this.pendingInput) {
+            if (!this.shell.receive(data)) hasCapacity = false
+        }
+        this.pendingInput.length = 0
+        if (this.inputEnded) this.shell.receiveEOF()
+        if (hasCapacity) this.resumeInput()
+        return this.shell
     }
 }

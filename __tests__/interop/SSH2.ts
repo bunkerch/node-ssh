@@ -4,6 +4,7 @@ import Client from "../../src/Client.js"
 import Server from "../../src/Server.js"
 import PrivateKey from "../../src/utils/PrivateKey.js"
 import { DEFAULT_CHANNEL_WINDOW_SIZE } from "../../src/channels/ClientChannel.js"
+import SessionChannel from "../../src/channels/SessionChannel.js"
 
 const algorithms: Algorithms = {
     kex: ["diffie-hellman-group14-sha256"],
@@ -95,13 +96,46 @@ describe("ssh2 interoperability", () => {
         const server = new Server({ hostKeys: [hostKey], sendAllHostKeys: false })
         const serverErrors: Error[] = []
         let serverReady = false
+        const commands: string[] = []
+        const receivedInput: Buffer[] = []
+        const expectedStdout = Buffer.alloc(DEFAULT_CHANNEL_WINDOW_SIZE + 65_536, "s")
         server.hooker.hook("noneAuthentication", (_hook, context, decision) => {
             decision.allowLogin = context.username === "interop"
+        })
+        server.hooker.hook("channelOpenRequest", (_hook, channel, decision) => {
+            decision.allowOpen = channel instanceof SessionChannel
         })
         server.on("connection", (connection) => {
             connection.on("error", (error) => serverErrors.push(error))
             connection.on("connect", () => {
                 serverReady = true
+            })
+            connection.on("channel", (channel) => {
+                if (!(channel instanceof SessionChannel)) return
+                channel.hooker.hook("execRequest", (_hook, context, decision) => {
+                    commands.push(context.command)
+                    decision.success = true
+                })
+                channel.hooker.hook("shellRequest", (_hook, decision) => {
+                    decision.success = true
+                })
+                channel.events.on("exec", (_command, shell) => {
+                    shell.on("data", (data: Buffer) => receivedInput.push(data))
+                    shell.on("end", () => {
+                        shell.stderr.write("server diagnostic")
+                        shell.write(expectedStdout, () => {
+                            shell.exit(23)
+                            shell.end()
+                        })
+                    })
+                })
+                channel.events.on("shell", (shell) => {
+                    const input: Buffer[] = []
+                    shell.on("data", (data: Buffer) => input.push(data))
+                    shell.on("end", () => {
+                        shell.end(Buffer.concat(input).toString().toUpperCase())
+                    })
+                })
             })
         })
         server.listen({ host: "127.0.0.1", port: 0 })
@@ -123,9 +157,52 @@ describe("ssh2 interoperability", () => {
                 readyTimeout: 10_000,
             })
             await new Promise<void>((resolve) => client.once("ready", resolve))
-            await new Promise<void>((resolve) => setImmediate(resolve))
+
+            const execResult = await new Promise<{
+                stdout: Buffer
+                stderr: Buffer
+                exitCode: number | undefined
+            }>((resolve, reject) => {
+                client.exec("consume-input", (error, stream) => {
+                    if (error) return reject(error)
+                    const stdout: Buffer[] = []
+                    const stderr: Buffer[] = []
+                    let exitCode: number | undefined
+                    stream.on("data", (data: Buffer) => stdout.push(data))
+                    stream.stderr.on("data", (data: Buffer) => stderr.push(data))
+                    stream.on("exit", (code: number) => {
+                        exitCode = code
+                    })
+                    stream.on("error", reject)
+                    stream.on("close", () => {
+                        resolve({
+                            stdout: Buffer.concat(stdout),
+                            stderr: Buffer.concat(stderr),
+                            exitCode,
+                        })
+                    })
+                    stream.end("client input")
+                })
+            })
+
+            const shellOutput = await new Promise<Buffer>((resolve, reject) => {
+                client.shell(false, (error, stream) => {
+                    if (error) return reject(error)
+                    const output: Buffer[] = []
+                    stream.on("data", (data: Buffer) => output.push(data))
+                    stream.on("error", reject)
+                    stream.on("close", () => resolve(Buffer.concat(output)))
+                    stream.end("interactive input")
+                })
+            })
 
             expect(serverReady).toBe(true)
+            expect(commands).toEqual(["consume-input"])
+            expect(Buffer.concat(receivedInput).toString()).toBe("client input")
+            expect(execResult.stdout).toEqual(expectedStdout)
+            expect(execResult.stderr.toString()).toBe("server diagnostic")
+            expect(execResult.exitCode).toBe(23)
+            expect(shellOutput.toString()).toBe("INTERACTIVE INPUT")
             expect(clientErrors).toEqual([])
             expect(serverErrors).toEqual([])
         } finally {

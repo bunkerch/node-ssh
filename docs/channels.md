@@ -44,3 +44,40 @@ The implementation follows RFC 4254 channel rules:
 
 The interoperability suite exercises session opening, `exec`, stdout larger than the initial
 window, stderr, exit status, EOF, and CLOSE against the pinned `ssh2` implementation.
+
+## Serving exec and shell requests
+
+The server denies channel opens by default. Allow session channels at the server policy layer, then
+configure each accepted `SessionChannel`. Request hooks decide whether an individual operation is
+accepted; channel events provide its duplex stream after the success reply is sent.
+
+```ts
+server.hooker.hook("channelOpenRequest", (_hook, channel, decision) => {
+    decision.allowOpen = channel instanceof SessionChannel
+})
+
+server.on("connection", (connection) => {
+    connection.on("channel", (channel) => {
+        if (!(channel instanceof SessionChannel)) return
+
+        channel.hooker.hook("execRequest", (_hook, context, decision) => {
+            decision.success = context.command === "status"
+        })
+
+        channel.events.on("exec", (_command, stream) => {
+            stream.stdin.pipe(process.stdout)
+            stream.stderr.write("diagnostics\n")
+            stream.stdout.write("ok\n", () => {
+                stream.exit(0)
+                stream.stdout.end()
+            })
+        })
+    })
+})
+```
+
+The `Shell` passed to `exec` and `shell` events is a Node.js `Duplex`. It is also available through
+the `stdin` and `stdout` aliases, and has a separate writable `stderr`. Output writes obey the
+client's shared channel window and maximum packet size. `exit(number)` sends `exit-status`; passing
+a signal name sends `exit-signal`. Ending stdout flushes queued output, sends EOF and CLOSE, and a
+remote EOF only ends stdin so the server can still finish its response.

@@ -1,58 +1,110 @@
-import { Readable, Writable } from "stream"
+import { Duplex, Writable } from "node:stream"
+import { SSHExtendedDataTypes } from "../../constants.js"
+import { serializeBinaryBoolean } from "../../utils/BinaryBoolean.js"
+import { serializeBuffer, serializeUint32 } from "../../utils/Buffer.js"
 import SessionChannel from "../SessionChannel.js"
-import ChannelData from "../../packets/ChannelData.js"
-import assert from "assert"
-import ChannelExtendedData from "../../packets/ChannelExtendedData.js"
 
-export default class Shell {
-    channel: SessionChannel
+type WriteCallback = (error?: Error | null) => void
 
-    constructor(channel: SessionChannel) {
-        this.channel = channel
-
-        // TODO: on channelData and channelExtendedData
-        // depending on if this is a server client or just a server.
-        //this.channel.client.on("")
+class ServerStderr extends Writable {
+    constructor(private readonly channel: SessionChannel) {
+        super()
     }
 
-    stdout: Writable = new Writable({
-        write: (chunk, encoding, callback) => {
-            // @ts-expect-error this shitty nodejs type is wrong.
-            if (encoding !== "buffer") {
-                chunk = Buffer.from(chunk, encoding)
+    _write(data: Buffer | string, encoding: BufferEncoding, callback: WriteCallback): void {
+        const buffer = Buffer.isBuffer(data) ? data : Buffer.from(data, encoding)
+        this.channel.sendExtendedData(
+            SSHExtendedDataTypes.SSH_EXTENDED_DATA_STDERR,
+            buffer,
+            callback,
+        )
+    }
+}
+
+export default class Shell extends Duplex {
+    readonly channel: SessionChannel
+    readonly stdin: this
+    readonly stdout: this
+    readonly stderr: Writable
+
+    constructor(channel: SessionChannel) {
+        super({ allowHalfOpen: true, emitClose: true })
+        this.channel = channel
+        this.stdin = this
+        this.stdout = this
+        this.stderr = new ServerStderr(channel)
+    }
+
+    _read(): void {
+        this.channel.resumeInput()
+    }
+
+    _write(data: Buffer | string, encoding: BufferEncoding, callback: WriteCallback): void {
+        const buffer = Buffer.isBuffer(data) ? data : Buffer.from(data, encoding)
+        this.channel.sendData(buffer, callback)
+    }
+
+    _final(callback: WriteCallback): void {
+        this.channel.close()
+        callback()
+    }
+
+    _destroy(error: Error | null, callback: WriteCallback): void {
+        if (!this.stderr.destroyed) this.stderr.destroy()
+        callback(error)
+    }
+
+    receive(data: Buffer): boolean {
+        return this.push(data)
+    }
+
+    receiveEOF(): void {
+        this.push(null)
+    }
+
+    closeFromRemote(): void {
+        this.receiveEOF()
+        this.destroy()
+    }
+
+    eof(): this {
+        this.channel.sendEOF()
+        return this
+    }
+
+    close(): this {
+        this.channel.close()
+        return this
+    }
+
+    exit(status: number): this
+    exit(signal: string, coreDumped?: boolean, message?: string): this
+    exit(statusOrSignal: number | string, coreDumped = false, message = ""): this {
+        if (typeof statusOrSignal === "number") {
+            if (
+                !Number.isSafeInteger(statusOrSignal) ||
+                statusOrSignal < 0 ||
+                statusOrSignal > 0xffff_ffff
+            ) {
+                throw new RangeError("SSH exit status must be a uint32")
             }
+            this.channel.sendRequest("exit-status", serializeUint32(statusOrSignal))
+            return this
+        }
 
-            assert(Buffer.isBuffer(chunk))
-
-            this.channel.client.sendPacket(
-                new ChannelData({
-                    recipient_channel_id: this.channel.remoteId!,
-                    data: chunk,
-                }),
-            )
-
-            callback()
-        },
-    })
-    stderr: Writable = new Writable({
-        write: (chunk, encoding, callback) => {
-            // @ts-expect-error this shitty nodejs type is wrong.
-            if (encoding !== "buffer") {
-                chunk = Buffer.from(chunk, encoding)
-            }
-
-            assert(Buffer.isBuffer(chunk))
-
-            this.channel.client.sendPacket(
-                new ChannelExtendedData({
-                    recipient_channel_id: this.channel.remoteId!,
-                    data_type_code: 1,
-                    data: chunk,
-                }),
-            )
-
-            callback()
-        },
-    })
-    stdin: Readable = new Readable()
+        const signal = statusOrSignal.replace(/^SIG/u, "")
+        if (!/^[A-Z][A-Z0-9]*$/u.test(signal)) {
+            throw new Error(`Invalid SSH exit signal: ${statusOrSignal}`)
+        }
+        this.channel.sendRequest(
+            "exit-signal",
+            Buffer.concat([
+                serializeBuffer(Buffer.from(signal, "ascii")),
+                serializeBinaryBoolean(coreDumped),
+                serializeBuffer(Buffer.from(message, "utf8")),
+                serializeBuffer(Buffer.alloc(0)),
+            ]),
+        )
+        return this
+    }
 }

@@ -61,6 +61,10 @@ import { channelFromChannelOpenPacket } from "./channels.js"
 import ChannelRequest from "./packets/ChannelRequest.js"
 import { ActionQueue } from "./utils/ActionQueue.js"
 import ChannelData from "./packets/ChannelData.js"
+import ChannelExtendedData from "./packets/ChannelExtendedData.js"
+import ChannelWindowAdjust from "./packets/ChannelWindowAdjust.js"
+import ChannelEOF from "./packets/ChannelEOF.js"
+import ChannelClose from "./packets/ChannelClose.js"
 import IdentificationParser from "./IdentificationParser.js"
 import { BinaryPacketDecoder, BinaryPacketEncoder } from "./BinaryPacket.js"
 
@@ -110,6 +114,8 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         })
 
         this.socket.on("close", () => {
+            for (const channel of this.channels.values()) channel.abort()
+            this.channels.clear()
             this.emit("close")
         })
     }
@@ -427,37 +433,35 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
 
                 if (err instanceof ChannelOpenError) {
                     this.sendPacket(err.getOpenFailurePacket())
-                    return
+                } else {
+                    this.debug(`An error occured:`, err)
+                    this.sendPacket(
+                        new ChannelOpenFailure({
+                            reason_code: ChannelOpenFailureReasonCodes.SSH_OPEN_CONNECT_FAILED,
+                            description: "An error occured on the server",
+                            language_tag: "",
+                            recipient_channel_id: packet.data.sender_channel_id,
+                        }),
+                    )
                 }
-                this.debug(`An error occured:`, err)
-
-                this.sendPacket(
-                    new ChannelOpenFailure({
-                        reason_code: ChannelOpenFailureReasonCodes.SSH_OPEN_CONNECT_FAILED,
-                        description: "An error occured on the server",
-                        language_tag: "",
-                        recipient_channel_id: packet.data.sender_channel_id,
-                    }),
-                )
+            } finally {
+                lock.release()
             }
-
-            lock.release()
         })
         this.on("channelRequest", async (packet) => {
             const channel = this.channels.get(packet.data.recipient_channel_id)
             if (!channel) {
-                // TODO: I think this error isn't actually sent to client here.
-                // make it send and get a proper error handling here.
-                throw new DisconnectError(
+                const error = new DisconnectError(
                     DisconnectReason.SSH_DISCONNECT_PROTOCOL_ERROR,
                     "Invalid channel id received.",
                 )
+                this.emit("error", error)
+                this.terminate()
+                return
             }
 
             // make sure pty request is handled before exec/shell, etc
-            const lock = await this.queue.obtainLock(
-                `channelRequest:${packet.data.recipient_channel_id}`,
-            )
+            const lock = await this.queue.obtainLock(`channel:${packet.data.recipient_channel_id}`)
             try {
                 const deny = await channel.preHandleChannelRequest(packet)
                 if (deny) return
@@ -470,9 +474,9 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 )
                 // the base method will send a channel failure.
                 await Channel.prototype.handleChannelRequest.call(channel, packet)
+            } finally {
+                lock.release()
             }
-
-            lock.release()
         })
     }
 
@@ -777,10 +781,65 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             case PacketNameToType.SSH_MSG_CHANNEL_REQUEST:
                 this.emit("channelRequest", p as ChannelRequest)
                 break
+            case PacketNameToType.SSH_MSG_CHANNEL_WINDOW_ADJUST: {
+                const adjust = p as ChannelWindowAdjust
+                this.queueChannelAction(adjust.data.recipient_channel_id, (channel) => {
+                    channel.receiveWindowAdjust(adjust.data.bytes_to_add)
+                })
+                break
+            }
+            case PacketNameToType.SSH_MSG_CHANNEL_DATA: {
+                const data = p as ChannelData
+                this.emit("channelData", data)
+                this.queueChannelAction(data.data.recipient_channel_id, (channel) => {
+                    channel.receiveData(data.data.data)
+                })
+                break
+            }
+            case PacketNameToType.SSH_MSG_CHANNEL_EXTENDED_DATA: {
+                const data = p as ChannelExtendedData
+                this.queueChannelAction(data.data.recipient_channel_id, (channel) => {
+                    channel.receiveExtendedData(data.data.data_type_code, data.data.data)
+                })
+                break
+            }
+            case PacketNameToType.SSH_MSG_CHANNEL_EOF: {
+                const eof = p as ChannelEOF
+                this.queueChannelAction(eof.data.recipient_channel_id, (channel) => {
+                    channel.receiveEOF()
+                })
+                break
+            }
+            case PacketNameToType.SSH_MSG_CHANNEL_CLOSE: {
+                const close = p as ChannelClose
+                this.queueChannelAction(close.data.recipient_channel_id, (channel) => {
+                    channel.receiveClose()
+                    if (channel.isFullyClosed) this.channels.delete(channel.localId)
+                })
+                break
+            }
         }
 
         if (this.packetDecoder.bufferedLength > 0) {
             this.scheduleMessageProcessing(Buffer.alloc(0))
         }
+    }
+
+    private queueChannelAction(localId: number, action: (channel: Channel) => void): void {
+        void this.queue
+            .queueAction(`channel:${localId}`, async () => {
+                const channel = this.channels.get(localId)
+                if (!channel) {
+                    throw new DisconnectError(
+                        DisconnectReason.SSH_DISCONNECT_PROTOCOL_ERROR,
+                        `Received a packet for unknown SSH channel ${localId}`,
+                    )
+                }
+                action(channel)
+            })
+            .catch((error: Error) => {
+                this.emit("error", error)
+                this.terminate()
+            })
     }
 }
