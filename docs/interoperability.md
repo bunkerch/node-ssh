@@ -79,7 +79,9 @@ PAM-backed OpenSSH keyboard-interactive and records OpenSSH's banner. Fixed, ind
 wire vectors cover every new message layout, including the context-dependent reuse of opcode 60.
 An in-process integration test proves that a partial password success can change the advertised
 method set and cause an earlier failed keyboard-interactive method to be retried as the second
-factor.
+factor. It also verifies the RFC authentication-limit disconnect packet, proves that `none` and
+partial success do not consume the failure ceiling, and holds an async policy hook past the server
+deadline to ensure its late approval cannot authenticate the connection.
 
 Host-based authentication is exercised in both peer roles with real OpenSSH machine keys. OpenSSH
 signs a request with the isolated container's Ed25519 host key and the modern server authorizes its

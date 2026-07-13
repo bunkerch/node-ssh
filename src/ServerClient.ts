@@ -219,6 +219,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     private readonly x11Forwardings = new Map<number, { single: boolean }>()
     agentForwardingEnabled = false
     private noMoreSessionsRequested = false
+    private authenticationExpired = false
 
     get noMoreSessions(): boolean {
         return this.noMoreSessionsRequested
@@ -287,7 +288,16 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         return this.socket.remoteAddress
     }
 
-    disconnect() {
+    disconnect(error?: DisconnectError) {
+        if (error && this.socket.writable) {
+            this.sendPacket(
+                new Disconnect({
+                    reason_code: error.reason_code,
+                    description: error.message,
+                    language_tag: "",
+                }),
+            )
+        }
         this.socket.end()
         this.state = SocketState.Disconnected
     }
@@ -524,7 +534,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             )
         }
 
-        await this.handleAuthentication()
+        await this.handleAuthenticationWithinLimits()
         // user is logged in!
         this.state = SocketState.Connected
         // emit the event
@@ -941,10 +951,47 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         }
     }
 
+    private async handleAuthenticationWithinLimits(): Promise<void> {
+        const timeout = this.server.options.authenticationTimeout
+        if (timeout === 0) {
+            await this.handleAuthentication()
+            return
+        }
+
+        let timer: NodeJS.Timeout | undefined
+        const deadline = new Promise<never>((_resolve, reject) => {
+            timer = setTimeout(() => {
+                this.authenticationExpired = true
+                reject(
+                    new DisconnectError(
+                        DisconnectReason.SSH_DISCONNECT_NO_MORE_AUTH_METHODS_AVAILABLE,
+                        "Authentication timed out",
+                    ),
+                )
+            }, timeout)
+            timer.unref()
+        })
+        try {
+            await Promise.race([this.handleAuthentication(), deadline])
+        } finally {
+            if (timer) clearTimeout(timer)
+        }
+    }
+
+    private assertAuthenticationActive(): void {
+        if (this.authenticationExpired) {
+            throw new DisconnectError(
+                DisconnectReason.SSH_DISCONNECT_NO_MORE_AUTH_METHODS_AVAILABLE,
+                "Authentication timed out",
+            )
+        }
+    }
+
     async handleAuthentication() {
         let allowLogin = false
         let authRequest: UserAuthRequest | undefined
         let pendingAuthRequest: UserAuthRequest | undefined
+        let failedAttempts = 0
         const authenticationMethods: SSHAuthenticationMethods[] = []
         if (this.server.hooker.hasHooks("publicKeyAuthentication")) {
             authenticationMethods.push(SSHAuthenticationMethods.PublicKey)
@@ -966,6 +1013,15 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             continuation: ServerAuthenticationContinuation = {},
             completedMethod?: SSHAuthenticationMethods,
         ): void => {
+            if (!continuation.partialSuccess) {
+                failedAttempts++
+                if (failedAttempts >= this.server.options.maxAuthenticationAttempts) {
+                    throw new DisconnectError(
+                        DisconnectReason.SSH_DISCONNECT_NO_MORE_AUTH_METHODS_AVAILABLE,
+                        "Too many authentication failures",
+                    )
+                }
+            }
             const requestedMethods =
                 continuation.authenticationMethods ??
                 (continuation.partialSuccess
@@ -1017,6 +1073,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                             controller,
                             this,
                         )
+                        this.assertAuthenticationActive()
 
                         if (controller.allowLogin) {
                             allowLogin = true
@@ -1049,6 +1106,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                             controller,
                             this,
                         )
+                        this.assertAuthenticationActive()
 
                         if (controller.allowLogin && controller.requestSignature) {
                             console.warn(
@@ -1110,6 +1168,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                             controller,
                             this,
                         )
+                        this.assertAuthenticationActive()
                         if (controller.allowLogin) {
                             allowLogin = true
                             break authentication
@@ -1135,6 +1194,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                             controller,
                             this,
                         )
+                        this.assertAuthenticationActive()
 
                         if (controller.allowLogin) {
                             allowLogin = true
@@ -1156,7 +1216,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                             break
                         }
 
-                        sendAuthenticationFailure(controller)
+                        sendAuthenticationFailure(controller, SSHAuthenticationMethods.Password)
                         break
                     }
                     case SSHAuthenticationMethods.KeyboardInteractive: {
@@ -1182,6 +1242,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                                 controller,
                                 this,
                             )
+                            this.assertAuthenticationActive()
 
                             if (controller.allowLogin) {
                                 allowLogin = true
@@ -1195,7 +1256,10 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                                 break keyboardInteractive
                             }
                             if (controller.prompts === undefined) {
-                                sendAuthenticationFailure(controller)
+                                sendAuthenticationFailure(
+                                    controller,
+                                    SSHAuthenticationMethods.KeyboardInteractive,
+                                )
                                 break keyboardInteractive
                             }
 
@@ -1213,7 +1277,10 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                             }
                             assert(packet instanceof UserAuthInfoResponse, "Invalid packet type")
                             if (packet.data.responses.length !== request.data.prompts.length) {
-                                sendAuthenticationFailure()
+                                sendAuthenticationFailure(
+                                    {},
+                                    SSHAuthenticationMethods.KeyboardInteractive,
+                                )
                                 break keyboardInteractive
                             }
                             responses = Object.freeze([...packet.data.responses])

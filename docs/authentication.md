@@ -107,8 +107,23 @@ import { Server, SSHAuthenticationMethods } from "modernssh"
 const server = new Server({
     hostKeys,
     banner: "Authorized access only. Activity may be monitored.\r\n",
+    authenticationTimeout: 10 * 60 * 1000,
+    maxAuthenticationAttempts: 20,
 })
 ```
+
+`authenticationTimeout` bounds the whole authentication phase in milliseconds after the service is
+accepted; its RFC-recommended default is ten minutes, and `0` disables this deadline.
+`maxAuthenticationAttempts` defaults to 20 and must be a positive integer. Rejected authentication
+requests count toward the limit, but the initial `none` discovery request, intermediate password
+change or keyboard-interactive messages, and completed factors reported with `partialSuccess` do
+not. Reaching either limit sends `SSH_DISCONNECT_NO_MORE_AUTH_METHODS_AVAILABLE` and closes the
+connection.
+
+Policy hooks may perform asynchronous work and are awaited. The timeout remains an absolute
+deadline while a hook is pending: a decision completed after expiry is ignored and cannot admit the
+client. Choose a shorter application-specific timeout when authentication depends on bounded local
+services, and use cancellation inside policy code if abandoning its external work matters.
 
 The keyboard-interactive hook controls every round. Set `prompts` to continue, `allowLogin` to
 finish authentication, or neither to reject the method. Empty prompt arrays are valid and require

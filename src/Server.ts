@@ -10,6 +10,7 @@ import PublicKey from "./utils/PublicKey.js"
 import EncodedSignature from "./utils/Signature.js"
 import Channel from "./Channel.js"
 import { SSHAuthenticationMethods } from "./constants.js"
+import { DisconnectError } from "./packets/Disconnect.js"
 import { MAX_PREAMBLE_LINE_LENGTH, MAX_PREAMBLE_LINES } from "./IdentificationParser.js"
 import {
     resolveServerAlgorithmOptions,
@@ -41,6 +42,10 @@ export interface ServerOptions {
     sendAllHostKeys?: boolean
     /** RFC 4252 banner sent once before authentication begins. */
     banner?: string
+    /** Milliseconds allowed after accepting the user-authentication service. Zero disables. */
+    authenticationTimeout?: number
+    /** Maximum rejected non-`none` authentication requests per connection. */
+    maxAuthenticationAttempts?: number
 }
 export interface ServerOptionsRequired
     extends Required<Omit<ServerOptions, "ident" | "algorithms">> {
@@ -242,6 +247,20 @@ export default class Server extends EventEmitter<ServerEvents> {
         this.options.hostKeys ??= []
         this.options.sendAllHostKeys ??= true
         this.options.banner ??= ""
+        this.options.authenticationTimeout ??= 600_000
+        this.options.maxAuthenticationAttempts ??= 20
+        if (
+            !Number.isFinite(this.options.authenticationTimeout) ||
+            this.options.authenticationTimeout < 0
+        ) {
+            throw new RangeError("SSH authentication timeout must be a non-negative number")
+        }
+        if (
+            !Number.isInteger(this.options.maxAuthenticationAttempts) ||
+            this.options.maxAuthenticationAttempts < 1
+        ) {
+            throw new RangeError("SSH maximum authentication attempts must be a positive integer")
+        }
         this.algorithmOffer = resolveServerAlgorithmOptions(this.options.algorithms, {
             kex: [...kex_algorithms.keys()],
             serverHostKey: [...host_key_algorithms.keys()],
@@ -339,7 +358,8 @@ export default class Server extends EventEmitter<ServerEvents> {
             await client.connect()
         } catch (error) {
             client.debug("Error in client connection:", error)
-            client.terminate()
+            if (error instanceof DisconnectError) client.disconnect(error)
+            else client.terminate()
         }
     }
 

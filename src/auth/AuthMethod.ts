@@ -38,6 +38,9 @@ export default abstract class AuthMethod {
                 SSH_MSG_USERAUTH_PK_OK: {
                     predicate: () => true,
                 },
+                SSH_MSG_DISCONNECT: {
+                    predicate: () => true,
+                },
             },
             10_000,
         )

@@ -158,6 +158,10 @@ meaningful wire-level behavior.
 - Use `Hooker` for application request and policy surfaces whose handlers may need asynchronous
   work. Await hooks before sending protocol success or failure; reserve `EventEmitter` for
   observation and stream-style notifications that do not control a reply.
+- Bound server authentication with an absolute post-service deadline and a rejected-request
+  ceiling. Do not count `none`, intermediate challenge messages, or `partialSuccess`; after expiry,
+  an awaited policy hook must not admit the client. Clear and unref deadline timers, and flush the
+  RFC disconnect packet before closing the transport.
 - High-level session helpers must issue setup requests before the program request: agent forwarding,
   environment, PTY, X11, then exec/shell/subsystem. Treat automatic environment requests as
   best-effort without replies, but require replies for security- or terminal-sensitive setup.
