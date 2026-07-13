@@ -507,7 +507,10 @@ describe("OpenSSH interoperability", () => {
         const server = new Server({
             hostKeys: [hostKey],
             sendAllHostKeys: false,
-            algorithms: { kex: ["ecdh-sha2-nistp384"] },
+            algorithms: {
+                kex: ["ecdh-sha2-nistp384"],
+                hmac: ["hmac-sha2-512"],
+            },
         })
         const errors: Error[] = []
         const input: Buffer[] = []
@@ -570,6 +573,8 @@ describe("OpenSSH interoperability", () => {
                     "RekeyLimit=1K",
                     "-o",
                     "KexAlgorithms=ecdh-sha2-nistp384",
+                    "-o",
+                    "MACs=hmac-sha2-512",
                     "interop@127.0.0.1",
                     "vector-command",
                 ],
@@ -1155,7 +1160,10 @@ describe("OpenSSH interoperability", () => {
                 hostname: "127.0.0.1",
                 port,
                 username: "interop",
-                algorithms: { kex: ["ecdh-sha2-nistp384"] },
+                algorithms: {
+                    kex: ["ecdh-sha2-nistp384"],
+                    hmac: ["hmac-sha2-512"],
+                },
                 authenticationMethodsOrder: [
                     SSHAuthenticationMethods.None,
                     SSHAuthenticationMethods.KeyboardInteractive,

@@ -20,6 +20,7 @@ import AES192CTR from "./algorithms/encryption/aes192-ctr.js"
 import AES256CTR from "./algorithms/encryption/aes256-ctr.js"
 
 import HMACSHA2256 from "./algorithms/mac/hmac-sha2-256.js"
+import HMACSHA2512 from "./algorithms/mac/hmac-sha2-512.js"
 import HMACSHA1 from "./algorithms/mac/hmac-sha1.js"
 
 import Client from "./Client.js"
@@ -123,6 +124,7 @@ export abstract class MACAlgorithm {
 }
 export const mac_algorithms = new Map<string, typeof MACAlgorithm>([
     ["hmac-sha2-256", HMACSHA2256],
+    ["hmac-sha2-512", HMACSHA2512],
     ["hmac-sha1", HMACSHA1],
 ])
 

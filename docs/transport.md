@@ -74,6 +74,11 @@ exchange hash and transport-key derivation. RFC 5656 ECDH accepts validated SEC1
 encodes the shared point's x-coordinate as the secret mpint. Invalid points, incorrect Curve25519
 point lengths, and all-zero Curve25519 secrets terminate key exchange.
 
+The RFC 6668 `hmac-sha2-256` and `hmac-sha2-512` integrity methods are available for both
+directions. Their full 32- and 64-byte outputs authenticate the RFC 4253 sequence number followed
+by the plaintext packet. OpenSSH encrypt-then-MAC names are not aliases for these methods because
+they use a different packet-authentication order.
+
 Both `ClientOptions` and `ServerOptions` accept an `algorithms` object with `kex`, `serverHostKey`,
 `cipher`, `hmac`, and `compress` categories. Server values are exact ordered arrays. Client values
 may be exact arrays or `{ remove, prepend, append }` changes whose entries are names or regular
