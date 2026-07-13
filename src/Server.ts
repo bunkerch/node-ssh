@@ -30,6 +30,8 @@ export interface ServerOptionsRequired extends Required<ServerOptions> {}
 export interface ServerEvents {
     debug: unknown[]
     close: []
+    error: [error: Error]
+    listening: []
     connection: [client: ServerClient]
 }
 
@@ -163,11 +165,30 @@ export default class Server extends EventEmitter<ServerEvents> {
         this.options.hostKeys ??= []
         this.options.sendAllHostKeys ??= true
         this.options.banner ??= ""
+        this.server = net.createServer((socket) => void this.acceptSocket(socket))
+        this.server.on("error", (error) => this.emit("error", error))
+        this.server.on("listening", () => this.emit("listening"))
+        this.server.on("close", () => {
+            this.debug("Server closed")
+            this.emit("close")
+        })
+
+        if (this.options.hostKeys.length === 0) {
+            console.warn(
+                "[node-ssh] No host key supplied. Generating a temporary Ed25519 host key.",
+            )
+            this.hostKeysReady = PrivateKey.generate("ssh-ed25519").then((key) => {
+                this.options.hostKeys.push(key)
+            })
+        } else {
+            this.hostKeysReady = Promise.resolve()
+        }
     }
 
     hooker = new Hooker<ServerHooker>()
-    server?: net.Server
+    server: net.Server
     clients = new Set<ServerClient>()
+    private readonly hostKeysReady: Promise<void>
 
     listen(port?: number, hostname?: string, backlog?: number, listeningListener?: () => void): this
     listen(port?: number, hostname?: string, listeningListener?: () => void): this
@@ -178,70 +199,63 @@ export default class Server extends EventEmitter<ServerEvents> {
     listen(options: net.ListenOptions, listeningListener?: () => void): this
     listen(handle: unknown, backlog?: number, listeningListener?: () => void): this
     listen(handle: unknown, listeningListener?: () => void): this
-    listen(): this {
-        const server = net.createServer()
-
-        // generate host keys if needed
-        if (this.options.hostKeys.length === 0) {
-            console.warn(
-                `[node-ssh] No host key supplied inside ServerOptions. Consider generating some host keys and storing them. Generating temporary ones...`,
-            )
-            Promise.all(
-                [
-                    "ssh-ed25519",
-                    // ssh-rsa seems to be disabled on recent openssh versions
-                    // is it because of sha1 or something ?
-                    // "ssh-rsa",
-                ].map((algorithm) => PrivateKey.generate(algorithm)),
-            ).then((keys) => {
-                this.options.hostKeys.push(...keys)
-                // eslint-disable-next-line prefer-rest-params
-                server.listen(...arguments)
-            })
-        } else {
-            // eslint-disable-next-line prefer-rest-params
-            server.listen(...arguments)
-        }
-
-        server.on("close", () => {
-            this.emit("debug", "Server closed")
-            this.clients = new Set()
-            this.emit("close")
+    listen(...args: unknown[]): this {
+        void this.hostKeysReady.then(() => {
+            Reflect.apply(this.server.listen, this.server, args)
         })
-        server.on("connection", async (socket) => {
-            this.emit("debug", `Connection from ${socket.remoteAddress?.toString() ?? "unknown"}`)
 
-            const client = new ServerClient(socket, this)
+        return this
+    }
 
-            // if the server wants to deny the connection (based on ip/stuff ?)
+    injectSocket(socket: net.Socket): this {
+        void this.hostKeysReady.then(() => this.acceptSocket(socket))
+        return this
+    }
+
+    address(): ReturnType<net.Server["address"]> {
+        return this.server.address()
+    }
+
+    getConnections(callback: (error: Error | null, count: number) => void): this {
+        queueMicrotask(() => callback(null, this.clients.size))
+        return this
+    }
+
+    close(callback?: (error?: Error) => void): this {
+        this.server.close(callback)
+        return this
+    }
+
+    ref(): this {
+        this.server.ref()
+        return this
+    }
+
+    unref(): this {
+        this.server.unref()
+        return this
+    }
+
+    private async acceptSocket(socket: net.Socket): Promise<void> {
+        this.debug(`Connection from ${socket.remoteAddress?.toString() ?? "unknown"}`)
+        const client = new ServerClient(socket, this)
+        try {
             if (this.hooker.hasHooks("preconnect")) {
-                const controller: ServerHookerPreconnectController = {
-                    allowConnection: true,
-                }
+                const controller: ServerHookerPreconnectController = { allowConnection: true }
                 await this.hooker.triggerHook("preconnect", controller, client)
                 if (!controller.allowConnection) {
                     client.terminate()
                     return
                 }
             }
-
             this.clients.add(client)
-
+            client.once("close", () => this.clients.delete(client))
             this.emit("connection", client)
-
-            client.on("close", () => {
-                this.clients.delete(client)
-            })
-
-            client.connect().catch((error) => {
-                client.debug("Error in client connection:", error)
-                client.terminate()
-            })
-        })
-
-        this.server = server
-
-        return this
+            await client.connect()
+        } catch (error) {
+            client.debug("Error in client connection:", error)
+            client.terminate()
+        }
     }
 
     debug(...message: unknown[]): void {

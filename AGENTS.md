@@ -92,6 +92,9 @@ behavior.
 - High-level session helpers must issue setup requests before the program request: agent forwarding,
   environment, PTY, X11, then exec/shell/subsystem. Treat automatic environment requests as
   best-effort without replies, but require replies for security- or terminal-sensitive setup.
+- Injected server sockets must pass through the same `preconnect`, client tracking, authentication,
+  error cleanup, and close cleanup as listener-accepted sockets. Keep ownership of the outer
+  listener with the injector and ownership of the connected socket with `ServerClient`.
 - Treat local and remote channel identifiers, windows, maximum packet sizes, EOF, and CLOSE state as
   independent protocol state. All channel streams must preserve bounded backpressure.
 - New public APIs and public types must be exported from `src/index.ts`, documented under `docs/`,

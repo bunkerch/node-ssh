@@ -79,6 +79,17 @@ server.listen(22, "127.0.0.1")
 Supply persistent host keys in production. If `hostKeys` is empty, the server generates a temporary
 Ed25519 key, which changes identity after every restart.
 
+`Server` mirrors the useful Node TCP-server controls: `address()`, `getConnections()`, `close()`,
+`ref()`, and `unref()` all operate without reaching into an internal socket and return the server
+where Node supports chaining. `ServerClient.setNoDelay()` controls Nagle's algorithm per accepted
+connection.
+
+An application that already owns an accepted `net.Socket` can pass it through the same admission
+and handshake path with `server.injectSocket(socket)`. Injected sockets still run the `preconnect`
+policy hook, appear in `server.clients` and `getConnections()`, and are removed on close. The
+injecting application retains responsibility for the outer listener; the SSH server owns the
+injected connected socket after acceptance.
+
 ## Passphrase-protected private keys
 
 `PrivateKey.fromString()` and `PrivateKey.parse()` accept an optional string or `Buffer`

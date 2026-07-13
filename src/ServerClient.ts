@@ -276,6 +276,11 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         this.state = SocketState.Disconnected
     }
 
+    setNoDelay(noDelay = true): this {
+        this.socket.setNoDelay(noDelay)
+        return this
+    }
+
     rekey(): Promise<void>
     rekey(callback: (error?: Error) => void): this
     rekey(callback?: (error?: Error) => void): Promise<void> | this {

@@ -1,5 +1,5 @@
 import { access, rm } from "node:fs/promises"
-import { AddressInfo, createConnection } from "node:net"
+import { AddressInfo, createConnection, createServer } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import Client from "../../src/Client.js"
@@ -54,8 +54,11 @@ describe("client/server integration", () => {
 
         server.listen({ host: "127.0.0.1", port: 0 })
         await new Promise<void>((resolve) => server.server!.once("listening", resolve))
+        expect(server.ref()).toBe(server)
+        expect(server.unref()).toBe(server)
+        expect(server.ref()).toBe(server)
 
-        const address = server.server!.address() as AddressInfo
+        const address = server.address() as AddressInfo
         const client = new Client({
             hostname: "127.0.0.1",
             port: address.port,
@@ -77,6 +80,17 @@ describe("client/server integration", () => {
             expect(connectEvents).toBe(1)
             expect(serverErrors).toEqual([])
             expect(clientErrors).toEqual([])
+            await new Promise<void>((resolve, reject) => {
+                expect(
+                    server.getConnections((error, count) => {
+                        if (error) reject(error)
+                        else {
+                            expect(count).toBe(1)
+                            resolve()
+                        }
+                    }),
+                ).toBe(server)
+            })
 
             const initialClientSessionId = Buffer.from(client.sessionID!)
             const initialServerSessionId = Buffer.from(serverPeer!.sessionID!)
@@ -182,7 +196,7 @@ describe("client/server integration", () => {
             await closed
             expect(client.isConnected).toBe(false)
             await new Promise<void>((resolve, reject) => {
-                server.server!.close((error) => (error ? reject(error) : resolve()))
+                expect(server.close((error) => (error ? reject(error) : resolve()))).toBe(server)
             })
             await rm(streamLocalPath, { force: true })
         }
@@ -220,6 +234,50 @@ describe("client/server integration", () => {
 
         await new Promise<void>((resolve, reject) => {
             server.server!.close((error) => (error ? reject(error) : resolve()))
+        })
+    })
+
+    test("accepts an injected TCP socket through the normal admission path", async () => {
+        const hostKey = await PrivateKey.generate("ssh-ed25519")
+        const server = new Server({ hostKeys: [hostKey], sendAllHostKeys: false })
+        let preconnects = 0
+        let peer: ServerClient | undefined
+        server.hooker.hook("preconnect", (_hook, controller) => {
+            preconnects++
+            controller.allowConnection = true
+        })
+        server.hooker.hook("noneAuthentication", (_hook, _context, controller) => {
+            controller.allowLogin = true
+        })
+        server.on("connection", (connection) => {
+            peer = connection
+            connection.on("error", () => undefined)
+        })
+
+        const socketAcceptor = createServer((socket) => {
+            expect(server.injectSocket(socket)).toBe(server)
+        })
+        socketAcceptor.listen({ host: "127.0.0.1", port: 0 })
+        await new Promise<void>((resolve) => socketAcceptor.once("listening", resolve))
+        const client = new Client({
+            hostname: "127.0.0.1",
+            port: (socketAcceptor.address() as AddressInfo).port,
+            username: "injected-socket",
+        })
+        client.on("error", () => undefined)
+
+        await client.connect()
+        expect(preconnects).toBe(1)
+        expect(peer?.setNoDelay(false)).toBe(peer)
+        expect(server.clients.size).toBe(1)
+
+        const clientClosed = new Promise<void>((resolve) => client.once("close", resolve))
+        const peerClosed = new Promise<void>((resolve) => peer!.once("close", resolve))
+        client.end()
+        await Promise.all([clientClosed, peerClosed])
+        expect(server.clients.size).toBe(0)
+        await new Promise<void>((resolve, reject) => {
+            socketAcceptor.close((error) => (error ? reject(error) : resolve()))
         })
     })
 })
