@@ -10,6 +10,7 @@ import Server from "../../src/Server.js"
 import ServerClient from "../../src/ServerClient.js"
 import SessionChannel from "../../src/channels/SessionChannel.js"
 import RequestFailure from "../../src/packets/RequestFailure.js"
+import GlobalRequest from "../../src/packets/GlobalRequest.js"
 import PrivateKey from "../../src/utils/PrivateKey.js"
 
 const execFileAsync = promisify(execFile)
@@ -73,6 +74,7 @@ describe("client/server integration", () => {
             port: address.port,
             username: "integration-test",
             ident: "modernssh_integration fixed-comment",
+            strictVendor: false,
         })
         const clientErrors: Error[] = []
         let connectEvents = 0
@@ -284,6 +286,15 @@ describe("client/server integration", () => {
 
         await client.connect()
         expect(preconnects).toBe(1)
+        let globalRequests = 0
+        peer!.on("packet", (packet) => {
+            if (packet instanceof GlobalRequest) globalRequests++
+        })
+        await expect(client.opensshNoMoreSessions()).rejects.toThrow(
+            "strictVendor enabled and server is not OpenSSH or compatible version",
+        )
+        await Promise.resolve()
+        expect(globalRequests).toBe(0)
         expect(peer?.setNoDelay(false)).toBe(peer)
         expect(server.clients.size).toBe(1)
 

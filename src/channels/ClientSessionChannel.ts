@@ -105,6 +105,7 @@ export default class ClientSessionChannel extends ClientChannel {
 
     async openssh_forwardAgent(): Promise<void> {
         this.ensureNotStarted("request agent forwarding")
+        this.client.assertOpenSSHVendor()
         if (this.agentForwardingRequested) return
         if (!this.client.options.agent.getStream) {
             throw new Error("The configured authentication agent cannot be forwarded")

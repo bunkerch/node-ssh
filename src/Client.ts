@@ -90,6 +90,8 @@ export interface ClientOptions {
     hostVerifier?: ClientHostVerifier
     /** Custom SSH software identifier and optional comments, without the `SSH-2.0-` prefix. */
     ident?: string | Buffer
+    /** Reject OpenSSH-specific APIs for peers without a compatible OpenSSH identifier. */
+    strictVendor?: boolean
     username?: string
     password?: string
     agent?: Agent
@@ -250,6 +252,7 @@ export default class Client extends EventEmitter<ClientEvents> {
         this.options.port ??= 22
         this.options.forceIPv4 ??= false
         this.options.forceIPv6 ??= false
+        this.options.strictVendor ??= true
         this.options.username ??= "root"
         this.options.password ??= ""
         this.options.agent ??= new NoneAgent()
@@ -410,6 +413,13 @@ export default class Client extends EventEmitter<ClientEvents> {
             ;(this.socket as net.Socket).setNoDelay(noDelay)
         }
         return this
+    }
+
+    assertOpenSSHVendor(): void {
+        if (!this.options.strictVendor) return
+        const software = this.serverProtocolVersion?.protocol_software ?? ""
+        if (/^OpenSSH_(?:[5-9]|[1-9]\d)/u.test(software)) return
+        throw new Error("strictVendor enabled and server is not OpenSSH or compatible version")
     }
 
     rekey(): Promise<void>
@@ -633,6 +643,14 @@ export default class Client extends EventEmitter<ClientEvents> {
         socketPath: string,
         callback?: ClientStreamLocalCallback,
     ): Promise<ClientDirectStreamLocalChannel> | this {
+        try {
+            this.assertOpenSSHVendor()
+        } catch (error) {
+            return this.withOptionalChannelCallback(
+                Promise.reject<ClientDirectStreamLocalChannel>(error),
+                callback,
+            )
+        }
         this.validateSocketPath(socketPath)
         const operation = this.openClientChannel(
             new ClientDirectStreamLocalChannel(this, socketPath),
@@ -753,6 +771,7 @@ export default class Client extends EventEmitter<ClientEvents> {
     }
 
     private async requestNoMoreSessions(): Promise<void> {
+        this.assertOpenSSHVendor()
         const response = await this.sendGlobalRequest(
             "no-more-sessions@openssh.com",
             Buffer.alloc(0),
@@ -779,6 +798,7 @@ export default class Client extends EventEmitter<ClientEvents> {
     }
 
     private async requestRemoteStreamLocalForward(socketPath: string): Promise<void> {
+        this.assertOpenSSHVendor()
         this.validateSocketPath(socketPath)
         if (this.remoteStreamLocalForwardings.has(socketPath)) {
             throw new Error(`Remote stream-local forwarding already exists for ${socketPath}`)
@@ -791,6 +811,7 @@ export default class Client extends EventEmitter<ClientEvents> {
     }
 
     private async cancelRemoteStreamLocalForward(socketPath: string): Promise<void> {
+        this.assertOpenSSHVendor()
         this.validateSocketPath(socketPath)
         if (!this.remoteStreamLocalForwardings.has(socketPath)) {
             throw new Error(`No remote stream-local forwarding exists for ${socketPath}`)

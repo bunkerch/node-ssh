@@ -96,6 +96,9 @@ behavior.
   greeting bytes and line endings until the peer identifier arrives, emit the combined greeting
   once, and retain the existing per-line observability events. Normalize configured server
   greetings to CRLF and reject values that could be mistaken for an SSH identification.
+- OpenSSH-only client requests are vendor-gated by default from the authenticated peer's validated
+  identification. Apply the same gate to promise and callback APIs, allow an explicit compatibility
+  override, and prove rejection before a request reaches a non-OpenSSH server.
 - RFC 4253 rekeying preserves the first exchange hash as the session identifier while deriving all
   new transport keys from the current exchange hash. Queue application output after sending
   `KEXINIT`, switch each direction exactly at its own `NEWKEYS`, preserve sequence numbers and open

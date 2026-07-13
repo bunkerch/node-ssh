@@ -115,6 +115,10 @@ applies the same direct and remote forwarding model to UNIX-domain sockets. It i
 4254, so these APIs use the `openssh_` prefix used by `ssh2` and require a peer that implements the
 OpenSSH extension.
 
+`Client` defaults `strictVendor` to `true`, so these methods reject before sending a request unless
+the peer advertises a compatible OpenSSH identification. Explicitly set `strictVendor: false` for a
+trusted alternative implementation of the same extension.
+
 `openssh_forwardOutStreamLocal()` opens a `direct-streamlocal@openssh.com` channel to a socket on
 the SSH server:
 

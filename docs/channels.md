@@ -83,6 +83,10 @@ session opens before invoking application channel policy. OpenSSH may enforce th
 disconnecting a client that attempts another session, so pending channel operations are rejected
 when that disconnect arrives.
 
+OpenSSH-specific client APIs require a compatible OpenSSH server identification by default. Set
+`strictVendor: false` on `Client` only when a non-OpenSSH peer is known to implement these vendor
+requests correctly. The same gate applies to agent forwarding and stream-local forwarding.
+
 ## Agent forwarding
 
 Agent forwarding is disabled by default. Configure a forwardable `SSHAgent` or `OnePasswordAgent`,
