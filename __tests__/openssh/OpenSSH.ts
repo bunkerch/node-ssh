@@ -3,6 +3,7 @@ import { AddressInfo, createConnection, createServer, type Socket } from "node:n
 import { promisify } from "node:util"
 import Client from "../../src/Client.js"
 import Server from "../../src/Server.js"
+import ClientChannel from "../../src/channels/ClientChannel.js"
 import SessionChannel from "../../src/channels/SessionChannel.js"
 import PrivateKey from "../../src/utils/PrivateKey.js"
 
@@ -99,6 +100,32 @@ async function exchangeTCPWhenReady(
         }
     }
     throw new Error(`Remote forwarding listener did not open on port ${port}`)
+}
+
+async function exchangeChannel(
+    channel: ClientChannel,
+    input: string,
+    expectedBytes: number,
+): Promise<string> {
+    return new Promise((resolve, reject) => {
+        const output: Buffer[] = []
+        const timeout = setTimeout(
+            () => channel.destroy(new Error("SSH channel exchange timed out")),
+            5_000,
+        )
+        channel.on("data", (data: Buffer) => {
+            output.push(data)
+            if (Buffer.concat(output).length < expectedBytes) return
+            clearTimeout(timeout)
+            channel.close()
+            resolve(Buffer.concat(output).toString())
+        })
+        channel.once("error", (error) => {
+            clearTimeout(timeout)
+            reject(error)
+        })
+        channel.write(input)
+    })
 }
 
 describe("OpenSSH interoperability", () => {
@@ -321,6 +348,11 @@ describe("OpenSSH interoperability", () => {
                 channel.on("data", (data: Buffer) => channel.write(data.toString().toUpperCase()))
                 channel.on("end", () => channel.close())
             })
+            client.on("unix connection", (_details, accept) => {
+                const channel = accept()!
+                channel.on("data", (data: Buffer) => channel.write(data.toString().toUpperCase()))
+                channel.on("end", () => channel.close())
+            })
 
             await client.connect()
             const channel = await client.exec(
@@ -360,6 +392,23 @@ describe("OpenSSH interoperability", () => {
                 errors: [],
             })
             await client.unforwardIn("0.0.0.0", 40_000)
+
+            const directStreamLocal = await client.openssh_forwardOutStreamLocal("/tmp/echo.sock")
+            expect(await exchangeChannel(directStreamLocal, "direct stream local", 19)).toBe(
+                "direct stream local",
+            )
+
+            const forwardedSocketPath = "/tmp/modernssh-forward.sock"
+            await client.openssh_forwardInStreamLocal(forwardedSocketPath)
+            const { stdout: streamLocalOutput } = await execFileAsync("docker", [
+                "exec",
+                containerId,
+                "sh",
+                "-c",
+                `printf 'remote stream local' | socat - UNIX-CONNECT:${forwardedSocketPath}`,
+            ])
+            expect(streamLocalOutput).toBe("REMOTE STREAM LOCAL")
+            await client.openssh_unforwardInStreamLocal(forwardedSocketPath)
 
             const closed = new Promise<void>((resolve) => client.once("close", resolve))
             client.end()

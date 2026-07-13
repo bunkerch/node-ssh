@@ -10,6 +10,7 @@ export type {
     ClientHookerPasswordAuthController,
     ClientOptions,
     ClientSessionCallback,
+    ClientStreamLocalCallback,
 } from "./Client.js"
 export {
     default as ClientChannel,
@@ -20,6 +21,9 @@ export { default as ClientSessionChannel } from "./channels/ClientSessionChannel
 export type { ClientPtyOptions, ClientWindowDimensions } from "./channels/ClientSessionChannel.js"
 export { default as ClientTCPIPChannel } from "./channels/ClientTCPIPChannel.js"
 export { default as ClientForwardedTCPIPChannel } from "./channels/ClientForwardedTCPIPChannel.js"
+export { default as ClientDirectStreamLocalChannel } from "./channels/ClientDirectStreamLocalChannel.js"
+export { default as ClientForwardedStreamLocalChannel } from "./channels/ClientForwardedStreamLocalChannel.js"
+export type { StreamLocalConnectionDetails } from "./channels/ClientForwardedStreamLocalChannel.js"
 export type { TCPIPConnectionDetails } from "./channels/ClientTCPIPChannel.js"
 
 export { default as Server } from "./Server.js"

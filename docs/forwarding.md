@@ -107,3 +107,43 @@ requesting client for each connection. Requests for port zero receive the alloca
 `cancel-tcpip-forward` request stops accepting new connections immediately; disconnecting the SSH
 connection also closes all of its listeners. Existing tunnel channels retain the normal independent
 EOF and CLOSE lifecycle.
+
+## OpenSSH UNIX-domain socket forwarding
+
+[OpenSSH's `streamlocal` extension](https://github.com/openssh/openssh-portable/blob/master/PROTOCOL)
+applies the same direct and remote forwarding model to UNIX-domain sockets. It is not part of RFC
+4254, so these APIs use the `openssh_` prefix used by `ssh2` and require a peer that implements the
+OpenSSH extension.
+
+`openssh_forwardOutStreamLocal()` opens a `direct-streamlocal@openssh.com` channel to a socket on
+the SSH server:
+
+```ts
+const socket = await client.openssh_forwardOutStreamLocal("/run/app/control.sock")
+localSocket.pipe(socket).pipe(localSocket)
+```
+
+For remote UNIX-socket forwarding, register a `unix connection` handler before requesting the
+listener. As with TCP forwarding, every incoming channel is denied unless its path exactly matches
+a successful request and the handler synchronously accepts it.
+
+```ts
+client.on("unix connection", (details, accept, reject) => {
+    if (details.socketPath !== "/run/user/1000/modernssh.sock") {
+        reject()
+        return
+    }
+
+    const tunnel = accept()
+    if (tunnel) {
+        const localSocket = net.connect("/run/app/control.sock")
+        localSocket.pipe(tunnel).pipe(localSocket)
+    }
+})
+
+await client.openssh_forwardInStreamLocal("/run/user/1000/modernssh.sock")
+await client.openssh_unforwardInStreamLocal("/run/user/1000/modernssh.sock")
+```
+
+Socket paths must be non-empty and cannot contain NUL. Filesystem ownership, permissions, stale
+socket replacement, and path visibility are controlled by the SSH server and its operating system.

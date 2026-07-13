@@ -2,6 +2,8 @@ import {
     Agent,
     Channel,
     Client,
+    ClientDirectStreamLocalChannel,
+    ClientForwardedStreamLocalChannel,
     ClientForwardedTCPIPChannel,
     ClientTCPIPChannel,
     DirectTCPIPChannel,
@@ -32,6 +34,8 @@ describe("package exports", () => {
             Agent,
             Channel,
             Client,
+            ClientDirectStreamLocalChannel,
+            ClientForwardedStreamLocalChannel,
             ClientForwardedTCPIPChannel,
             ClientTCPIPChannel,
             DirectTCPIPChannel,
@@ -46,7 +50,7 @@ describe("package exports", () => {
             ServerClient,
             SessionChannel,
             Shell,
-        ]).toHaveLength(17)
+        ]).toHaveLength(19)
         expect(SSHAuthenticationMethods.PublicKey).toBe("publickey")
     })
 
@@ -54,6 +58,8 @@ describe("package exports", () => {
         const entry = await import("../../dist/index.js")
 
         expect(entry.Client).toBeDefined()
+        expect(entry.ClientDirectStreamLocalChannel).toBeDefined()
+        expect(entry.ClientForwardedStreamLocalChannel).toBeDefined()
         expect(entry.ClientForwardedTCPIPChannel).toBeDefined()
         expect(entry.ClientTCPIPChannel).toBeDefined()
         expect(entry.DirectTCPIPChannel).toBeDefined()

@@ -10,7 +10,8 @@ establishes real TCP connections in both directions:
 - A `modernssh` client connects to an OpenSSH server built from the digest-pinned Debian fixture in
   `__tests__/openssh/Dockerfile`, authenticates with a password, executes a command, separates
   stdout/stderr, receives its exit status, establishes and cancels a remote TCP listener, exchanges
-  data over the resulting `forwarded-tcpip` channel, and disconnects gracefully.
+  data over the resulting `forwarded-tcpip` channel, opens direct and remote OpenSSH stream-local
+  forwarding channels, and disconnects gracefully.
 
 The OpenSSH server test requires Docker. The image is tagged locally as
 `modernssh-openssh-test:bookworm`; Docker reuses its build cache after the first run. The pinned base
@@ -19,12 +20,12 @@ image makes the operating-system fixture reproducible, while installing the dist
 
 ## Deterministic protocol vectors
 
-Wire codecs are tested independently of OpenSSH with fixed byte strings derived from the RFC
-formats. The channel vector suites cover `direct-tcpip`, `forwarded-tcpip`, `tcpip-forward` and
-`cancel-tcpip-forward` global requests, allocated-port responses, PTY and terminal modes,
-environment, window changes, signals, subsystems, window adjustment, standard data, stderr
-extended data, EOF, and CLOSE. Every vector is parsed into asserted fields and serialized back to
-the exact original bytes.
+Wire codecs are tested independently of OpenSSH with fixed byte strings derived from the protocol
+formats. The channel vector suites cover `direct-tcpip`, `forwarded-tcpip`, TCP forwarding global
+requests, all four OpenSSH stream-local forwarding messages, allocated-port responses, PTY and
+terminal modes, environment, window changes, signals, subsystems, window adjustment, standard
+data, stderr extended data, EOF, and CLOSE. Every vector is parsed into asserted fields and
+serialized back to the exact original bytes.
 
 Transport tests likewise use deterministic identification, binary framing, encryption-boundary,
 MAC, fragmentation, and maximum-size vectors. This keeps exact packet parsing failures local and

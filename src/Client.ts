@@ -45,6 +45,10 @@ import ClientChannel from "./channels/ClientChannel.js"
 import ClientSessionChannel from "./channels/ClientSessionChannel.js"
 import ClientTCPIPChannel from "./channels/ClientTCPIPChannel.js"
 import ClientForwardedTCPIPChannel from "./channels/ClientForwardedTCPIPChannel.js"
+import ClientDirectStreamLocalChannel from "./channels/ClientDirectStreamLocalChannel.js"
+import ClientForwardedStreamLocalChannel, {
+    StreamLocalConnectionDetails,
+} from "./channels/ClientForwardedStreamLocalChannel.js"
 import type { TCPIPConnectionDetails } from "./channels/ClientTCPIPChannel.js"
 import ChannelOpen from "./packets/ChannelOpen.js"
 import ChannelOpenConfirmation from "./packets/ChannelOpenConfirmation.js"
@@ -90,6 +94,11 @@ export interface ClientEvents {
         accept: () => ClientForwardedTCPIPChannel | undefined,
         reject: () => void,
     ]
+    "unix connection": [
+        details: Readonly<StreamLocalConnectionDetails>,
+        accept: () => ClientForwardedStreamLocalChannel | undefined,
+        reject: () => void,
+    ]
 }
 
 export interface ClientHookerHostKeyController {
@@ -120,6 +129,7 @@ export type ClientChannelCallback<T extends ClientChannel = ClientChannel> = (
 export type ClientSessionCallback = ClientChannelCallback<ClientSessionChannel>
 export type ClientForwardCallback = ClientChannelCallback<ClientTCPIPChannel>
 export type ClientForwardInCallback = (error: Error | undefined, port?: number) => void
+export type ClientStreamLocalCallback = ClientChannelCallback<ClientDirectStreamLocalChannel>
 
 export class GlobalRequestError extends Error {
     name = "GlobalRequestError"
@@ -215,6 +225,7 @@ export default class Client extends EventEmitter<ClientEvents> {
     channels = new Map<number, ClientChannel>()
     private readonly pendingGlobalRequests: PendingGlobalRequest[] = []
     private readonly remoteForwardings = new Map<string, RemoteForwarding>()
+    private readonly remoteStreamLocalForwardings = new Set<string>()
 
     state = SocketState.Closed
     get isConnected(): boolean {
@@ -351,6 +362,49 @@ export default class Client extends EventEmitter<ClientEvents> {
         return this
     }
 
+    openssh_forwardOutStreamLocal(socketPath: string): Promise<ClientDirectStreamLocalChannel>
+    openssh_forwardOutStreamLocal(socketPath: string, callback: ClientStreamLocalCallback): this
+    openssh_forwardOutStreamLocal(
+        socketPath: string,
+        callback?: ClientStreamLocalCallback,
+    ): Promise<ClientDirectStreamLocalChannel> | this {
+        this.validateSocketPath(socketPath)
+        const operation = this.openClientChannel(
+            new ClientDirectStreamLocalChannel(this, socketPath),
+        )
+        return this.withOptionalChannelCallback(operation, callback)
+    }
+
+    openssh_forwardInStreamLocal(socketPath: string): Promise<void>
+    openssh_forwardInStreamLocal(socketPath: string, callback: (error?: Error) => void): this
+    openssh_forwardInStreamLocal(
+        socketPath: string,
+        callback?: (error?: Error) => void,
+    ): Promise<void> | this {
+        const operation = this.requestRemoteStreamLocalForward(socketPath)
+        if (!callback) return operation
+        operation.then(
+            () => callback(),
+            (error: Error) => callback(error),
+        )
+        return this
+    }
+
+    openssh_unforwardInStreamLocal(socketPath: string): Promise<void>
+    openssh_unforwardInStreamLocal(socketPath: string, callback: (error?: Error) => void): this
+    openssh_unforwardInStreamLocal(
+        socketPath: string,
+        callback?: (error?: Error) => void,
+    ): Promise<void> | this {
+        const operation = this.cancelRemoteStreamLocalForward(socketPath)
+        if (!callback) return operation
+        operation.then(
+            () => callback(),
+            (error: Error) => callback(error),
+        )
+        return this
+    }
+
     private async openSessionChannel(): Promise<ClientSessionChannel> {
         return this.openClientChannel(new ClientSessionChannel(this))
     }
@@ -426,6 +480,30 @@ export default class Client extends EventEmitter<ClientEvents> {
         this.remoteForwardings.delete(key)
     }
 
+    private async requestRemoteStreamLocalForward(socketPath: string): Promise<void> {
+        this.validateSocketPath(socketPath)
+        if (this.remoteStreamLocalForwardings.has(socketPath)) {
+            throw new Error(`Remote stream-local forwarding already exists for ${socketPath}`)
+        }
+        await this.sendGlobalRequest(
+            "streamlocal-forward@openssh.com",
+            serializeBuffer(Buffer.from(socketPath, "utf8")),
+        )
+        this.remoteStreamLocalForwardings.add(socketPath)
+    }
+
+    private async cancelRemoteStreamLocalForward(socketPath: string): Promise<void> {
+        this.validateSocketPath(socketPath)
+        if (!this.remoteStreamLocalForwardings.has(socketPath)) {
+            throw new Error(`No remote stream-local forwarding exists for ${socketPath}`)
+        }
+        await this.sendGlobalRequest(
+            "cancel-streamlocal-forward@openssh.com",
+            serializeBuffer(Buffer.from(socketPath, "utf8")),
+        )
+        this.remoteStreamLocalForwardings.delete(socketPath)
+    }
+
     private sendGlobalRequest(name: string, args: Buffer): Promise<Buffer> {
         if (!this.isConnected || !this.hasAuthenticated) {
             return Promise.reject(
@@ -447,6 +525,12 @@ export default class Client extends EventEmitter<ClientEvents> {
     private validatePort(port: number, name: string): void {
         if (!Number.isInteger(port) || port < 0 || port > 65_535) {
             throw new RangeError(`SSH ${name} must be between 0 and 65535`)
+        }
+    }
+
+    private validateSocketPath(socketPath: string): void {
+        if (socketPath.length === 0 || socketPath.includes("\0")) {
+            throw new TypeError("SSH stream-local socket path must be non-empty and contain no NUL")
         }
     }
 
@@ -513,6 +597,7 @@ export default class Client extends EventEmitter<ClientEvents> {
                     )
                 }
                 this.remoteForwardings.clear()
+                this.remoteStreamLocalForwardings.clear()
                 this.emit("close")
             }
             this.socket!.on("close", closeListener)
@@ -1043,6 +1128,10 @@ export default class Client extends EventEmitter<ClientEvents> {
     }
 
     private handleIncomingChannelOpen(packet: ChannelOpen): void {
+        if (packet.data.channel_type === ClientForwardedStreamLocalChannel.channelType) {
+            this.handleIncomingStreamLocalChannelOpen(packet)
+            return
+        }
         if (packet.data.channel_type !== "forwarded-tcpip") {
             const reason =
                 packet.data.channel_type === "session"
@@ -1089,6 +1178,49 @@ export default class Client extends EventEmitter<ClientEvents> {
             )
         }
         this.emit("tcp connection", details, accept, reject)
+        if (!decided) reject()
+    }
+
+    private handleIncomingStreamLocalChannelOpen(packet: ChannelOpen): void {
+        const details = Object.freeze(
+            ClientForwardedStreamLocalChannel.parseDetails(packet.data.args),
+        )
+        if (!this.remoteStreamLocalForwardings.has(details.socketPath)) {
+            this.rejectIncomingChannel(
+                packet,
+                ChannelOpenFailureReasonCodes.SSH_OPEN_ADMINISTRATIVELY_PROHIBITED,
+                "No matching remote stream-local forwarding was requested",
+            )
+            return
+        }
+        if (this.listenerCount("unix connection") === 0) {
+            this.rejectIncomingChannel(
+                packet,
+                ChannelOpenFailureReasonCodes.SSH_OPEN_ADMINISTRATIVELY_PROHIBITED,
+                "No stream-local forwarding handler is registered",
+            )
+            return
+        }
+
+        let decided = false
+        const accept = (): ClientForwardedStreamLocalChannel | undefined => {
+            if (decided) return undefined
+            decided = true
+            const channel = new ClientForwardedStreamLocalChannel(this, packet)
+            this.channels.set(channel.localId, channel)
+            this.sendPacket(channel.getOpenConfirmationPacket())
+            return channel
+        }
+        const reject = (): void => {
+            if (decided) return
+            decided = true
+            this.rejectIncomingChannel(
+                packet,
+                ChannelOpenFailureReasonCodes.SSH_OPEN_ADMINISTRATIVELY_PROHIBITED,
+                "Remote stream-local forwarding connection was rejected",
+            )
+        }
+        this.emit("unix connection", details, accept, reject)
         if (!decided) reject()
     }
 

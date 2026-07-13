@@ -51,6 +51,8 @@ behavior.
 
 - Implement behavior from the RFCs in `../rfcs`; fetch missing RFCs from an authoritative source
   when needed.
+- Implement vendor extensions from their upstream protocol documents (for example OpenSSH's
+  `PROTOCOL`), and keep them explicitly named and separately tested from RFC behavior.
 - Treat local and remote channel identifiers, windows, maximum packet sizes, EOF, and CLOSE state as
   independent protocol state. All channel streams must preserve bounded backpressure.
 - New public APIs and public types must be exported from `src/index.ts`, documented under `docs/`,
