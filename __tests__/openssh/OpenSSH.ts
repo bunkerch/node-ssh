@@ -1090,6 +1090,96 @@ describe("OpenSSH interoperability", () => {
         }
     }, 30_000)
 
+    test("OpenSSH client exchanges legacy CBC traffic with a modernssh server across rekey", async () => {
+        const ciphers = ["aes128-cbc", "aes192-cbc", "aes256-cbc", "3des-cbc"] as const
+        const hostKey = await PrivateKey.generate("ssh-ed25519")
+        const server = new Server({
+            hostKeys: [hostKey],
+            sendAllHostKeys: false,
+            algorithms: { cipher: ciphers },
+        })
+        const errors: Error[] = []
+        const handshakes: { cipher: string; mac: string }[] = []
+        let rekeys = 0
+        server.hooker.hook("noneAuthentication", (_hook, context, decision) => {
+            decision.allowLogin = context.username === "interop"
+        })
+        server.hooker.hook("channelOpenRequest", (_hook, channel, decision) => {
+            decision.allowOpen = channel instanceof SessionChannel
+        })
+        server.on("connection", (connection) => {
+            connection.on("error", (error) => errors.push(error))
+            connection.on("handshake", (negotiated) => {
+                handshakes.push({ cipher: negotiated.cs.cipher, mac: negotiated.cs.mac })
+                expect(negotiated.sc.cipher).toBe(negotiated.cs.cipher)
+                expect(negotiated.sc.mac).not.toBe("")
+            })
+            connection.on("rekey", () => rekeys++)
+            connection.on("channel", (channel) => {
+                if (!(channel instanceof SessionChannel)) return
+                channel.hooker.hook("execRequest", (_hook, _context, decision) => {
+                    decision.success = true
+                })
+                channel.events.on("exec", (_command, shell) => {
+                    shell.resume()
+                    shell.on("end", () => {
+                        shell.stdout.write("cbc-ok\n", () => shell.exit(0).end())
+                    })
+                })
+            })
+        })
+        server.listen({ host: "127.0.0.1", port: 0 })
+        await new Promise<void>((resolve) => server.server!.once("listening", resolve))
+        const port = (server.server!.address() as AddressInfo).port
+
+        try {
+            for (const cipher of ciphers) {
+                const result = await collectProcess(
+                    "/usr/bin/ssh",
+                    [
+                        "-F",
+                        "/dev/null",
+                        "-T",
+                        "-p",
+                        String(port),
+                        "-o",
+                        "BatchMode=yes",
+                        "-o",
+                        "PreferredAuthentications=none",
+                        "-o",
+                        "PubkeyAuthentication=no",
+                        "-o",
+                        "PasswordAuthentication=no",
+                        "-o",
+                        `Ciphers=${cipher}`,
+                        "-o",
+                        "RekeyLimit=1K",
+                        "-o",
+                        "StrictHostKeyChecking=no",
+                        "-o",
+                        "UserKnownHostsFile=/dev/null",
+                        "-o",
+                        "LogLevel=ERROR",
+                        "interop@127.0.0.1",
+                        "cbc-test",
+                    ],
+                    "x".repeat(65_536),
+                )
+                expect(result).toEqual({ code: 0, stdout: "cbc-ok\n", stderr: "" })
+            }
+
+            expect(new Set(handshakes.map(({ cipher }) => cipher))).toEqual(new Set(ciphers))
+            expect(handshakes.every(({ mac }) => mac.length > 0)).toBe(true)
+            expect(rekeys).toBeGreaterThanOrEqual(ciphers.length)
+            expect(errors).toEqual([])
+        } finally {
+            for (const client of server.clients) client.terminate()
+            await new Promise<void>((resolve, reject) => {
+                server.server!.close((error) => (error ? reject(error) : resolve()))
+            })
+        }
+    }, 30_000)
+
     test("OpenSSH client forwards its agent to a modernssh server", async () => {
         const agent = await createOpenSSHAgentFixture()
         const hostKey = await PrivateKey.generate("ssh-ed25519")
@@ -1709,6 +1799,43 @@ describe("OpenSSH interoperability", () => {
                 const aeadClosed = new Promise<void>((resolve) => aeadClient.once("close", resolve))
                 aeadClient.end()
                 await aeadClosed
+            }
+
+            for (const cipher of ["aes128-cbc", "aes192-cbc", "aes256-cbc", "3des-cbc"] as const) {
+                const cbcClient = new Client({
+                    hostname: "127.0.0.1",
+                    port,
+                    username: "interop",
+                    password: "correct-horse-battery-staple",
+                    algorithms: { cipher: [cipher] },
+                })
+                const cbcErrors: Error[] = []
+                const cbcHandshakes: { cipher: string; mac: string }[] = []
+                cbcClient.on("error", (error) => cbcErrors.push(error))
+                cbcClient.on("handshake", (negotiated) => {
+                    cbcHandshakes.push({
+                        cipher: negotiated.cs.cipher,
+                        mac: negotiated.cs.mac,
+                    })
+                    expect(negotiated.sc.cipher).toBe(cipher)
+                    expect(negotiated.sc.mac).not.toBe("")
+                })
+                cbcClient.hooker.hook("hostKey", (_hook, decision) => {
+                    decision.allowHostKey = true
+                })
+                await cbcClient.connect()
+                await cbcClient.rekey()
+                const cbcSession = await cbcClient.exec("printf cbc-client-ok")
+                const cbcOutput: Buffer[] = []
+                cbcSession.on("data", (data: Buffer) => cbcOutput.push(data))
+                await new Promise<void>((resolve) => cbcSession.once("close", resolve))
+                expect(Buffer.concat(cbcOutput).toString()).toBe("cbc-client-ok")
+                expect(cbcHandshakes.map(({ cipher: name }) => name)).toEqual([cipher, cipher])
+                expect(cbcHandshakes.every(({ mac }) => mac.length > 0)).toBe(true)
+                expect(cbcErrors).toEqual([])
+                const cbcClosed = new Promise<void>((resolve) => cbcClient.once("close", resolve))
+                cbcClient.end()
+                await cbcClosed
             }
 
             const compressionClient = new Client({

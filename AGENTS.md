@@ -137,6 +137,11 @@ meaningful wire-level behavior.
   flush at every packet boundary, and resets at that direction's NEWKEYS. Delayed zlib activates
   only after USERAUTH_SUCCESS but starts immediately on later authenticated rekeys. Bound expanded
   payloads and cover immediate mode independently plus delayed mode with both OpenSSH peer roles.
+- RFC 4253 CBC encryption is stateful across packet boundaries and uses SSH packet padding without
+  cipher-level padding. Preserve chaining when the decoder decrypts the first block before the
+  packet remainder, reset each direction only with its newly derived key and IV at NEWKEYS, and
+  require a separately negotiated MAC. Keep CBC ciphers behind modern choices and validate them
+  with independent fixed vectors plus OpenSSH in both roles across rekey.
 - RFC 8332 RSA SHA-2 keeps the serialized public-key format as `ssh-rsa` while negotiating and
   encoding `rsa-sha2-256` or `rsa-sha2-512` signatures. Advertise user-auth signature support with
   RFC 8308 `server-sig-algs`, and validate both host and user signatures against OpenSSH.

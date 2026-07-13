@@ -99,6 +99,13 @@ other encrypts the body and derives a one-time Poly1305 key for the full encrypt
 the full 16-byte tag is verified before the body is decrypted. A separate MAC is not negotiated.
 Sequence-number reuse or wrap under one transport key is rejected and requires rekeying.
 
+The RFC 4253 `aes128-cbc`, `aes192-cbc`, `aes256-cbc`, and three-key `3des-cbc` ciphers are
+available as trailing compatibility choices. CBC chaining state continues across packet boundaries;
+SSH packet padding supplies the required block alignment, so the cipher applies no additional
+padding. Each direction starts with newly derived key and IV material after `NEWKEYS` and always
+uses a separately negotiated MAC. Prefer the default AEAD and CTR choices for new deployments;
+configure CBC explicitly only when interoperability with an older peer requires it.
+
 ## Compression
 
 RFC 4253 `zlib` compresses only the packet payload before padding, encryption, and authentication.

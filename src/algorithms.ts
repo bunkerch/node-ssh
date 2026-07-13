@@ -22,6 +22,10 @@ import AES128GCMOpenSSH from "./algorithms/encryption/aes128-gcm-openssh.js"
 import AES256GCMOpenSSH from "./algorithms/encryption/aes256-gcm-openssh.js"
 import ChaCha20Poly1305OpenSSH from "./algorithms/encryption/chacha20-poly1305-openssh.js"
 import { SSHZlibCompressor, SSHZlibDecompressor } from "./algorithms/compression/zlib.js"
+import AES128CBC from "./algorithms/encryption/aes128-cbc.js"
+import AES192CBC from "./algorithms/encryption/aes192-cbc.js"
+import AES256CBC from "./algorithms/encryption/aes256-cbc.js"
+import TripleDESCBC from "./algorithms/encryption/triple-des-cbc.js"
 
 import HMACSHA2256 from "./algorithms/mac/hmac-sha2-256.js"
 import HMACSHA2512 from "./algorithms/mac/hmac-sha2-512.js"
@@ -161,6 +165,10 @@ export const encryption_algorithms = new Map<string, typeof EncryptionAlgorithm>
     ["aes256-ctr", AES256CTR],
     ["aes192-ctr", AES192CTR],
     ["aes128-ctr", AES128CTR],
+    ["aes256-cbc", AES256CBC],
+    ["aes192-cbc", AES192CBC],
+    ["aes128-cbc", AES128CBC],
+    ["3des-cbc", TripleDESCBC],
 ])
 
 export abstract class MACAlgorithm {
