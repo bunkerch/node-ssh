@@ -3,8 +3,6 @@ import { PacketNameToType } from "../constants.js"
 import Packet from "../packet.js"
 import { readNextUint8 } from "../utils/Buffer.js"
 
-// TODO: Request success might hold data, depending on the request.
-// need to impl this.
 export interface RequestSuccessData {
     args: Buffer
 }

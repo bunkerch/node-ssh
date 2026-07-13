@@ -47,6 +47,27 @@ async function collectProcess(
     }
 }
 
+async function exchangeTCP(port: number, input: string, expectedBytes: number): Promise<string> {
+    return new Promise((resolve, reject) => {
+        const output: Buffer[] = []
+        const socket = createConnection({ host: "127.0.0.1", port })
+        const timeout = setTimeout(() => socket.destroy(new Error("TCP exchange timed out")), 5_000)
+        socket.on("data", (data: Buffer) => {
+            output.push(data)
+            if (Buffer.concat(output).length >= expectedBytes) socket.end()
+        })
+        socket.once("error", (error) => {
+            clearTimeout(timeout)
+            reject(error)
+        })
+        socket.once("close", () => {
+            clearTimeout(timeout)
+            resolve(Buffer.concat(output).toString())
+        })
+        socket.once("connect", () => socket.write(input))
+    })
+}
+
 describe("OpenSSH interoperability", () => {
     test("OpenSSH client executes a command on a modernssh server", async () => {
         const hostKey = await PrivateKey.generate("ssh-ed25519")
@@ -133,6 +154,8 @@ describe("OpenSSH interoperability", () => {
             "--rm",
             "--publish",
             "127.0.0.1::22",
+            "--publish",
+            "127.0.0.1::40000",
             imageName,
         ])
         const containerId = stdout.trim()
@@ -158,6 +181,20 @@ describe("OpenSSH interoperability", () => {
             client.hooker.hook("hostKey", (_hook, decision) => {
                 decision.allowHostKey = true
             })
+            let forwardingDetails:
+                | {
+                      destinationHost: string
+                      destinationPort: number
+                      sourceHost: string
+                      sourcePort: number
+                  }
+                | undefined
+            client.on("tcp connection", (details, accept) => {
+                forwardingDetails = details
+                const channel = accept()!
+                channel.on("data", (data: Buffer) => channel.write(data.toString().toUpperCase()))
+                channel.on("end", () => channel.close())
+            })
 
             await client.connect()
             const channel = await client.exec(
@@ -177,6 +214,26 @@ describe("OpenSSH interoperability", () => {
             expect(Buffer.concat(stderr).toString()).toBe("openssh server stderr\n")
             expect(exitCode).toBe(23)
             expect(errors).toEqual([])
+
+            expect(await client.forwardIn("0.0.0.0", 40_000)).toBe(40_000)
+            const { stdout: forwardingPortOutput } = await execFileAsync("docker", [
+                "port",
+                containerId,
+                "40000/tcp",
+            ])
+            const forwardingPort = Number(forwardingPortOutput.trim().match(/:(\d+)$/u)?.[1])
+            const forwardingOutput = await exchangeTCP(forwardingPort, "remote forwarding", 17)
+            expect({ forwardingOutput, forwardingDetails, errors: errors.map(String) }).toEqual({
+                forwardingOutput: "REMOTE FORWARDING",
+                forwardingDetails: {
+                    destinationHost: "0.0.0.0",
+                    destinationPort: 40_000,
+                    sourceHost: expect.any(String),
+                    sourcePort: expect.any(Number),
+                },
+                errors: [],
+            })
+            await client.unforwardIn("0.0.0.0", 40_000)
 
             const closed = new Promise<void>((resolve) => client.once("close", resolve))
             client.end()

@@ -1,8 +1,9 @@
-export { default as Client } from "./Client.js"
+export { default as Client, GlobalRequestError } from "./Client.js"
 export type {
     ClientEvents,
     ClientChannelCallback,
     ClientForwardCallback,
+    ClientForwardInCallback,
     ClientHooker,
     ClientHookerHostKeyController,
     ClientHookerPasswordAuthContext,
@@ -18,6 +19,7 @@ export {
 export { default as ClientSessionChannel } from "./channels/ClientSessionChannel.js"
 export type { ClientPtyOptions, ClientWindowDimensions } from "./channels/ClientSessionChannel.js"
 export { default as ClientTCPIPChannel } from "./channels/ClientTCPIPChannel.js"
+export { default as ClientForwardedTCPIPChannel } from "./channels/ClientForwardedTCPIPChannel.js"
 export type { TCPIPConnectionDetails } from "./channels/ClientTCPIPChannel.js"
 
 export { default as Server } from "./Server.js"

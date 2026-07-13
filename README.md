@@ -12,7 +12,7 @@ resulting `modernssh-1.0.0.tgz` file to an application with its package manager.
 See [Getting started](docs/getting-started.md) for client and server examples and
 [SSH transport behavior](docs/transport.md) for protocol-level details. The
 [client channel guide](docs/channels.md) covers commands and stream behavior, while the
-[TCP/IP forwarding guide](docs/forwarding.md) covers direct tunnels. The
+[TCP/IP forwarding guide](docs/forwarding.md) covers direct and remote tunnels. The
 [interoperability matrix](docs/interoperability.md) records cross-implementation coverage.
 
 ## Development

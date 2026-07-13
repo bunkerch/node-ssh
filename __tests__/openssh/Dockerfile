@@ -10,6 +10,7 @@ RUN apt-get update \
     && printf '%s\n' \
         'PasswordAuthentication yes' \
         'KbdInteractiveAuthentication no' \
+        'GatewayPorts clientspecified' \
         'UsePAM no' \
         'PermitRootLogin no' \
         'AllowUsers interop' \

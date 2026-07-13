@@ -129,6 +129,19 @@ export default class ClientChannel extends Duplex {
         })
     }
 
+    getOpenConfirmationPacket(): ChannelOpenConfirmation {
+        if (this.remoteId === undefined) {
+            throw new Error(`SSH channel ${this.localId} has no remote channel identifier`)
+        }
+        return new ChannelOpenConfirmation({
+            recipient_channel_id: this.remoteId,
+            sender_channel_id: this.localId,
+            initial_window_size: this.localInitialWindowSize,
+            maximum_packet_size: this.localMaximumPacketSize,
+            args: Buffer.alloc(0),
+        })
+    }
+
     waitUntilOpen(): Promise<void> {
         return this.openPromise
     }
@@ -143,6 +156,16 @@ export default class ClientChannel extends Duplex {
     confirmOpen(packet: ChannelOpenConfirmation): void {
         if (this.remoteId !== undefined) {
             throw new Error(`SSH channel ${this.localId} was confirmed more than once`)
+        }
+        this.remoteId = packet.data.sender_channel_id
+        this.remoteWindowSize = packet.data.initial_window_size
+        this.remoteMaximumPacketSize = packet.data.maximum_packet_size
+        this.openResolve()
+    }
+
+    acceptOpen(packet: ChannelOpen): void {
+        if (this.remoteId !== undefined) {
+            throw new Error(`SSH channel ${this.localId} was opened more than once`)
         }
         this.remoteId = packet.data.sender_channel_id
         this.remoteWindowSize = packet.data.initial_window_size

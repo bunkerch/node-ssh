@@ -36,13 +36,16 @@ import Agent from "./publickey/Agent.js"
 import NoneAgent from "./publickey/NoneAgent.js"
 import GlobalRequest from "./packets/GlobalRequest.js"
 import RequestFailure from "./packets/RequestFailure.js"
+import RequestSuccess from "./packets/RequestSuccess.js"
 import Debug from "./packets/Debug.js"
-import { readNextBuffer } from "./utils/Buffer.js"
+import { readNextBuffer, readNextUint32, serializeBuffer, serializeUint32 } from "./utils/Buffer.js"
 import IdentificationParser from "./IdentificationParser.js"
 import { BinaryPacketDecoder, BinaryPacketEncoder } from "./BinaryPacket.js"
 import ClientChannel from "./channels/ClientChannel.js"
 import ClientSessionChannel from "./channels/ClientSessionChannel.js"
 import ClientTCPIPChannel from "./channels/ClientTCPIPChannel.js"
+import ClientForwardedTCPIPChannel from "./channels/ClientForwardedTCPIPChannel.js"
+import type { TCPIPConnectionDetails } from "./channels/ClientTCPIPChannel.js"
 import ChannelOpen from "./packets/ChannelOpen.js"
 import ChannelOpenConfirmation from "./packets/ChannelOpenConfirmation.js"
 import ChannelOpenFailure, { ChannelOpenFailureReasonCodes } from "./packets/ChannelOpenFailure.js"
@@ -82,6 +85,11 @@ export interface ClientEvents {
     serverKexDHReply: [serverKexDHReply: KexDHReply]
     clientNewKeys: []
     serverNewKeys: []
+    "tcp connection": [
+        details: Readonly<TCPIPConnectionDetails>,
+        accept: () => ClientForwardedTCPIPChannel | undefined,
+        reject: () => void,
+    ]
 }
 
 export interface ClientHookerHostKeyController {
@@ -111,6 +119,22 @@ export type ClientChannelCallback<T extends ClientChannel = ClientChannel> = (
 ) => void
 export type ClientSessionCallback = ClientChannelCallback<ClientSessionChannel>
 export type ClientForwardCallback = ClientChannelCallback<ClientTCPIPChannel>
+export type ClientForwardInCallback = (error: Error | undefined, port?: number) => void
+
+export class GlobalRequestError extends Error {
+    name = "GlobalRequestError"
+}
+
+interface PendingGlobalRequest {
+    name: string
+    resolve: (args: Buffer) => void
+    reject: (error: Error) => void
+}
+
+interface RemoteForwarding {
+    bindAddress: string
+    bindPort: number
+}
 
 export default class Client extends EventEmitter<ClientEvents> {
     options: ClientOptionsRequired
@@ -189,6 +213,8 @@ export default class Client extends EventEmitter<ClientEvents> {
 
     localChannelIndex = 0
     channels = new Map<number, ClientChannel>()
+    private readonly pendingGlobalRequests: PendingGlobalRequest[] = []
+    private readonly remoteForwardings = new Map<string, RemoteForwarding>()
 
     state = SocketState.Closed
     get isConnected(): boolean {
@@ -293,6 +319,38 @@ export default class Client extends EventEmitter<ClientEvents> {
         return this.withOptionalChannelCallback(operation, callback)
     }
 
+    forwardIn(bindAddress: string, bindPort: number): Promise<number>
+    forwardIn(bindAddress: string, bindPort: number, callback: ClientForwardInCallback): this
+    forwardIn(
+        bindAddress: string,
+        bindPort: number,
+        callback?: ClientForwardInCallback,
+    ): Promise<number> | this {
+        const operation = this.requestRemoteForward(bindAddress, bindPort)
+        if (!callback) return operation
+        operation.then(
+            (port) => callback(undefined, port),
+            (error: Error) => callback(error),
+        )
+        return this
+    }
+
+    unforwardIn(bindAddress: string, bindPort: number): Promise<void>
+    unforwardIn(bindAddress: string, bindPort: number, callback: (error?: Error) => void): this
+    unforwardIn(
+        bindAddress: string,
+        bindPort: number,
+        callback?: (error?: Error) => void,
+    ): Promise<void> | this {
+        const operation = this.cancelRemoteForward(bindAddress, bindPort)
+        if (!callback) return operation
+        operation.then(
+            () => callback(),
+            (error: Error) => callback(error),
+        )
+        return this
+    }
+
     private async openSessionChannel(): Promise<ClientSessionChannel> {
         return this.openClientChannel(new ClientSessionChannel(this))
     }
@@ -324,6 +382,76 @@ export default class Client extends EventEmitter<ClientEvents> {
             (error: Error) => callback(error),
         )
         return this
+    }
+
+    private async requestRemoteForward(bindAddress: string, bindPort: number): Promise<number> {
+        this.validatePort(bindPort, "remote forwarding port")
+        const args = Buffer.concat([
+            serializeBuffer(Buffer.from(bindAddress, "utf8")),
+            serializeUint32(bindPort),
+        ])
+        const response = await this.sendGlobalRequest("tcpip-forward", args)
+        let actualPort = bindPort
+        if (bindPort === 0) {
+            let remaining: Buffer
+            ;[actualPort, remaining] = readNextUint32(response)
+            if (remaining.length !== 0 || actualPort === 0 || actualPort > 65_535) {
+                throw new Error("Invalid allocated port in tcpip-forward success response")
+            }
+        } else if (response.length !== 0) {
+            throw new Error("Unexpected data in tcpip-forward success response")
+        }
+
+        const key = this.remoteForwardingKey(bindAddress, actualPort)
+        if (this.remoteForwardings.has(key)) {
+            throw new Error(`Remote forwarding already exists for ${bindAddress}:${actualPort}`)
+        }
+        this.remoteForwardings.set(key, { bindAddress, bindPort: actualPort })
+        return actualPort
+    }
+
+    private async cancelRemoteForward(bindAddress: string, bindPort: number): Promise<void> {
+        this.validatePort(bindPort, "remote forwarding port")
+        const key = this.remoteForwardingKey(bindAddress, bindPort)
+        if (!this.remoteForwardings.has(key)) {
+            throw new Error(`No remote forwarding exists for ${bindAddress}:${bindPort}`)
+        }
+        await this.sendGlobalRequest(
+            "cancel-tcpip-forward",
+            Buffer.concat([
+                serializeBuffer(Buffer.from(bindAddress, "utf8")),
+                serializeUint32(bindPort),
+            ]),
+        )
+        this.remoteForwardings.delete(key)
+    }
+
+    private sendGlobalRequest(name: string, args: Buffer): Promise<Buffer> {
+        if (!this.isConnected || !this.hasAuthenticated) {
+            return Promise.reject(
+                new Error("Cannot send an SSH global request before authentication"),
+            )
+        }
+        const response = new Promise<Buffer>((resolve, reject) => {
+            this.pendingGlobalRequests.push({ name, resolve, reject })
+        })
+        try {
+            this.sendPacket(new GlobalRequest({ request_name: name, want_reply: true, args }))
+        } catch (error) {
+            this.pendingGlobalRequests.pop()
+            return Promise.reject(error)
+        }
+        return response
+    }
+
+    private validatePort(port: number, name: string): void {
+        if (!Number.isInteger(port) || port < 0 || port > 65_535) {
+            throw new RangeError(`SSH ${name} must be between 0 and 65535`)
+        }
+    }
+
+    private remoteForwardingKey(address: string, port: number): string {
+        return `${address}\0${port}`
     }
 
     private scheduleMessageProcessing(message: Buffer): void {
@@ -378,6 +506,13 @@ export default class Client extends EventEmitter<ClientEvents> {
                 this.socket = undefined
                 for (const channel of this.channels.values()) channel.abort()
                 this.channels.clear()
+                while (this.pendingGlobalRequests.length > 0) {
+                    const request = this.pendingGlobalRequests.shift()!
+                    request.reject(
+                        new Error(`SSH connection closed during global request ${request.name}`),
+                    )
+                }
+                this.remoteForwardings.clear()
                 this.emit("close")
             }
             this.socket!.on("close", closeListener)
@@ -802,6 +937,7 @@ export default class Client extends EventEmitter<ClientEvents> {
 
         this.emit("packet", p)
 
+        this.routeGlobalRequestReply(p)
         this.routeChannelPacket(p)
 
         switch (packet.type) {
@@ -856,18 +992,7 @@ export default class Client extends EventEmitter<ClientEvents> {
 
     private routeChannelPacket(packet: Packet): void {
         if (packet instanceof ChannelOpen) {
-            const reason =
-                packet.data.channel_type === "session"
-                    ? ChannelOpenFailureReasonCodes.SSH_OPEN_ADMINISTRATIVELY_PROHIBITED
-                    : ChannelOpenFailureReasonCodes.SSH_OPEN_UNKNOWN_CHANNEL_TYPE
-            this.sendPacket(
-                new ChannelOpenFailure({
-                    recipient_channel_id: packet.data.sender_channel_id,
-                    reason_code: reason,
-                    description: "Server-initiated channels are not supported",
-                    language_tag: "",
-                }),
-            )
+            this.handleIncomingChannelOpen(packet)
             return
         }
 
@@ -904,6 +1029,103 @@ export default class Client extends EventEmitter<ClientEvents> {
         } else if (packet instanceof ChannelFailure) {
             channel.receiveRequestFailure()
         }
+    }
+
+    private routeGlobalRequestReply(packet: Packet): void {
+        if (!(packet instanceof RequestSuccess) && !(packet instanceof RequestFailure)) return
+        const request = this.pendingGlobalRequests.shift()
+        if (!request) throw new Error("Received an unexpected SSH global request response")
+        if (packet instanceof RequestSuccess) {
+            request.resolve(packet.data.args)
+        } else {
+            request.reject(new GlobalRequestError(`SSH global request ${request.name} failed`))
+        }
+    }
+
+    private handleIncomingChannelOpen(packet: ChannelOpen): void {
+        if (packet.data.channel_type !== "forwarded-tcpip") {
+            const reason =
+                packet.data.channel_type === "session"
+                    ? ChannelOpenFailureReasonCodes.SSH_OPEN_ADMINISTRATIVELY_PROHIBITED
+                    : ChannelOpenFailureReasonCodes.SSH_OPEN_UNKNOWN_CHANNEL_TYPE
+            this.rejectIncomingChannel(packet, reason, "Server-initiated channel is not supported")
+            return
+        }
+
+        const details = Object.freeze(ClientForwardedTCPIPChannel.parseDetails(packet.data.args))
+        if (!this.isRemoteForwardAuthorized(details)) {
+            this.rejectIncomingChannel(
+                packet,
+                ChannelOpenFailureReasonCodes.SSH_OPEN_ADMINISTRATIVELY_PROHIBITED,
+                "No matching remote forwarding was requested",
+            )
+            return
+        }
+        if (this.listenerCount("tcp connection") === 0) {
+            this.rejectIncomingChannel(
+                packet,
+                ChannelOpenFailureReasonCodes.SSH_OPEN_ADMINISTRATIVELY_PROHIBITED,
+                "No remote forwarding handler is registered",
+            )
+            return
+        }
+
+        let decided = false
+        const accept = (): ClientForwardedTCPIPChannel | undefined => {
+            if (decided) return undefined
+            decided = true
+            const channel = new ClientForwardedTCPIPChannel(this, packet)
+            this.channels.set(channel.localId, channel)
+            this.sendPacket(channel.getOpenConfirmationPacket())
+            return channel
+        }
+        const reject = (): void => {
+            if (decided) return
+            decided = true
+            this.rejectIncomingChannel(
+                packet,
+                ChannelOpenFailureReasonCodes.SSH_OPEN_ADMINISTRATIVELY_PROHIBITED,
+                "Remote forwarding connection was rejected",
+            )
+        }
+        this.emit("tcp connection", details, accept, reject)
+        if (!decided) reject()
+    }
+
+    private rejectIncomingChannel(
+        packet: ChannelOpen,
+        reasonCode: ChannelOpenFailureReasonCodes,
+        description: string,
+    ): void {
+        this.sendPacket(
+            new ChannelOpenFailure({
+                recipient_channel_id: packet.data.sender_channel_id,
+                reason_code: reasonCode,
+                description,
+                language_tag: "",
+            }),
+        )
+    }
+
+    private isRemoteForwardAuthorized(details: Readonly<TCPIPConnectionDetails>): boolean {
+        for (const forwarding of this.remoteForwardings.values()) {
+            if (forwarding.bindPort !== details.destinationPort) continue
+            if (forwarding.bindAddress === details.destinationHost) return true
+            if (forwarding.bindAddress === "") return true
+            if (forwarding.bindAddress === "0.0.0.0" && net.isIP(details.destinationHost) === 4) {
+                return true
+            }
+            if (forwarding.bindAddress === "::" && net.isIP(details.destinationHost) === 6) {
+                return true
+            }
+            if (
+                forwarding.bindAddress === "localhost" &&
+                (details.destinationHost === "127.0.0.1" || details.destinationHost === "::1")
+            ) {
+                return true
+            }
+        }
+        return false
     }
 
     private channelRecipient(packet: Packet): number | undefined {
