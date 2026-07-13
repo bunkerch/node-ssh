@@ -147,3 +147,44 @@ await client.openssh_unforwardInStreamLocal("/run/user/1000/modernssh.sock")
 
 Socket paths must be non-empty and cannot contain NUL. Filesystem ownership, permissions, stale
 socket replacement, and path visibility are controlled by the SSH server and its operating system.
+
+### Allowing UNIX-socket forwarding on a server
+
+Server-side stream-local forwarding is denied by default. Allow only paths owned by the
+authenticated principal; broad writable directories can let a client replace or impersonate local
+services.
+
+```ts
+server.hooker.hook("streamLocalForward", (_hook, context, decision, connection) => {
+    decision.allow =
+        connection.credentials?.data.username === "deploy" &&
+        context.socketPath.startsWith("/run/modernssh/deploy/")
+})
+```
+
+After approval, `modernssh` owns the UNIX listener and opens a `ForwardedStreamLocalChannel` back
+to the requesting client for each connection. A matching cancellation stops accepting new
+connections, and disconnecting SSH closes every listener owned by that connection. Existing paths
+are never unlinked to make room for a listener: a stale or occupied path makes the request fail.
+
+Incoming `direct-streamlocal@openssh.com` channels use the normal `channelOpenRequest` policy and
+are also denied by default. Inspect the exact destination before connecting it to a local socket:
+
+```ts
+import net from "node:net"
+import { DirectStreamLocalChannel } from "modernssh"
+
+server.hooker.hook("channelOpenRequest", (_hook, channel, decision) => {
+    decision.allowOpen =
+        channel instanceof DirectStreamLocalChannel &&
+        channel.details.socketPath === "/run/app/control.sock"
+})
+
+server.on("connection", (connection) => {
+    connection.on("channel", (channel) => {
+        if (!(channel instanceof DirectStreamLocalChannel)) return
+        const destination = net.connect(channel.details.socketPath)
+        channel.stream.pipe(destination).pipe(channel.stream)
+    })
+})
+```

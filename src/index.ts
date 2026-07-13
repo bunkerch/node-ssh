@@ -39,6 +39,8 @@ export type {
     ServerHookerPreconnectController,
     ServerHookerPublicKeyAuthenticationContext,
     ServerHookerPublicKeyAuthenticationController,
+    ServerHookerStreamLocalForwardContext,
+    ServerHookerStreamLocalForwardController,
     ServerHookerTCPIPForwardContext,
     ServerHookerTCPIPForwardController,
     ServerOptions,
@@ -54,6 +56,8 @@ export {
 export { default as SessionChannel } from "./channels/SessionChannel.js"
 export { default as DirectTCPIPChannel } from "./channels/DirectTCPIPChannel.js"
 export { default as ForwardedTCPIPChannel } from "./channels/ForwardedTCPIPChannel.js"
+export { default as DirectStreamLocalChannel } from "./channels/DirectStreamLocalChannel.js"
+export { default as ForwardedStreamLocalChannel } from "./channels/ForwardedStreamLocalChannel.js"
 export type {
     SessionChannelEvents,
     SessionChannelHooker,

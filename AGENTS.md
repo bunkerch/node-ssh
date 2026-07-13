@@ -59,8 +59,9 @@ behavior.
   exercised through the packed ESM entry point when relevant, and free of import-time side effects.
 - Deny security-sensitive forwarding and server-initiated behavior by default. Require explicit
   policy hooks and document the trust boundary.
-- Scope remote-forwarding TCP listeners to the authenticated connection that requested them. Stop
-  accepting immediately on cancellation and close every owned listener on SSH disconnect.
+- Scope remote-forwarding TCP and UNIX-socket listeners to the authenticated connection that
+  requested them. Stop accepting immediately on cancellation and close every owned listener on SSH
+  disconnect. Never unlink a pre-existing UNIX-socket path on the client's behalf.
 - Do not add temporary compatibility shims, test-only production branches, or silent protocol
   fallbacks. Fail malformed or out-of-order protocol input explicitly.
 

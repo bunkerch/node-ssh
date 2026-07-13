@@ -69,6 +69,12 @@ export type ServerHookerTCPIPForwardContext = Readonly<{
 export interface ServerHookerTCPIPForwardController {
     allow: boolean
 }
+export type ServerHookerStreamLocalForwardContext = Readonly<{
+    socketPath: string
+}>
+export interface ServerHookerStreamLocalForwardController {
+    allow: boolean
+}
 // eslint-disable-next-line @typescript-eslint/consistent-type-definitions
 export type ServerHooker = {
     preconnect: [preconnectController: ServerHookerPreconnectController, client: ServerClient]
@@ -100,6 +106,11 @@ export type ServerHooker = {
     tcpipForward: [
         context: ServerHookerTCPIPForwardContext,
         controller: ServerHookerTCPIPForwardController,
+        client: ServerClient,
+    ]
+    streamLocalForward: [
+        context: ServerHookerStreamLocalForwardContext,
+        controller: ServerHookerStreamLocalForwardController,
         client: ServerClient,
     ]
 }

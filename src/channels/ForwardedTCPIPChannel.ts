@@ -1,4 +1,3 @@
-import { Duplex } from "node:stream"
 import Channel, {
     DEFAULT_SERVER_CHANNEL_PACKET_SIZE,
     DEFAULT_SERVER_CHANNEL_WINDOW_SIZE,
@@ -6,40 +5,9 @@ import Channel, {
 import ServerClient from "../ServerClient.js"
 import { serializeBuffer, serializeUint32 } from "../utils/Buffer.js"
 import type { TCPIPConnectionDetails } from "./ClientTCPIPChannel.js"
+import ChannelStream from "./ChannelStream.js"
 
-type WriteCallback = (error?: Error | null) => void
-
-export class ForwardedTCPIPStream extends Duplex {
-    constructor(private readonly channel: ForwardedTCPIPChannel) {
-        super({ allowHalfOpen: true, emitClose: true })
-    }
-
-    _read(): void {
-        this.channel.resumeInput()
-    }
-
-    _write(data: Buffer | string, encoding: BufferEncoding, callback: WriteCallback): void {
-        this.channel.sendData(Buffer.isBuffer(data) ? data : Buffer.from(data, encoding), callback)
-    }
-
-    _final(callback: WriteCallback): void {
-        this.channel.sendEOF()
-        callback()
-    }
-
-    receive(data: Buffer): boolean {
-        return this.push(data)
-    }
-
-    receiveEOF(): void {
-        this.push(null)
-    }
-
-    closeFromRemote(): void {
-        this.receiveEOF()
-        this.destroy()
-    }
-}
+export class ForwardedTCPIPStream extends ChannelStream {}
 
 export default class ForwardedTCPIPChannel extends Channel {
     static channel_type = "forwarded-tcpip"

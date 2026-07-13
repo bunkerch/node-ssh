@@ -1,4 +1,7 @@
+import { access, rm } from "node:fs/promises"
 import { AddressInfo, createConnection } from "node:net"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import Client from "../../src/Client.js"
 import Server from "../../src/Server.js"
 import PrivateKey from "../../src/utils/PrivateKey.js"
@@ -13,6 +16,13 @@ describe("client/server integration", () => {
         })
         server.hooker.hook("tcpipForward", (_hook, context, controller) => {
             controller.allow = context.bindAddress === "127.0.0.1" && context.bindPort === 0
+        })
+        const streamLocalPath = join(
+            tmpdir(),
+            `modernssh-integration-${process.pid}-${Date.now()}.sock`,
+        )
+        server.hooker.hook("streamLocalForward", (_hook, context, controller) => {
+            controller.allow = context.socketPath === streamLocalPath
         })
         server.on("connection", (peer) => {
             peer.on("error", (error) => serverErrors.push(error))
@@ -54,6 +64,20 @@ describe("client/server integration", () => {
                 probe.once("error", () => resolve(false))
             })
             expect(listenerStillAccepts).toBe(false)
+
+            await client.openssh_forwardInStreamLocal(streamLocalPath)
+            await access(streamLocalPath)
+            await client.openssh_unforwardInStreamLocal(streamLocalPath)
+            for (let attempt = 0; attempt < 50; attempt++) {
+                try {
+                    await access(streamLocalPath)
+                } catch (error) {
+                    if ((error as NodeJS.ErrnoException).code === "ENOENT") break
+                    throw error
+                }
+                await new Promise<void>((resolve) => setTimeout(resolve, 10))
+            }
+            await expect(access(streamLocalPath)).rejects.toMatchObject({ code: "ENOENT" })
         } finally {
             const closed = new Promise<void>((resolve) => client.once("close", resolve))
             expect(client.end()).toBe(client)
@@ -63,6 +87,7 @@ describe("client/server integration", () => {
             await new Promise<void>((resolve, reject) => {
                 server.server!.close((error) => (error ? reject(error) : resolve()))
             })
+            await rm(streamLocalPath, { force: true })
         }
     }, 15_000)
 })

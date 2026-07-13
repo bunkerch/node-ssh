@@ -7,9 +7,11 @@ import {
     ClientForwardedTCPIPChannel,
     ClientTCPIPChannel,
     DirectTCPIPChannel,
+    DirectStreamLocalChannel,
     DiskAgent,
     EncodedSignature,
     ForwardedTCPIPChannel,
+    ForwardedStreamLocalChannel,
     PrivateKey,
     ProtocolVersionExchange,
     PublicKey,
@@ -39,9 +41,11 @@ describe("package exports", () => {
             ClientForwardedTCPIPChannel,
             ClientTCPIPChannel,
             DirectTCPIPChannel,
+            DirectStreamLocalChannel,
             DiskAgent,
             EncodedSignature,
             ForwardedTCPIPChannel,
+            ForwardedStreamLocalChannel,
             PrivateKey,
             ProtocolVersionExchange,
             PublicKey,
@@ -50,7 +54,7 @@ describe("package exports", () => {
             ServerClient,
             SessionChannel,
             Shell,
-        ]).toHaveLength(19)
+        ]).toHaveLength(21)
         expect(SSHAuthenticationMethods.PublicKey).toBe("publickey")
     })
 
@@ -63,7 +67,9 @@ describe("package exports", () => {
         expect(entry.ClientForwardedTCPIPChannel).toBeDefined()
         expect(entry.ClientTCPIPChannel).toBeDefined()
         expect(entry.DirectTCPIPChannel).toBeDefined()
+        expect(entry.DirectStreamLocalChannel).toBeDefined()
         expect(entry.ForwardedTCPIPChannel).toBeDefined()
+        expect(entry.ForwardedStreamLocalChannel).toBeDefined()
         expect(entry.Server).toBeDefined()
         expect(entry.PrivateKey).toBeDefined()
         expect(entry.ProtocolVersionExchange).toBeDefined()

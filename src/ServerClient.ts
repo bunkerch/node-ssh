@@ -8,6 +8,7 @@ import Server, {
     ServerHookerPasswordAuthenticationController,
     ServerHookerPublicKeyAuthenticationContext,
     ServerHookerPublicKeyAuthenticationController,
+    ServerHookerStreamLocalForwardContext,
     ServerHookerTCPIPForwardContext,
 } from "./Server.js"
 import ProtocolVersionExchange from "./ProtocolVersionExchange.js"
@@ -71,6 +72,7 @@ import ChannelOpenConfirmation from "./packets/ChannelOpenConfirmation.js"
 import IdentificationParser from "./IdentificationParser.js"
 import { BinaryPacketDecoder, BinaryPacketEncoder } from "./BinaryPacket.js"
 import ForwardedTCPIPChannel from "./channels/ForwardedTCPIPChannel.js"
+import ForwardedStreamLocalChannel from "./channels/ForwardedStreamLocalChannel.js"
 
 interface RemoteForwardListener {
     server: net.Server
@@ -125,6 +127,10 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             this.state = SocketState.Disconnected
             for (const forwarding of this.remoteForwardListeners.values()) forwarding.server.close()
             this.remoteForwardListeners.clear()
+            for (const forwarding of this.remoteStreamLocalListeners.values()) {
+                forwarding.server.close()
+            }
+            this.remoteStreamLocalListeners.clear()
             for (const channel of this.channels.values()) channel.abort()
             this.channels.clear()
             this.emit("close")
@@ -171,6 +177,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     localChannelIndex = 0
     channels = new Map<number, Channel>()
     private readonly remoteForwardListeners = new Map<string, RemoteForwardListener>()
+    private readonly remoteStreamLocalListeners = new Map<string, RemoteForwardListener>()
 
     state = SocketState.Closed
     get isConnected(): boolean {
@@ -450,6 +457,12 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             case "cancel-tcpip-forward":
                 await this.handleCancelTCPIPForward(packet)
                 return
+            case "streamlocal-forward@openssh.com":
+                await this.handleStreamLocalForward(packet)
+                return
+            case "cancel-streamlocal-forward@openssh.com":
+                await this.handleCancelStreamLocalForward(packet)
+                return
             default:
                 this.debug(`Unknown global request name: ${packet.data.request_name}`)
                 if (packet.data.want_reply) this.sendPacket(new RequestFailure({}))
@@ -580,6 +593,76 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         return Object.freeze({ bindAddress: bindAddress.toString("utf8"), bindPort })
     }
 
+    private async handleStreamLocalForward(packet: GlobalRequest): Promise<void> {
+        try {
+            const context = this.parseStreamLocalForwardArgs(packet.data.args)
+            const controller = { allow: false }
+            await this.server.hooker.triggerHook("streamLocalForward", context, controller, this)
+            if (!controller.allow || this.remoteStreamLocalListeners.has(context.socketPath)) {
+                if (packet.data.want_reply) this.sendPacket(new RequestFailure({}))
+                return
+            }
+
+            const listener = net.createServer((socket) => {
+                void this.handleForwardedStreamLocalConnection(context.socketPath, socket)
+            })
+            await new Promise<void>((resolve, reject) => {
+                listener.once("error", reject)
+                listener.listen(context.socketPath, () => {
+                    listener.removeListener("error", reject)
+                    resolve()
+                })
+            })
+            listener.on("error", (error) => {
+                this.debug(`Remote stream-local forwarding listener error:`, error)
+            })
+            if (!this.isConnected) {
+                listener.close()
+                return
+            }
+
+            this.remoteStreamLocalListeners.set(context.socketPath, { server: listener })
+            listener.once("close", () => {
+                if (this.remoteStreamLocalListeners.get(context.socketPath)?.server === listener) {
+                    this.remoteStreamLocalListeners.delete(context.socketPath)
+                }
+            })
+            if (packet.data.want_reply) {
+                this.sendPacket(new RequestSuccess({ args: Buffer.alloc(0) }))
+            }
+        } catch (error) {
+            this.debug(`Could not establish remote stream-local forwarding listener:`, error)
+            if (packet.data.want_reply) this.sendPacket(new RequestFailure({}))
+        }
+    }
+
+    private async handleCancelStreamLocalForward(packet: GlobalRequest): Promise<void> {
+        try {
+            const context = this.parseStreamLocalForwardArgs(packet.data.args)
+            const forwarding = this.remoteStreamLocalListeners.get(context.socketPath)
+            if (!forwarding) {
+                if (packet.data.want_reply) this.sendPacket(new RequestFailure({}))
+                return
+            }
+
+            forwarding.server.close()
+            this.remoteStreamLocalListeners.delete(context.socketPath)
+            if (packet.data.want_reply) {
+                this.sendPacket(new RequestSuccess({ args: Buffer.alloc(0) }))
+            }
+        } catch (error) {
+            this.debug(`Could not cancel remote stream-local forwarding listener:`, error)
+            if (packet.data.want_reply) this.sendPacket(new RequestFailure({}))
+        }
+    }
+
+    private parseStreamLocalForwardArgs(args: Buffer): ServerHookerStreamLocalForwardContext {
+        const [socketPath, remaining] = readNextBuffer(args)
+        assert(remaining.length === 0, "Stream-local forwarding request has trailing data")
+        assert(socketPath.length > 0, "Stream-local forwarding path is empty")
+        return Object.freeze({ socketPath: socketPath.toString("utf8") })
+    }
+
     private remoteForwardingKey(bindAddress: string, bindPort: number): string {
         return `${bindAddress}\0${bindPort}`
     }
@@ -588,8 +671,6 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         bindAddress: string,
         socket: Socket,
     ): Promise<void> {
-        const pendingInput = new PassThrough()
-        socket.pipe(pendingInput)
         const localAddress = socket.localAddress ?? bindAddress
         const localPort = socket.localPort ?? 0
         const channel = new ForwardedTCPIPChannel(this, {
@@ -598,6 +679,28 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             sourceHost: socket.remoteAddress ?? "",
             sourcePort: socket.remotePort ?? 0,
         })
+        await this.connectForwardedChannel(socket, channel)
+    }
+
+    private async handleForwardedStreamLocalConnection(
+        socketPath: string,
+        socket: Socket,
+    ): Promise<void> {
+        await this.connectForwardedChannel(
+            socket,
+            new ForwardedStreamLocalChannel(this, socketPath),
+        )
+    }
+
+    private async connectForwardedChannel(socket: Socket, channel: Channel): Promise<void> {
+        const stream =
+            channel instanceof ForwardedTCPIPChannel ||
+            channel instanceof ForwardedStreamLocalChannel
+                ? channel.stream
+                : undefined
+        assert(stream, "Forwarded channel has no stream")
+        const pendingInput = new PassThrough()
+        socket.pipe(pendingInput)
         this.channels.set(channel.localId, channel)
         socket.on("error", () => channel.terminate())
         socket.on("close", () => channel.close())
@@ -610,10 +713,10 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 channel.close()
                 return
             }
-            channel.stream.on("error", () => socket.destroy())
-            channel.stream.on("close", () => socket.destroy())
-            pendingInput.pipe(channel.stream)
-            channel.stream.pipe(socket)
+            stream.on("error", () => socket.destroy())
+            stream.on("close", () => socket.destroy())
+            pendingInput.pipe(stream)
+            stream.pipe(socket)
         } catch (error) {
             this.channels.delete(channel.localId)
             channel.abort(error as Error)

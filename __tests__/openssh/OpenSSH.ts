@@ -1,9 +1,13 @@
 import { execFile, spawn } from "node:child_process"
+import { mkdtemp, rm } from "node:fs/promises"
 import { AddressInfo, createConnection, createServer, type Socket } from "node:net"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { promisify } from "node:util"
 import Client from "../../src/Client.js"
 import Server from "../../src/Server.js"
 import ClientChannel from "../../src/channels/ClientChannel.js"
+import DirectStreamLocalChannel from "../../src/channels/DirectStreamLocalChannel.js"
 import SessionChannel from "../../src/channels/SessionChannel.js"
 import PrivateKey from "../../src/utils/PrivateKey.js"
 
@@ -100,6 +104,43 @@ async function exchangeTCPWhenReady(
         }
     }
     throw new Error(`Remote forwarding listener did not open on port ${port}`)
+}
+
+async function exchangeUnixWhenReady(
+    socketPath: string,
+    input: string,
+    expectedBytes: number,
+): Promise<string> {
+    for (let attempt = 0; attempt < 100; attempt++) {
+        try {
+            return await new Promise<string>((resolve, reject) => {
+                const output: Buffer[] = []
+                const socket = createConnection(socketPath)
+                const timeout = setTimeout(
+                    () => socket.destroy(new Error("UNIX socket exchange timed out")),
+                    5_000,
+                )
+                socket.on("data", (data: Buffer) => {
+                    output.push(data)
+                    if (Buffer.concat(output).length >= expectedBytes) socket.end()
+                })
+                socket.once("error", (error) => {
+                    clearTimeout(timeout)
+                    reject(error)
+                })
+                socket.once("close", () => {
+                    clearTimeout(timeout)
+                    resolve(Buffer.concat(output).toString())
+                })
+                socket.once("connect", () => socket.write(input))
+            })
+        } catch (error) {
+            const code = (error as NodeJS.ErrnoException).code
+            if (code !== "ENOENT" && code !== "ECONNREFUSED") throw error
+            await new Promise<void>((resolve) => setTimeout(resolve, 20))
+        }
+    }
+    throw new Error(`UNIX forwarding listener did not open at ${socketPath}`)
 }
 
 async function exchangeChannel(
@@ -296,6 +337,113 @@ describe("OpenSSH interoperability", () => {
             await new Promise<void>((resolve, reject) => {
                 server.server!.close((error) => (error ? reject(error) : resolve()))
             })
+        }
+    }, 30_000)
+
+    test("OpenSSH client uses stream-local forwarding on a modernssh server", async () => {
+        const directory = await mkdtemp(join(tmpdir(), "modernssh-streamlocal-"))
+        const localForwardPath = join(directory, "local-forward.sock")
+        const directDestinationPath = join(directory, "direct-destination.sock")
+        const remoteForwardPath = join(directory, "remote-forward.sock")
+        const remoteTargetPath = join(directory, "remote-target.sock")
+        const targetSockets = new Set<Socket>()
+        const target = createServer((socket) => {
+            targetSockets.add(socket)
+            socket.on("close", () => targetSockets.delete(socket))
+            socket.on("data", (data: Buffer) => socket.write(data.toString().toUpperCase()))
+            socket.on("end", () => socket.end())
+        })
+        target.listen(remoteTargetPath)
+        await new Promise<void>((resolve) => target.once("listening", resolve))
+
+        const hostKey = await PrivateKey.generate("ssh-ed25519")
+        const server = new Server({ hostKeys: [hostKey], sendAllHostKeys: false })
+        const errors: Error[] = []
+        server.hooker.hook("noneAuthentication", (_hook, context, decision) => {
+            decision.allowLogin = context.username === "interop"
+        })
+        server.hooker.hook("channelOpenRequest", (_hook, channel, decision) => {
+            decision.allowOpen =
+                channel instanceof DirectStreamLocalChannel &&
+                channel.details.socketPath === directDestinationPath
+        })
+        server.hooker.hook("streamLocalForward", (_hook, context, decision) => {
+            decision.allow = context.socketPath === remoteForwardPath
+        })
+        server.on("connection", (connection) => {
+            connection.on("error", (error) => errors.push(error))
+            connection.on("channel", (channel) => {
+                if (!(channel instanceof DirectStreamLocalChannel)) return
+                channel.stream.on("data", (data: Buffer) => {
+                    channel.stream.write(data.toString().toUpperCase())
+                })
+                channel.stream.on("end", () => channel.close())
+            })
+        })
+        server.listen({ host: "127.0.0.1", port: 0 })
+        await new Promise<void>((resolve) => server.server!.once("listening", resolve))
+        const serverPort = (server.server!.address() as AddressInfo).port
+        const ssh = spawn(
+            "/usr/bin/ssh",
+            [
+                "-F",
+                "/dev/null",
+                "-N",
+                "-T",
+                "-p",
+                String(serverPort),
+                "-L",
+                `${localForwardPath}:${directDestinationPath}`,
+                "-R",
+                `${remoteForwardPath}:${remoteTargetPath}`,
+                "-o",
+                "BatchMode=yes",
+                "-o",
+                "PreferredAuthentications=none",
+                "-o",
+                "PubkeyAuthentication=no",
+                "-o",
+                "PasswordAuthentication=no",
+                "-o",
+                "StrictHostKeyChecking=no",
+                "-o",
+                "UserKnownHostsFile=/dev/null",
+                "-o",
+                "LogLevel=ERROR",
+                "-o",
+                "ExitOnForwardFailure=yes",
+                "interop@127.0.0.1",
+            ],
+            { stdio: "pipe" },
+        )
+        const stderr: Buffer[] = []
+        ssh.stderr.on("data", (data: Buffer) => stderr.push(data))
+
+        try {
+            expect(await exchangeUnixWhenReady(localForwardPath, "direct unix", 11)).toBe(
+                "DIRECT UNIX",
+            )
+            expect(await exchangeUnixWhenReady(remoteForwardPath, "remote unix", 11)).toBe(
+                "REMOTE UNIX",
+            )
+            expect(errors).toEqual([])
+        } catch (error) {
+            throw new Error(`${String(error)}; OpenSSH stderr=${Buffer.concat(stderr).toString()}`)
+        } finally {
+            ssh.kill("SIGTERM")
+            await new Promise<void>((resolve) => {
+                if (ssh.exitCode !== null || ssh.signalCode !== null) resolve()
+                else ssh.once("close", () => resolve())
+            })
+            for (const socket of targetSockets) socket.destroy()
+            await new Promise<void>((resolve, reject) => {
+                target.close((error) => (error ? reject(error) : resolve()))
+            })
+            for (const client of server.clients) client.terminate()
+            await new Promise<void>((resolve, reject) => {
+                server.server!.close((error) => (error ? reject(error) : resolve()))
+            })
+            await rm(directory, { recursive: true, force: true })
         }
     }, 30_000)
 
