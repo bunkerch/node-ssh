@@ -1,13 +1,17 @@
 import { access, rm } from "node:fs/promises"
+import { execFile } from "node:child_process"
 import { AddressInfo, createConnection, createServer } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { promisify } from "node:util"
 import Client from "../../src/Client.js"
 import Server from "../../src/Server.js"
 import ServerClient from "../../src/ServerClient.js"
 import SessionChannel from "../../src/channels/SessionChannel.js"
 import RequestFailure from "../../src/packets/RequestFailure.js"
 import PrivateKey from "../../src/utils/PrivateKey.js"
+
+const execFileAsync = promisify(execFile)
 
 describe("client/server integration", () => {
     test("completes an encrypted handshake and none authentication over fragmented-safe transport", async () => {
@@ -306,6 +310,59 @@ describe("client/server integration", () => {
         })
         expect(() => new Client({ readyTimeout: -1 })).toThrow(
             "SSH ready timeout must be a non-negative number",
+        )
+    })
+
+    test("binds and resolves a new TCP connection with the configured address family", async () => {
+        const script = String.raw`
+            import net from "node:net"
+            import Client from "./dist/Client.js"
+
+            const reserve = net.createServer()
+            await new Promise((resolve) => reserve.listen(0, "127.0.0.1", resolve))
+            const localPort = reserve.address().port
+            await new Promise((resolve, reject) =>
+                reserve.close((error) => error ? reject(error) : resolve()),
+            )
+
+            let accept
+            const accepted = new Promise((resolve) => { accept = resolve })
+            const server = net.createServer((socket) =>
+                accept({ address: socket.remoteAddress, port: socket.remotePort }),
+            )
+            await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve))
+            const client = new Client({
+                hostname: "localhost",
+                port: server.address().port,
+                localAddress: "127.0.0.1",
+                localPort,
+                forceIPv4: true,
+                readyTimeout: 1_000,
+            })
+            client.on("error", () => undefined)
+            void client.connect()
+            const remote = await accepted
+            const closed = new Promise((resolve) => client.once("close", resolve))
+            client.destroy()
+            await closed
+            await new Promise((resolve, reject) =>
+                server.close((error) => error ? reject(error) : resolve()),
+            )
+            process.stdout.write(JSON.stringify({ localPort, remote }))
+        `
+        const { stdout, stderr } = await execFileAsync("node", [
+            "--input-type=module",
+            "--eval",
+            script,
+        ])
+        expect(stderr).toBe("")
+        const result = JSON.parse(stdout) as {
+            localPort: number
+            remote: { address: string; port: number }
+        }
+        expect(result.remote).toEqual({ address: "127.0.0.1", port: result.localPort })
+        expect(() => new Client({ localPort: 65_536 })).toThrow(
+            "SSH local port must be an integer between 0 and 65535",
         )
     })
 })

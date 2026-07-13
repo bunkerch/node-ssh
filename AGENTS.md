@@ -101,6 +101,9 @@ behavior.
 - A client-supplied duplex transport is already connected and is owned by the `Client` after
   `connect()`. Apply the same data/error/close cleanup as TCP sockets, never wait for a synthetic
   `connect` event, reject destroyed transports, and validate hopping through a real SSH channel.
+- Direct client TCP options must reach Node's real socket connection: preserve explicit source
+  address and port bindings, apply an address-family restriction only when exactly one force flag
+  is set, and ignore all direct-connect options for supplied transports.
 - Treat local and remote channel identifiers, windows, maximum packet sizes, EOF, and CLOSE state as
   independent protocol state. All channel streams must preserve bounded backpressure.
 - New public APIs and public types must be exported from `src/index.ts`, documented under `docs/`,

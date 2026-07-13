@@ -49,6 +49,11 @@ It defaults to 20 seconds. Set it to `0` to disable the deadline. If the deadlin
 `connect()` rejects with `Timed out while waiting for handshake` and the client destroys the
 underlying transport.
 
+For direct TCP connections, `localAddress` and `localPort` select the source binding. Set exactly
+one of `forceIPv4` or `forceIPv6` to restrict hostname resolution to that address family. If both
+flags have the same value, normal system resolution is used. These four options are ignored when
+an already-connected `sock` is supplied.
+
 `end()` sends `SSH_MSG_DISCONNECT` with the `BY_APPLICATION` reason and gracefully ends the TCP
 connection. `destroy()` immediately destroys the underlying connection. Both methods return the
 client instance. `setNoDelay()` controls Nagle's algorithm on the underlying TCP socket and also

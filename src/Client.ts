@@ -76,6 +76,14 @@ import SFTPClient from "./sftp/SFTPClient.js"
 export interface ClientOptions {
     hostname?: string
     port?: number
+    /** Local address to bind for a new TCP connection. Ignored when `sock` is supplied. */
+    localAddress?: string
+    /** Local port to bind for a new TCP connection. Ignored when `sock` is supplied. */
+    localPort?: number
+    /** Resolve `hostname` to IPv4 only. Has no effect when `forceIPv6` is also true. */
+    forceIPv4?: boolean
+    /** Resolve `hostname` to IPv6 only. Has no effect when `forceIPv4` is also true. */
+    forceIPv6?: boolean
     username?: string
     password?: string
     agent?: Agent
@@ -90,8 +98,11 @@ export interface ClientOptions {
     sock?: Duplex
 }
 
-export interface ClientOptionsRequired extends Required<Omit<ClientOptions, "sock">> {
+export interface ClientOptionsRequired
+    extends Required<Omit<ClientOptions, "sock" | "localAddress" | "localPort">> {
     sock?: Duplex
+    localAddress?: string
+    localPort?: number
 }
 
 export interface ClientEvents {
@@ -216,6 +227,8 @@ export default class Client extends EventEmitter<ClientEvents> {
         this.options = options as ClientOptionsRequired
         this.options.hostname ??= "localhost"
         this.options.port ??= 22
+        this.options.forceIPv4 ??= false
+        this.options.forceIPv6 ??= false
         this.options.username ??= "root"
         this.options.password ??= ""
         this.options.agent ??= new NoneAgent()
@@ -242,6 +255,14 @@ export default class Client extends EventEmitter<ClientEvents> {
         }
         if (!Number.isFinite(this.options.readyTimeout) || this.options.readyTimeout < 0) {
             throw new RangeError("SSH ready timeout must be a non-negative number")
+        }
+        if (
+            this.options.localPort !== undefined &&
+            (!Number.isInteger(this.options.localPort) ||
+                this.options.localPort < 0 ||
+                this.options.localPort > 65_535)
+        ) {
+            throw new RangeError("SSH local port must be an integer between 0 and 65535")
         }
 
         setImmediate(() => {
@@ -907,6 +928,14 @@ export default class Client extends EventEmitter<ClientEvents> {
             net.createConnection({
                 host: this.options.hostname,
                 port: this.options.port,
+                localAddress: this.options.localAddress,
+                localPort: this.options.localPort,
+                family:
+                    this.options.forceIPv4 === this.options.forceIPv6
+                        ? undefined
+                        : this.options.forceIPv4
+                          ? 4
+                          : 6,
             })
         if (this.options.readyTimeout > 0) {
             this.readyTimer = setTimeout(() => {
