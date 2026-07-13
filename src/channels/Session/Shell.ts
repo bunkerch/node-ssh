@@ -2,6 +2,7 @@ import { Duplex, Writable } from "node:stream"
 import { SSHExtendedDataTypes } from "../../constants.js"
 import { serializeBinaryBoolean } from "../../utils/BinaryBoolean.js"
 import { serializeBuffer, serializeUint32 } from "../../utils/Buffer.js"
+import { normalizeSSHSignal } from "../../utils/Signal.js"
 import SessionChannel from "../SessionChannel.js"
 
 type WriteCallback = (error?: Error | null) => void
@@ -92,10 +93,7 @@ export default class Shell extends Duplex {
             return this
         }
 
-        const signal = statusOrSignal.replace(/^SIG/u, "")
-        if (!/^[A-Z][A-Z0-9]*$/u.test(signal)) {
-            throw new Error(`Invalid SSH exit signal: ${statusOrSignal}`)
-        }
+        const signal = normalizeSSHSignal(statusOrSignal)
         this.channel.sendRequest(
             "exit-signal",
             Buffer.concat([

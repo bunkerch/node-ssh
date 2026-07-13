@@ -2,12 +2,29 @@ import Channel from "../Channel.js"
 import Client from "../Client.js"
 import ServerClient from "../ServerClient.js"
 import ChannelRequest from "../packets/ChannelRequest.js"
-import { readNextBuffer, readNextUint32 } from "../utils/Buffer.js"
+import { readNextBuffer, readNextUint32, readNextUint8 } from "../utils/Buffer.js"
 import ChannelSuccess from "../packets/ChannelSuccess.js"
 import assert from "assert"
 import { Hooker } from "../utils/Hooker.js"
 import EventEmitter from "events"
 import Shell from "./Session/Shell.js"
+import { normalizeSSHSignal } from "../utils/Signal.js"
+
+export interface SessionPtyInfo {
+    term: string
+    columns: number
+    rows: number
+    width: number
+    height: number
+    modes: ReadonlyMap<number, number>
+}
+
+export interface SessionWindowDimensions {
+    columns: number
+    rows: number
+    width: number
+    height: number
+}
 
 export interface SessionChannelHookerExecRequestContext {
     command: string
@@ -25,6 +42,15 @@ export interface SessionChannelHookerEnvRequestController {
 export interface SessionChannelHookerShellRequestController {
     success: boolean
 }
+export interface SessionChannelHookerPtyRequestController {
+    success: boolean
+}
+export interface SessionChannelHookerSubsystemRequestContext {
+    subsystem: string
+}
+export interface SessionChannelHookerSubsystemRequestController {
+    success: boolean
+}
 // eslint-disable-next-line @typescript-eslint/consistent-type-definitions
 export type SessionChannelHooker = {
     execRequest: [
@@ -36,11 +62,24 @@ export type SessionChannelHooker = {
         envRequestController: SessionChannelHookerEnvRequestController,
     ]
     shellRequest: [shellRequestController: SessionChannelHookerShellRequestController]
+    ptyRequest: [
+        ptyRequestContext: Readonly<SessionPtyInfo>,
+        ptyRequestController: SessionChannelHookerPtyRequestController,
+    ]
+    subsystemRequest: [
+        subsystemRequestContext: Readonly<SessionChannelHookerSubsystemRequestContext>,
+        subsystemRequestController: SessionChannelHookerSubsystemRequestController,
+    ]
 }
 
 export interface SessionChannelEvents {
+    env: [name: string, value: string]
     exec: [command: string, shell: Shell]
+    pty: [pty: Readonly<SessionPtyInfo>]
     shell: [Shell]
+    signal: [signal: string]
+    subsystem: [name: string, shell: Shell]
+    windowChange: [dimensions: Readonly<SessionWindowDimensions>]
 }
 
 export default class SessionChannel extends Channel {
@@ -53,6 +92,7 @@ export default class SessionChannel extends Channel {
     consumed = false
 
     shell: Shell | undefined
+    pty: Readonly<SessionPtyInfo> | undefined
     private readonly pendingInput: Buffer[] = []
     private inputEnded = false
 
@@ -81,11 +121,21 @@ export default class SessionChannel extends Channel {
 
         switch (request.data.request_type) {
             case "pty-req": {
-                this.parsePtyRequest(request.data.args)
-                // TODO: Implement PTY.
+                this.assertNotConsumed()
+                assert(!this.pty, "This SSH session channel already has a PTY")
+                const pty = Object.freeze(this.parsePtyRequest(request.data.args))
+                const controller: SessionChannelHookerPtyRequestController = { success: false }
+                await this.hooker.triggerHook("ptyRequest", pty, controller)
+                if (controller.success) {
+                    this.pty = pty
+                    this.sendRequestSuccess(request)
+                    this.events.emit("pty", pty)
+                    return
+                }
                 break
             }
             case "env": {
+                this.assertNotConsumed()
                 const { key, value } = this.parseEnvRequest(request.data.args)
                 this.debug(`Received environment`, key, `=`, value)
 
@@ -110,6 +160,7 @@ export default class SessionChannel extends Channel {
                         )
                     }
 
+                    this.events.emit("env", key, value)
                     return
                 }
 
@@ -177,20 +228,49 @@ export default class SessionChannel extends Channel {
             }
             case "subsystem": {
                 const { subsystem } = this.parseSubsystemRequest(request.data.args)
-
-                this.debug(subsystem)
-
+                this.assertNotConsumed()
+                const controller: SessionChannelHookerSubsystemRequestController = {
+                    success: false,
+                }
+                const context: SessionChannelHookerSubsystemRequestContext = { subsystem }
+                await this.hooker.triggerHook(
+                    "subsystemRequest",
+                    Object.freeze(context),
+                    controller,
+                )
+                if (controller.success) {
+                    this.consumed = true
+                    const shell = this.activateShell()
+                    this.sendRequestSuccess(request)
+                    this.events.emit("subsystem", subsystem, shell)
+                    return
+                }
                 break
             }
-            // TODO: X11 Forwarding, subsystem
+            case "window-change": {
+                const dimensions = Object.freeze(this.parseWindowChange(request.data.args))
+                this.events.emit("windowChange", dimensions)
+                return
+            }
+            case "signal": {
+                assert(this.consumed, "Cannot signal an SSH session before its program starts")
+                const signal = this.parseSignalRequest(request.data.args)
+                this.events.emit("signal", signal)
+                return
+            }
+            case "xon-xoff": {
+                // This notification travels from server to client, never in this direction.
+                break
+            }
+            // TODO: X11 and authentication-agent forwarding requests.
         }
 
         await super.handleChannelRequest(request)
     }
 
     parsePtyRequest(raw: Buffer) {
-        let term_env: Buffer
-        ;[term_env, raw] = readNextBuffer(raw)
+        let term: Buffer
+        ;[term, raw] = readNextBuffer(raw)
 
         let term_width_chars: number
         ;[term_width_chars, raw] = readNextUint32(raw)
@@ -204,21 +284,18 @@ export default class SessionChannel extends Channel {
         let term_height_pixels: number
         ;[term_height_pixels, raw] = readNextUint32(raw)
 
-        // TODO: Also parse encoded modes
-        // https://datatracker.ietf.org/doc/html/rfc4254#section-8
-        let modes: Buffer
-        ;[modes, raw] = readNextBuffer(raw)
+        let encodedModes: Buffer
+        ;[encodedModes, raw] = readNextBuffer(raw)
 
         assert(raw.length === 0)
 
         return {
-            // spec doesn't mention ascii, so whatever
-            term_env: term_env.toString("utf8"),
-            term_width_chars: term_width_chars,
-            term_height_rows: term_height_rows,
-            term_width_pixels: term_width_pixels,
-            term_height_pixels: term_height_pixels,
-            term_modes: modes,
+            term: term.toString("utf8"),
+            columns: term_width_chars,
+            rows: term_height_rows,
+            width: term_width_pixels,
+            height: term_height_pixels,
+            modes: this.parseTerminalModes(encodedModes),
         }
     }
 
@@ -267,8 +344,43 @@ export default class SessionChannel extends Channel {
         assert(raw.length === 0)
 
         return {
-            subsystem: subsystem,
+            subsystem: subsystem.toString("ascii"),
         }
+    }
+
+    parseWindowChange(raw: Buffer): SessionWindowDimensions {
+        const [columns, afterColumns] = readNextUint32(raw)
+        const [rows, afterRows] = readNextUint32(afterColumns)
+        const [width, afterWidth] = readNextUint32(afterRows)
+        const [height, remaining] = readNextUint32(afterWidth)
+        assert(remaining.length === 0)
+        return { columns, rows, width, height }
+    }
+
+    parseSignalRequest(raw: Buffer): string {
+        const [signal, remaining] = readNextBuffer(raw)
+        assert(remaining.length === 0)
+        const name = signal.toString("ascii")
+        const normalized = normalizeSSHSignal(name)
+        assert(normalized === name, 'SSH signal requests must omit the "SIG" prefix')
+        return normalized
+    }
+
+    parseTerminalModes(raw: Buffer): ReadonlyMap<number, number> {
+        const modes = new Map<number, number>()
+        while (raw.length > 0) {
+            let opcode: number
+            ;[opcode, raw] = readNextUint8(raw)
+            if (opcode === 0) {
+                assert(raw.length === 0, "SSH terminal modes contain data after TTY_OP_END")
+                return modes
+            }
+            if (opcode >= 160) return modes
+            let value: number
+            ;[value, raw] = readNextUint32(raw)
+            modes.set(opcode, value)
+        }
+        throw new Error("SSH terminal modes are missing TTY_OP_END")
     }
 
     protected handleData(data: Buffer): boolean {
@@ -304,5 +416,11 @@ export default class SessionChannel extends Channel {
         if (this.inputEnded) this.shell.receiveEOF()
         if (hasCapacity) this.resumeInput()
         return this.shell
+    }
+
+    private sendRequestSuccess(request: ChannelRequest): void {
+        if (request.data.want_reply) {
+            this.client.sendPacket(new ChannelSuccess({ recipient_channel_id: this.remoteId! }))
+        }
     }
 }

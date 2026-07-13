@@ -26,6 +26,23 @@ client.exec("node --version", (error, channel) => {
 })
 ```
 
+For PTY, environment, resize, signal, or subsystem setup, open a session explicitly and make the
+requests in protocol order:
+
+```ts
+const channel = await client.openSession()
+await channel.requestPty({ term: "xterm-256color", columns: 120, rows: 40 })
+await channel.setEnv("LANG", "en_US.UTF-8")
+await channel.exec("top")
+
+await channel.setWindow({ columns: 160, rows: 50 })
+await channel.signal("SIGTERM")
+```
+
+`subsystem(name)` starts a named subsystem instead of `exec()` or `shell()`. Only one program-start
+request can succeed on a session. PTY terminal modes can be supplied as numeric RFC 4254 opcode to
+uint32-value mappings; the encoder adds the required `TTY_OP_END` terminator.
+
 Calling `channel.end()` finishes standard input by sending channel EOF. Calling `channel.close()`
 sends EOF followed by CLOSE. A peer CLOSE is always acknowledged before the stream is destroyed.
 
@@ -81,3 +98,9 @@ the `stdin` and `stdout` aliases, and has a separate writable `stderr`. Output w
 client's shared channel window and maximum packet size. `exit(number)` sends `exit-status`; passing
 a signal name sends `exit-signal`. Ending stdout flushes queued output, sends EOF and CLOSE, and a
 remote EOF only ends stdin so the server can still finish its response.
+
+Session hooks also cover `ptyRequest`, `envRequest`, and `subsystemRequest`. Accepted values are
+available in `channel.pty` and `channel.env`; the corresponding `pty`, `env`, and `subsystem` events
+are emitted after acceptance. Runtime `windowChange` and `signal` notifications are exposed as
+events. PTY mode payloads are parsed and validated before a policy hook runs, and malformed setup
+requests that ask for a reply receive channel failure.

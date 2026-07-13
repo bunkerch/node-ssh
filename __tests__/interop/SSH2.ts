@@ -20,6 +20,11 @@ describe("ssh2 interoperability", () => {
         const serverErrors: Error[] = []
         let serverReady = false
         let command = ""
+        let environment: { key: string; val: string } | undefined
+        let pty: { cols: number; rows: number; width: number; height: number } | undefined
+        let windowChange: { cols: number; rows: number; width: number; height: number } | undefined
+        let signal = ""
+        let subsystemName = ""
         const expectedStdout = Buffer.alloc(DEFAULT_CHANNEL_WINDOW_SIZE + 65_536, "o")
         const server = new SSH2Server({ hostKeys: [hostKey.toString()], algorithms })
         server.on("error", (error) => serverErrors.push(error))
@@ -37,6 +42,20 @@ describe("ssh2 interoperability", () => {
             })
             connection.on("session", (accept) => {
                 const session = accept()
+                session.on("pty", (acceptPty, _reject, info) => {
+                    pty = info
+                    acceptPty()
+                })
+                session.on("env", (acceptEnv, _reject, info) => {
+                    environment = info
+                    acceptEnv()
+                })
+                session.on("window-change", (_accept, _reject, info) => {
+                    windowChange = info
+                })
+                session.on("signal", (_accept, _reject, info) => {
+                    signal = info.name
+                })
                 session.on("exec", (acceptExec, _reject, info) => {
                     command = info.command
                     const stream = acceptExec()
@@ -45,6 +64,11 @@ describe("ssh2 interoperability", () => {
                         stream.exit(7)
                         stream.end()
                     })
+                })
+                session.on("subsystem", (acceptSubsystem, _reject, info) => {
+                    subsystemName = info.name
+                    const stream = acceptSubsystem()
+                    stream.end("subsystem ready")
                 })
             })
         })
@@ -65,7 +89,19 @@ describe("ssh2 interoperability", () => {
 
         try {
             await client.connect()
-            const channel = await client.exec("produce-output")
+            const channel = await client.openSession()
+            await channel.requestPty({
+                term: "xterm-256color",
+                columns: 100,
+                rows: 40,
+                width: 800,
+                height: 600,
+                modes: { 1: 3 },
+            })
+            await channel.setEnv("LANG", "en_US.UTF-8")
+            await channel.exec("produce-output")
+            await channel.setWindow({ columns: 120, rows: 50, width: 960, height: 750 })
+            await channel.signal("SIGTERM")
             const stdout: Buffer[] = []
             const stderr: Buffer[] = []
             channel.on("data", (data: Buffer) => stdout.push(data))
@@ -76,9 +112,21 @@ describe("ssh2 interoperability", () => {
             expect(client.hasAuthenticated).toBe(true)
             expect(serverReady).toBe(true)
             expect(command).toBe("produce-output")
+            expect(environment).toEqual({ key: "LANG", val: "en_US.UTF-8" })
+            expect(pty).toMatchObject({ cols: 100, rows: 40, width: 800, height: 600 })
+            expect(windowChange).toEqual({ cols: 120, rows: 50, width: 960, height: 750 })
+            expect(signal).toBe("TERM")
             expect(Buffer.concat(stdout)).toEqual(expectedStdout)
             expect(Buffer.concat(stderr).toString()).toBe("diagnostic output")
             expect(await exit).toBe(7)
+
+            const subsystem = await client.openSession()
+            await subsystem.subsystem("test-service")
+            const subsystemOutput: Buffer[] = []
+            subsystem.on("data", (data: Buffer) => subsystemOutput.push(data))
+            await new Promise<void>((resolve) => subsystem.once("close", resolve))
+            expect(subsystemName).toBe("test-service")
+            expect(Buffer.concat(subsystemOutput).toString()).toBe("subsystem ready")
             expect(clientErrors).toEqual([])
             expect(serverErrors).toEqual([])
         } finally {
@@ -98,6 +146,16 @@ describe("ssh2 interoperability", () => {
         let serverReady = false
         const commands: string[] = []
         const receivedInput: Buffer[] = []
+        const environments: [string, string][] = []
+        const ptys: { columns: number; rows: number; width: number; height: number }[] = []
+        const windowChanges: {
+            columns: number
+            rows: number
+            width: number
+            height: number
+        }[] = []
+        const signals: string[] = []
+        const subsystems: string[] = []
         const expectedStdout = Buffer.alloc(DEFAULT_CHANNEL_WINDOW_SIZE + 65_536, "s")
         server.hooker.hook("noneAuthentication", (_hook, context, decision) => {
             decision.allowLogin = context.username === "interop"
@@ -119,6 +177,23 @@ describe("ssh2 interoperability", () => {
                 channel.hooker.hook("shellRequest", (_hook, decision) => {
                     decision.success = true
                 })
+                channel.hooker.hook("ptyRequest", (_hook, _context, decision) => {
+                    decision.success = true
+                })
+                channel.hooker.hook("envRequest", (_hook, _context, decision) => {
+                    decision.success = true
+                })
+                channel.hooker.hook("subsystemRequest", (_hook, _context, decision) => {
+                    decision.success = true
+                })
+                channel.events.on("pty", ({ columns, rows, width, height }) => {
+                    ptys.push({ columns, rows, width, height })
+                })
+                channel.events.on("env", (name, value) => environments.push([name, value]))
+                channel.events.on("windowChange", (dimensions) => {
+                    windowChanges.push(dimensions)
+                })
+                channel.events.on("signal", (name) => signals.push(name))
                 channel.events.on("exec", (_command, shell) => {
                     shell.on("data", (data: Buffer) => receivedInput.push(data))
                     shell.on("end", () => {
@@ -135,6 +210,10 @@ describe("ssh2 interoperability", () => {
                     shell.on("end", () => {
                         shell.end(Buffer.concat(input).toString().toUpperCase())
                     })
+                })
+                channel.events.on("subsystem", (name, shell) => {
+                    subsystems.push(name)
+                    shell.end("modern subsystem")
                 })
             })
         })
@@ -163,26 +242,35 @@ describe("ssh2 interoperability", () => {
                 stderr: Buffer
                 exitCode: number | undefined
             }>((resolve, reject) => {
-                client.exec("consume-input", (error, stream) => {
-                    if (error) return reject(error)
-                    const stdout: Buffer[] = []
-                    const stderr: Buffer[] = []
-                    let exitCode: number | undefined
-                    stream.on("data", (data: Buffer) => stdout.push(data))
-                    stream.stderr.on("data", (data: Buffer) => stderr.push(data))
-                    stream.on("exit", (code: number) => {
-                        exitCode = code
-                    })
-                    stream.on("error", reject)
-                    stream.on("close", () => {
-                        resolve({
-                            stdout: Buffer.concat(stdout),
-                            stderr: Buffer.concat(stderr),
-                            exitCode,
+                client.exec(
+                    "consume-input",
+                    {
+                        env: { TEST_VARIABLE: "accepted" },
+                        pty: { cols: 90, rows: 30, width: 720, height: 450 },
+                    },
+                    (error, stream) => {
+                        if (error) return reject(error)
+                        const stdout: Buffer[] = []
+                        const stderr: Buffer[] = []
+                        let exitCode: number | undefined
+                        stream.on("data", (data: Buffer) => stdout.push(data))
+                        stream.stderr.on("data", (data: Buffer) => stderr.push(data))
+                        stream.on("exit", (code: number) => {
+                            exitCode = code
                         })
-                    })
-                    stream.end("client input")
-                })
+                        stream.on("error", reject)
+                        stream.on("close", () => {
+                            resolve({
+                                stdout: Buffer.concat(stdout),
+                                stderr: Buffer.concat(stderr),
+                                exitCode,
+                            })
+                        })
+                        stream.setWindow(45, 110, 675, 880)
+                        stream.signal("SIGUSR1")
+                        stream.end("client input")
+                    },
+                )
             })
 
             const shellOutput = await new Promise<Buffer>((resolve, reject) => {
@@ -196,13 +284,34 @@ describe("ssh2 interoperability", () => {
                 })
             })
 
+            const subsystemOutput = await new Promise<Buffer>((resolve, reject) => {
+                client.subsys("test-subsystem", (error, stream) => {
+                    if (error) return reject(error)
+                    const output: Buffer[] = []
+                    stream.on("data", (data: Buffer) => output.push(data))
+                    stream.on("error", reject)
+                    stream.on("close", () => resolve(Buffer.concat(output)))
+                })
+            })
+
             expect(serverReady).toBe(true)
             expect(commands).toEqual(["consume-input"])
+            expect(environments).toContainEqual(["TEST_VARIABLE", "accepted"])
+            expect(ptys).toContainEqual({ columns: 90, rows: 30, width: 720, height: 450 })
+            expect(windowChanges).toContainEqual({
+                columns: 110,
+                rows: 45,
+                width: 880,
+                height: 675,
+            })
+            expect(signals).toContain("USR1")
             expect(Buffer.concat(receivedInput).toString()).toBe("client input")
             expect(execResult.stdout).toEqual(expectedStdout)
             expect(execResult.stderr.toString()).toBe("server diagnostic")
             expect(execResult.exitCode).toBe(23)
             expect(shellOutput.toString()).toBe("INTERACTIVE INPUT")
+            expect(subsystems).toEqual(["test-subsystem"])
+            expect(subsystemOutput.toString()).toBe("modern subsystem")
             expect(clientErrors).toEqual([])
             expect(serverErrors).toEqual([])
         } finally {

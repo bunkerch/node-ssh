@@ -235,6 +235,30 @@ export default class Client extends EventEmitter<ClientEvents> {
         return this.withOptionalChannelCallback(operation, callback)
     }
 
+    subsystem(name: string): Promise<ClientSessionChannel>
+    subsystem(name: string, callback: ClientSessionCallback): this
+    subsystem(
+        name: string,
+        callback?: ClientSessionCallback,
+    ): Promise<ClientSessionChannel> | this {
+        const operation = this.openSessionChannel().then(async (channel) => {
+            try {
+                await channel.subsystem(name)
+                return channel
+            } catch (error) {
+                channel.close()
+                throw error
+            }
+        })
+        return this.withOptionalChannelCallback(operation, callback)
+    }
+
+    subsys(name: string): Promise<ClientSessionChannel>
+    subsys(name: string, callback: ClientSessionCallback): this
+    subsys(name: string, callback?: ClientSessionCallback): Promise<ClientSessionChannel> | this {
+        return callback ? this.subsystem(name, callback) : this.subsystem(name)
+    }
+
     private async openSessionChannel(): Promise<ClientSessionChannel> {
         if (!this.isConnected || !this.hasAuthenticated) {
             throw new Error("Cannot open an SSH channel before authentication completes")

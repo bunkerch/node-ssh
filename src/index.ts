@@ -14,6 +14,7 @@ export {
     DEFAULT_CHANNEL_WINDOW_SIZE,
 } from "./channels/ClientChannel.js"
 export { default as ClientSessionChannel } from "./channels/ClientSessionChannel.js"
+export type { ClientPtyOptions, ClientWindowDimensions } from "./channels/ClientSessionChannel.js"
 
 export { default as Server } from "./Server.js"
 export type {
@@ -46,7 +47,12 @@ export type {
     SessionChannelHookerEnvRequestController,
     SessionChannelHookerExecRequestContext,
     SessionChannelHookerExecRequestController,
+    SessionChannelHookerPtyRequestController,
     SessionChannelHookerShellRequestController,
+    SessionChannelHookerSubsystemRequestContext,
+    SessionChannelHookerSubsystemRequestController,
+    SessionPtyInfo,
+    SessionWindowDimensions,
 } from "./channels/SessionChannel.js"
 export { default as Shell } from "./channels/Session/Shell.js"
 
