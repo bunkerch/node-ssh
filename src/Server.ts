@@ -175,6 +175,15 @@ export type ServerHookerStreamLocalForwardContext = Readonly<{
 export interface ServerHookerStreamLocalForwardController {
     allow: boolean
 }
+export type ServerHookerGlobalRequestContext = Readonly<{
+    name: string
+    args: Buffer
+    wantReply: boolean
+}>
+export interface ServerHookerGlobalRequestController {
+    success: boolean
+    response?: Buffer
+}
 // eslint-disable-next-line @typescript-eslint/consistent-type-definitions
 export type ServerHooker = {
     preconnect: [preconnectController: ServerHookerPreconnectController, client: ServerClient]
@@ -221,6 +230,11 @@ export type ServerHooker = {
     streamLocalForward: [
         context: ServerHookerStreamLocalForwardContext,
         controller: ServerHookerStreamLocalForwardController,
+        client: ServerClient,
+    ]
+    globalRequest: [
+        context: ServerHookerGlobalRequestContext,
+        controller: ServerHookerGlobalRequestController,
         client: ServerClient,
     ]
 }

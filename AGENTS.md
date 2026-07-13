@@ -93,6 +93,10 @@ meaningful wire-level behavior.
 - SSH keepalives use reply-requesting `keepalive@openssh.com` global requests. Count both success
   and failure as liveness, bound consecutive unanswered requests, unref timers, and clear them on
   every connection shutdown path.
+- Unknown RFC 4254 global requests are deny-by-default async `Hooker` policy surfaces on both peer
+  roles. Copy opaque arguments into the hook context, serialize handlers to preserve reply order,
+  require Buffer success payloads, invoke one-way notifications without replying, and settle every
+  outbound request on reply or close. Keep built-in requests on their dedicated validation paths.
 - Transport ping uses negotiated `ping@openssh.com` version 0 and opcodes 192/193 with an opaque
   echoed string. Never send it without the RFC 8308 advertisement, preserve FIFO reply ordering,
   reject mismatched echoes, settle pending calls on close, and queue pings and pongs across rekey.

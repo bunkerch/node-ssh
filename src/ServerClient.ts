@@ -13,6 +13,8 @@ import Server, {
     ServerHookerPublicKeyAuthenticationController,
     ServerHookerHostbasedAuthenticationContext,
     ServerHookerHostbasedAuthenticationController,
+    ServerHookerGlobalRequestContext,
+    ServerHookerGlobalRequestController,
     ServerHookerStreamLocalForwardContext,
     ServerHookerTCPIPForwardContext,
 } from "./Server.js"
@@ -751,8 +753,29 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 return
             default:
                 this.debug(`Unknown global request name: ${packet.data.request_name}`)
-                if (packet.data.want_reply) this.sendPacket(new RequestFailure({}))
+                await this.handleApplicationGlobalRequest(packet)
         }
+    }
+
+    private async handleApplicationGlobalRequest(packet: GlobalRequest): Promise<void> {
+        const context: ServerHookerGlobalRequestContext = Object.freeze({
+            name: packet.data.request_name,
+            args: Buffer.from(packet.data.args),
+            wantReply: packet.data.want_reply,
+        })
+        const controller: ServerHookerGlobalRequestController = { success: false }
+        await this.server.hooker.triggerHook("globalRequest", context, controller, this)
+        if (!packet.data.want_reply) return
+        if (!controller.success) {
+            this.sendPacket(new RequestFailure({}))
+            return
+        }
+        if (controller.response !== undefined && !Buffer.isBuffer(controller.response)) {
+            throw new TypeError("SSH global request response must be a buffer")
+        }
+        this.sendPacket(
+            new RequestSuccess({ args: Buffer.from(controller.response ?? Buffer.alloc(0)) }),
+        )
     }
 
     private handleNoMoreSessions(packet: GlobalRequest): void {

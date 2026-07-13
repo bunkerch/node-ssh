@@ -41,6 +41,12 @@ channel opens, X11 requests and channel opens, `no-more-sessions@openssh.com`, w
 `keepalive@openssh.com`, standard data, stderr extended data, EOF, and CLOSE. Every vector is parsed
 into asserted fields and serialized back to the exact original bytes.
 
+Generic global-request integration sends concurrent requests through an awaited server hook and
+proves their opaque replies remain ordered, covers deny-by-default and one-way notification paths,
+and exercises a server-initiated request through the client's awaited hook. The OpenSSH fixture
+rejects a private unknown request through the public client API, proving standards-compatible
+failure handling against a real peer.
+
 Session interoperability sends a BREAK from the modern client to a real OpenSSH PTY and delivers
 an `xon-xoff` notification from the modern server to the system OpenSSH client. In-process peers
 also prove that BREAK policy hooks are awaited, success and failure replies match the completed

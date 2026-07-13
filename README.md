@@ -15,6 +15,7 @@ See [Getting started](docs/getting-started.md) for client and server examples an
 banners, and multi-factor flows. The [client channel guide](docs/channels.md) covers commands and
 stream behavior, the [SFTP guide](docs/sftp.md) covers remote file operations, and the
 [TCP/IP forwarding guide](docs/forwarding.md) covers direct and remote tunnels. The
+[global request guide](docs/global-requests.md) covers connection-wide application extensions. The
 [interoperability matrix](docs/interoperability.md) records cross-implementation coverage.
 
 ## Development

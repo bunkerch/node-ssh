@@ -2216,6 +2216,9 @@ describe("OpenSSH interoperability", () => {
             await expect(client.ping(Buffer.from("unsupported-transport-ping"))).rejects.toThrow(
                 "SSH server did not advertise transport ping support",
             )
+            await expect(client.globalRequest("unknown-request@example.test")).rejects.toThrow(
+                "SSH global request unknown-request@example.test failed",
+            )
             expect((client.kexAlgorithm?.constructor as { alg_name?: string }).alg_name).toBe(
                 "curve25519-sha256",
             )

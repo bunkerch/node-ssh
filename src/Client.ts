@@ -105,6 +105,7 @@ import {
 } from "./AlgorithmOptions.js"
 import type PrivateKey from "./utils/PrivateKey.js"
 import { parseHostKeysProofResponse } from "./utils/HostKeysProof.js"
+import { ActionQueue } from "./utils/ActionQueue.js"
 
 export interface ClientHostbasedOptions {
     key: PrivateKey
@@ -246,6 +247,15 @@ export type ClientHookerKeyboardInteractiveContext = Readonly<{
 export interface ClientHookerKeyboardInteractiveController {
     responses: string[] | undefined
 }
+export type ClientHookerGlobalRequestContext = Readonly<{
+    name: string
+    args: Buffer
+    wantReply: boolean
+}>
+export interface ClientHookerGlobalRequestController {
+    success: boolean
+    response?: Buffer
+}
 // eslint-disable-next-line @typescript-eslint/consistent-type-definitions
 export type ClientHooker = {
     // `serverPublicKey` is the second argument because
@@ -264,6 +274,10 @@ export type ClientHooker = {
         keyboardInteractiveContext: ClientHookerKeyboardInteractiveContext,
         keyboardInteractiveController: ClientHookerKeyboardInteractiveController,
     ]
+    globalRequest: [
+        globalRequestContext: ClientHookerGlobalRequestContext,
+        globalRequestController: ClientHookerGlobalRequestController,
+    ]
 }
 
 export type ClientChannelCallback<T extends ClientChannel = ClientChannel> = (
@@ -276,6 +290,7 @@ export type ClientForwardCallback = ClientChannelCallback<ClientTCPIPChannel>
 export type ClientForwardInCallback = (error: Error | undefined, port?: number) => void
 export type ClientStreamLocalCallback = ClientChannelCallback<ClientDirectStreamLocalChannel>
 export type ClientPingCallback = (error: Error | undefined, data?: Buffer) => void
+export type ClientGlobalRequestCallback = (error: Error | undefined, response?: Buffer) => void
 export type ClientEnvironment = Readonly<Record<string, string>>
 export interface ClientSessionOptions {
     agentForward?: boolean
@@ -469,6 +484,7 @@ export default class Client extends EventEmitter<ClientEvents> {
     private readyTimer?: ReturnType<typeof setTimeout>
     private keyExchangeInProgress = false
     private readonly packetsQueuedDuringKeyExchange: Packet[] = []
+    private readonly actionQueue = new ActionQueue()
 
     registerX11Forwarding(sessionId: number, single: boolean): void {
         this.x11Forwardings.set(sessionId, { single })
@@ -564,6 +580,31 @@ export default class Client extends EventEmitter<ClientEvents> {
         if (!callback) return operation
         operation.then(
             (reply) => callback(undefined, reply),
+            (error: Error) => callback(error),
+        )
+        return this
+    }
+
+    globalRequest(name: string, args?: Buffer): Promise<Buffer>
+    globalRequest(name: string, callback: ClientGlobalRequestCallback): this
+    globalRequest(name: string, args: Buffer, callback: ClientGlobalRequestCallback): this
+    globalRequest(
+        name: string,
+        argsOrCallback: Buffer | ClientGlobalRequestCallback = Buffer.alloc(0),
+        callback?: ClientGlobalRequestCallback,
+    ): Promise<Buffer> | this {
+        const args = typeof argsOrCallback === "function" ? Buffer.alloc(0) : argsOrCallback
+        callback = typeof argsOrCallback === "function" ? argsOrCallback : callback
+        let operation: Promise<Buffer>
+        try {
+            this.validateGlobalRequest(name, args)
+            operation = this.sendGlobalRequest(name, Buffer.from(args))
+        } catch (error) {
+            operation = Promise.reject(error as Error)
+        }
+        if (!callback) return operation
+        operation.then(
+            (response) => callback(undefined, response),
             (error: Error) => callback(error),
         )
         return this
@@ -893,8 +934,7 @@ export default class Client extends EventEmitter<ClientEvents> {
         if (verified.length !== 0) this.emit("hostKeys", verified)
     }
 
-    private handleServerGlobalRequest(packet: Packet): void {
-        if (!(packet instanceof GlobalRequest)) return
+    private async handleServerGlobalRequest(packet: GlobalRequest): Promise<void> {
         this.debug(`Received global request packet:`, packet)
 
         if (packet.data.request_name === "hostkeys-00@openssh.com") {
@@ -908,7 +948,24 @@ export default class Client extends EventEmitter<ClientEvents> {
         }
 
         this.debug(`Unknown global request name: ${packet.data.request_name}`)
-        if (packet.data.want_reply) this.sendPacket(new RequestFailure({}))
+        const context: ClientHookerGlobalRequestContext = Object.freeze({
+            name: packet.data.request_name,
+            args: Buffer.from(packet.data.args),
+            wantReply: packet.data.want_reply,
+        })
+        const controller: ClientHookerGlobalRequestController = { success: false }
+        await this.hooker.triggerHook("globalRequest", context, controller)
+        if (!packet.data.want_reply) return
+        if (!controller.success) {
+            this.sendPacket(new RequestFailure({}))
+            return
+        }
+        if (controller.response !== undefined && !Buffer.isBuffer(controller.response)) {
+            throw new TypeError("SSH global request response must be a buffer")
+        }
+        this.sendPacket(
+            new RequestSuccess({ args: Buffer.from(controller.response ?? Buffer.alloc(0)) }),
+        )
     }
 
     private async requestRemoteForward(bindAddress: string, bindPort: number): Promise<number> {
@@ -1006,6 +1063,15 @@ export default class Client extends EventEmitter<ClientEvents> {
             return Promise.reject(error)
         }
         return response
+    }
+
+    private validateGlobalRequest(name: string, args: Buffer): void {
+        if (!/^[\x21-\x7e]+$/u.test(name)) {
+            throw new TypeError("SSH global request name must be non-empty printable ASCII")
+        }
+        if (!Buffer.isBuffer(args)) {
+            throw new TypeError("SSH global request arguments must be a buffer")
+        }
     }
 
     private validatePort(port: number, name: string): void {
@@ -1627,7 +1693,11 @@ export default class Client extends EventEmitter<ClientEvents> {
 
         this.emit("packet", p)
 
-        this.handleServerGlobalRequest(p)
+        if (p instanceof GlobalRequest) {
+            void this.actionQueue
+                .queueAction("globalRequest", () => this.handleServerGlobalRequest(p))
+                .catch((error: Error) => this.socket?.destroy(error))
+        }
         this.routeGlobalRequestReply(p)
         this.routeChannelPacket(p)
 
