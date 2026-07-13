@@ -158,6 +158,8 @@ export type {
     AlgorithmMatcher,
     ClientAlgorithmList,
     ClientAlgorithmOptions,
+    NegotiatedAlgorithms,
+    NegotiatedDirectionAlgorithms,
     ServerAlgorithmOptions,
 } from "./AlgorithmOptions.js"
 

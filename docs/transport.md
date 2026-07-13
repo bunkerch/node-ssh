@@ -82,6 +82,11 @@ const client = new Client({
 })
 ```
 
+`Client` and each accepted `ServerClient` emit `handshake` after both directions have activated the
+negotiated keys. The event fires for the initial exchange and every rekey, before the corresponding
+`rekey` event, and reports the ssh2-compatible `{ kex, srvHostKey, cs, sc }` structure with each
+direction's cipher, MAC, compression, and language.
+
 ## Key re-exchange
 
 Clients and accepted server connections support RFC 4253 section 9 key re-exchange. Either peer may

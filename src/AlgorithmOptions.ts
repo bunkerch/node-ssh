@@ -32,6 +32,20 @@ export interface ResolvedAlgorithmOptions {
     compress: readonly string[]
 }
 
+export interface NegotiatedDirectionAlgorithms {
+    cipher: string
+    mac: string
+    compress: string
+    lang: string
+}
+
+export interface NegotiatedAlgorithms {
+    kex: string
+    srvHostKey: string
+    cs: NegotiatedDirectionAlgorithms
+    sc: NegotiatedDirectionAlgorithms
+}
+
 export function resolveClientAlgorithmOptions(
     options: ClientAlgorithmOptions | undefined,
     catalog: ResolvedAlgorithmOptions,

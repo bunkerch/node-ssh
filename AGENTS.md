@@ -109,6 +109,8 @@ behavior.
 - Algorithm configuration resolves once per client or server without mutating global registries,
   rejects unsupported names and empty offers, preserves exact preference order, filters server host
   key offers to keys actually present, and remains stable across rekeys.
+- Emit negotiated handshake details only after inbound and outbound NEWKEYS are active. Report both
+  directions on initial exchange and rekey, and emit `handshake` before the corresponding `rekey`.
 - High-level session helpers must issue setup requests before the program request: agent forwarding,
   environment, PTY, X11, then exec/shell/subsystem. Treat automatic environment requests as
   best-effort without replies, but require replies for security- or terminal-sensitive setup.

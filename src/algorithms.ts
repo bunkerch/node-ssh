@@ -20,6 +20,7 @@ import Client from "./Client.js"
 import ServerClient from "./ServerClient.js"
 import assert from "assert"
 import PublicKey, { PublicKeyAlgoritm } from "./utils/PublicKey.js"
+import type { NegotiatedAlgorithms } from "./AlgorithmOptions.js"
 
 export abstract class KexAlgorithm {
     static alg_name: string
@@ -211,6 +212,33 @@ export function chooseAlgorithms(client: Client | ServerClient) {
     )
     client.debug("Client to Server MAC Algorithm chosen:", client.clientMacAlgorithm.alg_name)
     client.debug("Server to Client MAC Algorithm chosen:", client.serverMacAlgorithm.alg_name)
+}
+
+export function describeNegotiatedAlgorithms(
+    client: Client | ServerClient,
+): Readonly<NegotiatedAlgorithms> {
+    assert(client.kexAlgorithm, "Key exchange algorithm not selected")
+    assert(client.hostKeyAlgorithm, "Host key algorithm not selected")
+    assert(client.clientEncryptionAlgorithm, "Client cipher not selected")
+    assert(client.serverEncryptionAlgorithm, "Server cipher not selected")
+    assert(client.clientMacAlgorithm, "Client MAC not selected")
+    assert(client.serverMacAlgorithm, "Server MAC not selected")
+    return Object.freeze({
+        kex: (client.kexAlgorithm.constructor as typeof KexAlgorithm).alg_name,
+        srvHostKey: client.hostKeyAlgorithm.alg_name,
+        cs: Object.freeze({
+            cipher: client.clientEncryptionAlgorithm.alg_name,
+            mac: client.clientMacAlgorithm.alg_name,
+            compress: "none",
+            lang: "",
+        }),
+        sc: Object.freeze({
+            cipher: client.serverEncryptionAlgorithm.alg_name,
+            mac: client.serverMacAlgorithm.alg_name,
+            compress: "none",
+            lang: "",
+        }),
+    })
 }
 
 function firstRegisteredMutual<T>(

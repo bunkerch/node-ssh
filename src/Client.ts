@@ -19,6 +19,7 @@ import {
     KexAlgorithm,
     MACAlgorithm,
     chooseAlgorithms,
+    describeNegotiatedAlgorithms,
     encryption_algorithms,
     kex_algorithms,
     mac_algorithms,
@@ -75,6 +76,7 @@ import SFTPClient from "./sftp/SFTPClient.js"
 import {
     resolveClientAlgorithmOptions,
     type ClientAlgorithmOptions,
+    type NegotiatedAlgorithms,
     type ResolvedAlgorithmOptions,
 } from "./AlgorithmOptions.js"
 
@@ -152,6 +154,7 @@ export interface ClientEvents {
     serverKexDHReply: [serverKexDHReply: KexDHReply]
     clientNewKeys: []
     serverNewKeys: []
+    handshake: [negotiated: Readonly<NegotiatedAlgorithms>]
     rekey: []
     /** Complete server pre-identification greeting, including its line endings. */
     greeting: [greeting: string]
@@ -992,6 +995,7 @@ export default class Client extends EventEmitter<ClientEvents> {
             }
             this.emit("clientNewKeys")
             if (!this.hasReceivedNewKeys) await this.waitEvent("serverNewKeys")
+            this.emit("handshake", describeNegotiatedAlgorithms(this))
             if (isRekey) this.emit("rekey")
         } catch (error) {
             if (!isRekey) this.socket?.destroy()

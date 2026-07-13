@@ -1204,6 +1204,7 @@ describe("OpenSSH interoperability", () => {
             const verifiedHostHashes: (string | Buffer)[] = []
             let keepalives = 0
             let rekeys = 0
+            const handshakes: unknown[] = []
             client.on("error", (error) => errors.push(error))
             client.on("debug", (message, packet) => {
                 if (
@@ -1215,6 +1216,7 @@ describe("OpenSSH interoperability", () => {
                 }
             })
             client.on("rekey", () => rekeys++)
+            client.on("handshake", (negotiated) => handshakes.push(negotiated))
             let forwardingDetails:
                 | {
                       destinationHost: string
@@ -1249,12 +1251,30 @@ describe("OpenSSH interoperability", () => {
             expect(client.hostKeyAlgorithm?.alg_name).toBe("ssh-ed25519")
             expect(client.clientEncryptionAlgorithm?.alg_name).toBe("aes128-ctr")
             expect(client.clientMacAlgorithm?.alg_name).toBe("hmac-sha2-256")
+            const expectedNegotiated = {
+                kex: "diffie-hellman-group14-sha256",
+                srvHostKey: "ssh-ed25519",
+                cs: {
+                    cipher: "aes128-ctr",
+                    mac: "hmac-sha2-256",
+                    compress: "none",
+                    lang: "",
+                },
+                sc: {
+                    cipher: "aes128-ctr",
+                    mac: "hmac-sha2-256",
+                    compress: "none",
+                    lang: "",
+                },
+            }
+            expect(handshakes).toEqual([expectedNegotiated])
             await new Promise<void>((resolve) => setTimeout(resolve, 60))
             expect(keepalives).toBeGreaterThan(0)
             const sessionId = Buffer.from(client.sessionID!)
             const exchangeHash = Buffer.from(client.H!)
             await client.rekey()
             expect(rekeys).toBe(1)
+            expect(handshakes).toEqual([expectedNegotiated, expectedNegotiated])
             expect(verifiedHostHashes).toEqual([expectedHostHash, expectedHostHash])
             expect(client.sessionID).toEqual(sessionId)
             expect(client.H).not.toEqual(exchangeHash)

@@ -26,7 +26,14 @@ import {
     PacketTypeToName,
 } from "./constants.js"
 import KexInit from "./packets/KexInit.js"
-import { EncryptionAlgorithm, KexAlgorithm, MACAlgorithm, chooseAlgorithms } from "./algorithms.js"
+import {
+    EncryptionAlgorithm,
+    KexAlgorithm,
+    MACAlgorithm,
+    chooseAlgorithms,
+    describeNegotiatedAlgorithms,
+} from "./algorithms.js"
+import type { NegotiatedAlgorithms } from "./AlgorithmOptions.js"
 import PublicKey, { PublicKeyAlgoritm } from "./utils/PublicKey.js"
 import KexDHReply from "./packets/KexDHReply.js"
 import assert from "node:assert"
@@ -94,6 +101,7 @@ export interface ServerClientEvents {
     clientKexDHInit: [kexDHInit: KexDHInit]
     clientNewKeys: []
     serverNewKeys: []
+    handshake: [negotiated: Readonly<NegotiatedAlgorithms>]
     rekey: []
 
     channelOpenRequest: [packet: ChannelOpen]
@@ -392,6 +400,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 this.writePacket(this.packetsQueuedDuringKeyExchange.shift()!)
             }
             this.emit("serverNewKeys")
+            this.emit("handshake", describeNegotiatedAlgorithms(this))
             if (isRekey) this.emit("rekey")
         } finally {
             this.keyExchangeInProgress = false

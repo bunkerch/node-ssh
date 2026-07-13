@@ -49,11 +49,18 @@ describe("client/server integration", () => {
         })
         let serverPeer: ServerClient | undefined
         let serverRekeys = 0
+        const serverHandshakes: unknown[] = []
+        const serverExchangeEvents: string[] = []
         let configuredSession: SessionChannel | undefined
         server.on("connection", (peer) => {
             serverPeer = peer
             peer.on("error", (error) => serverErrors.push(error))
             peer.on("rekey", () => serverRekeys++)
+            peer.on("handshake", (negotiated) => {
+                serverHandshakes.push(negotiated)
+                serverExchangeEvents.push("handshake")
+            })
+            peer.on("rekey", () => serverExchangeEvents.push("rekey"))
             peer.on("channel", (channel) => {
                 if (!(channel instanceof SessionChannel)) return
                 channel.hooker.hook("ptyRequest", (_hook, _pty, controller) => {
@@ -93,11 +100,18 @@ describe("client/server integration", () => {
         const clientErrors: Error[] = []
         let connectEvents = 0
         let clientRekeys = 0
+        const clientHandshakes: unknown[] = []
+        const clientExchangeEvents: string[] = []
         const greetings: string[] = []
         client.on("error", (error) => clientErrors.push(error))
         client.on("greeting", (greeting) => greetings.push(greeting))
         client.on("connect", () => connectEvents++)
         client.on("rekey", () => clientRekeys++)
+        client.on("handshake", (negotiated) => {
+            clientHandshakes.push(negotiated)
+            clientExchangeEvents.push("handshake")
+        })
+        client.on("rekey", () => clientExchangeEvents.push("rekey"))
 
         try {
             await client.connect()
@@ -119,6 +133,14 @@ describe("client/server integration", () => {
             expect(client.clientMacAlgorithm?.alg_name).toBe("hmac-sha1")
             expect(serverPeer?.serverEncryptionAlgorithm?.alg_name).toBe("aes128-ctr")
             expect(serverPeer?.serverMacAlgorithm?.alg_name).toBe("hmac-sha1")
+            const expectedNegotiated = {
+                kex: "diffie-hellman-group14-sha256",
+                srvHostKey: "ssh-ed25519",
+                cs: { cipher: "aes128-ctr", mac: "hmac-sha1", compress: "none", lang: "" },
+                sc: { cipher: "aes128-ctr", mac: "hmac-sha1", compress: "none", lang: "" },
+            }
+            expect(clientHandshakes).toEqual([expectedNegotiated])
+            expect(serverHandshakes).toEqual([expectedNegotiated])
             await new Promise<void>((resolve, reject) => {
                 expect(
                     server.getConnections((error, count) => {
@@ -142,6 +164,8 @@ describe("client/server integration", () => {
             const existingSession = await sessionDuringRekey
             expect(clientRekeys).toBe(1)
             expect(serverRekeys).toBe(1)
+            expect(clientExchangeEvents).toEqual(["handshake", "handshake", "rekey"])
+            expect(serverExchangeEvents).toEqual(["handshake", "handshake", "rekey"])
             expect(client.sessionID).toEqual(initialClientSessionId)
             expect(serverPeer!.sessionID).toEqual(initialServerSessionId)
             expect(client.H).not.toEqual(initialClientExchangeHash)
@@ -160,6 +184,16 @@ describe("client/server integration", () => {
             await clientAcceptedServerRekey
             expect(clientRekeys).toBe(2)
             expect(serverRekeys).toBe(2)
+            expect(clientHandshakes).toEqual([
+                expectedNegotiated,
+                expectedNegotiated,
+                expectedNegotiated,
+            ])
+            expect(serverHandshakes).toEqual([
+                expectedNegotiated,
+                expectedNegotiated,
+                expectedNegotiated,
+            ])
             expect(client.sessionID).toEqual(initialClientSessionId)
             expect(serverPeer!.sessionID).toEqual(initialServerSessionId)
             expect(existingSession.destroyed).toBe(false)
