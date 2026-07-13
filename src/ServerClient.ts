@@ -9,10 +9,9 @@ import Server, {
     ServerHookerPublicKeyAuthenticationController,
 } from "./Server.js"
 import ProtocolVersionExchange from "./ProtocolVersionExchange.js"
-import { timingSafeEqual } from "node:crypto"
+import crypto from "node:crypto"
 import EventEmitter from "node:events"
 import {
-    SEQUENCE_NUMBER_MODULO,
     SSHAuthenticationMethods,
     PacketNameToType,
     SSHServiceNames,
@@ -63,6 +62,7 @@ import ChannelRequest from "./packets/ChannelRequest.js"
 import { ActionQueue } from "./utils/ActionQueue.js"
 import ChannelData from "./packets/ChannelData.js"
 import IdentificationParser from "./IdentificationParser.js"
+import { BinaryPacketDecoder, BinaryPacketEncoder } from "./BinaryPacket.js"
 
 export interface ServerClientEvents {
     error: [error: Error]
@@ -116,9 +116,8 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
 
     private buffering: Buffer = Buffer.alloc(0)
     private identificationParser = new IdentificationParser({ allowPreamble: false })
-    private buffering_decrypted: Buffer = Buffer.alloc(0)
-    private in_sequence_number = 0
-    private out_sequence_number = 0
+    private packetDecoder = new BinaryPacketDecoder()
+    private packetEncoder = new BinaryPacketEncoder()
 
     clientProtocolVersion?: ProtocolVersionExchange
     clientKexDHInit?: KexDHInit
@@ -261,13 +260,6 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             integrityKeyServerToClient: this.integrityKeyServerToClient,
         })
 
-        await clientNewKeysPromise
-        this.hasReceivedNewKeys = true
-
-        this.sendPacket(new NewKeys({}))
-        this.hasSentNewKeys = true
-        this.emit("serverNewKeys")
-
         this.clientEncryption = this.clientEncryptionAlgorithm!.instantiate(
             this.encryptionKeyClientToServer!,
             this.ivClientToServer!,
@@ -278,6 +270,18 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         )
         this.clientMac = this.clientMacAlgorithm!.instantiate(this.integrityKeyClientToServer!)
         this.serverMac = this.serverMacAlgorithm!.instantiate(this.integrityKeyServerToClient!)
+
+        await clientNewKeysPromise
+
+        this.sendPacket(new NewKeys({}))
+        this.hasSentNewKeys = true
+        this.packetEncoder.setProtection({
+            cipher: this.serverEncryption,
+            mac: this.serverMac,
+            blockSize: this.serverEncryptionAlgorithm!.block_size,
+            macLength: this.serverMacAlgorithm!.digest_length,
+        })
+        this.emit("serverNewKeys")
 
         this.debug("Keys exchanged, encryption and MAC algorithms set up")
         this.debug("Starting authentication...")
@@ -642,43 +646,24 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
 
     sendPacket(packet: Packet): number {
         this.debug("Sending packet:", packet)
-        const payload = packet.serialize()
-        const padding_multiple = Math.max(8, this.serverEncryptionAlgorithm?.block_size ?? 8)
-        let padding_length = padding_multiple - ((4 + 1 + payload.length) % padding_multiple)
-        if (padding_length < 4) {
-            padding_length += padding_multiple
-        }
-        const padding = crypto.getRandomValues(Buffer.allocUnsafe(padding_length))
-
-        const packet_length = Buffer.allocUnsafe(4)
-        packet_length.writeUInt32BE(1 + payload.length + padding_length, 0)
-
-        let packet_buf: Buffer = Buffer.concat([
-            packet_length,
-            Buffer.from([padding_length]),
-            payload,
-            padding,
-        ])
-
-        const seqno = this.out_sequence_number
-        let mac: Buffer
-        if (this.hasReceivedNewKeys && this.hasSentNewKeys) {
-            // we'll also encrypt here
-            mac = this.serverMac!.computeMAC(seqno, packet_buf)
-            packet_buf = this.serverEncryption!.encrypt(packet_buf)
-        } else {
-            mac = Buffer.allocUnsafe(0)
-        }
-
-        this.socket!.write(Buffer.concat([packet_buf, mac]))
-        this.out_sequence_number++
-        this.out_sequence_number %= SEQUENCE_NUMBER_MODULO
-
-        return seqno
+        const encoded = this.packetEncoder.encode(packet.serialize())
+        this.socket!.write(encoded.data)
+        return encoded.sequenceNumber
     }
 
     debug(...message: unknown[]): void {
         this.server.debug(`[${this.connectionId}]`, ...message)
+    }
+
+    private scheduleMessageProcessing(message: Buffer): void {
+        queueMicrotask(() => {
+            try {
+                this.onMessage(message)
+            } catch (error) {
+                this.emit("error", error as Error)
+                this.terminate()
+            }
+        })
     }
 
     onMessage(message: Buffer): void {
@@ -698,145 +683,89 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             this.emit("clientProtocolVersion", result.version)
             this.debug("Client protocol version:", result.version)
 
-            if (result.remainder.length > 0) this.onMessage(result.remainder)
+            if (result.remainder.length > 0) {
+                this.scheduleMessageProcessing(result.remainder)
+            }
             return
-        } else {
-            // binary packet protocol
-            const padding_multiple = Math.max(8, this.clientEncryptionAlgorithm?.block_size ?? 8)
-            if (message.length < Math.max(16, padding_multiple)) {
-                this.buffering = message
+        }
+
+        this.packetDecoder.push(message)
+        const decoded = this.packetDecoder.read()
+        if (!decoded) {
+            if (this.packetDecoder.bufferedLength > 0) {
                 this.debug("Partial message, buffering...")
-                return
             }
+            return
+        }
 
-            const macsize =
-                this.hasReceivedNewKeys && this.hasSentNewKeys
-                    ? this.clientMacAlgorithm!.digest_length
-                    : 0
+        const { payload } = decoded
+        this.emit("message", decoded.data)
 
-            let packet_length: number
-            let padding_length: number
-            if (this.hasReceivedNewKeys && this.hasSentNewKeys) {
-                let first16: Buffer
-                if (this.buffering_decrypted.length >= 16) {
-                    first16 = this.buffering_decrypted.subarray(0, 16)
-                } else {
-                    first16 = this.clientEncryption!.decrypt(message.subarray(0, 16))
-                    this.buffering_decrypted = first16
-                }
-                packet_length = first16.readUInt32BE(0)
-                padding_length = first16[4]
-            } else {
-                packet_length = message.readUInt32BE(0)
-                padding_length = message[4]
-            }
+        const packetType = payload[0] as PacketType
+        this.debug("Receiving packet:", packetType)
 
-            // TODO: Comply with 6.1. Maximum Packet Length
-            // https://datatracker.ietf.org/doc/html/rfc4253#section-6.1
-            if (message.length < packet_length + 4 + macsize) {
-                this.buffering = message
-                this.debug("Partial message, buffering...")
-                return
-            }
-            assert(padding_length <= 255, "Invalid padding length (too long)")
-            assert(padding_length >= 4, "Invalid padding length (too short)")
+        if (!(packetType in PacketTypeToName)) {
+            throw new Error("Invalid packet type: " + packetType)
+        }
+        const packetName = PacketTypeToName[packetType]
+        if (!(packetName in packets)) {
+            throw new Error("Not implemented: " + packetName)
+        }
+        const packet = packets[packetName as keyof typeof packets]
 
-            const n1 = packet_length - padding_length - 1
-            const n2 = padding_length
-            const cipher_mul = 4 + 1 + n1 + n2
-            assert(cipher_mul % padding_multiple === 0, "Invalid cipher multiplication")
+        const p = packet.parse(payload)
+        this.emit("packet", p)
+        this.debug("Parsing packet:", p)
 
-            let decrypted_message = message
-            if (this.hasReceivedNewKeys && this.hasSentNewKeys) {
-                decrypted_message = Buffer.concat([
-                    this.buffering_decrypted,
-                    this.clientEncryption!.decrypt(
-                        message.subarray(this.buffering_decrypted.length, 5 + n1 + n2),
-                    ),
-                ])
-                this.buffering_decrypted = Buffer.alloc(0)
-            }
-
-            const payload = decrypted_message.subarray(5, 5 + n1)
-            //const padding = decrypted_message.subarray(5 + n1, 5 + n1 + n2)
-            const mac = message.subarray(5 + n1 + n2, 5 + n1 + n2 + macsize)
-            if (this.hasReceivedNewKeys && this.hasSentNewKeys) {
-                // verify MAC
-                const computed_mac = this.clientMac!.computeMAC(
-                    this.in_sequence_number,
-                    decrypted_message.subarray(0, 5 + n1 + n2),
+        switch (packet.type) {
+            case PacketNameToType.SSH_MSG_DISCONNECT: {
+                const disconnect = p as Disconnect
+                this.debug(
+                    "Client disconnected:",
+                    DisconnectReason[disconnect.data.reason_code],
+                    disconnect.data.description,
+                    disconnect.data.language_tag,
                 )
-                assert(computed_mac.length === mac.length, "Invalid MAC size")
-                assert(timingSafeEqual(computed_mac, mac), "Invalid MAC")
+                // TODO: Handle disconnect
+                break
             }
 
-            this.buffering = message.subarray(5 + n1 + n2 + macsize)
-            message = message.subarray(0, 5 + n1 + n2 + macsize)
-            this.emit("message", message)
+            case PacketNameToType.SSH_MSG_IGNORE:
+                this.debug(`Received Ignore packet. Ignoring.`)
+                break
 
-            const packetType = payload[0] as PacketType
-            this.debug("Receiving packet:", packetType)
-
-            this.in_sequence_number++
-            this.in_sequence_number %= SEQUENCE_NUMBER_MODULO
-
-            if (!(packetType in PacketTypeToName)) {
-                throw new Error("Invalid packet type: " + packetType)
-            }
-            const packetName = PacketTypeToName[packetType]
-            if (!(packetName in packets)) {
-                throw new Error("Not implemented: " + packetName)
-            }
-            const packet = packets[packetName as keyof typeof packets]
-
-            const p = packet.parse(payload)
-            this.emit("packet", p)
-            this.debug("Parsing packet:", p)
-
-            switch (packet.type) {
-                case PacketNameToType.SSH_MSG_DISCONNECT: {
-                    const disconnect = p as Disconnect
-                    this.debug(
-                        "Client disconnected:",
-                        DisconnectReason[disconnect.data.reason_code],
-                        disconnect.data.description,
-                        disconnect.data.language_tag,
-                    )
-                    // TODO: Handle disconnect
-                    break
-                }
-
-                case PacketNameToType.SSH_MSG_IGNORE:
-                    this.debug(`Received Ignore packet. Ignoring.`)
-                    break
-
-                case PacketNameToType.SSH_MSG_DEBUG: {
-                    const debug = p as Debug
-                    this.debug(`Received debug packet:`, [debug.data.message])
-                    break
-                }
-
-                case PacketNameToType.SSH_MSG_KEXINIT:
-                    // handle key exchange
-                    this.emit("clientKexInit", p as KexInit, payload)
-                    break
-
-                case PacketNameToType.SSH_MSG_NEWKEYS:
-                    this.emit("clientNewKeys")
-                    // handle key exchange
-                    break
-
-                case PacketNameToType.SSH_MSG_CHANNEL_OPEN:
-                    this.emit("channelOpenRequest", p as ChannelOpen)
-                    break
-                case PacketNameToType.SSH_MSG_CHANNEL_REQUEST:
-                    this.emit("channelRequest", p as ChannelRequest)
-                    break
+            case PacketNameToType.SSH_MSG_DEBUG: {
+                const debug = p as Debug
+                this.debug(`Received debug packet:`, [debug.data.message])
+                break
             }
 
-            if (this.buffering.length > 0) {
-                this.onMessage(Buffer.alloc(0))
-            }
+            case PacketNameToType.SSH_MSG_KEXINIT:
+                // handle key exchange
+                this.emit("clientKexInit", p as KexInit, payload)
+                break
+
+            case PacketNameToType.SSH_MSG_NEWKEYS:
+                this.hasReceivedNewKeys = true
+                this.packetDecoder.setProtection({
+                    cipher: this.clientEncryption!,
+                    mac: this.clientMac!,
+                    blockSize: this.clientEncryptionAlgorithm!.block_size,
+                    macLength: this.clientMacAlgorithm!.digest_length,
+                })
+                this.emit("clientNewKeys")
+                break
+
+            case PacketNameToType.SSH_MSG_CHANNEL_OPEN:
+                this.emit("channelOpenRequest", p as ChannelOpen)
+                break
+            case PacketNameToType.SSH_MSG_CHANNEL_REQUEST:
+                this.emit("channelRequest", p as ChannelRequest)
+                break
+        }
+
+        if (this.packetDecoder.bufferedLength > 0) {
+            this.scheduleMessageProcessing(Buffer.alloc(0))
         }
     }
 }
