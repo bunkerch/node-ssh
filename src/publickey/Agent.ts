@@ -1,3 +1,4 @@
+import type { Duplex } from "node:stream"
 import PublicKey from "../utils/PublicKey.js"
 import EncodedSignature from "../utils/Signature.js"
 
@@ -8,6 +9,8 @@ export enum AgentType {
 
 export default abstract class Agent<Id = string> {
     abstract type: AgentType
+
+    getStream?(): Promise<Duplex>
 
     abstract sign(id: Id, data: Buffer): Promise<EncodedSignature>
     abstract getPublicKeys(): Promise<[Id, PublicKey][]>

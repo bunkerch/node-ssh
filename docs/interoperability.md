@@ -8,11 +8,15 @@ establishes real TCP connections in both directions:
   completes EOF/CLOSE handling, and separately establishes an `ssh -R` listener whose data crosses
   a server-initiated `forwarded-tcpip` channel. It also exchanges data through both `ssh -L` direct
   and `ssh -R` remote UNIX-socket forwarding against the `modernssh` server.
+  It also forwards a real OpenSSH agent, which the server queries over a server-initiated agent
+  channel and validates against the fixture key.
 - A `modernssh` client connects to an OpenSSH server built from the digest-pinned Debian fixture in
   `__tests__/openssh/Dockerfile`, authenticates with a password, executes a command, separates
   stdout/stderr, receives its exit status, establishes and cancels a remote TCP listener, exchanges
   data over the resulting `forwarded-tcpip` channel, opens direct and remote OpenSSH stream-local
   forwarding channels, and disconnects gracefully.
+  The same test requests agent forwarding and runs `ssh-add -L` on OpenSSH to prove that the remote
+  process sees the modern client's local OpenSSH agent.
 
 The OpenSSH server test requires Docker. The image is tagged locally as
 `modernssh-openssh-test:bookworm`; Docker reuses its build cache after the first run. The pinned base
@@ -24,9 +28,9 @@ image makes the operating-system fixture reproducible, while installing the dist
 Wire codecs are tested independently of OpenSSH with fixed byte strings derived from the protocol
 formats. The channel vector suites cover `direct-tcpip`, `forwarded-tcpip`, TCP forwarding global
 requests, all four OpenSSH stream-local forwarding messages, allocated-port responses, PTY and
-terminal modes, environment, window changes, signals, subsystems, window adjustment, standard
-data, stderr extended data, EOF, and CLOSE. Every vector is parsed into asserted fields and
-serialized back to the exact original bytes.
+terminal modes, environment, window changes, signals, subsystems, agent forwarding requests and
+channel opens, window adjustment, standard data, stderr extended data, EOF, and CLOSE. Every vector
+is parsed into asserted fields and serialized back to the exact original bytes.
 
 Transport tests likewise use deterministic identification, binary framing, encryption-boundary,
 MAC, fragmentation, and maximum-size vectors. This keeps exact packet parsing failures local and

@@ -81,6 +81,22 @@ describe("RFC 4254 channel packet vectors", () => {
         expect(packet.serialize()).toEqual(raw)
     })
 
+    test("round-trips the fixed RFC 9987 agent forwarding messages", () => {
+        const request = vector(`
+            62 00000003
+            0000001a 617574682d6167656e742d726571406f70656e7373682e636f6d
+            01
+        `)
+        const open = vector(`
+            5a
+            00000016 617574682d6167656e74406f70656e7373682e636f6d
+            00000007 00200000 00008000
+        `)
+
+        expect(ChannelRequest.parse(request).serialize()).toEqual(request)
+        expect(ChannelOpen.parse(open).serialize()).toEqual(open)
+    })
+
     test("round-trips flow-control, data, extended-data, EOF, and CLOSE vectors", () => {
         const cases: [Buffer, { parse(raw: Buffer): { serialize(): Buffer } }][] = [
             [vector("5d 00000003 00010000"), ChannelWindowAdjust],

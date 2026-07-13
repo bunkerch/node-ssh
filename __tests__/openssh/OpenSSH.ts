@@ -1,18 +1,79 @@
 import { execFile, spawn } from "node:child_process"
-import { mkdtemp, rm } from "node:fs/promises"
+import { access, mkdtemp, readFile, rm } from "node:fs/promises"
 import { AddressInfo, createConnection, createServer, type Socket } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import type { Duplex } from "node:stream"
 import { promisify } from "node:util"
 import Client from "../../src/Client.js"
 import Server from "../../src/Server.js"
 import ClientChannel from "../../src/channels/ClientChannel.js"
 import DirectStreamLocalChannel from "../../src/channels/DirectStreamLocalChannel.js"
 import SessionChannel from "../../src/channels/SessionChannel.js"
+import SSHAgent from "../../src/publickey/SSHAgent.js"
+import { readNextBuffer, readNextUint32 } from "../../src/utils/Buffer.js"
 import PrivateKey from "../../src/utils/PrivateKey.js"
+import PublicKey from "../../src/utils/PublicKey.js"
 
 const execFileAsync = promisify(execFile)
 const imageName = "modernssh-openssh-test:bookworm"
+
+interface OpenSSHAgentFixture {
+    directory: string
+    socketPath: string
+    publicKey: PublicKey
+    close: () => Promise<void>
+}
+
+async function createOpenSSHAgentFixture(): Promise<OpenSSHAgentFixture> {
+    const directory = await mkdtemp(join(tmpdir(), "modernssh-agent-forward-"))
+    const socketPath = join(directory, "agent.sock")
+    const keyPath = join(directory, "id_ed25519")
+    const child = spawn("ssh-agent", ["-D", "-a", socketPath], { stdio: "ignore" })
+    try {
+        for (let attempt = 0; attempt < 100; attempt++) {
+            try {
+                await access(socketPath)
+                break
+            } catch {
+                await new Promise<void>((resolve) => setTimeout(resolve, 20))
+            }
+        }
+        await access(socketPath)
+        await execFileAsync("ssh-keygen", [
+            "-q",
+            "-t",
+            "ed25519",
+            "-N",
+            "",
+            "-C",
+            "agent-forwarding-fixture",
+            "-f",
+            keyPath,
+        ])
+        await execFileAsync("ssh-add", [keyPath], {
+            env: { ...process.env, SSH_AUTH_SOCK: socketPath },
+        })
+        const publicKey = PublicKey.parseString(await readFile(`${keyPath}.pub`, "utf8"))
+        return {
+            directory,
+            socketPath,
+            publicKey,
+            close: async () => {
+                child.kill("SIGTERM")
+                await new Promise<void>((resolve) => {
+                    if (child.exitCode !== null || child.signalCode !== null) resolve()
+                    else child.once("close", () => resolve())
+                })
+                await rm(directory, { recursive: true, force: true })
+            },
+        }
+    } catch (error) {
+        child.kill("SIGTERM")
+        await rm(directory, { recursive: true, force: true })
+        throw error
+    }
+}
 
 async function waitForPort(port: number): Promise<void> {
     for (let attempt = 0; attempt < 100; attempt++) {
@@ -51,8 +112,9 @@ async function collectProcess(
     executable: string,
     args: string[],
     input = "",
+    options: { env?: NodeJS.ProcessEnv } = {},
 ): Promise<{ code: number | null; stdout: string; stderr: string }> {
-    const child = spawn(executable, args, { stdio: "pipe" })
+    const child = spawn(executable, args, { stdio: "pipe", ...options })
     const stdout: Buffer[] = []
     const stderr: Buffer[] = []
     child.stdout.on("data", (data: Buffer) => stdout.push(data))
@@ -166,6 +228,28 @@ async function exchangeChannel(
             reject(error)
         })
         channel.write(input)
+    })
+}
+
+async function requestAgentIdentities(stream: Duplex): Promise<Buffer> {
+    return new Promise((resolve, reject) => {
+        let response = Buffer.alloc(0)
+        const timeout = setTimeout(
+            () => stream.destroy(new Error("Forwarded agent did not reply")),
+            5_000,
+        )
+        stream.on("data", (data: Buffer) => {
+            response = Buffer.concat([response, data])
+            if (response.length < 4 || response.length < response.readUInt32BE(0) + 4) return
+            clearTimeout(timeout)
+            stream.end()
+            resolve(response)
+        })
+        stream.once("error", (error) => {
+            clearTimeout(timeout)
+            reject(error)
+        })
+        stream.write(Buffer.from("000000010b", "hex"))
     })
 }
 
@@ -340,6 +424,100 @@ describe("OpenSSH interoperability", () => {
         }
     }, 30_000)
 
+    test("OpenSSH client forwards its agent to a modernssh server", async () => {
+        const agent = await createOpenSSHAgentFixture()
+        const hostKey = await PrivateKey.generate("ssh-ed25519")
+        const server = new Server({ hostKeys: [hostKey], sendAllHostKeys: false })
+        const errors: Error[] = []
+        let resolveResponse!: (response: Buffer) => void
+        let rejectResponse!: (error: Error) => void
+        const responsePromise = new Promise<Buffer>((resolve, reject) => {
+            resolveResponse = resolve
+            rejectResponse = reject
+        })
+        server.hooker.hook("noneAuthentication", (_hook, context, decision) => {
+            decision.allowLogin = context.username === "interop"
+        })
+        server.hooker.hook("channelOpenRequest", (_hook, channel, decision) => {
+            decision.allowOpen = channel instanceof SessionChannel
+        })
+        server.on("connection", (connection) => {
+            connection.on("error", (error) => errors.push(error))
+            connection.on("channel", (channel) => {
+                if (!(channel instanceof SessionChannel)) return
+                channel.hooker.hook("agentForwardRequest", (_hook, decision) => {
+                    decision.success = true
+                })
+                channel.hooker.hook("execRequest", (_hook, _context, decision) => {
+                    decision.success = true
+                })
+                channel.events.on("exec", (_command, shell) => {
+                    void (async () => {
+                        const forwardedAgent = await connection.openssh_forwardAgent()
+                        resolveResponse(await requestAgentIdentities(forwardedAgent.stream))
+                        shell.exit(0).end()
+                    })().catch((error: Error) => {
+                        rejectResponse(error)
+                        shell.exit(1).end()
+                    })
+                })
+            })
+        })
+        server.listen({ host: "127.0.0.1", port: 0 })
+        await new Promise<void>((resolve) => server.server!.once("listening", resolve))
+        const port = (server.server!.address() as AddressInfo).port
+
+        try {
+            const resultPromise = collectProcess(
+                "/usr/bin/ssh",
+                [
+                    "-F",
+                    "/dev/null",
+                    "-A",
+                    "-T",
+                    "-p",
+                    String(port),
+                    "-o",
+                    "BatchMode=yes",
+                    "-o",
+                    "PreferredAuthentications=none",
+                    "-o",
+                    "PubkeyAuthentication=no",
+                    "-o",
+                    "StrictHostKeyChecking=no",
+                    "-o",
+                    "UserKnownHostsFile=/dev/null",
+                    "-o",
+                    "LogLevel=ERROR",
+                    "interop@127.0.0.1",
+                    "agent-forwarding-test",
+                ],
+                "",
+                { env: { ...process.env, SSH_AUTH_SOCK: agent.socketPath } },
+            )
+            const response = await responsePromise
+            const result = await resultPromise
+            expect(result).toEqual({ code: 0, stdout: "", stderr: "" })
+            expect(response.readUInt32BE(0)).toBe(response.length - 4)
+            let payload = response.subarray(4)
+            expect(payload[0]).toBe(12)
+            payload = payload.subarray(1)
+            const [count, afterCount] = readNextUint32(payload)
+            expect(count).toBe(1)
+            const [keyBlob, afterKey] = readNextBuffer(afterCount)
+            const [, remaining] = readNextBuffer(afterKey)
+            expect(remaining.length).toBe(0)
+            expect(PublicKey.parse(keyBlob).equals(agent.publicKey)).toBe(true)
+            expect(errors).toEqual([])
+        } finally {
+            for (const client of server.clients) client.terminate()
+            await new Promise<void>((resolve, reject) => {
+                server.server!.close((error) => (error ? reject(error) : resolve()))
+            })
+            await agent.close()
+        }
+    }, 30_000)
+
     test("OpenSSH client uses stream-local forwarding on a modernssh server", async () => {
         const directory = await mkdtemp(join(tmpdir(), "modernssh-streamlocal-"))
         const localForwardPath = join(directory, "local-forward.sock")
@@ -460,6 +638,7 @@ describe("OpenSSH interoperability", () => {
             imageName,
         ])
         const containerId = stdout.trim()
+        let agentFixture: OpenSSHAgentFixture | undefined
 
         try {
             const { stdout: portOutput } = await execFileAsync("docker", [
@@ -470,12 +649,14 @@ describe("OpenSSH interoperability", () => {
             const port = Number(portOutput.trim().match(/:(\d+)$/u)?.[1])
             expect(Number.isInteger(port)).toBe(true)
             await waitForPort(port)
+            agentFixture = await createOpenSSHAgentFixture()
 
             const client = new Client({
                 hostname: "127.0.0.1",
                 port,
                 username: "interop",
                 password: "correct-horse-battery-staple",
+                agent: new SSHAgent(agentFixture.socketPath),
             })
             const errors: Error[] = []
             client.on("error", (error) => errors.push(error))
@@ -521,6 +702,15 @@ describe("OpenSSH interoperability", () => {
             expect(exitCode).toBe(23)
             expect(errors).toEqual([])
 
+            const agentSession = await client.openSession()
+            const agentOutput: Buffer[] = []
+            agentSession.on("data", (data: Buffer) => agentOutput.push(data))
+            await agentSession.openssh_forwardAgent()
+            await agentSession.exec("ssh-add -L")
+            await new Promise<void>((resolve) => agentSession.once("close", resolve))
+            const forwardedKey = PublicKey.parseString(Buffer.concat(agentOutput).toString())
+            expect(forwardedKey.equals(agentFixture.publicKey)).toBe(true)
+
             expect(await client.forwardIn("0.0.0.0", 40_000)).toBe(40_000)
             const { stdout: forwardingPortOutput } = await execFileAsync("docker", [
                 "port",
@@ -563,6 +753,7 @@ describe("OpenSSH interoperability", () => {
             await closed
         } finally {
             await execFileAsync("docker", ["rm", "--force", containerId]).catch(() => undefined)
+            await agentFixture?.close()
         }
     }, 120_000)
 })

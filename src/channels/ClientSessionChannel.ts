@@ -22,6 +22,7 @@ export interface ClientWindowDimensions {
 export default class ClientSessionChannel extends ClientChannel {
     private started = false
     private ptyRequested = false
+    private agentForwardingRequested = false
 
     constructor(client: Client) {
         super(client, "session")
@@ -82,6 +83,17 @@ export default class ClientSessionChannel extends ClientChannel {
                 serializeBuffer(Buffer.from(value, "utf8")),
             ]),
         )
+    }
+
+    async openssh_forwardAgent(): Promise<void> {
+        this.ensureNotStarted("request agent forwarding")
+        if (this.agentForwardingRequested) return
+        if (!this.client.options.agent.getStream) {
+            throw new Error("The configured authentication agent cannot be forwarded")
+        }
+        await this.request("auth-agent-req@openssh.com")
+        this.agentForwardingRequested = true
+        this.client.agentForwardingEnabled = true
     }
 
     async subsystem(name: string): Promise<void> {

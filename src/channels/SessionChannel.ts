@@ -51,8 +51,14 @@ export interface SessionChannelHookerSubsystemRequestContext {
 export interface SessionChannelHookerSubsystemRequestController {
     success: boolean
 }
+export interface SessionChannelHookerAgentForwardRequestController {
+    success: boolean
+}
 // eslint-disable-next-line @typescript-eslint/consistent-type-definitions
 export type SessionChannelHooker = {
+    agentForwardRequest: [
+        agentForwardRequestController: SessionChannelHookerAgentForwardRequestController,
+    ]
     execRequest: [
         execRequestContext: Readonly<SessionChannelHookerExecRequestContext>,
         execRequestController: SessionChannelHookerExecRequestController,
@@ -73,6 +79,7 @@ export type SessionChannelHooker = {
 }
 
 export interface SessionChannelEvents {
+    agentForward: []
     env: [name: string, value: string]
     exec: [command: string, shell: Shell]
     pty: [pty: Readonly<SessionPtyInfo>]
@@ -120,6 +127,21 @@ export default class SessionChannel extends Channel {
         )
 
         switch (request.data.request_type) {
+            case "auth-agent-req@openssh.com": {
+                assert(request.data.args.length === 0, "Agent forwarding request has trailing data")
+                this.assertNotConsumed()
+                const controller: SessionChannelHookerAgentForwardRequestController = {
+                    success: false,
+                }
+                await this.hooker.triggerHook("agentForwardRequest", controller)
+                if (controller.success) {
+                    ;(this.client as ServerClient).agentForwardingEnabled = true
+                    this.sendRequestSuccess(request)
+                    this.events.emit("agentForward")
+                    return
+                }
+                break
+            }
             case "pty-req": {
                 this.assertNotConsumed()
                 assert(!this.pty, "This SSH session channel already has a PTY")
@@ -262,7 +284,7 @@ export default class SessionChannel extends Channel {
                 // This notification travels from server to client, never in this direction.
                 break
             }
-            // TODO: X11 and authentication-agent forwarding requests.
+            // TODO: X11 forwarding requests.
         }
 
         await super.handleChannelRequest(request)

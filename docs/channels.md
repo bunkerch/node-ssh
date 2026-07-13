@@ -46,6 +46,27 @@ uint32-value mappings; the encoder adds the required `TTY_OP_END` terminator.
 Calling `channel.end()` finishes standard input by sending channel EOF. Calling `channel.close()`
 sends EOF followed by CLOSE. A peer CLOSE is always acknowledged before the stream is destroyed.
 
+## Agent forwarding
+
+Agent forwarding is disabled by default. Configure a forwardable `SSHAgent` or `OnePasswordAgent`,
+open a session, request the OpenSSH-compatible forwarding extension before starting its program,
+and then start the command:
+
+```ts
+import { Client, SSHAgent } from "modernssh"
+
+const client = new Client({ hostname, username, agent: new SSHAgent() })
+await client.connect()
+
+const channel = await client.openSession()
+await channel.openssh_forwardAgent()
+await channel.exec("ssh-add -L")
+```
+
+After the server accepts the request, each `auth-agent@openssh.com` channel is connected directly
+to a fresh local agent socket. Incoming agent channels are rejected unless a session request has
+succeeded, and agents without a stream capability such as `DiskAgent` cannot be forwarded.
+
 ## Protocol behavior
 
 The implementation follows RFC 4254 channel rules:
@@ -104,3 +125,20 @@ available in `channel.pty` and `channel.env`; the corresponding `pty`, `env`, an
 are emitted after acceptance. Runtime `windowChange` and `signal` notifications are exposed as
 events. PTY mode payloads are parsed and validated before a policy hook runs, and malformed setup
 requests that ask for a reply receive channel failure.
+
+Agent forwarding is separately denied by default even for an allowed session. The server must
+approve `agentForwardRequest`; after approval it may open one or more bounded agent channels:
+
+```ts
+channel.hooker.hook("agentForwardRequest", (_hook, decision) => {
+    decision.success = connection.credentials?.data.username === "deploy"
+})
+
+const agentChannel = await connection.openssh_forwardAgent()
+agentProtocolStream.pipe(agentChannel.stream).pipe(agentProtocolStream)
+```
+
+The request creates a transitive trust relationship: the server can ask the user's agent to sign
+arbitrary supported data for the rest of the SSH connection. Only enable it for fully trusted
+servers and authenticated principals. The implementation uses RFC 9987's deployed OpenSSH request
+and channel names because peers generally do not yet advertise the standardized names via RFC 8308.

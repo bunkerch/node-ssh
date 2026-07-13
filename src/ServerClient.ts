@@ -73,6 +73,7 @@ import IdentificationParser from "./IdentificationParser.js"
 import { BinaryPacketDecoder, BinaryPacketEncoder } from "./BinaryPacket.js"
 import ForwardedTCPIPChannel from "./channels/ForwardedTCPIPChannel.js"
 import ForwardedStreamLocalChannel from "./channels/ForwardedStreamLocalChannel.js"
+import ForwardedAgentChannel from "./channels/ForwardedAgentChannel.js"
 
 interface RemoteForwardListener {
     server: net.Server
@@ -131,6 +132,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 forwarding.server.close()
             }
             this.remoteStreamLocalListeners.clear()
+            this.agentForwardingEnabled = false
             for (const channel of this.channels.values()) channel.abort()
             this.channels.clear()
             this.emit("close")
@@ -178,10 +180,29 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     channels = new Map<number, Channel>()
     private readonly remoteForwardListeners = new Map<string, RemoteForwardListener>()
     private readonly remoteStreamLocalListeners = new Map<string, RemoteForwardListener>()
+    agentForwardingEnabled = false
 
     state = SocketState.Closed
     get isConnected(): boolean {
         return this.state === SocketState.Connected
+    }
+
+    async openssh_forwardAgent(): Promise<ForwardedAgentChannel> {
+        if (!this.isConnected) throw new Error("SSH connection is not open")
+        if (!this.agentForwardingEnabled) {
+            throw new Error("The SSH client has not authorized agent forwarding")
+        }
+        const channel = new ForwardedAgentChannel(this)
+        this.channels.set(channel.localId, channel)
+        try {
+            this.sendPacket(channel.getChannelOpenPacket())
+            await channel.waitUntilOpen()
+            return channel
+        } catch (error) {
+            this.channels.delete(channel.localId)
+            channel.abort(error as Error)
+            throw error
+        }
     }
 
     get remoteAddress() {

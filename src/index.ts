@@ -23,6 +23,7 @@ export { default as ClientTCPIPChannel } from "./channels/ClientTCPIPChannel.js"
 export { default as ClientForwardedTCPIPChannel } from "./channels/ClientForwardedTCPIPChannel.js"
 export { default as ClientDirectStreamLocalChannel } from "./channels/ClientDirectStreamLocalChannel.js"
 export { default as ClientForwardedStreamLocalChannel } from "./channels/ClientForwardedStreamLocalChannel.js"
+export { default as ClientAgentChannel } from "./channels/ClientAgentChannel.js"
 export type { StreamLocalConnectionDetails } from "./channels/ClientForwardedStreamLocalChannel.js"
 export type { TCPIPConnectionDetails } from "./channels/ClientTCPIPChannel.js"
 
@@ -58,9 +59,11 @@ export { default as DirectTCPIPChannel } from "./channels/DirectTCPIPChannel.js"
 export { default as ForwardedTCPIPChannel } from "./channels/ForwardedTCPIPChannel.js"
 export { default as DirectStreamLocalChannel } from "./channels/DirectStreamLocalChannel.js"
 export { default as ForwardedStreamLocalChannel } from "./channels/ForwardedStreamLocalChannel.js"
+export { default as ForwardedAgentChannel } from "./channels/ForwardedAgentChannel.js"
 export type {
     SessionChannelEvents,
     SessionChannelHooker,
+    SessionChannelHookerAgentForwardRequestController,
     SessionChannelHookerEnvRequestContext,
     SessionChannelHookerEnvRequestController,
     SessionChannelHookerExecRequestContext,

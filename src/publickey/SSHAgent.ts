@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs"
-import { createConnection } from "node:net"
+import { createConnection, type Socket } from "node:net"
 import PublicKey from "../utils/PublicKey.js"
 import {
     readNextBuffer,
@@ -91,6 +91,17 @@ export default class SSHAgent implements Agent<string> {
         const identity = (await this.getPublicKeys()).find(([candidate]) => candidate === id)
         if (!identity) throw new SSHAgentError("SSH agent identity is no longer available")
         return identity[1]
+    }
+
+    getStream(): Promise<Socket> {
+        return new Promise((resolve, reject) => {
+            const socket = createConnection(this.socketPath)
+            socket.once("connect", () => resolve(socket))
+            socket.once("error", (error) => {
+                socket.destroy()
+                reject(new SSHAgentError("Could not connect to the SSH agent", { cause: error }))
+            })
+        })
     }
 
     private request(payload: Buffer): Promise<Buffer> {

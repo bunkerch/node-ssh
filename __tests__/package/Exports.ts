@@ -2,6 +2,7 @@ import {
     Agent,
     Channel,
     Client,
+    ClientAgentChannel,
     ClientDirectStreamLocalChannel,
     ClientForwardedStreamLocalChannel,
     ClientForwardedTCPIPChannel,
@@ -11,6 +12,7 @@ import {
     DiskAgent,
     EncodedSignature,
     ForwardedTCPIPChannel,
+    ForwardedAgentChannel,
     ForwardedStreamLocalChannel,
     OnePasswordAgent,
     PrivateKey,
@@ -38,6 +40,7 @@ describe("package exports", () => {
             Agent,
             Channel,
             Client,
+            ClientAgentChannel,
             ClientDirectStreamLocalChannel,
             ClientForwardedStreamLocalChannel,
             ClientForwardedTCPIPChannel,
@@ -47,6 +50,7 @@ describe("package exports", () => {
             DiskAgent,
             EncodedSignature,
             ForwardedTCPIPChannel,
+            ForwardedAgentChannel,
             ForwardedStreamLocalChannel,
             OnePasswordAgent,
             PrivateKey,
@@ -58,7 +62,7 @@ describe("package exports", () => {
             SessionChannel,
             Shell,
             SSHAgent,
-        ]).toHaveLength(23)
+        ]).toHaveLength(25)
         expect(SSHAuthenticationMethods.PublicKey).toBe("publickey")
     })
 
@@ -66,6 +70,7 @@ describe("package exports", () => {
         const entry = await import("../../dist/index.js")
 
         expect(entry.Client).toBeDefined()
+        expect(entry.ClientAgentChannel).toBeDefined()
         expect(entry.ClientDirectStreamLocalChannel).toBeDefined()
         expect(entry.ClientForwardedStreamLocalChannel).toBeDefined()
         expect(entry.ClientForwardedTCPIPChannel).toBeDefined()
@@ -73,6 +78,7 @@ describe("package exports", () => {
         expect(entry.DirectTCPIPChannel).toBeDefined()
         expect(entry.DirectStreamLocalChannel).toBeDefined()
         expect(entry.ForwardedTCPIPChannel).toBeDefined()
+        expect(entry.ForwardedAgentChannel).toBeDefined()
         expect(entry.ForwardedStreamLocalChannel).toBeDefined()
         expect(entry.Server).toBeDefined()
         expect(entry.PrivateKey).toBeDefined()

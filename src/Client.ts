@@ -49,6 +49,7 @@ import ClientDirectStreamLocalChannel from "./channels/ClientDirectStreamLocalCh
 import ClientForwardedStreamLocalChannel, {
     StreamLocalConnectionDetails,
 } from "./channels/ClientForwardedStreamLocalChannel.js"
+import ClientAgentChannel from "./channels/ClientAgentChannel.js"
 import type { TCPIPConnectionDetails } from "./channels/ClientTCPIPChannel.js"
 import ChannelOpen from "./packets/ChannelOpen.js"
 import ChannelOpenConfirmation from "./packets/ChannelOpenConfirmation.js"
@@ -226,6 +227,7 @@ export default class Client extends EventEmitter<ClientEvents> {
     private readonly pendingGlobalRequests: PendingGlobalRequest[] = []
     private readonly remoteForwardings = new Map<string, RemoteForwarding>()
     private readonly remoteStreamLocalForwardings = new Set<string>()
+    agentForwardingEnabled = false
 
     state = SocketState.Closed
     get isConnected(): boolean {
@@ -598,6 +600,7 @@ export default class Client extends EventEmitter<ClientEvents> {
                 }
                 this.remoteForwardings.clear()
                 this.remoteStreamLocalForwardings.clear()
+                this.agentForwardingEnabled = false
                 this.emit("close")
             }
             this.socket!.on("close", closeListener)
@@ -1128,6 +1131,10 @@ export default class Client extends EventEmitter<ClientEvents> {
     }
 
     private handleIncomingChannelOpen(packet: ChannelOpen): void {
+        if (packet.data.channel_type === ClientAgentChannel.channelType) {
+            void this.handleIncomingAgentChannelOpen(packet)
+            return
+        }
         if (packet.data.channel_type === ClientForwardedStreamLocalChannel.channelType) {
             this.handleIncomingStreamLocalChannelOpen(packet)
             return
@@ -1179,6 +1186,58 @@ export default class Client extends EventEmitter<ClientEvents> {
         }
         this.emit("tcp connection", details, accept, reject)
         if (!decided) reject()
+    }
+
+    private async handleIncomingAgentChannelOpen(packet: ChannelOpen): Promise<void> {
+        if (packet.data.args.length !== 0) {
+            this.rejectIncomingChannel(
+                packet,
+                ChannelOpenFailureReasonCodes.SSH_OPEN_CONNECT_FAILED,
+                "Authentication agent channel has trailing data",
+            )
+            return
+        }
+        const getStream = this.options.agent.getStream
+        if (!this.agentForwardingEnabled || !getStream) {
+            this.rejectIncomingChannel(
+                packet,
+                ChannelOpenFailureReasonCodes.SSH_OPEN_ADMINISTRATIVELY_PROHIBITED,
+                "Agent forwarding was not requested",
+            )
+            return
+        }
+
+        let stream: Awaited<ReturnType<NonNullable<Agent["getStream"]>>>
+        try {
+            stream = await getStream.call(this.options.agent)
+        } catch (error) {
+            this.debug("Could not connect an incoming channel to the SSH agent", error)
+            this.rejectIncomingChannel(
+                packet,
+                ChannelOpenFailureReasonCodes.SSH_OPEN_CONNECT_FAILED,
+                "Could not connect to the authentication agent",
+            )
+            return
+        }
+
+        try {
+            const channel = new ClientAgentChannel(this, packet)
+            this.channels.set(channel.localId, channel)
+            stream.on("error", () => channel.destroy())
+            stream.on("close", () => channel.close())
+            channel.on("error", () => stream.destroy())
+            channel.on("close", () => stream.destroy())
+            stream.pipe(channel).pipe(stream)
+            this.sendPacket(channel.getOpenConfirmationPacket())
+        } catch (error) {
+            stream.destroy()
+            this.debug("Could not accept an incoming SSH agent channel", error)
+            this.rejectIncomingChannel(
+                packet,
+                ChannelOpenFailureReasonCodes.SSH_OPEN_CONNECT_FAILED,
+                "Invalid authentication agent channel",
+            )
+        }
     }
 
     private handleIncomingStreamLocalChannelOpen(packet: ChannelOpen): void {
