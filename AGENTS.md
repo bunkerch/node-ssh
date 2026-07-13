@@ -89,6 +89,9 @@ behavior.
   new transport keys from the current exchange hash. Queue application output after sending
   `KEXINIT`, switch each direction exactly at its own `NEWKEYS`, preserve sequence numbers and open
   channels, and test both initiator roles against OpenSSH.
+- High-level session helpers must issue setup requests before the program request: agent forwarding,
+  environment, PTY, X11, then exec/shell/subsystem. Treat automatic environment requests as
+  best-effort without replies, but require replies for security- or terminal-sensitive setup.
 - Treat local and remote channel identifiers, windows, maximum packet sizes, EOF, and CLOSE state as
   independent protocol state. All channel streams must preserve bounded backpressure.
 - New public APIs and public types must be exported from `src/index.ts`, documented under `docs/`,

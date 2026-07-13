@@ -32,10 +32,24 @@ describe("client/server integration", () => {
         })
         let serverPeer: ServerClient | undefined
         let serverRekeys = 0
+        let configuredSession: SessionChannel | undefined
         server.on("connection", (peer) => {
             serverPeer = peer
             peer.on("error", (error) => serverErrors.push(error))
             peer.on("rekey", () => serverRekeys++)
+            peer.on("channel", (channel) => {
+                if (!(channel instanceof SessionChannel)) return
+                channel.hooker.hook("ptyRequest", (_hook, _pty, controller) => {
+                    controller.success = true
+                })
+                channel.hooker.hook("envRequest", (_hook, _environment, controller) => {
+                    controller.success = true
+                })
+                channel.hooker.hook("execRequest", (_hook, context, controller) => {
+                    controller.success = context.command === "configured-command"
+                    if (controller.success) configuredSession = channel
+                })
+            })
         })
 
         server.listen({ host: "127.0.0.1", port: 0 })
@@ -96,6 +110,29 @@ describe("client/server integration", () => {
             expect(client.sessionID).toEqual(initialClientSessionId)
             expect(serverPeer!.sessionID).toEqual(initialServerSessionId)
             expect(existingSession.destroyed).toBe(false)
+
+            const configured = await client.exec("configured-command", {
+                allowHalfOpen: false,
+                env: { LANG: "C.UTF-8", ROLE: "integration" },
+                pty: { term: "xterm-256color", cols: 101, rows: 37 },
+            })
+            expect(configured.allowHalfOpen).toBe(false)
+            expect(configuredSession?.env).toEqual(
+                new Map([
+                    ["LANG", "C.UTF-8"],
+                    ["ROLE", "integration"],
+                ]),
+            )
+            expect(configuredSession?.pty).toMatchObject({
+                term: "xterm-256color",
+                columns: 101,
+                rows: 37,
+            })
+            const configuredClosed = new Promise<void>((resolve) =>
+                configured.once("close", resolve),
+            )
+            configured.close()
+            await configuredClosed
 
             const forwardedPort = await client.forwardIn("127.0.0.1", 0)
             expect(forwardedPort).toBeGreaterThan(0)

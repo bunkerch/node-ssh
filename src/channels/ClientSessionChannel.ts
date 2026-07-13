@@ -8,6 +8,7 @@ import ClientChannel from "./ClientChannel.js"
 export interface ClientPtyOptions {
     term?: string
     columns?: number
+    cols?: number
     rows?: number
     width?: number
     height?: number
@@ -68,7 +69,7 @@ export default class ClientSessionChannel extends ClientChannel {
         this.ensureNotStarted("request a PTY")
         if (this.ptyRequested) throw new Error(`SSH session channel ${this.localId} has a PTY`)
         this.ptyRequested = true
-        const columns = options.columns ?? 80
+        const columns = options.columns ?? options.cols ?? 80
         const rows = options.rows ?? 24
         const width = options.width ?? 640
         const height = options.height ?? 480
@@ -90,7 +91,7 @@ export default class ClientSessionChannel extends ClientChannel {
         }
     }
 
-    setEnv(name: string, value: string): Promise<void> {
+    setEnv(name: string, value: string, wantReply = true): Promise<void> {
         this.ensureNotStarted("set environment variables")
         return this.request(
             "env",
@@ -98,6 +99,7 @@ export default class ClientSessionChannel extends ClientChannel {
                 serializeBuffer(Buffer.from(name, "utf8")),
                 serializeBuffer(Buffer.from(value, "utf8")),
             ]),
+            wantReply,
         )
     }
 

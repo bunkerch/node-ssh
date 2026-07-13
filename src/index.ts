@@ -1,6 +1,7 @@
 export { default as Client, GlobalRequestError } from "./Client.js"
 export type {
     ClientEvents,
+    ClientEnvironment,
     ClientChannelCallback,
     ClientForwardCallback,
     ClientForwardInCallback,
@@ -13,6 +14,7 @@ export type {
     ClientHookerPasswordChangeContext,
     ClientHookerPasswordChangeController,
     ClientOptions,
+    ClientSessionOptions,
     ClientSFTPCallback,
     ClientSessionCallback,
     ClientStreamLocalCallback,

@@ -41,15 +41,18 @@ import {
     SSHAgent,
     SSHAuthenticationMethods,
     type ClientOptions,
+    type ClientSessionOptions,
     type ServerOptions,
 } from "../../src/index.js"
 
 describe("package exports", () => {
     test("exposes the supported source API without executing a demo", () => {
         const clientOptions: ClientOptions = { hostname: "example.test" }
+        const sessionOptions: ClientSessionOptions = { env: { LANG: "C" }, pty: true }
         const serverOptions: ServerOptions = { sendAllHostKeys: false }
 
         expect(clientOptions.hostname).toBe("example.test")
+        expect(sessionOptions.pty).toBe(true)
         expect(serverOptions.sendAllHostKeys).toBe(false)
         expect([
             Agent,

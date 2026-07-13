@@ -1231,6 +1231,22 @@ describe("OpenSSH interoperability", () => {
             expect(client.sessionID).toEqual(sessionId)
             expect(client.H).not.toEqual(exchangeHash)
 
+            const environmentSession = await client.exec('printf %s "$LANG"', {
+                env: { LANG: "C.UTF-8" },
+            })
+            const environmentOutput: Buffer[] = []
+            environmentSession.on("data", (data: Buffer) => environmentOutput.push(data))
+            await new Promise<void>((resolve) => environmentSession.once("close", resolve))
+            expect(Buffer.concat(environmentOutput).toString()).toBe("C.UTF-8")
+
+            const ptySession = await client.exec("stty size", {
+                pty: { term: "xterm-256color", cols: 101, rows: 37 },
+            })
+            const ptyOutput: Buffer[] = []
+            ptySession.on("data", (data: Buffer) => ptyOutput.push(data))
+            await new Promise<void>((resolve) => ptySession.once("close", resolve))
+            expect(Buffer.concat(ptyOutput).toString().trim()).toBe("37 101")
+
             const sftp = await client.sftp()
             expect(sftp.protocolVersion).toBe(3)
             expect(sftp.isOpenSSH).toBe(true)

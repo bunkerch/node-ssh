@@ -43,6 +43,7 @@ import IdentificationParser from "./IdentificationParser.js"
 import { BinaryPacketDecoder, BinaryPacketEncoder } from "./BinaryPacket.js"
 import ClientChannel from "./channels/ClientChannel.js"
 import ClientSessionChannel from "./channels/ClientSessionChannel.js"
+import type { ClientPtyOptions, ClientX11Options } from "./channels/ClientSessionChannel.js"
 import ClientTCPIPChannel from "./channels/ClientTCPIPChannel.js"
 import ClientForwardedTCPIPChannel from "./channels/ClientForwardedTCPIPChannel.js"
 import ClientDirectStreamLocalChannel from "./channels/ClientDirectStreamLocalChannel.js"
@@ -176,6 +177,14 @@ export type ClientSFTPCallback = (error: Error | undefined, sftp?: SFTPClient) =
 export type ClientForwardCallback = ClientChannelCallback<ClientTCPIPChannel>
 export type ClientForwardInCallback = (error: Error | undefined, port?: number) => void
 export type ClientStreamLocalCallback = ClientChannelCallback<ClientDirectStreamLocalChannel>
+export type ClientEnvironment = Readonly<Record<string, string>>
+export interface ClientSessionOptions {
+    agentForward?: boolean
+    allowHalfOpen?: boolean
+    env?: ClientEnvironment
+    pty?: boolean | ClientPtyOptions
+    x11?: boolean | number | ClientX11Options
+}
 
 export class GlobalRequestError extends Error {
     name = "GlobalRequestError"
@@ -359,11 +368,20 @@ export default class Client extends EventEmitter<ClientEvents> {
         return this.withOptionalChannelCallback(this.openSessionChannel(), callback)
     }
 
-    exec(command: string): Promise<ClientSessionChannel>
+    exec(command: string, options?: ClientSessionOptions): Promise<ClientSessionChannel>
     exec(command: string, callback: ClientSessionCallback): this
-    exec(command: string, callback?: ClientSessionCallback): Promise<ClientSessionChannel> | this {
+    exec(command: string, options: ClientSessionOptions, callback: ClientSessionCallback): this
+    exec(
+        command: string,
+        optionsOrCallback: ClientSessionOptions | ClientSessionCallback = {},
+        callback?: ClientSessionCallback,
+    ): Promise<ClientSessionChannel> | this {
+        const options = typeof optionsOrCallback === "function" ? {} : optionsOrCallback
+        const resolvedCallback =
+            typeof optionsOrCallback === "function" ? optionsOrCallback : callback
         const operation = this.openSessionChannel().then(async (channel) => {
             try {
+                await this.configureSession(channel, options, false)
                 await channel.exec(command)
                 return channel
             } catch (error) {
@@ -371,14 +389,22 @@ export default class Client extends EventEmitter<ClientEvents> {
                 throw error
             }
         })
-        return this.withOptionalChannelCallback(operation, callback)
+        return this.withOptionalChannelCallback(operation, resolvedCallback)
     }
 
-    shell(): Promise<ClientSessionChannel>
+    shell(options?: ClientSessionOptions): Promise<ClientSessionChannel>
     shell(callback: ClientSessionCallback): this
-    shell(callback?: ClientSessionCallback): Promise<ClientSessionChannel> | this {
+    shell(options: ClientSessionOptions, callback: ClientSessionCallback): this
+    shell(
+        optionsOrCallback: ClientSessionOptions | ClientSessionCallback = {},
+        callback?: ClientSessionCallback,
+    ): Promise<ClientSessionChannel> | this {
+        const options = typeof optionsOrCallback === "function" ? {} : optionsOrCallback
+        const resolvedCallback =
+            typeof optionsOrCallback === "function" ? optionsOrCallback : callback
         const operation = this.openSessionChannel().then(async (channel) => {
             try {
+                await this.configureSession(channel, options, true)
                 await channel.shell()
                 return channel
             } catch (error) {
@@ -386,7 +412,7 @@ export default class Client extends EventEmitter<ClientEvents> {
                 throw error
             }
         })
-        return this.withOptionalChannelCallback(operation, callback)
+        return this.withOptionalChannelCallback(operation, resolvedCallback)
     }
 
     subsystem(name: string): Promise<ClientSessionChannel>
@@ -429,11 +455,21 @@ export default class Client extends EventEmitter<ClientEvents> {
         return this.requestNoMoreSessions()
     }
 
-    sftp(): Promise<SFTPClient>
+    sftp(environment?: ClientEnvironment): Promise<SFTPClient>
     sftp(callback: ClientSFTPCallback): this
-    sftp(callback?: ClientSFTPCallback): Promise<SFTPClient> | this {
+    sftp(environment: ClientEnvironment, callback: ClientSFTPCallback): this
+    sftp(
+        environmentOrCallback: ClientEnvironment | ClientSFTPCallback = {},
+        callback?: ClientSFTPCallback,
+    ): Promise<SFTPClient> | this {
+        const environment = typeof environmentOrCallback === "function" ? {} : environmentOrCallback
+        const resolvedCallback =
+            typeof environmentOrCallback === "function" ? environmentOrCallback : callback
         const operation = this.openSessionChannel().then(async (channel) => {
             try {
+                for (const [name, value] of Object.entries(environment)) {
+                    await channel.setEnv(name, value, false)
+                }
                 await channel.subsystem("sftp")
                 const software = this.serverProtocolVersion?.protocol_software ?? ""
                 return await SFTPClient.connect(channel, /^(?:OpenSSH_|dropbear)/iu.test(software))
@@ -442,10 +478,11 @@ export default class Client extends EventEmitter<ClientEvents> {
                 throw error
             }
         })
-        if (!callback) return operation
+        if (!resolvedCallback) return operation
         void operation.then(
-            (sftp) => callback(undefined, sftp),
-            (error: unknown) => callback(error instanceof Error ? error : new Error(String(error))),
+            (sftp) => resolvedCallback(undefined, sftp),
+            (error: unknown) =>
+                resolvedCallback(error instanceof Error ? error : new Error(String(error))),
         )
         return this
     }
@@ -558,6 +595,29 @@ export default class Client extends EventEmitter<ClientEvents> {
 
     private async openSessionChannel(): Promise<ClientSessionChannel> {
         return this.openClientChannel(new ClientSessionChannel(this))
+    }
+
+    private async configureSession(
+        channel: ClientSessionChannel,
+        options: ClientSessionOptions,
+        defaultPty: boolean,
+    ): Promise<void> {
+        channel.allowHalfOpen = options.allowHalfOpen !== false
+        if (options.agentForward) await channel.openssh_forwardAgent()
+        for (const [name, value] of Object.entries(options.env ?? {})) {
+            await channel.setEnv(name, value, false)
+        }
+        const pty = options.pty ?? defaultPty
+        if (pty) await channel.requestPty(pty === true ? {} : pty)
+        if (options.x11) {
+            const x11 =
+                options.x11 === true
+                    ? {}
+                    : typeof options.x11 === "number"
+                      ? { screen: options.x11 }
+                      : options.x11
+            await channel.requestX11(x11)
+        }
     }
 
     private async openClientChannel<T extends ClientChannel>(channel: T): Promise<T> {

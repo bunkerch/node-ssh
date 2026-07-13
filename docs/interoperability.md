@@ -17,8 +17,9 @@ establishes real TCP connections in both directions:
   data over the resulting `forwarded-tcpip` channel, opens direct and remote OpenSSH stream-local
   forwarding channels, disables additional sessions with `no-more-sessions@openssh.com`, verifies
   OpenSSH's enforcement, exchanges SSH-level keepalives, explicitly rekeys the transport, and
-  handles the resulting disconnect without leaving a channel pending. The OpenSSH client also
-  initiates key re-exchange against the modern server under a deliberately low byte limit.
+  uses high-level environment and PTY session options, and handles the resulting disconnect without
+  leaving a channel pending. The OpenSSH client also initiates key re-exchange against the modern
+  server under a deliberately low byte limit.
   The same test requests agent forwarding and runs `ssh-add -L` on OpenSSH to prove that the remote
   process sees the modern client's local OpenSSH agent. It also requests X11 forwarding, connects
   to the display allocated by sshd, and exchanges data through the resulting `x11` channel.
