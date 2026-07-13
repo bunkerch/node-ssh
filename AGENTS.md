@@ -51,6 +51,8 @@ behavior.
 
 - Implement behavior from the RFCs in `../rfcs`; fetch missing RFCs from an authoritative source
   when needed.
+- The SSH agent client follows RFC 9987. Keep its framing bounded to OpenSSH's 256 KiB limit and
+  validate it with fixed frames plus the system `ssh-agent`, never another JavaScript SSH library.
 - Implement vendor extensions from their upstream protocol documents (for example OpenSSH's
   `PROTOCOL`), and keep them explicitly named and separately tested from RFC behavior.
 - Treat local and remote channel identifiers, windows, maximum packet sizes, EOF, and CLOSE state as

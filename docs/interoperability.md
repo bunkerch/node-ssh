@@ -32,6 +32,11 @@ Transport tests likewise use deterministic identification, binary framing, encry
 MAC, fragmentation, and maximum-size vectors. This keeps exact packet parsing failures local and
 diagnosable instead of relying on an external implementation to reject malformed bytes.
 
+The agent suite sends fixed RFC 9987 identity-list and signing frames through fragmented UNIX-socket
+reads. A separate integration test starts the system OpenSSH `ssh-agent`, loads an independently
+generated Ed25519 key with `ssh-add`, lists it through `modernssh`, and verifies a delegated
+signature cryptographically.
+
 Together, the OpenSSH tests and known vectors exercise identification exchange, KEXINIT
 negotiation, exchange-hash and signature verification, `NEWKEYS`, encrypted and authenticated
 packet framing, service negotiation, authentication, session streams, client- and server-side

@@ -12,6 +12,7 @@ import {
     EncodedSignature,
     ForwardedTCPIPChannel,
     ForwardedStreamLocalChannel,
+    OnePasswordAgent,
     PrivateKey,
     ProtocolVersionExchange,
     PublicKey,
@@ -20,6 +21,7 @@ import {
     ServerClient,
     SessionChannel,
     Shell,
+    SSHAgent,
     SSHAuthenticationMethods,
     type ClientOptions,
     type ServerOptions,
@@ -46,6 +48,7 @@ describe("package exports", () => {
             EncodedSignature,
             ForwardedTCPIPChannel,
             ForwardedStreamLocalChannel,
+            OnePasswordAgent,
             PrivateKey,
             ProtocolVersionExchange,
             PublicKey,
@@ -54,7 +57,8 @@ describe("package exports", () => {
             ServerClient,
             SessionChannel,
             Shell,
-        ]).toHaveLength(21)
+            SSHAgent,
+        ]).toHaveLength(23)
         expect(SSHAuthenticationMethods.PublicKey).toBe("publickey")
     })
 
@@ -73,5 +77,7 @@ describe("package exports", () => {
         expect(entry.Server).toBeDefined()
         expect(entry.PrivateKey).toBeDefined()
         expect(entry.ProtocolVersionExchange).toBeDefined()
+        expect(entry.SSHAgent).toBeDefined()
+        expect(entry.OnePasswordAgent).toBeDefined()
     })
 })

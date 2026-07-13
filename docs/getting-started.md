@@ -76,9 +76,32 @@ The package root currently exports:
 
 - `Client`, `Server`, and `ServerClient` plus their option, event, and hook types.
 - `ClientChannel`, `ClientSessionChannel`, `Channel`, `SessionChannel`, and `Shell`.
-- `Agent`, `DiskAgent`, and their error and agent-type definitions.
+- `Agent`, `DiskAgent`, `SSHAgent`, `OnePasswordAgent`, and their error and agent-type definitions.
 - `PublicKey`, `PrivateKey`, `EncodedSignature`, and `ProtocolVersionExchange`.
 - Public service, authentication, connection-state, and extended-data enums.
 
 Deep imports into `dist/` are not part of the supported API. New public functionality will be added
 to the root exports as its implementation and tests become library-ready.
+
+## OpenSSH agent authentication
+
+`SSHAgent` uses the UNIX socket supplied explicitly or through `SSH_AUTH_SOCK`. The client lists the
+agent's public identities and delegates signatures without reading private key material.
+
+```ts
+import { Client, SSHAgent } from "modernssh"
+
+const client = new Client({
+    hostname: "ssh.example.com",
+    username: "deploy",
+    agent: new SSHAgent(),
+})
+
+await client.connect()
+```
+
+The implementation follows [RFC 9987](https://www.rfc-editor.org/rfc/rfc9987.html), bounds messages
+to OpenSSH's 256 KiB limit, handles fragmented socket reads, and treats identity IDs as opaque
+values. `OnePasswordAgent` uses the same protocol while discovering 1Password's default socket and
+marks signing as interactive. Access to an agent socket normally grants the ability to request
+signatures, so do not expose or forward it to untrusted processes or hosts.
