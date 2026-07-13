@@ -135,6 +135,13 @@ explicitly. Initial key exchange also advertises RFC 8308 extension negotiation;
 `server-sig-algs` immediately after `NEWKEYS` so clients can select an accepted user-authentication
 signature without guessing.
 
+Initial key exchange also offers strict key-exchange markers under both the standardized names and
+the widely deployed vendor-qualified names. Strict mode is enabled only when client and server
+offer a matching pair. It requires each peer's KEXINIT to be binary packet zero, rejects non-KEX
+and duplicate KEX messages during the initial exchange, and resets each direction's implicit
+packet sequence immediately after every NEWKEYS. These checks prevent unauthenticated transport
+messages from changing sequence state that survives into the protected connection.
+
 ECDSA host keys support all three curves required by RFC 5656: `ecdsa-sha2-nistp256`,
 `ecdsa-sha2-nistp384`, and `ecdsa-sha2-nistp521`. Received SEC1 points are validated before use,
 their original encoding remains part of the serialized key and fingerprint, and ECDSA `r` and `s`
@@ -184,7 +191,8 @@ Once either side sends `SSH_MSG_KEXINIT`, outbound service and application packe
 that side has sent `SSH_MSG_NEWKEYS`; transport and KEX packets remain permitted. Packets already in
 flight from the peer continue to be processed. Sending `NEWKEYS` changes outbound protection
 immediately, receiving it changes inbound protection immediately, and packet sequence numbers are
-not reset. Existing channels remain open across the exchange.
+reset immediately after NEWKEYS when strict key exchange was negotiated. Existing channels remain
+open across the exchange.
 
 OpenSSH interoperability covers both directions: the modern client explicitly rekeys an OpenSSH
 server, and an OpenSSH client with a low `RekeyLimit` initiates multiple exchanges while streaming

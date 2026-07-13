@@ -90,6 +90,11 @@ import ChannelClose from "./packets/ChannelClose.js"
 import ChannelOpenConfirmation from "./packets/ChannelOpenConfirmation.js"
 import IdentificationParser from "./IdentificationParser.js"
 import { BinaryPacketDecoder, BinaryPacketEncoder } from "./BinaryPacket.js"
+import {
+    isStrictKeyExchangePacket,
+    negotiatesStrictKeyExchange,
+    STRICT_KEX_SERVER_MARKERS,
+} from "./StrictKeyExchange.js"
 import ForwardedTCPIPChannel from "./channels/ForwardedTCPIPChannel.js"
 import ForwardedStreamLocalChannel from "./channels/ForwardedStreamLocalChannel.js"
 import ForwardedAgentChannel from "./channels/ForwardedAgentChannel.js"
@@ -182,6 +187,9 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     private packetDecoder = new BinaryPacketDecoder()
     private packetEncoder = new BinaryPacketEncoder()
     private packetProcessingPaused = false
+    private strictKeyExchange = false
+    private strictInitialExchange = false
+    private readonly strictInitialPackets = new Set<PacketType>()
     private keyExchangeInProgress = false
     private readonly packetsQueuedDuringKeyExchange: Packet[] = []
 
@@ -392,7 +400,9 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             cookie: crypto.getRandomValues(Buffer.alloc(16)),
             kex_algorithms: [
                 ...this.server.algorithmOffer.kex,
-                ...(this.sessionID === undefined ? ["ext-info-s"] : []),
+                ...(this.sessionID === undefined
+                    ? ["ext-info-s", ...STRICT_KEX_SERVER_MARKERS]
+                    : []),
             ],
             server_host_key_algorithms: [
                 ...this.server.algorithmOffer.serverHostKey.filter((name) => {
@@ -421,6 +431,8 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             throw new Error("SSH key exchange is already in progress")
         }
         const isRekey = this.sessionID !== undefined
+        this.strictInitialExchange = !isRekey
+        if (!isRekey) this.strictInitialPackets.clear()
         this.keyExchangeInProgress = true
         this.hasReceivedNewKeys = false
         this.hasSentNewKeys = false
@@ -431,6 +443,10 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             const [clientKexInit, clientKexInitBuffer] =
                 received ?? (await this.waitEvent("clientKexInit"))
             this.clientKexInit = clientKexInit
+            this.strictKeyExchange ||= negotiatesStrictKeyExchange(
+                clientKexInit.data.kex_algorithms,
+                this.serverKexInit.data.kex_algorithms,
+            )
             chooseAlgorithms(this)
 
             const kexAlgorithm = this.kexAlgorithm
@@ -491,6 +507,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
 
             if (!this.hasReceivedNewKeys) await this.waitEvent("clientNewKeys")
             this.sendPacket(new NewKeys({}))
+            if (this.strictKeyExchange) this.packetEncoder.resetSequenceNumber()
             this.hasSentNewKeys = true
             this.packetEncoder.setProtection(
                 createOutboundPacketProtection(
@@ -536,6 +553,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             throw error
         } finally {
             this.keyExchangeInProgress = false
+            this.strictInitialExchange = false
         }
     }
 
@@ -1567,6 +1585,26 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 : packets[packetName as keyof typeof packets]
 
         const p = packet.parse(payload)
+        if (packetType === PacketNameToType.SSH_MSG_KEXINIT && this.strictInitialExchange) {
+            const clientAlgorithms = (p as KexInit).data.kex_algorithms
+            const negotiated = negotiatesStrictKeyExchange(
+                clientAlgorithms,
+                this.serverKexInit!.data.kex_algorithms,
+            )
+            this.strictKeyExchange ||= negotiated
+            if (negotiated && decoded.sequenceNumber !== 0) {
+                throw new KeyExchangeError("Strict key exchange requires KEXINIT to be packet zero")
+            }
+        }
+        if (this.strictKeyExchange && this.strictInitialExchange) {
+            if (!isStrictKeyExchangePacket(packetType)) {
+                throw new KeyExchangeError("Received a non-KEX packet during strict key exchange")
+            }
+            if (this.strictInitialPackets.has(packetType)) {
+                throw new KeyExchangeError("Received a duplicate packet during strict key exchange")
+            }
+            this.strictInitialPackets.add(packetType)
+        }
         this.emit("packet", p)
         this.debug("Parsing packet:", this.packetForDebug(p))
 
@@ -1638,6 +1676,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                     ),
                 )
                 this.installInboundCompression()
+                if (this.strictKeyExchange) this.packetDecoder.resetSequenceNumber()
                 this.emit("clientNewKeys")
                 break
 

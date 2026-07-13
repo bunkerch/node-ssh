@@ -111,6 +111,11 @@ meaningful wire-level behavior.
   new transport keys from the current exchange hash. Queue application output after sending
   `KEXINIT`, switch each direction exactly at its own `NEWKEYS`, preserve sequence numbers and open
   channels, and test both initiator roles against OpenSSH.
+- Strict key exchange advertises both the standard and deployed marker pairs only in the initial
+  KEXINIT. Enable it only for a matching pair, require the peer's initial KEXINIT at sequence zero,
+  reject non-KEX and duplicate KEX messages during that exchange, and reset each direction's
+  implicit sequence number immediately after every NEWKEYS. Validate with fixed negotiation and
+  counter tests plus OpenSSH in both roles.
 - RFC 4253 algorithm negotiation follows the client's name-list order independently for every
   category and direction. Clear all prior selections before each exchange, reject missing overlap
   instead of retaining rekey state, and validate supported compression explicitly.

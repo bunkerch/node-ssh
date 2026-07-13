@@ -78,6 +78,24 @@ function createChaChaProtectionPair() {
 }
 
 describe("BinaryPacket", () => {
+    test("resets both implicit sequence counters after NEWKEYS", () => {
+        const encoder = new BinaryPacketEncoder({ randomBytes: deterministicPadding })
+        const decoder = new BinaryPacketDecoder()
+
+        expect(encoder.encode(Buffer.from([20])).sequenceNumber).toBe(0)
+        const packet = encoder.encode(Buffer.from([21]))
+        expect(packet.sequenceNumber).toBe(1)
+        decoder.push(packet.data)
+        expect(decoder.read()?.sequenceNumber).toBe(0)
+
+        encoder.resetSequenceNumber()
+        decoder.resetSequenceNumber()
+        const firstAfterNewKeys = encoder.encode(Buffer.from([7]))
+        decoder.push(firstAfterNewKeys.data)
+        expect(firstAfterNewKeys.sequenceNumber).toBe(0)
+        expect(decoder.read()?.sequenceNumber).toBe(0)
+    })
+
     test("encodes RFC 4253 framing with deterministic minimum padding", () => {
         const encoder = new BinaryPacketEncoder({ randomBytes: deterministicPadding })
         const encoded = encoder.encode(Buffer.from([20]))

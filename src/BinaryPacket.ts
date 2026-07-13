@@ -147,6 +147,10 @@ export class BinaryPacketEncoder {
         this.compressor = compressor
     }
 
+    resetSequenceNumber(): void {
+        this.sequenceNumber = 0
+    }
+
     encode(payload: Buffer): EncodedBinaryPacket {
         if (payload.length === 0) {
             throw new Error("SSH binary packet payload must not be empty")
@@ -249,6 +253,10 @@ export class BinaryPacketDecoder {
 
     get bufferedLength(): number {
         return this.buffered.length
+    }
+
+    resetSequenceNumber(): void {
+        this.sequenceNumber = 0
     }
 
     push(chunk: Buffer): void {
