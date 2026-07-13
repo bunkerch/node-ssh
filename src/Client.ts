@@ -50,6 +50,7 @@ import ClientForwardedStreamLocalChannel, {
     StreamLocalConnectionDetails,
 } from "./channels/ClientForwardedStreamLocalChannel.js"
 import ClientAgentChannel from "./channels/ClientAgentChannel.js"
+import ClientX11Channel, { X11ConnectionDetails } from "./channels/ClientX11Channel.js"
 import type { TCPIPConnectionDetails } from "./channels/ClientTCPIPChannel.js"
 import ChannelOpen from "./packets/ChannelOpen.js"
 import ChannelOpenConfirmation from "./packets/ChannelOpenConfirmation.js"
@@ -98,6 +99,11 @@ export interface ClientEvents {
     "unix connection": [
         details: Readonly<StreamLocalConnectionDetails>,
         accept: () => ClientForwardedStreamLocalChannel | undefined,
+        reject: () => void,
+    ]
+    x11: [
+        details: Readonly<X11ConnectionDetails>,
+        accept: () => ClientX11Channel | undefined,
         reject: () => void,
     ]
 }
@@ -227,7 +233,16 @@ export default class Client extends EventEmitter<ClientEvents> {
     private readonly pendingGlobalRequests: PendingGlobalRequest[] = []
     private readonly remoteForwardings = new Map<string, RemoteForwarding>()
     private readonly remoteStreamLocalForwardings = new Set<string>()
+    private readonly x11Forwardings = new Map<number, { single: boolean }>()
     agentForwardingEnabled = false
+
+    registerX11Forwarding(sessionId: number, single: boolean): void {
+        this.x11Forwardings.set(sessionId, { single })
+    }
+
+    unregisterX11Forwarding(sessionId: number): void {
+        this.x11Forwardings.delete(sessionId)
+    }
 
     state = SocketState.Closed
     get isConnected(): boolean {
@@ -600,6 +615,7 @@ export default class Client extends EventEmitter<ClientEvents> {
                 }
                 this.remoteForwardings.clear()
                 this.remoteStreamLocalForwardings.clear()
+                this.x11Forwardings.clear()
                 this.agentForwardingEnabled = false
                 this.emit("close")
             }
@@ -1131,6 +1147,10 @@ export default class Client extends EventEmitter<ClientEvents> {
     }
 
     private handleIncomingChannelOpen(packet: ChannelOpen): void {
+        if (packet.data.channel_type === ClientX11Channel.channelType) {
+            this.handleIncomingX11ChannelOpen(packet)
+            return
+        }
         if (packet.data.channel_type === ClientAgentChannel.channelType) {
             void this.handleIncomingAgentChannelOpen(packet)
             return
@@ -1185,6 +1205,63 @@ export default class Client extends EventEmitter<ClientEvents> {
             )
         }
         this.emit("tcp connection", details, accept, reject)
+        if (!decided) reject()
+    }
+
+    private handleIncomingX11ChannelOpen(packet: ChannelOpen): void {
+        const authorizations = [...this.x11Forwardings.entries()]
+        const authorization =
+            authorizations.find(([, candidate]) => !candidate.single) ?? authorizations[0]
+        if (!authorization) {
+            this.rejectIncomingChannel(
+                packet,
+                ChannelOpenFailureReasonCodes.SSH_OPEN_ADMINISTRATIVELY_PROHIBITED,
+                "X11 forwarding was not requested",
+            )
+            return
+        }
+        if (authorization[1].single) this.x11Forwardings.delete(authorization[0])
+
+        let details: Readonly<X11ConnectionDetails>
+        try {
+            details = Object.freeze(ClientX11Channel.parseDetails(packet.data.args))
+        } catch (error) {
+            this.debug("Invalid incoming X11 channel", error)
+            this.rejectIncomingChannel(
+                packet,
+                ChannelOpenFailureReasonCodes.SSH_OPEN_CONNECT_FAILED,
+                "Invalid X11 channel metadata",
+            )
+            return
+        }
+        if (this.listenerCount("x11") === 0) {
+            this.rejectIncomingChannel(
+                packet,
+                ChannelOpenFailureReasonCodes.SSH_OPEN_ADMINISTRATIVELY_PROHIBITED,
+                "No X11 forwarding handler is registered",
+            )
+            return
+        }
+
+        let decided = false
+        const accept = (): ClientX11Channel | undefined => {
+            if (decided) return undefined
+            decided = true
+            const channel = new ClientX11Channel(this, packet)
+            this.channels.set(channel.localId, channel)
+            this.sendPacket(channel.getOpenConfirmationPacket())
+            return channel
+        }
+        const reject = (): void => {
+            if (decided) return
+            decided = true
+            this.rejectIncomingChannel(
+                packet,
+                ChannelOpenFailureReasonCodes.SSH_OPEN_ADMINISTRATIVELY_PROHIBITED,
+                "X11 forwarding connection was rejected",
+            )
+        }
+        this.emit("x11", details, accept, reject)
         if (!decided) reject()
     }
 

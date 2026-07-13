@@ -7,6 +7,7 @@ import {
     ClientForwardedStreamLocalChannel,
     ClientForwardedTCPIPChannel,
     ClientTCPIPChannel,
+    ClientX11Channel,
     DirectTCPIPChannel,
     DirectStreamLocalChannel,
     DiskAgent,
@@ -14,6 +15,7 @@ import {
     ForwardedTCPIPChannel,
     ForwardedAgentChannel,
     ForwardedStreamLocalChannel,
+    ForwardedX11Channel,
     OnePasswordAgent,
     PrivateKey,
     ProtocolVersionExchange,
@@ -45,6 +47,7 @@ describe("package exports", () => {
             ClientForwardedStreamLocalChannel,
             ClientForwardedTCPIPChannel,
             ClientTCPIPChannel,
+            ClientX11Channel,
             DirectTCPIPChannel,
             DirectStreamLocalChannel,
             DiskAgent,
@@ -52,6 +55,7 @@ describe("package exports", () => {
             ForwardedTCPIPChannel,
             ForwardedAgentChannel,
             ForwardedStreamLocalChannel,
+            ForwardedX11Channel,
             OnePasswordAgent,
             PrivateKey,
             ProtocolVersionExchange,
@@ -62,7 +66,7 @@ describe("package exports", () => {
             SessionChannel,
             Shell,
             SSHAgent,
-        ]).toHaveLength(25)
+        ]).toHaveLength(27)
         expect(SSHAuthenticationMethods.PublicKey).toBe("publickey")
     })
 
@@ -75,11 +79,13 @@ describe("package exports", () => {
         expect(entry.ClientForwardedStreamLocalChannel).toBeDefined()
         expect(entry.ClientForwardedTCPIPChannel).toBeDefined()
         expect(entry.ClientTCPIPChannel).toBeDefined()
+        expect(entry.ClientX11Channel).toBeDefined()
         expect(entry.DirectTCPIPChannel).toBeDefined()
         expect(entry.DirectStreamLocalChannel).toBeDefined()
         expect(entry.ForwardedTCPIPChannel).toBeDefined()
         expect(entry.ForwardedAgentChannel).toBeDefined()
         expect(entry.ForwardedStreamLocalChannel).toBeDefined()
+        expect(entry.ForwardedX11Channel).toBeDefined()
         expect(entry.Server).toBeDefined()
         expect(entry.PrivateKey).toBeDefined()
         expect(entry.ProtocolVersionExchange).toBeDefined()

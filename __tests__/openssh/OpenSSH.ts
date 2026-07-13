@@ -7,7 +7,6 @@ import type { Duplex } from "node:stream"
 import { promisify } from "node:util"
 import Client from "../../src/Client.js"
 import Server from "../../src/Server.js"
-import ClientChannel from "../../src/channels/ClientChannel.js"
 import DirectStreamLocalChannel from "../../src/channels/DirectStreamLocalChannel.js"
 import SessionChannel from "../../src/channels/SessionChannel.js"
 import SSHAgent from "../../src/publickey/SSHAgent.js"
@@ -206,7 +205,7 @@ async function exchangeUnixWhenReady(
 }
 
 async function exchangeChannel(
-    channel: ClientChannel,
+    channel: Duplex,
     input: string,
     expectedBytes: number,
 ): Promise<string> {
@@ -220,7 +219,7 @@ async function exchangeChannel(
             output.push(data)
             if (Buffer.concat(output).length < expectedBytes) return
             clearTimeout(timeout)
-            channel.close()
+            channel.end()
             resolve(Buffer.concat(output).toString())
         })
         channel.once("error", (error) => {
@@ -229,6 +228,35 @@ async function exchangeChannel(
         })
         channel.write(input)
     })
+}
+
+function x11SetupRequest(cookie: Buffer): Buffer {
+    const protocol = Buffer.from("MIT-MAGIC-COOKIE-1", "ascii")
+    const padded = (length: number): number => (length + 3) & ~3
+    const header = Buffer.alloc(12)
+    header[0] = 0x6c
+    header.writeUInt16LE(11, 2)
+    header.writeUInt16LE(protocol.length, 6)
+    header.writeUInt16LE(cookie.length, 8)
+    const request = Buffer.alloc(12 + padded(protocol.length) + padded(cookie.length))
+    header.copy(request)
+    protocol.copy(request, 12)
+    cookie.copy(request, 12 + padded(protocol.length))
+    return request
+}
+
+function parseX11SetupCookie(request: Buffer): Buffer {
+    if (request.length < 12) throw new Error("X11 setup request is truncated")
+    const littleEndian = request[0] === 0x6c
+    if (!littleEndian && request[0] !== 0x42) throw new Error("Invalid X11 byte order")
+    const readUint16 = littleEndian
+        ? (offset: number) => request.readUInt16LE(offset)
+        : (offset: number) => request.readUInt16BE(offset)
+    const protocolLength = readUint16(6)
+    const cookieLength = readUint16(8)
+    const cookieOffset = 12 + ((protocolLength + 3) & ~3)
+    if (request.length < cookieOffset + cookieLength) throw new Error("X11 cookie is truncated")
+    return request.subarray(cookieOffset, cookieOffset + cookieLength)
 }
 
 async function requestAgentIdentities(stream: Duplex): Promise<Buffer> {
@@ -518,6 +546,133 @@ describe("OpenSSH interoperability", () => {
         }
     }, 30_000)
 
+    test("OpenSSH client accepts an X11 channel from a modernssh server", async () => {
+        const directory = await mkdtemp(join(tmpdir(), "modernssh-x11-"))
+        const authorityPath = join(directory, "Xauthority")
+        const realCookie = Buffer.from("ffeeddccbbaa99887766554433221100", "hex")
+        let resolveReceivedCookie!: (cookie: Buffer) => void
+        const receivedCookie = new Promise<Buffer>((resolve) => {
+            resolveReceivedCookie = resolve
+        })
+        const xServer = await listenOnEphemeralPort((socket) => {
+            let request = Buffer.alloc(0)
+            socket.on("data", (data: Buffer) => {
+                request = Buffer.concat([request, data])
+                if (request.length < 12) return
+                const protocolLength = request.readUInt16LE(6)
+                const cookieLength = request.readUInt16LE(8)
+                const total = 12 + ((protocolLength + 3) & ~3) + ((cookieLength + 3) & ~3)
+                if (request.length < total) return
+                resolveReceivedCookie(parseX11SetupCookie(request))
+                socket.end("X11 RESPONSE")
+            })
+        })
+        const display = `127.0.0.1:${xServer.port - 6000}.0`
+        await execFileAsync("xauth", [
+            "-f",
+            authorityPath,
+            "add",
+            display,
+            "MIT-MAGIC-COOKIE-1",
+            realCookie.toString("hex"),
+        ])
+
+        const hostKey = await PrivateKey.generate("ssh-ed25519")
+        const server = new Server({ hostKeys: [hostKey], sendAllHostKeys: false })
+        const errors: Error[] = []
+        let forwardedResponse: Promise<Buffer> | undefined
+        server.hooker.hook("noneAuthentication", (_hook, context, decision) => {
+            decision.allowLogin = context.username === "interop"
+        })
+        server.hooker.hook("channelOpenRequest", (_hook, channel, decision) => {
+            decision.allowOpen = channel instanceof SessionChannel
+        })
+        server.on("connection", (connection) => {
+            connection.on("error", (error) => errors.push(error))
+            connection.on("channel", (channel) => {
+                if (!(channel instanceof SessionChannel)) return
+                let fakeCookie: Buffer | undefined
+                channel.hooker.hook("x11Request", (_hook, context, decision) => {
+                    fakeCookie = Buffer.from(context.cookie, "hex")
+                    decision.success = context.protocol === "MIT-MAGIC-COOKIE-1"
+                })
+                channel.hooker.hook("execRequest", (_hook, _context, decision) => {
+                    decision.success = true
+                })
+                channel.events.on("exec", (_command, shell) => {
+                    forwardedResponse = (async () => {
+                        if (!fakeCookie) throw new Error("OpenSSH did not request X11 forwarding")
+                        const x11 = await connection.x11("203.0.113.10", 42_000)
+                        const response = await exchangeChannel(
+                            x11.stream,
+                            x11SetupRequest(fakeCookie),
+                            12,
+                        )
+                        shell.exit(0).end()
+                        return Buffer.from(response)
+                    })()
+                    void forwardedResponse.catch(() => shell.exit(1).end())
+                })
+            })
+        })
+        server.listen({ host: "127.0.0.1", port: 0 })
+        await new Promise<void>((resolve) => server.server!.once("listening", resolve))
+        const port = (server.server!.address() as AddressInfo).port
+
+        try {
+            const result = await collectProcess(
+                "/usr/bin/ssh",
+                [
+                    "-F",
+                    "/dev/null",
+                    "-X",
+                    "-T",
+                    "-p",
+                    String(port),
+                    "-o",
+                    "BatchMode=yes",
+                    "-o",
+                    "PreferredAuthentications=none",
+                    "-o",
+                    "PubkeyAuthentication=no",
+                    "-o",
+                    "StrictHostKeyChecking=no",
+                    "-o",
+                    "UserKnownHostsFile=/dev/null",
+                    "-o",
+                    "LogLevel=ERROR",
+                    "interop@127.0.0.1",
+                    "x11-forwarding-test",
+                ],
+                "",
+                {
+                    env: { ...process.env, DISPLAY: display, XAUTHORITY: authorityPath },
+                },
+            )
+            if (result.code !== 0) {
+                throw new Error(
+                    `OpenSSH X11 command failed: ${JSON.stringify({ result, errors: errors.map(String) })}`,
+                )
+            }
+            const response = await forwardedResponse
+            expect({ result, errors: errors.map(String) }).toEqual({
+                result: { code: 0, stdout: "", stderr: "" },
+                errors: [],
+            })
+            expect(await receivedCookie).toEqual(realCookie)
+            expect(response?.toString()).toBe("X11 RESPONSE")
+        } finally {
+            for (const client of server.clients) client.terminate()
+            await new Promise<void>((resolve, reject) => {
+                server.server!.close((error) => (error ? reject(error) : resolve()))
+            })
+            await new Promise<void>((resolve, reject) => {
+                xServer.server.close((error) => (error ? reject(error) : resolve()))
+            })
+            await rm(directory, { recursive: true, force: true })
+        }
+    }, 30_000)
+
     test("OpenSSH client uses stream-local forwarding on a modernssh server", async () => {
         const directory = await mkdtemp(join(tmpdir(), "modernssh-streamlocal-"))
         const localForwardPath = join(directory, "local-forward.sock")
@@ -682,6 +837,13 @@ describe("OpenSSH interoperability", () => {
                 channel.on("data", (data: Buffer) => channel.write(data.toString().toUpperCase()))
                 channel.on("end", () => channel.close())
             })
+            let x11Details: { originatorAddress: string; originatorPort: number } | undefined
+            client.on("x11", (details, accept) => {
+                x11Details = details
+                const x11 = accept()!
+                x11.on("data", (data: Buffer) => x11.write(data.toString().toUpperCase()))
+                x11.on("end", () => x11.close())
+            })
 
             await client.connect()
             const channel = await client.exec(
@@ -710,6 +872,38 @@ describe("OpenSSH interoperability", () => {
             await new Promise<void>((resolve) => agentSession.once("close", resolve))
             const forwardedKey = PublicKey.parseString(Buffer.concat(agentOutput).toString())
             expect(forwardedKey.equals(agentFixture.publicKey)).toBe(true)
+
+            const x11Session = await client.openSession()
+            const x11Output: Buffer[] = []
+            x11Session.on("data", (data: Buffer) => x11Output.push(data))
+            await expect(x11Session.requestX11({ cookie: "not-hex" })).rejects.toThrow(
+                "hexadecimal",
+            )
+            const x11Request = await x11Session.requestX11({
+                single: true,
+                cookie: "00112233445566778899AABBCCDDEEFF",
+            })
+            expect(x11Request).toEqual({
+                single: true,
+                protocol: "MIT-MAGIC-COOKIE-1",
+                cookie: "00112233445566778899aabbccddeeff",
+                screen: 0,
+            })
+            await x11Session.exec(
+                "display=${DISPLAY#localhost:}; display=${display%%.*}; " +
+                    "port=$((6000 + display)); " +
+                    "printf 'x11 forwarding' | socat - TCP:127.0.0.1:$port; " +
+                    "sleep 0.1; " +
+                    "if printf 'second' | socat - TCP:127.0.0.1:$port 2>/dev/null; " +
+                    "then exit 42; fi",
+            )
+            await new Promise<void>((resolve) => x11Session.once("close", resolve))
+            expect(Buffer.concat(x11Output).toString()).toBe("X11 FORWARDING")
+            expect(x11Session.exitCode).toBe(0)
+            expect(x11Details).toEqual({
+                originatorAddress: expect.any(String),
+                originatorPort: expect.any(Number),
+            })
 
             expect(await client.forwardIn("0.0.0.0", 40_000)).toBe(40_000)
             const { stdout: forwardingPortOutput } = await execFileAsync("docker", [

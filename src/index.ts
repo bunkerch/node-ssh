@@ -18,12 +18,19 @@ export {
     DEFAULT_CHANNEL_WINDOW_SIZE,
 } from "./channels/ClientChannel.js"
 export { default as ClientSessionChannel } from "./channels/ClientSessionChannel.js"
-export type { ClientPtyOptions, ClientWindowDimensions } from "./channels/ClientSessionChannel.js"
+export type {
+    ClientPtyOptions,
+    ClientWindowDimensions,
+    ClientX11Options,
+    ClientX11Request,
+} from "./channels/ClientSessionChannel.js"
 export { default as ClientTCPIPChannel } from "./channels/ClientTCPIPChannel.js"
 export { default as ClientForwardedTCPIPChannel } from "./channels/ClientForwardedTCPIPChannel.js"
 export { default as ClientDirectStreamLocalChannel } from "./channels/ClientDirectStreamLocalChannel.js"
 export { default as ClientForwardedStreamLocalChannel } from "./channels/ClientForwardedStreamLocalChannel.js"
 export { default as ClientAgentChannel } from "./channels/ClientAgentChannel.js"
+export { default as ClientX11Channel } from "./channels/ClientX11Channel.js"
+export type { X11ConnectionDetails } from "./channels/ClientX11Channel.js"
 export type { StreamLocalConnectionDetails } from "./channels/ClientForwardedStreamLocalChannel.js"
 export type { TCPIPConnectionDetails } from "./channels/ClientTCPIPChannel.js"
 
@@ -60,6 +67,7 @@ export { default as ForwardedTCPIPChannel } from "./channels/ForwardedTCPIPChann
 export { default as DirectStreamLocalChannel } from "./channels/DirectStreamLocalChannel.js"
 export { default as ForwardedStreamLocalChannel } from "./channels/ForwardedStreamLocalChannel.js"
 export { default as ForwardedAgentChannel } from "./channels/ForwardedAgentChannel.js"
+export { default as ForwardedX11Channel } from "./channels/ForwardedX11Channel.js"
 export type {
     SessionChannelEvents,
     SessionChannelHooker,
@@ -72,7 +80,9 @@ export type {
     SessionChannelHookerShellRequestController,
     SessionChannelHookerSubsystemRequestContext,
     SessionChannelHookerSubsystemRequestController,
+    SessionChannelHookerX11RequestController,
     SessionPtyInfo,
+    SessionX11Request,
     SessionWindowDimensions,
 } from "./channels/SessionChannel.js"
 export { default as Shell } from "./channels/Session/Shell.js"

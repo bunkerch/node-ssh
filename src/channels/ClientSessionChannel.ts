@@ -1,4 +1,6 @@
+import { randomBytes } from "node:crypto"
 import Client from "../Client.js"
+import { serializeBinaryBoolean } from "../utils/BinaryBoolean.js"
 import { serializeBuffer, serializeUint32 } from "../utils/Buffer.js"
 import { normalizeSSHSignal } from "../utils/Signal.js"
 import ClientChannel from "./ClientChannel.js"
@@ -19,10 +21,24 @@ export interface ClientWindowDimensions {
     height?: number
 }
 
+export interface ClientX11Options {
+    single?: boolean
+    protocol?: string
+    cookie?: string | Buffer
+    screen?: number
+}
+export interface ClientX11Request {
+    single: boolean
+    protocol: string
+    cookie: string
+    screen: number
+}
+
 export default class ClientSessionChannel extends ClientChannel {
     private started = false
     private ptyRequested = false
     private agentForwardingRequested = false
+    private x11Requested = false
 
     constructor(client: Client) {
         super(client, "session")
@@ -94,6 +110,37 @@ export default class ClientSessionChannel extends ClientChannel {
         await this.request("auth-agent-req@openssh.com")
         this.agentForwardingRequested = true
         this.client.agentForwardingEnabled = true
+    }
+
+    async requestX11(options: ClientX11Options = {}): Promise<Readonly<ClientX11Request>> {
+        this.ensureNotStarted("request X11 forwarding")
+        if (this.x11Requested) throw new Error(`SSH session channel ${this.localId} has X11`)
+        const single = options.single ?? false
+        const protocol = options.protocol ?? "MIT-MAGIC-COOKIE-1"
+        if (!/^[\x21-\x7e]+$/u.test(protocol)) {
+            throw new Error("X11 authentication protocol must be non-empty printable ASCII")
+        }
+        const cookie = Buffer.isBuffer(options.cookie)
+            ? options.cookie.toString("hex")
+            : (options.cookie ?? randomBytes(16).toString("hex"))
+        if (!/^(?:[0-9a-fA-F]{2})+$/u.test(cookie)) {
+            throw new Error("X11 authentication cookie must be non-empty hexadecimal data")
+        }
+        const screen = this.uint32(options.screen ?? 0, "X11 screen number")
+        const normalizedCookie = cookie.toLowerCase()
+        await this.request(
+            "x11-req",
+            Buffer.concat([
+                serializeBinaryBoolean(single),
+                serializeBuffer(Buffer.from(protocol, "ascii")),
+                serializeBuffer(Buffer.from(normalizedCookie, "ascii")),
+                serializeUint32(screen),
+            ]),
+        )
+        this.x11Requested = true
+        this.client.registerX11Forwarding(this.localId, single)
+        this.once("close", () => this.client.unregisterX11Forwarding(this.localId))
+        return Object.freeze({ single, protocol, cookie: normalizedCookie, screen })
     }
 
     async subsystem(name: string): Promise<void> {

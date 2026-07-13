@@ -63,6 +63,8 @@ behavior.
   policy hooks and document the trust boundary.
 - Agent forwarding requires a successful per-session request before accepting or opening agent
   channels. Test both directions with a real OpenSSH agent and document its transitive trust risk.
+- X11 forwarding authorization is session-scoped. Enforce single-connection consumption, remove
+  unused authorization when the session closes, and test OpenSSH cookie substitution end to end.
 - Scope remote-forwarding TCP and UNIX-socket listeners to the authenticated connection that
   requested them. Stop accepting immediately on cancellation and close every owned listener on SSH
   disconnect. Never unlink a pre-existing UNIX-socket path on the client's behalf.

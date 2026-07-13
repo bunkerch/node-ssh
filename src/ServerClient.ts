@@ -74,6 +74,7 @@ import { BinaryPacketDecoder, BinaryPacketEncoder } from "./BinaryPacket.js"
 import ForwardedTCPIPChannel from "./channels/ForwardedTCPIPChannel.js"
 import ForwardedStreamLocalChannel from "./channels/ForwardedStreamLocalChannel.js"
 import ForwardedAgentChannel from "./channels/ForwardedAgentChannel.js"
+import ForwardedX11Channel from "./channels/ForwardedX11Channel.js"
 
 interface RemoteForwardListener {
     server: net.Server
@@ -132,6 +133,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 forwarding.server.close()
             }
             this.remoteStreamLocalListeners.clear()
+            this.x11Forwardings.clear()
             this.agentForwardingEnabled = false
             for (const channel of this.channels.values()) channel.abort()
             this.channels.clear()
@@ -180,6 +182,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     channels = new Map<number, Channel>()
     private readonly remoteForwardListeners = new Map<string, RemoteForwardListener>()
     private readonly remoteStreamLocalListeners = new Map<string, RemoteForwardListener>()
+    private readonly x11Forwardings = new Map<number, { single: boolean }>()
     agentForwardingEnabled = false
 
     state = SocketState.Closed
@@ -193,6 +196,42 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             throw new Error("The SSH client has not authorized agent forwarding")
         }
         const channel = new ForwardedAgentChannel(this)
+        this.channels.set(channel.localId, channel)
+        try {
+            this.sendPacket(channel.getChannelOpenPacket())
+            await channel.waitUntilOpen()
+            return channel
+        } catch (error) {
+            this.channels.delete(channel.localId)
+            channel.abort(error as Error)
+            throw error
+        }
+    }
+
+    registerX11Forwarding(sessionId: number, single: boolean): void {
+        this.x11Forwardings.set(sessionId, { single })
+    }
+
+    unregisterX11Forwarding(sessionId: number): void {
+        this.x11Forwardings.delete(sessionId)
+    }
+
+    async x11(originatorAddress: string, originatorPort: number): Promise<ForwardedX11Channel> {
+        if (!this.isConnected) throw new Error("SSH connection is not open")
+        if (
+            !Number.isSafeInteger(originatorPort) ||
+            originatorPort < 0 ||
+            originatorPort > 65_535
+        ) {
+            throw new RangeError("X11 originator port must be between 0 and 65535")
+        }
+        const authorizations = [...this.x11Forwardings.entries()]
+        const authorization =
+            authorizations.find(([, candidate]) => !candidate.single) ?? authorizations[0]
+        if (!authorization) throw new Error("The SSH client has not authorized X11 forwarding")
+        if (authorization[1].single) this.x11Forwardings.delete(authorization[0])
+
+        const channel = new ForwardedX11Channel(this, { originatorAddress, originatorPort })
         this.channels.set(channel.localId, channel)
         try {
             this.sendPacket(channel.getChannelOpenPacket())

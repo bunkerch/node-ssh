@@ -2,7 +2,12 @@ import Channel from "../Channel.js"
 import Client from "../Client.js"
 import ServerClient from "../ServerClient.js"
 import ChannelRequest from "../packets/ChannelRequest.js"
-import { readNextBuffer, readNextUint32, readNextUint8 } from "../utils/Buffer.js"
+import {
+    readNextBinaryBoolean,
+    readNextBuffer,
+    readNextUint32,
+    readNextUint8,
+} from "../utils/Buffer.js"
 import ChannelSuccess from "../packets/ChannelSuccess.js"
 import assert from "assert"
 import { Hooker } from "../utils/Hooker.js"
@@ -54,6 +59,15 @@ export interface SessionChannelHookerSubsystemRequestController {
 export interface SessionChannelHookerAgentForwardRequestController {
     success: boolean
 }
+export interface SessionX11Request {
+    single: boolean
+    protocol: string
+    cookie: string
+    screen: number
+}
+export interface SessionChannelHookerX11RequestController {
+    success: boolean
+}
 // eslint-disable-next-line @typescript-eslint/consistent-type-definitions
 export type SessionChannelHooker = {
     agentForwardRequest: [
@@ -76,6 +90,10 @@ export type SessionChannelHooker = {
         subsystemRequestContext: Readonly<SessionChannelHookerSubsystemRequestContext>,
         subsystemRequestController: SessionChannelHookerSubsystemRequestController,
     ]
+    x11Request: [
+        x11RequestContext: Readonly<SessionX11Request>,
+        x11RequestController: SessionChannelHookerX11RequestController,
+    ]
 }
 
 export interface SessionChannelEvents {
@@ -87,6 +105,7 @@ export interface SessionChannelEvents {
     signal: [signal: string]
     subsystem: [name: string, shell: Shell]
     windowChange: [dimensions: Readonly<SessionWindowDimensions>]
+    x11: [request: Readonly<SessionX11Request>]
 }
 
 export default class SessionChannel extends Channel {
@@ -100,6 +119,7 @@ export default class SessionChannel extends Channel {
 
     shell: Shell | undefined
     pty: Readonly<SessionPtyInfo> | undefined
+    x11: Readonly<SessionX11Request> | undefined
     private readonly pendingInput: Buffer[] = []
     private inputEnded = false
 
@@ -138,6 +158,24 @@ export default class SessionChannel extends Channel {
                     ;(this.client as ServerClient).agentForwardingEnabled = true
                     this.sendRequestSuccess(request)
                     this.events.emit("agentForward")
+                    return
+                }
+                break
+            }
+            case "x11-req": {
+                this.assertNotConsumed()
+                assert(!this.x11, "This SSH session channel already has X11 forwarding")
+                const context = Object.freeze(SessionChannel.parseX11Request(request.data.args))
+                const controller: SessionChannelHookerX11RequestController = { success: false }
+                await this.hooker.triggerHook("x11Request", context, controller)
+                if (controller.success) {
+                    this.x11 = context
+                    ;(this.client as ServerClient).registerX11Forwarding(
+                        this.localId,
+                        context.single,
+                    )
+                    this.sendRequestSuccess(request)
+                    this.events.emit("x11", context)
                     return
                 }
                 break
@@ -284,7 +322,6 @@ export default class SessionChannel extends Channel {
                 // This notification travels from server to client, never in this direction.
                 break
             }
-            // TODO: X11 forwarding requests.
         }
 
         await super.handleChannelRequest(request)
@@ -379,6 +416,32 @@ export default class SessionChannel extends Channel {
         return { columns, rows, width, height }
     }
 
+    static parseX11Request(raw: Buffer): SessionX11Request {
+        const [single, afterSingle] = readNextBinaryBoolean(raw)
+        const [protocol, afterProtocol] = readNextBuffer(afterSingle)
+        const [cookie, afterCookie] = readNextBuffer(afterProtocol)
+        const [screen, remaining] = readNextUint32(afterCookie)
+        assert(remaining.length === 0, "X11 forwarding request has trailing data")
+        assert(
+            protocol.length > 0 && protocol.every((byte) => byte >= 0x21 && byte <= 0x7e),
+            "X11 authentication protocol must be printable ASCII",
+        )
+        assert(
+            cookie.length > 0 &&
+                cookie.length % 2 === 0 &&
+                cookie.every(
+                    (byte) =>
+                        (byte >= 0x30 && byte <= 0x39) ||
+                        (byte >= 0x41 && byte <= 0x46) ||
+                        (byte >= 0x61 && byte <= 0x66),
+                ),
+            "X11 authentication cookie must be hexadecimal",
+        )
+        const protocolName = protocol.toString("ascii")
+        const cookieHex = cookie.toString("ascii")
+        return { single, protocol: protocolName, cookie: cookieHex, screen }
+    }
+
     parseSignalRequest(raw: Buffer): string {
         const [signal, remaining] = readNextBuffer(raw)
         assert(remaining.length === 0)
@@ -425,6 +488,7 @@ export default class SessionChannel extends Channel {
     }
 
     protected handleClose(): void {
+        ;(this.client as ServerClient).unregisterX11Forwarding(this.localId)
         this.shell?.closeFromRemote()
     }
 

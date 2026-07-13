@@ -142,3 +142,55 @@ The request creates a transitive trust relationship: the server can ask the user
 arbitrary supported data for the rest of the SSH connection. Only enable it for fully trusted
 servers and authenticated principals. The implementation uses RFC 9987's deployed OpenSSH request
 and channel names because peers generally do not yet advertise the standardized names via RFC 8308.
+
+## X11 forwarding
+
+RFC 4254 X11 forwarding is also disabled by default. A client requests it on a session before
+starting a program and handles each independent connection synchronously:
+
+```ts
+client.on("x11", (details, accept, reject) => {
+    if (details.originatorAddress !== "127.0.0.1") {
+        reject()
+        return
+    }
+    const channel = accept()
+    if (!channel) return
+    const display = net.connect({ host: "127.0.0.1", port: 6000 })
+    channel.pipe(display).pipe(channel)
+})
+
+const session = await client.openSession()
+const request = await session.requestX11({
+    single: false,
+    screen: 0,
+    protocol: "MIT-MAGIC-COOKIE-1",
+    cookie: process.env.X11_COOKIE,
+})
+await session.exec("xeyes")
+```
+
+If no cookie is supplied, the client generates a random 128-bit fake cookie as recommended by RFC 4254. Applications that pipe to a real X server must replace that fake cookie in the initial X11
+setup packet with the real cookie; the normalized request returned by `requestX11()` exposes the
+generated value for this purpose. Alternatively, explicitly supply the real cookie and accept the
+greater exposure. Cookies are validated as non-empty hexadecimal data. `single: true` authorizes
+exactly one incoming channel, and all unused authorization is removed when its session closes.
+
+On a server, `x11Request` receives the requested single-connection flag, authentication protocol,
+hex cookie, and screen. After explicit approval, `connection.x11()` opens a bounded channel back to
+the client:
+
+```ts
+channel.hooker.hook("x11Request", (_hook, request, decision) => {
+    decision.success =
+        request.protocol === "MIT-MAGIC-COOKIE-1" &&
+        connection.credentials?.data.username === "deploy"
+})
+
+const x11 = await connection.x11("127.0.0.1", 60_000)
+xApplicationSocket.pipe(x11.stream).pipe(xApplicationSocket)
+```
+
+The server refuses `x11()` unless an active session approved forwarding. Single-connection requests
+are consumed by the first open, while already-open X11 channels remain independent when the session
+closes, as required by RFC 4254.

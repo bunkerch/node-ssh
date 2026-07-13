@@ -5,6 +5,8 @@ import ChannelExtendedData from "../../src/packets/ChannelExtendedData.js"
 import ChannelOpen from "../../src/packets/ChannelOpen.js"
 import ChannelRequest from "../../src/packets/ChannelRequest.js"
 import ChannelWindowAdjust from "../../src/packets/ChannelWindowAdjust.js"
+import ClientX11Channel from "../../src/channels/ClientX11Channel.js"
+import SessionChannel from "../../src/channels/SessionChannel.js"
 
 function vector(hex: string): Buffer {
     return Buffer.from(hex.replace(/\s/gu, ""), "hex")
@@ -95,6 +97,43 @@ describe("RFC 4254 channel packet vectors", () => {
 
         expect(ChannelRequest.parse(request).serialize()).toEqual(request)
         expect(ChannelOpen.parse(open).serialize()).toEqual(open)
+    })
+
+    test("parses and serializes fixed RFC 4254 X11 forwarding messages", () => {
+        const request = vector(`
+            62 00000003 00000007 7831312d726571 01
+            00
+            00000012 4d49542d4d414749432d434f4f4b49452d31
+            00000020 3030313132323333343435353636373738383939616162626363646465656666
+            00000002
+        `)
+        const open = vector(`
+            5a 00000003 783131
+            00000007 00200000 00008000
+            0000000a 3139322e302e322e3130
+            00003039
+        `)
+
+        const parsedRequest = ChannelRequest.parse(request)
+        expect(parsedRequest.data.request_type).toBe("x11-req")
+        expect(SessionChannel.parseX11Request(parsedRequest.data.args)).toEqual({
+            single: false,
+            protocol: "MIT-MAGIC-COOKIE-1",
+            cookie: "00112233445566778899aabbccddeeff",
+            screen: 2,
+        })
+        expect(parsedRequest.serialize()).toEqual(request)
+        const parsedOpen = ChannelOpen.parse(open)
+        expect(parsedOpen.data.channel_type).toBe("x11")
+        expect(ClientX11Channel.parseDetails(parsedOpen.data.args)).toEqual({
+            originatorAddress: "192.0.2.10",
+            originatorPort: 12_345,
+        })
+        expect(parsedOpen.serialize()).toEqual(open)
+
+        const nonAsciiCookie = Buffer.from(parsedRequest.data.args)
+        nonAsciiCookie[nonAsciiCookie.length - 5] = 0xb0
+        expect(() => SessionChannel.parseX11Request(nonAsciiCookie)).toThrow("hexadecimal")
     })
 
     test("round-trips flow-control, data, extended-data, EOF, and CLOSE vectors", () => {
