@@ -44,12 +44,17 @@ describe("SFTP server request engine", () => {
             extensions: [{ name: "x@test", data: Buffer.from("1") }],
         })
         const events: string[] = []
-        let readRequestId: number | undefined
-        server.on("READ", (request) => {
-            events.push("READ")
-            readRequestId = request.requestId
+        let finishRead!: () => void
+        const readReady = new Promise<void>((resolve) => {
+            finishRead = resolve
         })
-        server.on("WRITE", (request) => {
+        server.hooker.hook("READ", async (_hook, request) => {
+            events.push("READ")
+            await readReady
+            server.data(request.requestId, Buffer.from("abc"))
+        })
+        server.hooker.hook("WRITE", async (_hook, request) => {
+            await Promise.resolve()
             events.push("WRITE")
             server.status(request.requestId, SFTPStatusCode.Ok)
         })
@@ -79,8 +84,7 @@ describe("SFTP server request engine", () => {
         })
         await flush()
         expect(events).toEqual(["READ"])
-        expect(readRequestId).toBe(7)
-        server.data(readRequestId!, Buffer.from("abc"))
+        finishRead()
         await flush()
         expect(events).toEqual(["READ", "WRITE"])
         expect(fixture.responses.slice(1)).toEqual([
@@ -120,8 +124,13 @@ describe("SFTP server request engine", () => {
         const fixture = new SFTPClientFixture()
         const server = new SFTPServer(asShell(fixture))
         let requestId = -1
-        server.on("READ", (request) => {
+        let finishRead!: () => void
+        const keepHandlerActive = new Promise<void>((resolve) => {
+            finishRead = resolve
+        })
+        server.hooker.hook("READ", async (_hook, request) => {
             requestId = request.requestId
+            await keepHandlerActive
         })
         fixture.send({ type: SFTPPacketType.Init, version: 3, extensions: [] })
         fixture.send({
@@ -137,6 +146,7 @@ describe("SFTP server request engine", () => {
         expect(() => server.name(requestId, [])).toThrow("at least one")
         expect(() => server.status(requestId, SFTPStatusCode.Ok)).toThrow("data response")
         server.status(requestId, SFTPStatusCode.Failure, "read failed")
+        finishRead()
         expect(() => server.status(requestId, SFTPStatusCode.Failure)).toThrow("not awaiting")
         fixture.destroy()
     })
@@ -171,7 +181,7 @@ describe("SFTP server request engine", () => {
         const duplicateServer = new SFTPServer(asShell(duplicateFixture))
         const errors: Error[] = []
         duplicateServer.on("error", (error) => errors.push(error))
-        duplicateServer.on("READ", () => undefined)
+        duplicateServer.hooker.hook("READ", () => undefined)
         duplicateFixture.send({ type: SFTPPacketType.Init, version: 3, extensions: [] })
         const read = {
             type: SFTPPacketType.Read as const,
@@ -196,5 +206,43 @@ describe("SFTP server request engine", () => {
         await flush()
         expect(versionErrors[0]?.message).toBe("Unsupported SFTP client version 2")
         expect(versionFixture.destroyed).toBe(true)
+    })
+
+    test("awaits handlers and converts rejected or missing responses to failures", async () => {
+        const fixture = new SFTPClientFixture()
+        const server = new SFTPServer(asShell(fixture))
+        const hookErrors: string[] = []
+        server.hooker.on("uncaughtException", (_event, error) => hookErrors.push(error.message))
+        server.hooker.hook("STAT", async () => {
+            await Promise.resolve()
+            throw new Error("stat backend failed")
+        })
+        server.hooker.hook("LSTAT", async () => {
+            await Promise.resolve()
+        })
+
+        fixture.send({ type: SFTPPacketType.Init, version: 3, extensions: [] })
+        fixture.send({ type: SFTPPacketType.Stat, requestId: 4, path: Buffer.from("one") })
+        fixture.send({ type: SFTPPacketType.LStat, requestId: 5, path: Buffer.from("two") })
+        await flush()
+
+        expect(hookErrors).toEqual(["stat backend failed"])
+        expect(fixture.responses.slice(1)).toEqual([
+            {
+                type: SFTPPacketType.Status,
+                requestId: 4,
+                code: SFTPStatusCode.Failure,
+                message: "SFTP request handler failed",
+                languageTag: "",
+            },
+            {
+                type: SFTPPacketType.Status,
+                requestId: 5,
+                code: SFTPStatusCode.Failure,
+                message: "SFTP request handler returned without a response",
+                languageTag: "",
+            },
+        ])
+        fixture.destroy()
     })
 })

@@ -1,5 +1,6 @@
 import EventEmitter from "node:events"
 import type Shell from "../channels/Session/Shell.js"
+import { Hooker } from "../utils/Hooker.js"
 import { encodeSFTPPacket, SFTPPacketParser, SFTPProtocolError } from "./codec.js"
 import { SFTP_VERSION, SFTPPacketType, SFTPStatusCode } from "./constants.js"
 import type {
@@ -22,7 +23,7 @@ const STATUS_MESSAGES: Readonly<Record<number, string>> = {
     [SFTPStatusCode.OperationUnsupported]: "Operation unsupported",
 }
 
-type RequestOf<T extends SFTPPacketType> = Readonly<SFTPRequestPacket & { type: T }>
+export type SFTPRequestOf<T extends SFTPPacketType> = Readonly<SFTPRequestPacket & { type: T }>
 
 // eslint-disable-next-line @typescript-eslint/consistent-type-definitions
 export type SFTPServerEvents = {
@@ -30,26 +31,30 @@ export type SFTPServerEvents = {
     close: []
     error: [error: Error]
     requestReceived: [request: Readonly<SFTPRequestPacket>]
+}
+
+// eslint-disable-next-line @typescript-eslint/consistent-type-definitions
+export type SFTPServerHooker = {
     request: [request: Readonly<SFTPRequestPacket>]
-    OPEN: [request: RequestOf<SFTPPacketType.Open>]
-    CLOSE: [request: RequestOf<SFTPPacketType.Close>]
-    READ: [request: RequestOf<SFTPPacketType.Read>]
-    WRITE: [request: RequestOf<SFTPPacketType.Write>]
-    LSTAT: [request: RequestOf<SFTPPacketType.LStat>]
-    FSTAT: [request: RequestOf<SFTPPacketType.FStat>]
-    SETSTAT: [request: RequestOf<SFTPPacketType.SetStat>]
-    FSETSTAT: [request: RequestOf<SFTPPacketType.FSetStat>]
-    OPENDIR: [request: RequestOf<SFTPPacketType.OpenDir>]
-    READDIR: [request: RequestOf<SFTPPacketType.ReadDir>]
-    REMOVE: [request: RequestOf<SFTPPacketType.Remove>]
-    MKDIR: [request: RequestOf<SFTPPacketType.MkDir>]
-    RMDIR: [request: RequestOf<SFTPPacketType.RmDir>]
-    REALPATH: [request: RequestOf<SFTPPacketType.RealPath>]
-    STAT: [request: RequestOf<SFTPPacketType.Stat>]
-    RENAME: [request: RequestOf<SFTPPacketType.Rename>]
-    READLINK: [request: RequestOf<SFTPPacketType.ReadLink>]
-    SYMLINK: [request: RequestOf<SFTPPacketType.SymLink>]
-    EXTENDED: [request: RequestOf<SFTPPacketType.Extended>]
+    OPEN: [request: SFTPRequestOf<SFTPPacketType.Open>]
+    CLOSE: [request: SFTPRequestOf<SFTPPacketType.Close>]
+    READ: [request: SFTPRequestOf<SFTPPacketType.Read>]
+    WRITE: [request: SFTPRequestOf<SFTPPacketType.Write>]
+    LSTAT: [request: SFTPRequestOf<SFTPPacketType.LStat>]
+    FSTAT: [request: SFTPRequestOf<SFTPPacketType.FStat>]
+    SETSTAT: [request: SFTPRequestOf<SFTPPacketType.SetStat>]
+    FSETSTAT: [request: SFTPRequestOf<SFTPPacketType.FSetStat>]
+    OPENDIR: [request: SFTPRequestOf<SFTPPacketType.OpenDir>]
+    READDIR: [request: SFTPRequestOf<SFTPPacketType.ReadDir>]
+    REMOVE: [request: SFTPRequestOf<SFTPPacketType.Remove>]
+    MKDIR: [request: SFTPRequestOf<SFTPPacketType.MkDir>]
+    RMDIR: [request: SFTPRequestOf<SFTPPacketType.RmDir>]
+    REALPATH: [request: SFTPRequestOf<SFTPPacketType.RealPath>]
+    STAT: [request: SFTPRequestOf<SFTPPacketType.Stat>]
+    RENAME: [request: SFTPRequestOf<SFTPPacketType.Rename>]
+    READLINK: [request: SFTPRequestOf<SFTPPacketType.ReadLink>]
+    SYMLINK: [request: SFTPRequestOf<SFTPPacketType.SymLink>]
+    EXTENDED: [request: SFTPRequestOf<SFTPPacketType.Extended>]
 }
 
 export interface SFTPServerOptions {
@@ -62,7 +67,7 @@ export interface SFTPSymlinkPaths {
     linkPath: Buffer
 }
 
-const REQUEST_EVENT_NAMES = new Map<SFTPPacketType, keyof SFTPServerEvents>([
+const REQUEST_HOOK_NAMES = new Map<SFTPPacketType, keyof SFTPServerHooker>([
     [SFTPPacketType.Open, "OPEN"],
     [SFTPPacketType.Close, "CLOSE"],
     [SFTPPacketType.Read, "READ"],
@@ -85,6 +90,7 @@ const REQUEST_EVENT_NAMES = new Map<SFTPPacketType, keyof SFTPServerEvents>([
 ])
 
 export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
+    readonly hooker = new Hooker<SFTPServerHooker>()
     readonly protocolVersion = SFTP_VERSION
     readonly stream: Shell
     readonly extensions: readonly SFTPExtension[]
@@ -97,12 +103,16 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
     private initialized = false
     private closed = false
     private dispatchScheduled = false
+    private hookError: Error | undefined
 
     constructor(stream: Shell, options: SFTPServerOptions = {}) {
         super()
         this.stream = stream
         this.extensions = options.extensions ?? []
         this.openSSHSymlinkArguments = options.openSSHSymlinkArguments ?? false
+        this.hooker.on("uncaughtException", (_event, error) => {
+            this.hookError = error
+        })
         stream.on("data", (data: Buffer) => this.receive(data))
         stream.once("end", () => this.handleEnd())
         stream.once("close", () => this.handleEnd())
@@ -193,7 +203,7 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
         this.respond({ type: SFTPPacketType.ExtendedReply, requestId, data })
     }
 
-    symlinkPaths(request: RequestOf<SFTPPacketType.SymLink>): Readonly<SFTPSymlinkPaths> {
+    symlinkPaths(request: SFTPRequestOf<SFTPPacketType.SymLink>): Readonly<SFTPSymlinkPaths> {
         return Object.freeze(
             this.openSSHSymlinkArguments
                 ? { targetPath: request.firstPath, linkPath: request.secondPath }
@@ -253,30 +263,49 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
         this.dispatchScheduled = true
         queueMicrotask(() => {
             this.dispatchScheduled = false
-            try {
-                this.dispatch()
-            } catch (error) {
+            void this.dispatch().catch((error: unknown) => {
                 const failure = error instanceof Error ? error : new Error(String(error))
                 this.fail(failure)
                 this.stream.destroy(failure)
-            }
+            })
         })
     }
 
-    private dispatch(): void {
+    private async dispatch(): Promise<void> {
         if (this.active || this.closed) return
         const request = this.queued.shift()
         if (!request) return
         this.active = request
-        const eventName = REQUEST_EVENT_NAMES.get(request.type)
-        if (!eventName) throw new SFTPProtocolError(`Unsupported SFTP request type ${request.type}`)
-        if (this.listenerCount(eventName) > 0) {
-            this.emit(eventName, request as never)
-        } else if (this.listenerCount("request") > 0) {
-            this.emit("request", request)
+        const hookName = REQUEST_HOOK_NAMES.get(request.type)
+        if (!hookName) throw new SFTPProtocolError(`Unsupported SFTP request type ${request.type}`)
+        this.hookError = undefined
+        if (this.hooker.hasHooks(hookName)) {
+            await this.triggerRequestHook(hookName, request)
+        } else if (this.hooker.hasHooks("request")) {
+            await this.hooker.triggerHook("request", request)
         } else {
             this.status(request.requestId, SFTPStatusCode.OperationUnsupported)
+            return
         }
+        if (this.hookError && this.active === request) {
+            this.status(request.requestId, SFTPStatusCode.Failure, "SFTP request handler failed")
+            return
+        }
+        if (this.active === request) {
+            this.status(
+                request.requestId,
+                SFTPStatusCode.Failure,
+                "SFTP request handler returned without a response",
+            )
+        }
+    }
+
+    private triggerRequestHook(
+        hookName: keyof SFTPServerHooker,
+        request: Readonly<SFTPRequestPacket>,
+    ): Promise<void> {
+        // REQUEST_HOOK_NAMES is the single mapping between each discriminated packet and hook.
+        return this.hooker.triggerHook(hookName, request as SFTPServerHooker[typeof hookName][0])
     }
 
     private requireActive(requestId: number): SFTPRequestPacket {
@@ -333,7 +362,7 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
 }
 
 function isRequest(packet: SFTPPacket): packet is SFTPRequestPacket {
-    return REQUEST_EVENT_NAMES.has(packet.type)
+    return REQUEST_HOOK_NAMES.has(packet.type)
 }
 
 function expectsStatus(type: SFTPPacketType): boolean {

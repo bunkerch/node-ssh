@@ -60,12 +60,14 @@ export function attachFilesystemSFTPServer(server: SFTPServer, root: string): vo
     }
     const virtualPath = (encoded: Buffer): string =>
         posix.resolve("/", encoded.toString("utf8") || ".")
-    const respond = <T>(
+    const respond = async <T>(
         requestId: number,
         operation: () => Promise<T>,
         success: (value: T) => void,
-    ): void => {
-        void operation().then(success, (error: unknown) => {
+    ): Promise<void> => {
+        try {
+            success(await operation())
+        } catch (error) {
             const code = (error as NodeJS.ErrnoException).code
             const status =
                 code === "ENOENT"
@@ -76,11 +78,11 @@ export function attachFilesystemSFTPServer(server: SFTPServer, root: string): vo
                         ? SFTPStatusCode.OperationUnsupported
                         : SFTPStatusCode.Failure
             server.status(requestId, status, error instanceof Error ? error.message : String(error))
-        })
+        }
     }
 
-    server.on("OPEN", (request) => {
-        respond(
+    server.hooker.hook("OPEN", async (_hook, request) => {
+        await respond(
             request.requestId,
             () =>
                 open(
@@ -91,8 +93,8 @@ export function attachFilesystemSFTPServer(server: SFTPServer, root: string): vo
             (file) => server.handle(request.requestId, issueHandle({ type: "file", file })),
         )
     })
-    server.on("CLOSE", (request) => {
-        respond(
+    server.hooker.hook("CLOSE", async (_hook, request) => {
+        await respond(
             request.requestId,
             async () => {
                 const key = request.handle.toString("hex")
@@ -103,8 +105,8 @@ export function attachFilesystemSFTPServer(server: SFTPServer, root: string): vo
             () => server.status(request.requestId, SFTPStatusCode.Ok),
         )
     })
-    server.on("READ", (request) => {
-        respond(
+    server.hooker.hook("READ", async (_hook, request) => {
+        await respond(
             request.requestId,
             async () => {
                 const resource = getResource(request.handle)
@@ -125,8 +127,8 @@ export function attachFilesystemSFTPServer(server: SFTPServer, root: string): vo
             },
         )
     })
-    server.on("WRITE", (request) => {
-        respond(
+    server.hooker.hook("WRITE", async (_hook, request) => {
+        await respond(
             request.requestId,
             async () => {
                 const resource = getResource(request.handle)
@@ -147,22 +149,22 @@ export function attachFilesystemSFTPServer(server: SFTPServer, root: string): vo
             () => server.status(request.requestId, SFTPStatusCode.Ok),
         )
     })
-    server.on("STAT", (request) => {
-        respond(
+    server.hooker.hook("STAT", async (_hook, request) => {
+        await respond(
             request.requestId,
             () => stat(resolvePath(request.path)),
             (value) => server.attributes(request.requestId, attributes(value)),
         )
     })
-    server.on("LSTAT", (request) => {
-        respond(
+    server.hooker.hook("LSTAT", async (_hook, request) => {
+        await respond(
             request.requestId,
             () => lstat(resolvePath(request.path)),
             (value) => server.attributes(request.requestId, attributes(value)),
         )
     })
-    server.on("FSTAT", (request) => {
-        respond(
+    server.hooker.hook("FSTAT", async (_hook, request) => {
+        await respond(
             request.requestId,
             async () => {
                 const resource = getResource(request.handle)
@@ -172,15 +174,15 @@ export function attachFilesystemSFTPServer(server: SFTPServer, root: string): vo
             (value) => server.attributes(request.requestId, attributes(value)),
         )
     })
-    server.on("SETSTAT", (request) => {
-        respond(
+    server.hooker.hook("SETSTAT", async (_hook, request) => {
+        await respond(
             request.requestId,
             () => applyPathAttributes(resolvePath(request.path), request.attributes),
             () => server.status(request.requestId, SFTPStatusCode.Ok),
         )
     })
-    server.on("FSETSTAT", (request) => {
-        respond(
+    server.hooker.hook("FSETSTAT", async (_hook, request) => {
+        await respond(
             request.requestId,
             async () => {
                 const resource = getResource(request.handle)
@@ -191,8 +193,8 @@ export function attachFilesystemSFTPServer(server: SFTPServer, root: string): vo
             () => server.status(request.requestId, SFTPStatusCode.Ok),
         )
     })
-    server.on("OPENDIR", (request) => {
-        respond(
+    server.hooker.hook("OPENDIR", async (_hook, request) => {
+        await respond(
             request.requestId,
             async () => {
                 const path = resolvePath(request.path)
@@ -206,8 +208,8 @@ export function attachFilesystemSFTPServer(server: SFTPServer, root: string): vo
                 ),
         )
     })
-    server.on("READDIR", (request) => {
-        respond(
+    server.hooker.hook("READDIR", async (_hook, request) => {
+        await respond(
             request.requestId,
             async () => {
                 const resource = getResource(request.handle)
@@ -231,29 +233,29 @@ export function attachFilesystemSFTPServer(server: SFTPServer, root: string): vo
             },
         )
     })
-    server.on("REMOVE", (request) => {
-        respond(
+    server.hooker.hook("REMOVE", async (_hook, request) => {
+        await respond(
             request.requestId,
             () => unlink(resolvePath(request.path)),
             () => server.status(request.requestId, SFTPStatusCode.Ok),
         )
     })
-    server.on("MKDIR", (request) => {
-        respond(
+    server.hooker.hook("MKDIR", async (_hook, request) => {
+        await respond(
             request.requestId,
             () => mkdir(resolvePath(request.path), { mode: request.attributes.permissions }),
             () => server.status(request.requestId, SFTPStatusCode.Ok),
         )
     })
-    server.on("RMDIR", (request) => {
-        respond(
+    server.hooker.hook("RMDIR", async (_hook, request) => {
+        await respond(
             request.requestId,
             () => rmdir(resolvePath(request.path)),
             () => server.status(request.requestId, SFTPStatusCode.Ok),
         )
     })
-    server.on("REALPATH", (request) => {
-        respond(
+    server.hooker.hook("REALPATH", async (_hook, request) => {
+        await respond(
             request.requestId,
             async () => virtualPath(request.path),
             (path) =>
@@ -264,15 +266,15 @@ export function attachFilesystemSFTPServer(server: SFTPServer, root: string): vo
                 }),
         )
     })
-    server.on("RENAME", (request) => {
-        respond(
+    server.hooker.hook("RENAME", async (_hook, request) => {
+        await respond(
             request.requestId,
             () => rename(resolvePath(request.firstPath), resolvePath(request.secondPath)),
             () => server.status(request.requestId, SFTPStatusCode.Ok),
         )
     })
-    server.on("READLINK", (request) => {
-        respond(
+    server.hooker.hook("READLINK", async (_hook, request) => {
+        await respond(
             request.requestId,
             () => readlink(resolvePath(request.path)),
             (target) =>
@@ -283,9 +285,9 @@ export function attachFilesystemSFTPServer(server: SFTPServer, root: string): vo
                 }),
         )
     })
-    server.on("SYMLINK", (request) => {
+    server.hooker.hook("SYMLINK", async (_hook, request) => {
         const { targetPath, linkPath } = server.symlinkPaths(request)
-        respond(
+        await respond(
             request.requestId,
             () => symlink(targetPath.toString("utf8"), resolvePath(linkPath)),
             () => server.status(request.requestId, SFTPStatusCode.Ok),

@@ -41,7 +41,13 @@ export type { SFTPReadStreamOptions, SFTPWriteStreamOptions } from "./sftp/strea
 export { SFTPStats, SFTPStats as Stats } from "./sftp/SFTPStats.js"
 export type { SFTPClientNameEntry } from "./sftp/SFTPStats.js"
 export { default as SFTPServer } from "./sftp/SFTPServer.js"
-export type { SFTPServerEvents, SFTPServerOptions, SFTPSymlinkPaths } from "./sftp/SFTPServer.js"
+export type {
+    SFTPRequestOf,
+    SFTPServerEvents,
+    SFTPServerHooker,
+    SFTPServerOptions,
+    SFTPSymlinkPaths,
+} from "./sftp/SFTPServer.js"
 export {
     decodeSFTPLimits,
     decodeSFTPStatVFS,

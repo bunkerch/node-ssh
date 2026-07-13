@@ -198,23 +198,26 @@ server.on("connection", (connection) => {
             decision.success = context.subsystem === "sftp"
         })
         channel.events.on("sftp", (sftp) => {
-            sftp.on("STAT", (request) => {
-                void lookupAuthorizedAttributes(request.path).then(
-                    (attributes) => sftp.attributes(request.requestId, attributes),
-                    () => sftp.status(request.requestId, SFTPStatusCode.NoSuchFile),
-                )
+            sftp.hooker.hook("STAT", async (_hook, request) => {
+                try {
+                    const attributes = await lookupAuthorizedAttributes(request.path)
+                    sftp.attributes(request.requestId, attributes)
+                } catch {
+                    sftp.status(request.requestId, SFTPStatusCode.NoSuchFile)
+                }
             })
         })
     })
 })
 ```
 
-`SFTPServer` emits the uppercase request events used by the protocol: `OPEN`, `CLOSE`, `READ`,
+`SFTPServer.hooker` provides the uppercase request hooks used by the protocol: `OPEN`, `CLOSE`, `READ`,
 `WRITE`, `LSTAT`, `FSTAT`, `SETSTAT`, `FSETSTAT`, `OPENDIR`, `READDIR`, `REMOVE`, `MKDIR`, `RMDIR`,
-`REALPATH`, `STAT`, `RENAME`, `READLINK`, `SYMLINK`, and `EXTENDED`. When no specific listener is
-registered, the generic `request` event is used as a fallback. An entirely unhandled request gets
-`SFTPStatusCode.OperationUnsupported`. `requestReceived` is a passive observation event and does not
-take ownership of the response.
+`REALPATH`, `STAT`, `RENAME`, `READLINK`, `SYMLINK`, and `EXTENDED`. Hooks may be async and are
+awaited before the next request is dispatched. When no specific hook is registered, the generic
+`request` hook is used as a fallback. An entirely unhandled request gets
+`SFTPStatusCode.OperationUnsupported`. The EventEmitter `requestReceived` event is passive
+observation and does not take ownership of the response.
 
 Complete each request exactly once with the appropriate method:
 
@@ -225,7 +228,9 @@ Complete each request exactly once with the appropriate method:
 
 The implementation rejects duplicate outstanding identifiers, invalid response types, oversized
 read results, empty name responses, server use of client-only connection status codes, and a second
-response. Requests are dispatched one at a time in arrival order. This conservative scheduling
+response. A hook rejection becomes an SFTP failure response and is observable through the hooker's
+`uncaughtException` event; returning without a response also produces a failure instead of leaving
+the client pending. Requests are dispatched one at a time in arrival order. This conservative scheduling
 guarantees the draft's ordering semantics for operations on the same file and provides fairness
 without requiring an application handler to infer which opaque handles alias one resource. The
 bounded queue accepts at most 1024 waiting requests.
