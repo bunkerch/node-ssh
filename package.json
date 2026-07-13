@@ -1,25 +1,54 @@
 {
     "name": "modernssh",
-    "private": true,
     "version": "1.0.0",
-    "description": "cool ssh library frfr",
-    "main": "dist/index.js",
+    "description": "A modern, typed SSH client and server library for Node.js",
+    "type": "module",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js"
+        },
+        "./package.json": "./package.json"
+    },
+    "files": [
+        "dist",
+        "docs",
+        "README.md"
+    ],
+    "sideEffects": false,
+    "engines": {
+        "node": ">=22"
+    },
     "scripts": {
-        "test": "bun test ./__tests__/*/*",
-        "build": "tsc",
-        "start": "node .",
+        "clean": "node --eval \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
+        "test": "pnpm run build && bun test ./__tests__/*/*",
+        "build": "pnpm run clean && tsc",
         "dev": "tsc --watch",
         "lint": "eslint .",
         "lint:fix": "eslint . --fix",
         "format": "prettier --write .",
         "format:check": "prettier --check .",
-        "prepare": "husky"
+        "prepare": "husky",
+        "prepack": "pnpm run build"
     },
     "lint-staged": {
         "*.{js,ts,json,md,yaml,yml}": "prettier --write"
     },
     "author": "Manaf",
     "license": "UNLICENSED",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/bunkerch/node-ssh.git"
+    },
+    "keywords": [
+        "ssh",
+        "ssh2",
+        "typescript",
+        "client",
+        "server"
+    ],
     "devDependencies": {
         "@eslint/js": "^9.38.0",
         "@stylistic/eslint-plugin": "^5.5.0",
@@ -36,7 +65,6 @@
         "typescript": "^5.9.3",
         "typescript-eslint": "^8.46.2"
     },
-    "type": "module",
     "dependencies": {
         "asn1js": "^3.0.6",
         "tweetnacl": "^1.0.3"

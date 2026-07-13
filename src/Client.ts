@@ -215,7 +215,6 @@ export default class Client extends EventEmitter<ClientEvents> {
 
                 if (connected) {
                     this.emit("error", error)
-                    this.emit("close")
                 } else {
                     reject(error)
                 }
@@ -402,7 +401,6 @@ export default class Client extends EventEmitter<ClientEvents> {
                     this.debug(`Authentication successful with method`, m.method_name)
                     this.debug("Authenticated as", this.options.username)
 
-                    this.emit("connect")
                     break authentication
                 }
             }
@@ -468,7 +466,33 @@ export default class Client extends EventEmitter<ClientEvents> {
 
         // we are connected and logged in
         // we can now open channels
+        this.state = SocketState.Connected
         this.emit("connect")
+    }
+
+    end(): this {
+        if (this.socket && !this.socket.destroyed && this.socket.writable) {
+            if (this.serverProtocolVersion) {
+                this.sendPacket(
+                    new Disconnect({
+                        reason_code: DisconnectReason.SSH_DISCONNECT_BY_APPLICATION,
+                        description: "",
+                        language_tag: "",
+                    }),
+                )
+            }
+            this.state = SocketState.Disconnected
+            this.socket.end()
+        }
+        return this
+    }
+
+    destroy(): this {
+        if (this.socket && !this.socket.destroyed) {
+            this.state = SocketState.Disconnected
+            this.socket.destroy()
+        }
+        return this
     }
 
     waitEvent<event extends keyof ClientEvents>(event: event): Promise<ClientEvents[event]> {

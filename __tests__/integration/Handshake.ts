@@ -25,16 +25,24 @@ describe("client/server integration", () => {
             username: "integration-test",
         })
         const clientErrors: Error[] = []
+        let connectEvents = 0
         client.on("error", (error) => clientErrors.push(error))
+        client.on("connect", () => connectEvents++)
 
         try {
             await client.connect()
 
             expect(client.hasAuthenticated).toBe(true)
+            expect(client.isConnected).toBe(true)
+            expect(connectEvents).toBe(1)
             expect(serverErrors).toEqual([])
             expect(clientErrors).toEqual([])
         } finally {
-            for (const peer of server.clients) peer.terminate()
+            const closed = new Promise<void>((resolve) => client.once("close", resolve))
+            expect(client.end()).toBe(client)
+            expect(client.end()).toBe(client)
+            await closed
+            expect(client.isConnected).toBe(false)
             await new Promise<void>((resolve, reject) => {
                 server.server!.close((error) => (error ? reject(error) : resolve()))
             })
