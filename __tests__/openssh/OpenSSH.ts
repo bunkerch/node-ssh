@@ -1,4 +1,5 @@
 import { execFile, spawn } from "node:child_process"
+import { once } from "node:events"
 import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { AddressInfo, createConnection, createServer, type Socket } from "node:net"
 import { tmpdir } from "node:os"
@@ -1218,6 +1219,7 @@ describe("OpenSSH interoperability", () => {
             const copiedPath = `${sftpDirectory}/copied.bin`
             const helperPath = `${sftpDirectory}/helpers.txt`
             const transferPath = `${sftpDirectory}/fast-transfer.bin`
+            const streamPath = `${sftpDirectory}/stream.bin`
             await sftp.mkdir(sftpDirectory, { permissions: 0o700 })
             const contents = Buffer.allocUnsafe(70_000)
             for (let index = 0; index < contents.length; index++) contents[index] = index % 251
@@ -1329,11 +1331,32 @@ describe("OpenSSH interoperability", () => {
             expect(downloaded).toBe(transferContents.length)
             expect(await readFile(downloadPath)).toEqual(transferContents)
 
+            const writeStream = sftp.createWriteStream(streamPath, { highWaterMark: 11 })
+            const writeClosed = once(writeStream, "close")
+            writeStream.write("stream-")
+            writeStream.write(Buffer.from("payload-"))
+            writeStream.end("complete")
+            await writeClosed
+            expect(writeStream.bytesWritten).toBe(23n)
+
+            const readStream = sftp.createReadStream(streamPath, {
+                start: 7,
+                end: 14,
+                highWaterMark: 3,
+            })
+            const readClosed = once(readStream, "close")
+            const streamChunks: Buffer[] = []
+            for await (const chunk of readStream) streamChunks.push(chunk as Buffer)
+            await readClosed
+            expect(Buffer.concat(streamChunks).toString()).toBe("payload-")
+            expect(readStream.bytesRead).toBe(8n)
+
             await sftp.unlink(linkPath)
             await sftp.unlink(hardlinkPath)
             if (sftp.supportsExtension("copy-data", "1")) await sftp.unlink(copiedPath)
             await sftp.unlink(helperPath)
             await sftp.unlink(transferPath)
+            await sftp.unlink(streamPath)
             await sftp.unlink(renamedPath)
             await sftp.rmdir(sftpDirectory)
             const sftpClosed = new Promise<void>((resolve) => sftp.channel.once("close", resolve))

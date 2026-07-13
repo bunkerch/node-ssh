@@ -73,6 +73,24 @@ the cumulative bytes, completed chunk size, and total size. `fastPut` also accep
 All workers settle before either handle is closed, and an operation error is preserved over a
 secondary close failure.
 
+For backpressure-aware pipelines, `createReadStream` and `createWriteStream` return Node streams:
+
+```ts
+const range = sftp.createReadStream("archive.bin", { start: 1024n, end: 2047n })
+range.pipe(process.stdout)
+
+const upload = sftp.createWriteStream("incoming/archive.bin", { mode: 0o640 })
+source.pipe(upload)
+```
+
+Read ranges use inclusive `start` and `end` offsets. Both stream types accept an already-open
+`handle`, expose exact `bigint` `bytesRead`/`bytesWritten` counters, emit `open` and `ready` after a
+path is opened, and close their handle exactly once by default. With `autoClose: false`, natural
+completion leaves the handle open and ownership passes to the caller; calling the stream's `close`
+method still drains pending writes and closes it explicitly. Read requests are clamped to the
+negotiated limit, and writable backpressure is released only after the corresponding SFTP write has
+completed.
+
 Call `sftp.end()` to send EOF to the subsystem once no requests remain. `sftp.destroy(error?)`
 aborts it.
 

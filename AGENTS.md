@@ -71,6 +71,9 @@ behavior.
 - Keep high-level SFTP transfers within negotiated request sizes. Parallel workers must stop
   scheduling after the first error but settle every in-flight operation before closing handles;
   preserve the primary operation error if cleanup also fails.
+- SFTP streams use absolute uint64 offsets and Node stream backpressure. Complete each writable
+  callback only after its remote write, treat range ends as inclusive, close handles exactly once,
+  and make `autoClose: false` transfer handle ownership to the caller on natural completion.
 - Implement vendor extensions from their upstream protocol documents (for example OpenSSH's
   `PROTOCOL`), and keep them explicitly named and separately tested from RFC behavior.
 - Treat local and remote channel identifiers, windows, maximum packet sizes, EOF, and CLOSE state as

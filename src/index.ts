@@ -26,6 +26,8 @@ export type {
     SFTPReadFileOptions,
     SFTPWriteFileOptions,
 } from "./sftp/SFTPClient.js"
+export { SFTPReadStream, SFTPWriteStream } from "./sftp/streams.js"
+export type { SFTPReadStreamOptions, SFTPWriteStreamOptions } from "./sftp/streams.js"
 export { default as SFTPServer } from "./sftp/SFTPServer.js"
 export type { SFTPServerEvents, SFTPServerOptions, SFTPSymlinkPaths } from "./sftp/SFTPServer.js"
 export {

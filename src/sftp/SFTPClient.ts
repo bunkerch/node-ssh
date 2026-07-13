@@ -22,6 +22,12 @@ import {
     encodeSFTPUsersGroupsExtension,
 } from "./openssh.js"
 import type { SFTPLimits, SFTPStatVFS, SFTPUserGroupNames } from "./openssh.js"
+import {
+    SFTPReadStream,
+    SFTPWriteStream,
+    type SFTPReadStreamOptions,
+    type SFTPWriteStreamOptions,
+} from "./streams.js"
 import type {
     SFTPAttributes,
     SFTPExtension,
@@ -220,6 +226,14 @@ export default class SFTPClient {
                 extension.name === name &&
                 (version === undefined || extension.data.toString("ascii") === version),
         )
+    }
+
+    createReadStream(path: SFTPPath, options?: SFTPReadStreamOptions): SFTPReadStream {
+        return new SFTPReadStream(this, path, options)
+    }
+
+    createWriteStream(path: SFTPPath, options?: SFTPWriteStreamOptions): SFTPWriteStream {
+        return new SFTPWriteStream(this, path, options)
     }
 
     async exists(path: SFTPPath): Promise<boolean> {
