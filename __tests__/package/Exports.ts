@@ -68,6 +68,7 @@ describe("package exports", () => {
             SSHAgent,
         ]).toHaveLength(27)
         expect(SSHAuthenticationMethods.PublicKey).toBe("publickey")
+        expect(SSHAuthenticationMethods.KeyboardInteractive).toBe("keyboard-interactive")
     })
 
     test("compiled entry point provides the same side-effect-free API", async () => {

@@ -6,12 +6,15 @@ RUN apt-get update \
     && mkdir -p /run/sshd \
     && useradd --create-home --shell /bin/sh interop \
     && echo 'interop:correct-horse-battery-staple' | chpasswd \
+    && printf '%s\n' 'OpenSSH authentication banner' > /etc/modernssh-banner \
     && ssh-keygen -A \
+    && sed -i 's/^KbdInteractiveAuthentication .*/KbdInteractiveAuthentication yes/' /etc/ssh/sshd_config \
     && printf '%s\n' \
         'PasswordAuthentication yes' \
-        'KbdInteractiveAuthentication no' \
+        'KbdInteractiveAuthentication yes' \
         'GatewayPorts clientspecified' \
-        'UsePAM no' \
+        'UsePAM yes' \
+        'Banner /etc/modernssh-banner' \
         'PermitRootLogin no' \
         'AllowUsers interop' \
         >> /etc/ssh/sshd_config

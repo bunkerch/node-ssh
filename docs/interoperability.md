@@ -50,6 +50,15 @@ ChaCha20-Poly1305), then decrypt, sign, and verify each key. They also cover enc
 missing and incorrect passphrases, authenticated-data tampering, and `DiskAgent` passphrase
 resolution. No JavaScript SSH implementation supplies expected key data.
 
+Authentication interoperability covers RFC 4252 banners and password changes plus RFC 4256
+keyboard-interactive exchanges. OpenSSH's client completes a two-prompt keyboard-interactive round
+and a forced password change against the modern server. The modern client authenticates through
+PAM-backed OpenSSH keyboard-interactive and records OpenSSH's banner. Fixed, independently written
+wire vectors cover every new message layout, including the context-dependent reuse of opcode 60.
+An in-process integration test proves that a partial password success can change the advertised
+method set and cause an earlier failed keyboard-interactive method to be retried as the second
+factor.
+
 Together, the OpenSSH tests and known vectors exercise identification exchange, KEXINIT
 negotiation, exchange-hash and signature verification, `NEWKEYS`, encrypted and authenticated
 packet framing, service negotiation, authentication, session streams, client- and server-side

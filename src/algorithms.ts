@@ -246,10 +246,19 @@ export function chooseAlgorithms(client: Client | ServerClient) {
     // TODO: Implement languages (?)
     // TODO: Implement compression
 
-    client.debug("Key Exchange Algorithm chosen:", client.kexAlgorithm)
-    client.debug("Host Key Algorithm chosen:", client.hostKeyAlgorithm)
-    client.debug("Client to Server Encryption Algorithm chosen:", client.clientEncryptionAlgorithm)
-    client.debug("Server to Client Encryption Algorithm chosen:", client.serverEncryptionAlgorithm)
-    client.debug("Client to Server MAC Algorithm chosen:", client.clientMacAlgorithm)
-    client.debug("Server to Client MAC Algorithm chosen:", client.serverMacAlgorithm)
+    client.debug(
+        "Key Exchange Algorithm chosen:",
+        (client.kexAlgorithm.constructor as typeof KexAlgorithm).alg_name,
+    )
+    client.debug("Host Key Algorithm chosen:", client.hostKeyAlgorithm.alg_name)
+    client.debug(
+        "Client to Server Encryption Algorithm chosen:",
+        client.clientEncryptionAlgorithm.alg_name,
+    )
+    client.debug(
+        "Server to Client Encryption Algorithm chosen:",
+        client.serverEncryptionAlgorithm.alg_name,
+    )
+    client.debug("Client to Server MAC Algorithm chosen:", client.clientMacAlgorithm.alg_name)
+    client.debug("Server to Client MAC Algorithm chosen:", client.serverMacAlgorithm.alg_name)
 }

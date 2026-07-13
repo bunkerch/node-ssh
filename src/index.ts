@@ -6,8 +6,12 @@ export type {
     ClientForwardInCallback,
     ClientHooker,
     ClientHookerHostKeyController,
+    ClientHookerKeyboardInteractiveContext,
+    ClientHookerKeyboardInteractiveController,
     ClientHookerPasswordAuthContext,
     ClientHookerPasswordAuthController,
+    ClientHookerPasswordChangeContext,
+    ClientHookerPasswordChangeController,
     ClientOptions,
     ClientSessionCallback,
     ClientStreamLocalCallback,
@@ -38,10 +42,14 @@ export { default as Server } from "./Server.js"
 export type {
     ServerEvents,
     ServerHooker,
+    ServerAuthenticationContinuation,
     ServerHookerChannelOpenRequestController,
     ServerHookerChannelRequestController,
     ServerHookerNoneAuthenticationContext,
     ServerHookerNoneAuthenticationController,
+    ServerHookerKeyboardInteractiveAuthenticationContext,
+    ServerHookerKeyboardInteractiveAuthenticationController,
+    ServerKeyboardInteractivePrompt,
     ServerHookerPasswordAuthenticationContext,
     ServerHookerPasswordAuthenticationController,
     ServerHookerPreconnectController,
@@ -53,6 +61,7 @@ export type {
     ServerHookerTCPIPForwardController,
     ServerOptions,
 } from "./Server.js"
+export type { UserAuthPrompt } from "./packets/UserAuthInfoRequest.js"
 export { default as ServerClient } from "./ServerClient.js"
 export type { ServerClientEvents } from "./ServerClient.js"
 

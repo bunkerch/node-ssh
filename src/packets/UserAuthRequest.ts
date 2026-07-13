@@ -1,12 +1,17 @@
 import assert from "assert"
-import { SSHAuthenticationMethods, PacketNameToType } from "../constants.js"
+import { PacketNameToType } from "../constants.js"
 import Packet from "../packet.js"
 import { readNextBuffer, readNextUint8, serializeBuffer, serializeUint8 } from "../utils/Buffer.js"
 import NoneAuthMethod from "../auth/none.js"
 import PasswordAuthMethod from "../auth/password.js"
-import Client from "../Client.js"
+import type Client from "../Client.js"
 import PublicKeyAuthMethod from "../auth/publickey.js"
-import ServerClient from "../ServerClient.js"
+import type ServerClient from "../ServerClient.js"
+import KeyboardInteractiveAuthMethod from "../auth/keyboard-interactive.js"
+import AuthMethod from "../auth/AuthMethod.js"
+import type { AuthMethodClass } from "../auth/AuthMethod.js"
+
+export { default as AuthMethod } from "../auth/AuthMethod.js"
 
 export interface UserAuthRequestData {
     username: string
@@ -14,13 +19,26 @@ export interface UserAuthRequestData {
     service_name: string
     method: AuthMethod
 }
+export class UnknownAuthMethod implements AuthMethod {
+    constructor(
+        public method_name: string,
+        public data: Buffer,
+    ) {}
+
+    serialize(): Buffer {
+        return Buffer.concat([serializeBuffer(Buffer.from(this.method_name, "ascii")), this.data])
+    }
+}
+
 export default class UserAuthRequest implements Packet {
     static type = PacketNameToType.SSH_MSG_USERAUTH_REQUEST
-    static auth_methods = new Map<string, typeof AuthMethod>(
-        [NoneAuthMethod, PublicKeyAuthMethod, PasswordAuthMethod].map((method) => [
-            method.method_name,
-            method,
-        ]),
+    static auth_methods = new Map<string, AuthMethodClass>(
+        [
+            NoneAuthMethod,
+            PublicKeyAuthMethod,
+            PasswordAuthMethod,
+            KeyboardInteractiveAuthMethod,
+        ].map((method) => [method.method_name, method]),
     )
 
     data: UserAuthRequestData
@@ -91,59 +109,12 @@ export default class UserAuthRequest implements Packet {
         let method_name: Buffer
         ;[method_name, raw] = readNextBuffer(raw)
 
+        const methodName = method_name.toString("ascii")
+        const method = UserAuthRequest.auth_methods.get(methodName)
         return new UserAuthRequest({
             username: username.toString("utf-8"),
             service_name: service_name.toString("utf-8"),
-            // TODO: handle unknown auth methods
-            method: UserAuthRequest.auth_methods.get(method_name.toString("utf-8"))!.parse(raw),
+            method: method ? method.parse(raw) : new UnknownAuthMethod(methodName, raw),
         })
-    }
-}
-
-export abstract class AuthMethod {
-    static method_name: SSHAuthenticationMethods
-    method_name: SSHAuthenticationMethods
-
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    constructor(data: unknown) {
-        throw new Error("Not implemented")
-    }
-
-    serialize(): Buffer {
-        throw new Error("Not implemented")
-    }
-
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    static parse(raw: Buffer): AuthMethod {
-        throw new Error("Not implemented")
-    }
-
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    static async handleAuthentication(client: Client): Promise<boolean> {
-        throw new Error("Not implemented")
-    }
-
-    static async waitForAnswer?(client: Client, seqno: number) {
-        const answer = await client.waitForPackets(
-            {
-                SSH_MSG_UNIMPLEMENTED: {
-                    predicate: (packet) => {
-                        return packet.data.sequence_number === seqno
-                    },
-                },
-                SSH_MSG_USERAUTH_FAILURE: {
-                    predicate: () => true,
-                },
-                SSH_MSG_USERAUTH_SUCCESS: {
-                    predicate: () => true,
-                },
-                SSH_MSG_USERAUTH_PK_OK: {
-                    predicate: () => true,
-                },
-            },
-            10000,
-        )
-
-        return answer
     }
 }

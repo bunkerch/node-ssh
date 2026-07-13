@@ -13,6 +13,7 @@ import SSHAgent from "../../src/publickey/SSHAgent.js"
 import { readNextBuffer, readNextUint32 } from "../../src/utils/Buffer.js"
 import PrivateKey from "../../src/utils/PrivateKey.js"
 import PublicKey from "../../src/utils/PublicKey.js"
+import { SSHAuthenticationMethods } from "../../src/constants.js"
 
 const execFileAsync = promisify(execFile)
 const imageName = "modernssh-openssh-test:bookworm"
@@ -282,6 +283,214 @@ async function requestAgentIdentities(stream: Duplex): Promise<Buffer> {
 }
 
 describe("OpenSSH interoperability", () => {
+    test("OpenSSH client uses keyboard-interactive authentication on a modernssh server", async () => {
+        const hostKey = await PrivateKey.generate("ssh-ed25519")
+        const server = new Server({
+            hostKeys: [hostKey],
+            sendAllHostKeys: false,
+            banner: "modernssh authentication banner\r\n",
+        })
+        const errors: Error[] = []
+        const rounds: (readonly string[] | undefined)[] = []
+        server.hooker.hook("keyboardInteractiveAuthentication", (_hook, context, decision) => {
+            rounds.push(context.responses)
+            if (context.round === 0) {
+                decision.name = "modernssh login"
+                decision.instruction = "Supply both credentials"
+                decision.prompts = [
+                    { prompt: "Password: ", echo: false },
+                    { prompt: "OTP: ", echo: false },
+                ]
+                return
+            }
+            decision.allowLogin =
+                context.responses?.[0] === "correct-horse-battery-staple" &&
+                context.responses?.[1] === "654321"
+        })
+        server.hooker.hook("channelOpenRequest", (_hook, channel, decision) => {
+            decision.allowOpen = channel instanceof SessionChannel
+        })
+        server.on("connection", (connection) => {
+            connection.on("error", (error) => errors.push(error))
+            connection.on("channel", (channel) => {
+                if (!(channel instanceof SessionChannel)) return
+                channel.hooker.hook("execRequest", (_hook, _context, decision) => {
+                    decision.success = true
+                })
+                channel.events.on("exec", (_command, shell) => {
+                    shell.stdout.write("keyboard-interactive accepted\n", () => {
+                        shell.exit(0).end()
+                    })
+                })
+            })
+        })
+        server.listen({ host: "127.0.0.1", port: 0 })
+        await new Promise<void>((resolve) => server.server!.once("listening", resolve))
+        const port = (server.server!.address() as AddressInfo).port
+
+        try {
+            const result = await collectProcess(
+                "/usr/bin/ssh",
+                [
+                    "-F",
+                    "/dev/null",
+                    "-T",
+                    "-p",
+                    String(port),
+                    "-o",
+                    "PreferredAuthentications=keyboard-interactive",
+                    "-o",
+                    "PubkeyAuthentication=no",
+                    "-o",
+                    "PasswordAuthentication=no",
+                    "-o",
+                    "StrictHostKeyChecking=no",
+                    "-o",
+                    "UserKnownHostsFile=/dev/null",
+                    "-o",
+                    "LogLevel=ERROR",
+                    "interop@127.0.0.1",
+                    "keyboard-test",
+                ],
+                "",
+                {
+                    env: {
+                        ...process.env,
+                        DISPLAY: "modernssh-test",
+                        SSH_ASKPASS: join(process.cwd(), "__tests__/openssh/askpass.sh"),
+                        SSH_ASKPASS_REQUIRE: "force",
+                    },
+                },
+            )
+            expect({ result, rounds, errors: errors.map(String) }).toEqual({
+                result: {
+                    code: 0,
+                    stdout: "keyboard-interactive accepted\n",
+                    stderr: "",
+                },
+                rounds: [undefined, ["correct-horse-battery-staple", "654321"]],
+                errors: [],
+            })
+        } finally {
+            for (const client of server.clients) client.terminate()
+            await new Promise<void>((resolve, reject) => {
+                server.server!.close((error) => (error ? reject(error) : resolve()))
+            })
+        }
+    }, 15_000)
+
+    test("OpenSSH and modernssh clients complete an RFC 4252 password change", async () => {
+        const hostKey = await PrivateKey.generate("ssh-ed25519")
+        const server = new Server({ hostKeys: [hostKey], sendAllHostKeys: false })
+        const attempts: { password: string; newPassword?: string }[] = []
+        const errors: Error[] = []
+        server.hooker.hook("passwordAuthentication", (_hook, context, decision) => {
+            attempts.push({ password: context.password, newPassword: context.newPassword })
+            if (context.newPassword === undefined) {
+                decision.requestPasswordChange = { prompt: "Choose a new password: " }
+                return
+            }
+            decision.allowLogin =
+                context.password === "correct-horse-battery-staple" &&
+                context.newPassword === "new-password"
+        })
+        server.hooker.hook("channelOpenRequest", (_hook, channel, decision) => {
+            decision.allowOpen = channel instanceof SessionChannel
+        })
+        server.on("connection", (connection) => {
+            connection.on("error", (error) => errors.push(error))
+            connection.on("channel", (channel) => {
+                if (!(channel instanceof SessionChannel)) return
+                channel.hooker.hook("execRequest", (_hook, _context, decision) => {
+                    decision.success = true
+                })
+                channel.events.on("exec", (_command, shell) => {
+                    shell.stdout.write("password changed\n", () => shell.exit(0).end())
+                })
+            })
+        })
+        server.listen({ host: "127.0.0.1", port: 0 })
+        await new Promise<void>((resolve) => server.server!.once("listening", resolve))
+        const port = (server.server!.address() as AddressInfo).port
+
+        try {
+            const openssh = await collectProcess(
+                "/usr/bin/ssh",
+                [
+                    "-F",
+                    "/dev/null",
+                    "-T",
+                    "-p",
+                    String(port),
+                    "-o",
+                    "PreferredAuthentications=password",
+                    "-o",
+                    "PubkeyAuthentication=no",
+                    "-o",
+                    "KbdInteractiveAuthentication=no",
+                    "-o",
+                    "StrictHostKeyChecking=no",
+                    "-o",
+                    "UserKnownHostsFile=/dev/null",
+                    "-o",
+                    "LogLevel=ERROR",
+                    "interop@127.0.0.1",
+                    "password-change-test",
+                ],
+                "",
+                {
+                    env: {
+                        ...process.env,
+                        DISPLAY: "modernssh-test",
+                        SSH_ASKPASS: join(process.cwd(), "__tests__/openssh/askpass.sh"),
+                        SSH_ASKPASS_REQUIRE: "force",
+                    },
+                },
+            )
+            expect({ openssh, attempts, errors: errors.map(String) }).toEqual({
+                openssh: { code: 0, stdout: "password changed\n", stderr: "" },
+                attempts: [
+                    { password: "correct-horse-battery-staple", newPassword: undefined },
+                    { password: "correct-horse-battery-staple", newPassword: "new-password" },
+                ],
+                errors: [],
+            })
+
+            const client = new Client({
+                hostname: "127.0.0.1",
+                port,
+                username: "interop",
+                password: "correct-horse-battery-staple",
+                authenticationMethodsOrder: [
+                    SSHAuthenticationMethods.None,
+                    SSHAuthenticationMethods.Password,
+                ],
+            })
+            client.hooker.hook("hostKey", (_hook, decision) => {
+                decision.allowHostKey = true
+            })
+            client.hooker.hook("passwordChange", (_hook, context, decision) => {
+                expect(context.prompt).toBe("Choose a new password: ")
+                decision.newPassword = "new-password"
+            })
+            await client.connect()
+            client.end()
+
+            expect(attempts).toEqual([
+                { password: "correct-horse-battery-staple", newPassword: undefined },
+                { password: "correct-horse-battery-staple", newPassword: "new-password" },
+                { password: "correct-horse-battery-staple", newPassword: undefined },
+                { password: "correct-horse-battery-staple", newPassword: "new-password" },
+            ])
+            expect(errors).toEqual([])
+        } finally {
+            for (const client of server.clients) client.terminate()
+            await new Promise<void>((resolve, reject) => {
+                server.server!.close((error) => (error ? reject(error) : resolve()))
+            })
+        }
+    }, 20_000)
+
     test("OpenSSH client executes a command on a modernssh server", async () => {
         const hostKey = await PrivateKey.generate("ssh-ed25519")
         const server = new Server({ hostKeys: [hostKey], sendAllHostKeys: false })
@@ -805,6 +1014,44 @@ describe("OpenSSH interoperability", () => {
             expect(Number.isInteger(port)).toBe(true)
             await waitForPort(port)
             agentFixture = await createOpenSSHAgentFixture()
+
+            const keyboardClient = new Client({
+                hostname: "127.0.0.1",
+                port,
+                username: "interop",
+                authenticationMethodsOrder: [
+                    SSHAuthenticationMethods.None,
+                    SSHAuthenticationMethods.KeyboardInteractive,
+                ],
+            })
+            const keyboardBanners: string[] = []
+            const keyboardDebug: unknown[][] = []
+            const keyboardErrors: Error[] = []
+            keyboardClient.on("banner", (message) => keyboardBanners.push(message))
+            keyboardClient.on("debug", (...message) => keyboardDebug.push(message))
+            keyboardClient.on("error", (error) => keyboardErrors.push(error))
+            keyboardClient.hooker.hook("hostKey", (_hook, decision) => {
+                decision.allowHostKey = true
+            })
+            keyboardClient.hooker.hook("keyboardInteractive", (_hook, context, decision) => {
+                decision.responses = context.prompts.map(() => "correct-horse-battery-staple")
+            })
+            try {
+                await keyboardClient.connect()
+            } catch (error) {
+                throw new Error(
+                    `Keyboard-interactive OpenSSH authentication failed: ${String(error)}; ` +
+                        `errors=${keyboardErrors.map(String).join(" | ")}; ` +
+                        `debug=${JSON.stringify(keyboardDebug)}`,
+                )
+            }
+            const keyboardSession = await keyboardClient.exec("printf keyboard-ok")
+            const keyboardOutput: Buffer[] = []
+            keyboardSession.on("data", (data: Buffer) => keyboardOutput.push(data))
+            await new Promise<void>((resolve) => keyboardSession.once("close", resolve))
+            expect(Buffer.concat(keyboardOutput).toString()).toBe("keyboard-ok")
+            expect(keyboardBanners).toEqual(["OpenSSH authentication banner\n"])
+            keyboardClient.end()
 
             const client = new Client({
                 hostname: "127.0.0.1",

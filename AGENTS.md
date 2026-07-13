@@ -56,6 +56,10 @@ behavior.
 - OpenSSH private-key encryption follows upstream `PROTOCOL.key`. Keep passphrase and derived-key
   buffers short-lived, validate authenticated modes before parsing plaintext, compare the public
   envelope with the private key, and exercise every supported cipher with real `ssh-keygen` output.
+- User authentication follows RFC 4252 and RFC 4256. Decode method-specific opcode 60 from the
+  active authentication context, never as a globally fixed packet. Honor advertised continuation
+  lists and partial success, keep at most one keyboard-interactive request outstanding, and test
+  prompts, banners, and password changes with fixed vectors plus OpenSSH.
 - Implement vendor extensions from their upstream protocol documents (for example OpenSSH's
   `PROTOCOL`), and keep them explicitly named and separately tested from RFC behavior.
 - Treat local and remote channel identifiers, windows, maximum packet sizes, EOF, and CLOSE state as

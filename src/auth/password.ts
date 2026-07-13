@@ -1,15 +1,19 @@
 import assert from "assert"
-import UserAuthRequest, { AuthMethod } from "../packets/UserAuthRequest.js"
+import UserAuthRequest from "../packets/UserAuthRequest.js"
+import AuthMethod from "./AuthMethod.js"
 import { readNextBinaryBoolean, readNextBuffer, serializeBuffer } from "../utils/Buffer.js"
 import { serializeBinaryBoolean } from "../utils/BinaryBoolean.js"
-import Client, { ClientHookerPasswordAuthController } from "../Client.js"
+import type Client from "../Client.js"
+import type { ClientHookerPasswordAuthController } from "../Client.js"
 import { SSHAuthenticationMethods, SSHServiceNames } from "../constants.js"
 import UserAuthSuccess from "../packets/UserAuthSuccess.js"
 import UserAuthFailure from "../packets/UserAuthFailure.js"
+import UserAuthPasswordChangeRequest from "../packets/UserAuthPasswordChangeRequest.js"
 
 export interface PasswordAuthMethodData {
     change_password: boolean
     password: string
+    newPassword?: string
 }
 export default class PasswordAuthMethod implements AuthMethod {
     static method_name = SSHAuthenticationMethods.Password
@@ -29,6 +33,10 @@ export default class PasswordAuthMethod implements AuthMethod {
 
         buffers.push(serializeBinaryBoolean(this.data.change_password))
         buffers.push(serializeBuffer(Buffer.from(this.data.password, "utf-8")))
+        if (this.data.change_password) {
+            assert(this.data.newPassword !== undefined, "Password change requires a new password")
+            buffers.push(serializeBuffer(Buffer.from(this.data.newPassword, "utf-8")))
+        }
 
         return Buffer.concat(buffers)
     }
@@ -40,11 +48,17 @@ export default class PasswordAuthMethod implements AuthMethod {
         let password: Buffer
         ;[password, raw] = readNextBuffer(raw)
 
+        let newPassword: Buffer | undefined
+        if (change_password) {
+            ;[newPassword, raw] = readNextBuffer(raw)
+        }
+
         assert(raw.length === 0)
 
         return new PasswordAuthMethod({
             change_password: change_password,
             password: password.toString("utf-8"),
+            newPassword: newPassword?.toString("utf-8"),
         })
     }
 
@@ -80,37 +94,36 @@ export default class PasswordAuthMethod implements AuthMethod {
 
         client.debug("Trying password authentication...")
 
-        const seqno = client.sendPacket(
-            new UserAuthRequest({
-                username: client.options.username!,
-                service_name: SSHServiceNames.Connection,
-                method: new PasswordAuthMethod({
-                    change_password: false,
-                    password: controller.password,
+        const method = new PasswordAuthMethod({
+            change_password: false,
+            password: controller.password,
+        })
+        while (true) {
+            client.sendPacket(
+                new UserAuthRequest({
+                    username: client.options.username!,
+                    service_name: SSHServiceNames.Connection,
+                    method,
                 }),
-            }),
-        )
-        const answer = await AuthMethod.waitForAnswer!(client, seqno)
-
-        if (answer instanceof UserAuthSuccess) {
-            return true
-        }
-
-        // TODO: We need to also support changing passwords
-        // the SSH spec allows for a password change in the middle
-        // of the authentication
-        // not the priority and really rarely used
-        // it also shares the same opcode as UserAuthPKOK
-        // which is problematic, to say the least.
-        if (!(answer instanceof UserAuthFailure)) {
-            client.debug(
-                `[Authentication]`,
-                `[None]`,
-                `Unknown response to "UserAuthRequest" with method "none":`,
-                answer,
             )
-        }
+            const answer = await AuthMethod.waitForAnswer!(client)
+            if (answer instanceof UserAuthSuccess) return true
+            if (answer instanceof UserAuthFailure) return false
+            if (!(answer instanceof UserAuthPasswordChangeRequest)) return false
 
-        return false
+            const passwordChangeController = { newPassword: undefined as string | undefined }
+            await client.hooker.triggerHook(
+                "passwordChange",
+                Object.freeze({
+                    username: client.options.username,
+                    prompt: answer.data.prompt,
+                    languageTag: answer.data.languageTag,
+                }),
+                passwordChangeController,
+            )
+            if (passwordChangeController.newPassword === undefined) return false
+            method.data.change_password = true
+            method.data.newPassword = passwordChangeController.newPassword
+        }
     }
 }

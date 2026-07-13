@@ -9,6 +9,7 @@ import PrivateKey from "./utils/PrivateKey.js"
 import PublicKey from "./utils/PublicKey.js"
 import EncodedSignature from "./utils/Signature.js"
 import Channel from "./Channel.js"
+import { SSHAuthenticationMethods } from "./constants.js"
 
 export interface ServerOptions {
     protocolVersionExchange?: ProtocolVersionExchange
@@ -20,6 +21,8 @@ export interface ServerOptions {
     // This is particularily useful when a transition in hostkeys
     // is happening (for example deprecating an host key)
     sendAllHostKeys?: boolean
+    /** RFC 4252 banner sent once before authentication begins. */
+    banner?: string
 }
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface ServerOptionsRequired extends Required<ServerOptions> {}
@@ -39,22 +42,52 @@ export type ServerHookerNoneAuthenticationContext = Readonly<{
 export interface ServerHookerNoneAuthenticationController {
     allowLogin: boolean
 }
+export interface ServerAuthenticationContinuation {
+    partialSuccess?: boolean
+    authenticationMethods?: SSHAuthenticationMethods[]
+}
 export type ServerHookerPublicKeyAuthenticationContext = Readonly<{
     username: string
     publicKey: PublicKey
     signature?: EncodedSignature
     signatureMessage: Buffer
 }>
-export interface ServerHookerPublicKeyAuthenticationController {
+export interface ServerHookerPublicKeyAuthenticationController
+    extends ServerAuthenticationContinuation {
     requestSignature: boolean
     allowLogin: boolean
 }
 export type ServerHookerPasswordAuthenticationContext = Readonly<{
     username: string
     password: string
+    newPassword?: string
 }>
-export interface ServerHookerPasswordAuthenticationController {
+export interface ServerHookerPasswordAuthenticationController
+    extends ServerAuthenticationContinuation {
     allowLogin: boolean
+    requestPasswordChange?: {
+        prompt: string
+        languageTag?: string
+    }
+}
+export interface ServerKeyboardInteractivePrompt {
+    prompt: string
+    echo: boolean
+}
+export type ServerHookerKeyboardInteractiveAuthenticationContext = Readonly<{
+    username: string
+    languageTag: string
+    submethods: string
+    responses?: readonly string[]
+    round: number
+}>
+export interface ServerHookerKeyboardInteractiveAuthenticationController
+    extends ServerAuthenticationContinuation {
+    allowLogin: boolean
+    name?: string
+    instruction?: string
+    languageTag?: string
+    prompts?: ServerKeyboardInteractivePrompt[]
 }
 export interface ServerHookerChannelOpenRequestController {
     allowOpen: boolean
@@ -93,6 +126,11 @@ export type ServerHooker = {
         passwordAuthenticationController: ServerHookerPasswordAuthenticationController,
         client: ServerClient,
     ]
+    keyboardInteractiveAuthentication: [
+        keyboardInteractiveAuthenticationContext: ServerHookerKeyboardInteractiveAuthenticationContext,
+        keyboardInteractiveAuthenticationController: ServerHookerKeyboardInteractiveAuthenticationController,
+        client: ServerClient,
+    ]
     channelOpenRequest: [
         channel: Channel,
         channelOpenRequestController: ServerHookerChannelOpenRequestController,
@@ -124,6 +162,7 @@ export default class Server extends EventEmitter<ServerEvents> {
         this.options.protocolVersionExchange ??= ProtocolVersionExchange.defaultValue
         this.options.hostKeys ??= []
         this.options.sendAllHostKeys ??= true
+        this.options.banner ??= ""
     }
 
     hooker = new Hooker<ServerHooker>()

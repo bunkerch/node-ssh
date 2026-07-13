@@ -6,6 +6,9 @@ import Server, {
     ServerHookerNoneAuthenticationController,
     ServerHookerPasswordAuthenticationContext,
     ServerHookerPasswordAuthenticationController,
+    ServerHookerKeyboardInteractiveAuthenticationContext,
+    ServerHookerKeyboardInteractiveAuthenticationController,
+    ServerAuthenticationContinuation,
     ServerHookerPublicKeyAuthenticationContext,
     ServerHookerPublicKeyAuthenticationController,
     ServerHookerStreamLocalForwardContext,
@@ -42,7 +45,8 @@ import KexDHInit from "./packets/KexDHInit.js"
 import NewKeys from "./packets/NewKeys.js"
 import ServiceRequest from "./packets/ServiceRequest.js"
 import ServiceAccept from "./packets/ServiceAccept.js"
-import UserAuthRequest, { AuthMethod } from "./packets/UserAuthRequest.js"
+import UserAuthRequest from "./packets/UserAuthRequest.js"
+import AuthMethod from "./auth/AuthMethod.js"
 import UserAuthFailure from "./packets/UserAuthFailure.js"
 import PublicKeyAuthMethod from "./auth/publickey.js"
 import UserAuthPKOK from "./packets/UserAuthPKOK.js"
@@ -75,6 +79,11 @@ import ForwardedTCPIPChannel from "./channels/ForwardedTCPIPChannel.js"
 import ForwardedStreamLocalChannel from "./channels/ForwardedStreamLocalChannel.js"
 import ForwardedAgentChannel from "./channels/ForwardedAgentChannel.js"
 import ForwardedX11Channel from "./channels/ForwardedX11Channel.js"
+import KeyboardInteractiveAuthMethod from "./auth/keyboard-interactive.js"
+import UserAuthInfoRequest from "./packets/UserAuthInfoRequest.js"
+import UserAuthInfoResponse from "./packets/UserAuthInfoResponse.js"
+import UserAuthPasswordChangeRequest from "./packets/UserAuthPasswordChangeRequest.js"
+import UserAuthBanner from "./packets/UserAuthBanner.js"
 
 interface RemoteForwardListener {
     server: net.Server
@@ -337,14 +346,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         }
 
         this.kexAlgorithm.deriveKeysClient(this)
-        this.debug("Derived keys:", {
-            ivClientToServer: this.ivClientToServer,
-            ivServerToClient: this.ivServerToClient,
-            encryptionKeyClientToServer: this.encryptionKeyClientToServer,
-            encryptionKeyServerToClient: this.encryptionKeyServerToClient,
-            integrityKeyClientToServer: this.integrityKeyClientToServer,
-            integrityKeyServerToClient: this.integrityKeyServerToClient,
-        })
+        this.debug("Derived transport keys")
 
         this.clientEncryption = this.clientEncryptionAlgorithm!.instantiate(
             this.encryptionKeyClientToServer!,
@@ -386,6 +388,15 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 service_name: SSHServiceNames.UserAuth,
             }),
         )
+
+        if (this.server.options.banner) {
+            this.sendPacket(
+                new UserAuthBanner({
+                    message: this.server.options.banner,
+                    languageTag: "",
+                }),
+            )
+        }
 
         await this.handleAuthentication()
         // user is logged in!
@@ -787,25 +798,61 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
 
     async handleAuthentication() {
         let allowLogin = false
-        let authRequest: Packet
-        authentication: {
-            const userAuthFailure = new UserAuthFailure({
-                auth_methods: [
-                    SSHAuthenticationMethods.PublicKey,
-                    SSHAuthenticationMethods.Password,
-                ],
-                // TODO: Figure out when and when not to set this to true (if it's even needed?)
-                partial_success: false,
-            })
-            while (true) {
-                // TODO: iirc from the spec, one client can batch all their pubkeys at once
-                // and the server should be able to handle them. This current implementation
-                // does not respect that and waits sequencially.
-                this.debug("Waiting for authentication request...")
-                ;[authRequest] = (await this.waitEvent("packet")) as [Packet]
-                assert(authRequest instanceof UserAuthRequest, "Invalid packet type")
+        let authRequest: UserAuthRequest | undefined
+        let pendingAuthRequest: UserAuthRequest | undefined
+        const authenticationMethods: SSHAuthenticationMethods[] = []
+        if (this.server.hooker.hasHooks("publicKeyAuthentication")) {
+            authenticationMethods.push(SSHAuthenticationMethods.PublicKey)
+        }
+        if (this.server.hooker.hasHooks("passwordAuthentication")) {
+            authenticationMethods.push(SSHAuthenticationMethods.Password)
+        }
+        if (this.server.hooker.hasHooks("keyboardInteractiveAuthentication")) {
+            authenticationMethods.push(SSHAuthenticationMethods.KeyboardInteractive)
+        }
+        const userAuthFailure = new UserAuthFailure({
+            auth_methods: authenticationMethods,
+            partial_success: false,
+        })
+        const sendAuthenticationFailure = (
+            continuation: ServerAuthenticationContinuation = {},
+            completedMethod?: SSHAuthenticationMethods,
+        ): void => {
+            const requestedMethods =
+                continuation.authenticationMethods ??
+                (continuation.partialSuccess
+                    ? authenticationMethods.filter((method) => method !== completedMethod)
+                    : authenticationMethods)
+            const methods = [
+                ...new Set(
+                    requestedMethods.filter(
+                        (method) =>
+                            method !== SSHAuthenticationMethods.None &&
+                            UserAuthRequest.auth_methods.has(method),
+                    ),
+                ),
+            ]
+            this.sendPacket(
+                new UserAuthFailure({
+                    auth_methods: methods,
+                    partial_success: continuation.partialSuccess === true,
+                }),
+            )
+        }
 
-                this.debug(`Received authentication request:`, authRequest)
+        authentication: {
+            while (true) {
+                this.debug("Waiting for authentication request...")
+                if (pendingAuthRequest) {
+                    authRequest = pendingAuthRequest
+                    pendingAuthRequest = undefined
+                } else {
+                    const [packet] = await this.waitEvent("packet")
+                    assert(packet instanceof UserAuthRequest, "Invalid packet type")
+                    authRequest = packet
+                }
+
+                this.debug(`Received authentication request:`, this.packetForDebug(authRequest))
 
                 switch ((authRequest.data.method.constructor as typeof AuthMethod).method_name) {
                     case SSHAuthenticationMethods.None: {
@@ -878,20 +925,16 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                             break
                         }
 
-                        this.sendPacket(userAuthFailure)
+                        sendAuthenticationFailure(controller, SSHAuthenticationMethods.PublicKey)
                         break
                     }
                     case SSHAuthenticationMethods.Password: {
                         const method = authRequest.data.method as PasswordAuthMethod
 
-                        assert(
-                            method.data.change_password === false,
-                            "Client requested a password change. Not implemented.",
-                        )
-
                         const context: ServerHookerPasswordAuthenticationContext = {
                             username: authRequest.data.username,
                             password: method.data.password,
+                            newPassword: method.data.newPassword,
                         }
                         const controller: ServerHookerPasswordAuthenticationController = {
                             allowLogin: false,
@@ -909,9 +952,88 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                             break authentication
                         }
 
-                        this.sendPacket(userAuthFailure)
+                        if (controller.partialSuccess) {
+                            sendAuthenticationFailure(controller, SSHAuthenticationMethods.Password)
+                            break
+                        }
+
+                        if (controller.requestPasswordChange) {
+                            this.sendPacket(
+                                new UserAuthPasswordChangeRequest({
+                                    prompt: controller.requestPasswordChange.prompt,
+                                    languageTag: controller.requestPasswordChange.languageTag ?? "",
+                                }),
+                            )
+                            break
+                        }
+
+                        sendAuthenticationFailure(controller)
                         break
                     }
+                    case SSHAuthenticationMethods.KeyboardInteractive: {
+                        const method = authRequest.data.method as KeyboardInteractiveAuthMethod
+                        let responses: readonly string[] | undefined
+                        let round = 0
+
+                        keyboardInteractive: while (true) {
+                            const context: ServerHookerKeyboardInteractiveAuthenticationContext = {
+                                username: authRequest.data.username,
+                                languageTag: method.data.languageTag,
+                                submethods: method.data.submethods,
+                                responses,
+                                round,
+                            }
+                            const controller: ServerHookerKeyboardInteractiveAuthenticationController =
+                                {
+                                    allowLogin: false,
+                                }
+                            await this.server.hooker.triggerHook(
+                                "keyboardInteractiveAuthentication",
+                                Object.freeze(context),
+                                controller,
+                                this,
+                            )
+
+                            if (controller.allowLogin) {
+                                allowLogin = true
+                                break authentication
+                            }
+                            if (controller.partialSuccess) {
+                                sendAuthenticationFailure(
+                                    controller,
+                                    SSHAuthenticationMethods.KeyboardInteractive,
+                                )
+                                break keyboardInteractive
+                            }
+                            if (controller.prompts === undefined) {
+                                sendAuthenticationFailure(controller)
+                                break keyboardInteractive
+                            }
+
+                            const request = new UserAuthInfoRequest({
+                                name: controller.name ?? "",
+                                instruction: controller.instruction ?? "",
+                                languageTag: controller.languageTag ?? "",
+                                prompts: controller.prompts,
+                            })
+                            this.sendPacket(request)
+                            const [packet] = await this.waitEvent("packet")
+                            if (packet instanceof UserAuthRequest) {
+                                pendingAuthRequest = packet
+                                break keyboardInteractive
+                            }
+                            assert(packet instanceof UserAuthInfoResponse, "Invalid packet type")
+                            if (packet.data.responses.length !== request.data.prompts.length) {
+                                sendAuthenticationFailure()
+                                break keyboardInteractive
+                            }
+                            responses = Object.freeze([...packet.data.responses])
+                            round++
+                        }
+                        break
+                    }
+                    default:
+                        sendAuthenticationFailure()
                 }
             }
         }
@@ -956,7 +1078,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     }
 
     sendPacket(packet: Packet): number {
-        this.debug("Sending packet:", packet)
+        this.debug("Sending packet:", this.packetForDebug(packet))
         const encoded = this.packetEncoder.encode(packet.serialize())
         this.socket!.write(encoded.data)
         return encoded.sequenceNumber
@@ -1035,7 +1157,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
 
         const p = packet.parse(payload)
         this.emit("packet", p)
-        this.debug("Parsing packet:", p)
+        this.debug("Parsing packet:", this.packetForDebug(p))
 
         switch (packet.type) {
             case PacketNameToType.SSH_MSG_DISCONNECT: {
@@ -1153,6 +1275,25 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         if (this.packetDecoder.bufferedLength > 0) {
             this.scheduleMessageProcessing(Buffer.alloc(0))
         }
+    }
+
+    private packetForDebug(packet: Packet): unknown {
+        if (packet instanceof UserAuthRequest) {
+            return {
+                type: "SSH_MSG_USERAUTH_REQUEST",
+                username: packet.data.username,
+                serviceName: packet.data.service_name,
+                method: packet.data.method.method_name,
+            }
+        }
+        if (packet instanceof UserAuthInfoResponse) {
+            return {
+                type: "SSH_MSG_USERAUTH_INFO_RESPONSE",
+                responseCount: packet.data.responses.length,
+                responses: "<redacted>",
+            }
+        }
+        return packet
     }
 
     private queueChannelAction(localId: number, action: (channel: Channel) => void): void {

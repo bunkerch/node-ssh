@@ -24,15 +24,12 @@ export const PacketNameToType = {
     SSH_MSG_USERAUTH_REQUEST: 50,
     SSH_MSG_USERAUTH_FAILURE: 51,
     SSH_MSG_USERAUTH_SUCCESS: 52,
-    // TODO: Support SSH_MSG_USERAUTH_BANNER
-    // Currently, if a server sends it, the connection will crash.
     SSH_MSG_USERAUTH_BANNER: 53,
 
     // This is messed up in the spec
     // not my fault
     SSH_MSG_USERAUTH_PK_OK: 60,
-
-    // SSH_MSG_USERAUTH_PASSWD_CHANGEREQ = 60,
+    SSH_MSG_USERAUTH_INFO_RESPONSE: 61,
 
     SSH_MSG_GLOBAL_REQUEST: 80,
     SSH_MSG_REQUEST_SUCCESS: 81,
@@ -69,6 +66,7 @@ export enum SSHAuthenticationMethods {
     None = "none",
     PublicKey = "publickey",
     Password = "password",
+    KeyboardInteractive = "keyboard-interactive",
 }
 
 // https://datatracker.ietf.org/doc/html/rfc4254#section-5.2

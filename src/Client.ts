@@ -63,6 +63,12 @@ import ChannelClose from "./packets/ChannelClose.js"
 import ChannelRequest from "./packets/ChannelRequest.js"
 import ChannelSuccess from "./packets/ChannelSuccess.js"
 import ChannelFailure from "./packets/ChannelFailure.js"
+import UserAuthBanner from "./packets/UserAuthBanner.js"
+import UserAuthFailure from "./packets/UserAuthFailure.js"
+import UserAuthPKOK from "./packets/UserAuthPKOK.js"
+import UserAuthPasswordChangeRequest from "./packets/UserAuthPasswordChangeRequest.js"
+import UserAuthInfoRequest, { UserAuthPrompt } from "./packets/UserAuthInfoRequest.js"
+import UserAuthInfoResponse from "./packets/UserAuthInfoResponse.js"
 
 export interface ClientOptions {
     hostname: string
@@ -91,6 +97,7 @@ export interface ClientEvents {
     serverKexDHReply: [serverKexDHReply: KexDHReply]
     clientNewKeys: []
     serverNewKeys: []
+    banner: [message: string, languageTag: string]
     "tcp connection": [
         details: Readonly<TCPIPConnectionDetails>,
         accept: () => ClientForwardedTCPIPChannel | undefined,
@@ -117,6 +124,25 @@ export type ClientHookerPasswordAuthContext = Readonly<{
 export interface ClientHookerPasswordAuthController {
     password: string | undefined
 }
+export type ClientHookerPasswordChangeContext = Readonly<{
+    username: string
+    prompt: string
+    languageTag: string
+}>
+export interface ClientHookerPasswordChangeController {
+    newPassword: string | undefined
+}
+export type ClientHookerKeyboardInteractiveContext = Readonly<{
+    username: string
+    name: string
+    instruction: string
+    languageTag: string
+    prompts: readonly Readonly<UserAuthPrompt>[]
+    round: number
+}>
+export interface ClientHookerKeyboardInteractiveController {
+    responses: string[] | undefined
+}
 // eslint-disable-next-line @typescript-eslint/consistent-type-definitions
 export type ClientHooker = {
     // `serverPublicKey` is the second argument because
@@ -126,6 +152,14 @@ export type ClientHooker = {
     passwordAuth: [
         passwordAuthContext: ClientHookerPasswordAuthContext,
         passwordAuthController: ClientHookerPasswordAuthController,
+    ]
+    passwordChange: [
+        passwordChangeContext: ClientHookerPasswordChangeContext,
+        passwordChangeController: ClientHookerPasswordChangeController,
+    ]
+    keyboardInteractive: [
+        keyboardInteractiveContext: ClientHookerKeyboardInteractiveContext,
+        keyboardInteractiveController: ClientHookerKeyboardInteractiveController,
     ]
 }
 
@@ -172,7 +206,11 @@ export default class Client extends EventEmitter<ClientEvents> {
         ]
 
         setImmediate(() => {
-            this.debug("Client created with options:", this.options)
+            this.debug("Client created with options:", {
+                ...this.options,
+                password: this.options.password ? "<redacted>" : "",
+                agent: this.options.agent.constructor.name,
+            })
         })
 
         if (this.options.password) {
@@ -227,6 +265,10 @@ export default class Client extends EventEmitter<ClientEvents> {
     hasReceivedNewKeys = false
     hasSentNewKeys = false
     hasAuthenticated = false
+    activeAuthenticationMethod?: SSHAuthenticationMethods
+    authenticationMethodsRemaining?: ReadonlySet<SSHAuthenticationMethods>
+    partialAuthenticationSuccess = false
+    private authenticationFailureSequence = 0
 
     localChannelIndex = 0
     channels = new Map<number, ClientChannel>()
@@ -727,14 +769,7 @@ export default class Client extends EventEmitter<ClientEvents> {
         }
 
         this.kexAlgorithm.deriveKeysClient(this)
-        this.debug("Derived keys:", {
-            ivClientToServer: this.ivClientToServer,
-            ivServerToClient: this.ivServerToClient,
-            encryptionKeyClientToServer: this.encryptionKeyClientToServer,
-            encryptionKeyServerToClient: this.encryptionKeyServerToClient,
-            integrityKeyClientToServer: this.integrityKeyClientToServer,
-            integrityKeyServerToClient: this.integrityKeyServerToClient,
-        })
+        this.debug("Derived transport keys")
 
         this.clientEncryption = this.clientEncryptionAlgorithm!.instantiate(
             this.encryptionKeyClientToServer!,
@@ -782,25 +817,51 @@ export default class Client extends EventEmitter<ClientEvents> {
         )
         assert(serviceAnswer.data.service_name == SSHServiceNames.UserAuth)
 
-        // TODO: Maybe get list of auth methods from server
-        // can be done through UserAuthFailure.auth_methods
-        const methodList: string[] = [...UserAuthRequest.auth_methods.keys()]
+        const methodList = this.options.authenticationMethodsOrder
+        const attemptedMethods = new Set<SSHAuthenticationMethods>()
         authentication: {
-            for (const method of methodList) {
-                const m = UserAuthRequest.auth_methods.get(method)!
+            while (true) {
+                const method = methodList.find(
+                    (candidate) =>
+                        !attemptedMethods.has(candidate) &&
+                        (!this.authenticationMethodsRemaining ||
+                            this.authenticationMethodsRemaining.has(candidate)),
+                )
+                if (!method) throw new Error("All authentication methods failed.")
+                const m = UserAuthRequest.auth_methods.get(method)
+                if (!m) {
+                    attemptedMethods.add(method)
+                    continue
+                }
                 this.debug(`Trying auth method`, m.method_name)
 
-                const success = await m.handleAuthentication(this)
+                this.activeAuthenticationMethod = m.method_name
+                const failureSequence = this.authenticationFailureSequence
+                let success: boolean
+                try {
+                    success = await m.handleAuthentication(this)
+                } finally {
+                    this.activeAuthenticationMethod = undefined
+                }
                 if (success) {
                     this.debug(`Authentication successful with method`, m.method_name)
                     this.debug("Authenticated as", this.options.username)
 
                     break authentication
                 }
-            }
 
-            // we could not authenticate.
-            throw new Error("All authentication methods failed.")
+                if (
+                    this.authenticationFailureSequence > failureSequence &&
+                    this.partialAuthenticationSuccess
+                ) {
+                    attemptedMethods.clear()
+                    this.debug(`Authentication method completed partially; continuing with`, [
+                        ...(this.authenticationMethodsRemaining ?? []),
+                    ])
+                } else {
+                    attemptedMethods.add(method)
+                }
+            }
         }
         this.hasAuthenticated = true
 
@@ -982,7 +1043,7 @@ export default class Client extends EventEmitter<ClientEvents> {
     }
 
     sendPacket(packet: Packet): number {
-        this.debug("Sending packet:", packet)
+        this.debug("Sending packet:", this.packetForDebug(packet))
         const encoded = this.packetEncoder.encode(packet.serialize())
         this.socket!.write(encoded.data)
         return encoded.sequenceNumber
@@ -1034,10 +1095,30 @@ export default class Client extends EventEmitter<ClientEvents> {
         if (!(packetName in packets)) {
             throw new Error("Not implemented: " + packetName)
         }
-        const packet = packets[packetName as keyof typeof packets]
+        let packet: typeof Packet
+        if (packetType === PacketNameToType.SSH_MSG_USERAUTH_PK_OK) {
+            switch (this.activeAuthenticationMethod) {
+                case SSHAuthenticationMethods.Password:
+                    packet = UserAuthPasswordChangeRequest
+                    break
+                case SSHAuthenticationMethods.KeyboardInteractive:
+                    packet = UserAuthInfoRequest
+                    break
+                default:
+                    packet = UserAuthPKOK
+            }
+        } else {
+            packet = packets[packetName as keyof typeof packets]
+        }
 
         const p = packet.parse(payload)
-        this.debug("Parsing packet:", p)
+        this.debug("Parsing packet:", this.packetForDebug(p))
+
+        if (p instanceof UserAuthFailure) {
+            this.authenticationMethodsRemaining = new Set(p.data.auth_methods)
+            this.partialAuthenticationSuccess = p.data.partial_success
+            this.authenticationFailureSequence++
+        }
 
         this.emit("packet", p)
 
@@ -1067,6 +1148,12 @@ export default class Client extends EventEmitter<ClientEvents> {
                 break
             }
 
+            case PacketNameToType.SSH_MSG_USERAUTH_BANNER: {
+                const banner = p as UserAuthBanner
+                this.emit("banner", banner.data.message, banner.data.languageTag)
+                break
+            }
+
             case PacketNameToType.SSH_MSG_KEXINIT:
                 // handle key exchange
                 this.emit("serverKexInit", p as KexInit, payload)
@@ -1092,6 +1179,25 @@ export default class Client extends EventEmitter<ClientEvents> {
         if (this.packetDecoder.bufferedLength > 0) {
             this.scheduleMessageProcessing(Buffer.alloc(0))
         }
+    }
+
+    private packetForDebug(packet: Packet): unknown {
+        if (packet instanceof UserAuthRequest) {
+            return {
+                type: "SSH_MSG_USERAUTH_REQUEST",
+                username: packet.data.username,
+                serviceName: packet.data.service_name,
+                method: packet.data.method.method_name,
+            }
+        }
+        if (packet instanceof UserAuthInfoResponse) {
+            return {
+                type: "SSH_MSG_USERAUTH_INFO_RESPONSE",
+                responseCount: packet.data.responses.length,
+                responses: "<redacted>",
+            }
+        }
+        return packet
     }
 
     private routeChannelPacket(packet: Packet): void {

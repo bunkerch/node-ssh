@@ -27,6 +27,8 @@ import UserAuthFailure from "./packets/UserAuthFailure.js"
 import UserAuthPKOK from "./packets/UserAuthPKOK.js"
 import UserAuthRequest from "./packets/UserAuthRequest.js"
 import UserAuthSuccess from "./packets/UserAuthSuccess.js"
+import UserAuthBanner from "./packets/UserAuthBanner.js"
+import UserAuthInfoResponse from "./packets/UserAuthInfoResponse.js"
 import { ValueOf } from "./utils/types.js"
 
 export default abstract class Packet {
@@ -73,8 +75,10 @@ export const packets = {
     SSH_MSG_USERAUTH_REQUEST: UserAuthRequest,
     SSH_MSG_USERAUTH_FAILURE: UserAuthFailure,
     SSH_MSG_USERAUTH_SUCCESS: UserAuthSuccess,
+    SSH_MSG_USERAUTH_BANNER: UserAuthBanner,
 
     SSH_MSG_USERAUTH_PK_OK: UserAuthPKOK,
+    SSH_MSG_USERAUTH_INFO_RESPONSE: UserAuthInfoResponse,
 
     SSH_MSG_GLOBAL_REQUEST: GlobalRequest,
     SSH_MSG_REQUEST_FAILURE: RequestFailure,
