@@ -14,6 +14,7 @@ import { Hooker } from "../utils/Hooker.js"
 import EventEmitter from "events"
 import Shell from "./Session/Shell.js"
 import { normalizeSSHSignal } from "../utils/Signal.js"
+import SFTPServer, { SFTPServerOptions } from "../sftp/SFTPServer.js"
 
 export interface SessionPtyInfo {
     term: string
@@ -55,6 +56,7 @@ export interface SessionChannelHookerSubsystemRequestContext {
 }
 export interface SessionChannelHookerSubsystemRequestController {
     success: boolean
+    sftp?: SFTPServerOptions
 }
 export interface SessionChannelHookerAgentForwardRequestController {
     success: boolean
@@ -103,6 +105,7 @@ export interface SessionChannelEvents {
     pty: [pty: Readonly<SessionPtyInfo>]
     shell: [Shell]
     signal: [signal: string]
+    sftp: [server: SFTPServer]
     subsystem: [name: string, shell: Shell]
     windowChange: [dimensions: Readonly<SessionWindowDimensions>]
     x11: [request: Readonly<SessionX11Request>]
@@ -118,6 +121,7 @@ export default class SessionChannel extends Channel {
     consumed = false
 
     shell: Shell | undefined
+    sftp: SFTPServer | undefined
     pty: Readonly<SessionPtyInfo> | undefined
     x11: Readonly<SessionX11Request> | undefined
     private readonly pendingInput: Buffer[] = []
@@ -299,10 +303,26 @@ export default class SessionChannel extends Channel {
                     controller,
                 )
                 if (controller.success) {
+                    if (controller.sftp && subsystem !== "sftp") {
+                        throw new Error("SFTP options require the sftp subsystem")
+                    }
                     this.consumed = true
                     const shell = this.activateShell()
                     this.sendRequestSuccess(request)
-                    this.events.emit("subsystem", subsystem, shell)
+                    if (subsystem === "sftp") {
+                        const clientSoftware =
+                            (this.client as ServerClient).clientProtocolVersion
+                                ?.protocol_software ?? ""
+                        this.sftp = new SFTPServer(shell, {
+                            ...controller.sftp,
+                            openSSHSymlinkArguments:
+                                controller.sftp?.openSSHSymlinkArguments ??
+                                /^(?:OpenSSH_|dropbear)/iu.test(clientSoftware),
+                        })
+                        this.events.emit("sftp", this.sftp)
+                    } else {
+                        this.events.emit("subsystem", subsystem, shell)
+                    }
                     return
                 }
                 break

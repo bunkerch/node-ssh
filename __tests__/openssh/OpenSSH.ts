@@ -1,5 +1,5 @@
 import { execFile, spawn } from "node:child_process"
-import { access, mkdtemp, readFile, rm } from "node:fs/promises"
+import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { AddressInfo, createConnection, createServer, type Socket } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -15,7 +15,8 @@ import PrivateKey from "../../src/utils/PrivateKey.js"
 import PublicKey from "../../src/utils/PublicKey.js"
 import { SSHAuthenticationMethods } from "../../src/constants.js"
 import { SFTPStatusError } from "../../src/sftp/SFTPClient.js"
-import { SFTPStatusCode } from "../../src/sftp/constants.js"
+import { SFTPPacketType, SFTPStatusCode } from "../../src/sftp/constants.js"
+import { attachFilesystemSFTPServer } from "./SFTPServerFixture.js"
 
 const execFileAsync = promisify(execFile)
 const imageName = "modernssh-openssh-test:bookworm"
@@ -983,6 +984,109 @@ describe("OpenSSH interoperability", () => {
             await new Promise<void>((resolve, reject) => {
                 target.close((error) => (error ? reject(error) : resolve()))
             })
+            for (const client of server.clients) client.terminate()
+            await new Promise<void>((resolve, reject) => {
+                server.server!.close((error) => (error ? reject(error) : resolve()))
+            })
+            await rm(directory, { recursive: true, force: true })
+        }
+    }, 30_000)
+
+    test("OpenSSH sftp client transfers files through a modernssh server", async () => {
+        const directory = await mkdtemp(join(tmpdir(), "modernssh-sftp-server-"))
+        const root = join(directory, "root")
+        const sourcePath = join(directory, "source.bin")
+        const destinationPath = join(directory, "destination.bin")
+        const contents = Buffer.allocUnsafe(70_000)
+        for (let index = 0; index < contents.length; index++) contents[index] = index % 239
+        await writeFile(sourcePath, contents)
+        await execFileAsync("mkdir", [root])
+
+        const hostKey = await PrivateKey.generate("ssh-ed25519")
+        const server = new Server({ hostKeys: [hostKey], sendAllHostKeys: false })
+        const errors: Error[] = []
+        const requests: string[] = []
+        server.hooker.hook("noneAuthentication", (_hook, context, decision) => {
+            decision.allowLogin = context.username === "interop"
+        })
+        server.hooker.hook("channelOpenRequest", (_hook, channel, decision) => {
+            decision.allowOpen = channel instanceof SessionChannel
+        })
+        server.on("connection", (connection) => {
+            connection.on("error", (error) => errors.push(error))
+            connection.on("channel", (channel) => {
+                if (!(channel instanceof SessionChannel)) return
+                channel.hooker.hook("subsystemRequest", (_hook, context, decision) => {
+                    decision.success = context.subsystem === "sftp"
+                })
+                channel.events.on("sftp", (sftp) => {
+                    sftp.on("error", (error) => errors.push(error))
+                    sftp.on("requestReceived", (request) => {
+                        requests.push(`${SFTPPacketType[request.type]}:${request.requestId}`)
+                    })
+                    attachFilesystemSFTPServer(sftp, root)
+                })
+            })
+        })
+        server.listen({ host: "127.0.0.1", port: 0 })
+        await new Promise<void>((resolve) => server.server!.once("listening", resolve))
+        const port = (server.server!.address() as AddressInfo).port
+
+        try {
+            const result = await collectProcess(
+                "/usr/bin/sftp",
+                [
+                    "-F",
+                    "/dev/null",
+                    "-b",
+                    "-",
+                    "-P",
+                    String(port),
+                    "-o",
+                    "BatchMode=yes",
+                    "-o",
+                    "PreferredAuthentications=none",
+                    "-o",
+                    "PubkeyAuthentication=no",
+                    "-o",
+                    "StrictHostKeyChecking=no",
+                    "-o",
+                    "UserKnownHostsFile=/dev/null",
+                    "-o",
+                    "LogLevel=ERROR",
+                    "interop@127.0.0.1",
+                ],
+                [
+                    "mkdir /transfer",
+                    `put ${sourcePath} /transfer/source.bin`,
+                    "ls -l /transfer",
+                    "rename /transfer/source.bin /transfer/renamed.bin",
+                    "symlink /transfer/renamed.bin /transfer/renamed.link",
+                    `get /transfer/renamed.bin ${destinationPath}`,
+                    "rm /transfer/renamed.link",
+                    "rm /transfer/renamed.bin",
+                    "rmdir /transfer",
+                    "quit",
+                    "",
+                ].join("\n"),
+            )
+            if (result.code !== 0) {
+                throw new Error(
+                    `OpenSSH SFTP failed: ${JSON.stringify({ result, errors: errors.map(String), requests })}`,
+                )
+            }
+            expect({
+                code: result.code,
+                stderr: result.stderr,
+                errors: errors.map(String),
+            }).toEqual({
+                code: 0,
+                stderr: "",
+                errors: [],
+            })
+            expect(await readFile(destinationPath)).toEqual(contents)
+            expect(result.stdout).toContain("renamed.bin")
+        } finally {
             for (const client of server.clients) client.terminate()
             await new Promise<void>((resolve, reject) => {
                 server.server!.close((error) => (error ? reject(error) : resolve()))

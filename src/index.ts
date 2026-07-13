@@ -19,6 +19,8 @@ export type {
 } from "./Client.js"
 export { default as SFTPClient, SFTPStatusError, sftpOpenFlags } from "./sftp/SFTPClient.js"
 export type { SFTPPath, SFTPPosition } from "./sftp/SFTPClient.js"
+export { default as SFTPServer } from "./sftp/SFTPServer.js"
+export type { SFTPServerEvents, SFTPServerOptions, SFTPSymlinkPaths } from "./sftp/SFTPServer.js"
 export {
     default as ClientChannel,
     DEFAULT_CHANNEL_PACKET_SIZE,
@@ -156,6 +158,7 @@ export type {
     SFTPPathPacket,
     SFTPReadPacket,
     SFTPRequestPacketBase,
+    SFTPRequestPacket,
     SFTPSetStatPacket,
     SFTPStatusPacket,
     SFTPTwoPathPacket,

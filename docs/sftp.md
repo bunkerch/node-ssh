@@ -98,3 +98,75 @@ initial read and write request size is 32 KiB, which every conforming server is 
 OpenSSH reverses the two wire arguments of the standard `SSH_FXP_SYMLINK` request. The client uses
 the peer's SSH identification to apply that published OpenSSH behavior while preserving the draft's
 ordering for other implementations.
+
+## Server sessions
+
+SFTP access is denied by the ordinary session-subsystem policy hook until explicitly accepted. The
+server does not expose the host filesystem automatically: mapping virtual paths, enforcing a root,
+authorizing operations, allocating opaque handles, and translating operating-system errors are
+application policy.
+
+```ts
+server.hooker.hook("channelOpenRequest", (_hook, channel, decision) => {
+    decision.allowOpen = channel instanceof SessionChannel
+})
+
+server.on("connection", (connection) => {
+    connection.on("channel", (channel) => {
+        if (!(channel instanceof SessionChannel)) return
+
+        channel.hooker.hook("subsystemRequest", (_hook, context, decision) => {
+            decision.success = context.subsystem === "sftp"
+        })
+        channel.events.on("sftp", (sftp) => {
+            sftp.on("STAT", (request) => {
+                void lookupAuthorizedAttributes(request.path).then(
+                    (attributes) => sftp.attributes(request.requestId, attributes),
+                    () => sftp.status(request.requestId, SFTPStatusCode.NoSuchFile),
+                )
+            })
+        })
+    })
+})
+```
+
+`SFTPServer` emits the uppercase request events used by the protocol: `OPEN`, `CLOSE`, `READ`,
+`WRITE`, `LSTAT`, `FSTAT`, `SETSTAT`, `FSETSTAT`, `OPENDIR`, `READDIR`, `REMOVE`, `MKDIR`, `RMDIR`,
+`REALPATH`, `STAT`, `RENAME`, `READLINK`, `SYMLINK`, and `EXTENDED`. When no specific listener is
+registered, the generic `request` event is used as a fallback. An entirely unhandled request gets
+`SFTPStatusCode.OperationUnsupported`. `requestReceived` is a passive observation event and does not
+take ownership of the response.
+
+Complete each request exactly once with the appropriate method:
+
+- `status(requestId, code, message?, languageTag?)` reports success for operations without result
+  data or a failure for any operation.
+- `handle`, `data`, `name`, and `attributes` return the corresponding baseline result.
+- `extendedReply` returns extension-specific bytes.
+
+The implementation rejects duplicate outstanding identifiers, invalid response types, oversized
+read results, empty name responses, server use of client-only connection status codes, and a second
+response. Requests are dispatched one at a time in arrival order. This conservative scheduling
+guarantees the draft's ordering semantics for operations on the same file and provides fairness
+without requiring an application handler to infer which opaque handles alias one resource. The
+bounded queue accepts at most 1024 waiting requests.
+
+Advertise extension name/version pairs through `decision.sftp.extensions` only when every advertised
+operation is actually implemented:
+
+```ts
+decision.success = true
+decision.sftp = {
+    extensions: [{ name: "example@example.com", data: Buffer.from("1") }],
+}
+```
+
+For `SYMLINK`, call `sftp.symlinkPaths(request)` to obtain semantic `targetPath` and `linkPath`
+values. Session integration detects OpenSSH and Dropbear identifications and normalizes OpenSSH's
+published argument reversal; `openSSHSymlinkArguments` can be set explicitly for a proxied or
+otherwise unusual peer.
+
+Never use a client-supplied path directly with a local filesystem API. Resolve it beneath an
+application-owned root, reject traversal outside that root, validate every opaque handle against
+per-session state, close all remaining resources on the SFTP `close` event, and apply authorization
+to every operation rather than only `OPEN`.

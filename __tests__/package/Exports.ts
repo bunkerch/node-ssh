@@ -29,6 +29,7 @@ import {
     SFTPPacketParser,
     SFTPPacketType,
     SFTPClient,
+    SFTPServer,
     SSHAgent,
     SSHAuthenticationMethods,
     type ClientOptions,
@@ -77,6 +78,7 @@ describe("package exports", () => {
         expect(SFTPPacketParser).toBeFunction()
         expect(SFTPPacketType.Init).toBe(1)
         expect(SFTPClient).toBeFunction()
+        expect(SFTPServer).toBeFunction()
     })
 
     test("compiled entry point provides the same side-effect-free API", async () => {
@@ -103,5 +105,6 @@ describe("package exports", () => {
         expect(entry.SFTPPacketParser).toBeDefined()
         expect(entry.SFTPPacketType.Status).toBe(101)
         expect(entry.SFTPClient).toBeDefined()
+        expect(entry.SFTPServer).toBeDefined()
     })
 })

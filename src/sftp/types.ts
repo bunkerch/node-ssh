@@ -142,6 +142,18 @@ export interface SFTPExtendedReplyPacket extends SFTPRequestPacketBase {
     data: Buffer
 }
 
+export type SFTPRequestPacket =
+    | SFTPOpenPacket
+    | SFTPHandleRequestPacket
+    | SFTPReadPacket
+    | SFTPWritePacket
+    | SFTPPathPacket
+    | SFTPSetStatPacket
+    | SFTPFSetStatPacket
+    | SFTPMkDirPacket
+    | SFTPTwoPathPacket
+    | SFTPExtendedPacket
+
 export type SFTPPacket =
     | SFTPInitPacket
     | SFTPVersionPacket
