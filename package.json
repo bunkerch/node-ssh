@@ -1,37 +1,44 @@
 {
-  "name": "modernssh",
-  "private": true,
-  "version": "1.0.0",
-  "description": "cool ssh library frfr",
-  "main": "dist/index.js",
-  "scripts": {
-    "test": "bun test ./__tests__/*/*",
-    "build": "tsc",
-    "start": "node .",
-    "dev": "tsc --watch",
-    "lint": "eslint .",
-    "lint:fix": "eslint . --fix",
-    "format": "prettier -wc src"
-  },
-  "author": "Manaf",
-  "license": "UNLICENSED",
-  "devDependencies": {
-    "@eslint/js": "^9.38.0",
-    "@stylistic/eslint-plugin": "^5.5.0",
-    "@types/eslint__js": "^8.42.3",
-    "@types/jest": "^29.5.14",
-    "@types/node": "^22.18.12",
-    "eslint": "^9.38.0",
-    "jest": "^29.7.0",
-    "modernlog": "^1.1.2",
-    "prettier": "^3.6.2",
-    "typescript": "^5.9.3",
-    "typescript-eslint": "^8.46.2"
-  },
-  "type": "module",
-  "dependencies": {
-    "asn1js": "^3.0.6",
-    "tweetnacl": "^1.0.3"
-  },
-  "packageManager": "pnpm@10.19.0"
+    "name": "modernssh",
+    "private": true,
+    "version": "1.0.0",
+    "description": "cool ssh library frfr",
+    "main": "dist/index.js",
+    "scripts": {
+        "test": "bun test ./__tests__/*/*",
+        "build": "tsc",
+        "start": "node .",
+        "dev": "tsc --watch",
+        "lint": "eslint .",
+        "lint:fix": "eslint . --fix",
+        "format": "prettier --write .",
+        "format:check": "prettier --check .",
+        "prepare": "husky"
+    },
+    "lint-staged": {
+        "*.{js,ts,json,md,yaml,yml}": "prettier --write"
+    },
+    "author": "Manaf",
+    "license": "UNLICENSED",
+    "devDependencies": {
+        "@eslint/js": "^9.38.0",
+        "@stylistic/eslint-plugin": "^5.5.0",
+        "@types/eslint__js": "^8.42.3",
+        "@types/jest": "^29.5.14",
+        "@types/node": "^22.18.12",
+        "eslint": "^9.38.0",
+        "husky": "^9.1.7",
+        "jest": "^29.7.0",
+        "lint-staged": "^16.4.0",
+        "modernlog": "^1.1.2",
+        "prettier": "^3.6.2",
+        "typescript": "^5.9.3",
+        "typescript-eslint": "^8.46.2"
+    },
+    "type": "module",
+    "dependencies": {
+        "asn1js": "^3.0.6",
+        "tweetnacl": "^1.0.3"
+    },
+    "packageManager": "pnpm@10.19.0"
 }
