@@ -115,7 +115,12 @@ export type {
 } from "./Server.js"
 export type { UserAuthPrompt } from "./packets/UserAuthInfoRequest.js"
 export { default as ServerClient } from "./ServerClient.js"
-export type { ServerClientEvents, ServerForwardCallback } from "./ServerClient.js"
+export {
+    ServerGlobalRequestError,
+    type ServerClientEvents,
+    type ServerForwardCallback,
+    type ServerGlobalRequestCallback,
+} from "./ServerClient.js"
 
 export {
     default as Channel,

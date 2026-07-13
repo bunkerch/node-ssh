@@ -519,6 +519,7 @@ describe("OpenSSH interoperability", () => {
         let command = ""
         let rekeys = 0
         let xonXoffNotifications = 0
+        let globalRequestFailure: Promise<void> | undefined
         server.hooker.hook("noneAuthentication", (_hook, context, decision) => {
             decision.allowLogin = context.username === "interop"
         })
@@ -528,6 +529,20 @@ describe("OpenSSH interoperability", () => {
         server.on("connection", (connection) => {
             connection.on("error", (error) => errors.push(error))
             connection.on("rekey", () => rekeys++)
+            connection.once("connect", () => {
+                globalRequestFailure = connection
+                    .globalRequest("unknown-server-request@example.test")
+                    .then(
+                        () => {
+                            throw new Error("OpenSSH accepted an unknown server global request")
+                        },
+                        (error: Error) => {
+                            expect(error.message).toBe(
+                                "SSH global request unknown-server-request@example.test failed",
+                            )
+                        },
+                    )
+            })
             connection.on("channel", (channel) => {
                 if (!(channel instanceof SessionChannel)) return
                 channel.hooker.hook("execRequest", (_hook, context, decision) => {
@@ -593,6 +608,8 @@ describe("OpenSSH interoperability", () => {
             expect(Buffer.concat(input).toString()).toBe("x".repeat(65_536))
             expect(rekeys).toBeGreaterThan(0)
             expect(xonXoffNotifications).toBe(1)
+            expect(globalRequestFailure).toBeDefined()
+            await globalRequestFailure
             expect(errors).toEqual([])
         } finally {
             await new Promise<void>((resolve, reject) => {

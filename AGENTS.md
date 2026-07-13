@@ -96,7 +96,8 @@ meaningful wire-level behavior.
 - Unknown RFC 4254 global requests are deny-by-default async `Hooker` policy surfaces on both peer
   roles. Copy opaque arguments into the hook context, serialize handlers to preserve reply order,
   require Buffer success payloads, invoke one-way notifications without replying, and settle every
-  outbound request on reply or close. Keep built-in requests on their dedicated validation paths.
+  outbound client or server request on reply or close. Queue outbound requests across rekey and
+  keep built-in requests on their dedicated validation paths.
 - Transport ping uses negotiated `ping@openssh.com` version 0 and opcodes 192/193 with an opaque
   echoed string. Never send it without the RFC 8308 advertisement, preserve FIFO reply ordering,
   reject mismatched echoes, settle pending calls on close, and queue pings and pongs across rekey.

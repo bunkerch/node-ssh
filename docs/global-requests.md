@@ -29,6 +29,24 @@ Request names must be non-empty printable ASCII and arguments must be a `Buffer`
 rejects with `GlobalRequestError`. Concurrent calls are matched to replies in RFC wire order, and
 pending calls reject if the connection closes.
 
+Accepted server connections expose the same API on `ServerClient`, for connection-wide requests
+directed at an SSH client:
+
+```ts
+server.on("connection", (connection) => {
+    connection.once("connect", async () => {
+        const response = await connection.globalRequest(
+            "query-client@example.com",
+            Buffer.from("opaque request bytes"),
+        )
+        console.log(response)
+    })
+})
+```
+
+Its Promise and callback overloads have the same validation, FIFO matching, rekey queuing, and
+close-settlement rules. Failure replies reject with `ServerGlobalRequestError`.
+
 ## Receiving application requests
 
 Unknown global requests are denied by default. Both client and server expose an awaited

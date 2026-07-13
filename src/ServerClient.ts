@@ -119,6 +119,17 @@ export type ServerForwardCallback<T extends Channel> = (
     error: Error | undefined,
     channel?: T,
 ) => void
+export type ServerGlobalRequestCallback = (error: Error | undefined, response?: Buffer) => void
+
+export class ServerGlobalRequestError extends Error {
+    name = "ServerGlobalRequestError"
+}
+
+interface PendingGlobalRequest {
+    name: string
+    resolve: (response: Buffer) => void
+    reject: (error: Error) => void
+}
 
 export interface ServerClientEvents {
     error: [error: Error]
@@ -182,6 +193,12 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             this.agentForwardingEnabled = false
             for (const channel of this.channels.values()) channel.abort()
             this.channels.clear()
+            while (this.pendingGlobalRequests.length > 0) {
+                const request = this.pendingGlobalRequests.shift()!
+                request.reject(
+                    new Error(`SSH connection closed during global request ${request.name}`),
+                )
+            }
             this.emit("close")
         })
     }
@@ -238,6 +255,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     agentForwardingEnabled = false
     private noMoreSessionsRequested = false
     private authenticationExpired = false
+    private readonly pendingGlobalRequests: PendingGlobalRequest[] = []
 
     get noMoreSessions(): boolean {
         return this.noMoreSessionsRequested
@@ -397,6 +415,70 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             (error: Error) => callback(error),
         )
         return this
+    }
+
+    globalRequest(name: string, args?: Buffer): Promise<Buffer>
+    globalRequest(name: string, callback: ServerGlobalRequestCallback): this
+    globalRequest(name: string, args: Buffer, callback: ServerGlobalRequestCallback): this
+    globalRequest(
+        name: string,
+        argsOrCallback: Buffer | ServerGlobalRequestCallback = Buffer.alloc(0),
+        callback?: ServerGlobalRequestCallback,
+    ): Promise<Buffer> | this {
+        const args = typeof argsOrCallback === "function" ? Buffer.alloc(0) : argsOrCallback
+        callback = typeof argsOrCallback === "function" ? argsOrCallback : callback
+        let operation: Promise<Buffer>
+        try {
+            this.validateGlobalRequest(name, args)
+            if (!this.isConnected || !this.hasAuthenticated) {
+                throw new Error("Cannot send an SSH global request before authentication")
+            }
+            operation = new Promise<Buffer>((resolve, reject) => {
+                this.pendingGlobalRequests.push({ name, resolve, reject })
+                try {
+                    this.sendPacket(
+                        new GlobalRequest({
+                            request_name: name,
+                            want_reply: true,
+                            args: Buffer.from(args),
+                        }),
+                    )
+                } catch (error) {
+                    this.pendingGlobalRequests.pop()
+                    reject(error as Error)
+                }
+            })
+        } catch (error) {
+            operation = Promise.reject(error as Error)
+        }
+        if (!callback) return operation
+        operation.then(
+            (response) => callback(undefined, response),
+            (error: Error) => callback(error),
+        )
+        return this
+    }
+
+    private validateGlobalRequest(name: string, args: Buffer): void {
+        if (!/^[\x21-\x7e]+$/u.test(name)) {
+            throw new TypeError("SSH global request name must be non-empty printable ASCII")
+        }
+        if (!Buffer.isBuffer(args)) {
+            throw new TypeError("SSH global request arguments must be a buffer")
+        }
+    }
+
+    private routeGlobalRequestReply(packet: Packet): void {
+        if (!(packet instanceof RequestSuccess) && !(packet instanceof RequestFailure)) return
+        const request = this.pendingGlobalRequests.shift()
+        if (!request) throw new Error("Received an unexpected SSH global request response")
+        if (packet instanceof RequestSuccess) {
+            request.resolve(Buffer.from(packet.data.args))
+        } else {
+            request.reject(
+                new ServerGlobalRequestError(`SSH global request ${request.name} failed`),
+            )
+        }
     }
 
     private createKexInit(): KexInit {
@@ -1634,6 +1716,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             this.strictInitialPackets.add(packetType)
         }
         this.emit("packet", p)
+        this.routeGlobalRequestReply(p)
         this.debug("Parsing packet:", this.packetForDebug(p))
 
         switch (packet.type) {

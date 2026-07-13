@@ -43,9 +43,10 @@ into asserted fields and serialized back to the exact original bytes.
 
 Generic global-request integration sends concurrent requests through an awaited server hook and
 proves their opaque replies remain ordered, covers deny-by-default and one-way notification paths,
-and exercises a server-initiated request through the client's awaited hook. The OpenSSH fixture
-rejects a private unknown request through the public client API, proving standards-compatible
-failure handling against a real peer.
+and exercises ordered server-initiated requests through the client's awaited hook using the public
+`ServerClient` API, including a request queued across rekey and one rejected on close. Real OpenSSH
+peers reject private unknown requests initiated in either direction, proving standards-compatible
+failure handling for both public APIs.
 
 Session interoperability sends a BREAK from the modern client to a real OpenSSH PTY and delivers
 an `xon-xoff` notification from the modern server to the system OpenSSH client. In-process peers

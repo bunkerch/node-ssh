@@ -14,7 +14,6 @@ import ClientForwardedStreamLocalChannel from "../../src/channels/ClientForwarde
 import ForwardedTCPIPChannel from "../../src/channels/ForwardedTCPIPChannel.js"
 import Shell from "../../src/channels/Session/Shell.js"
 import RequestFailure from "../../src/packets/RequestFailure.js"
-import RequestSuccess from "../../src/packets/RequestSuccess.js"
 import GlobalRequest from "../../src/packets/GlobalRequest.js"
 import PrivateKey from "../../src/utils/PrivateKey.js"
 
@@ -148,10 +147,15 @@ describe("client/server integration", () => {
         const clientGlobalRequests: string[] = []
         client.hooker.hook("globalRequest", async (_hook, context, controller) => {
             clientGlobalRequests.push(context.name)
-            await Promise.resolve()
-            if (context.name === "server-query@example.test") {
+            if (context.name === "server-query-one@example.test") {
+                await new Promise<void>((resolve) => setTimeout(resolve, 10))
                 controller.success = true
                 controller.response = Buffer.concat([Buffer.from("reply:"), context.args])
+            } else if (context.name === "server-query-two@example.test") {
+                controller.success = true
+                controller.response = Buffer.concat([Buffer.from("reply:"), context.args])
+            } else if (context.name === "never-reply@example.test") {
+                await new Promise<never>(() => undefined)
             }
         })
 
@@ -208,23 +212,40 @@ describe("client/server integration", () => {
                 ).toBe(client)
             })
 
-            const serverRequestReply = new Promise<RequestSuccess>((resolve) => {
-                const listener = (packet: unknown) => {
-                    if (!(packet instanceof RequestSuccess)) return
-                    serverPeer!.off("packet", listener)
-                    resolve(packet)
-                }
-                serverPeer!.on("packet", listener)
-            })
-            serverPeer!.sendPacket(
-                new GlobalRequest({
-                    request_name: "server-query@example.test",
-                    want_reply: true,
-                    args: Buffer.from("opaque"),
-                }),
+            expect(
+                await Promise.all([
+                    serverPeer!.globalRequest(
+                        "server-query-one@example.test",
+                        Buffer.from("first"),
+                    ),
+                    serverPeer!.globalRequest(
+                        "server-query-two@example.test",
+                        Buffer.from("second"),
+                    ),
+                ]),
+            ).toEqual([Buffer.from("reply:first"), Buffer.from("reply:second")])
+            expect(clientGlobalRequests).toEqual([
+                "server-query-one@example.test",
+                "server-query-two@example.test",
+            ])
+            await expect(serverPeer!.globalRequest("server-denied@example.test")).rejects.toThrow(
+                "SSH global request server-denied@example.test failed",
             )
-            expect((await serverRequestReply).data.args).toEqual(Buffer.from("reply:opaque"))
-            expect(clientGlobalRequests).toEqual(["server-query@example.test"])
+            await new Promise<void>((resolve, reject) => {
+                expect(
+                    serverPeer!.globalRequest(
+                        "server-query-two@example.test",
+                        Buffer.from("callback"),
+                        (error, response) => {
+                            if (error) reject(error)
+                            else {
+                                expect(response).toEqual(Buffer.from("reply:callback"))
+                                resolve()
+                            }
+                        },
+                    ),
+                ).toBe(serverPeer!)
+            })
 
             client.sendPacket(
                 new GlobalRequest({
@@ -312,8 +333,13 @@ describe("client/server integration", () => {
                     serverPeer!,
                 )
             })
+            const serverRequestDuringRekey = serverPeer!.globalRequest(
+                "server-query-two@example.test",
+                Buffer.from("during-rekey"),
+            )
             await serverRekey
             await clientAcceptedServerRekey
+            expect(await serverRequestDuringRekey).toEqual(Buffer.from("reply:during-rekey"))
             expect(clientRekeys).toBe(2)
             expect(serverRekeys).toBe(2)
             expect(clientHandshakes).toEqual([
@@ -473,10 +499,21 @@ describe("client/server integration", () => {
             expect(serverErrors).toEqual([])
             expect(clientErrors).toEqual([])
         } finally {
+            const pendingServerRequest = serverPeer?.isConnected
+                ? serverPeer.globalRequest("never-reply@example.test").then(
+                      () => "unexpected success",
+                      (error: Error) => error.message,
+                  )
+                : undefined
             const closed = new Promise<void>((resolve) => client.once("close", resolve))
             expect(client.end()).toBe(client)
             expect(client.end()).toBe(client)
             await closed
+            if (pendingServerRequest) {
+                expect(await pendingServerRequest).toBe(
+                    "SSH connection closed during global request never-reply@example.test",
+                )
+            }
             expect(client.isConnected).toBe(false)
             await new Promise<void>((resolve, reject) => {
                 expect(server.close((error) => (error ? reject(error) : resolve()))).toBe(server)
