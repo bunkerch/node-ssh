@@ -47,6 +47,12 @@ import assert from "node:assert"
 import Packet, { packets } from "./packet.js"
 import Disconnect, { DisconnectError, DisconnectReason } from "./packets/Disconnect.js"
 import KexDHInit from "./packets/KexDHInit.js"
+import KexDHGexGroup from "./packets/KexDHGexGroup.js"
+import KexDHGexInit from "./packets/KexDHGexInit.js"
+import KexDHGexReply from "./packets/KexDHGexReply.js"
+import KexDHGexRequest from "./packets/KexDHGexRequest.js"
+import KexDHGexRequestOld from "./packets/KexDHGexRequestOld.js"
+import { DiffieHellmanGroupExchange } from "./algorithms/kex/diffie-hellman-group-exchange.js"
 import NewKeys from "./packets/NewKeys.js"
 import ExtInfo from "./packets/ExtInfo.js"
 import { KeyExchangeError } from "./algorithms/kex/key-exchange.js"
@@ -107,6 +113,8 @@ export interface ServerClientEvents {
     packet: [packet: Packet]
     clientKexInit: [kexInit: KexInit, payload: Buffer]
     clientKexDHInit: [kexDHInit: KexDHInit]
+    clientKexDHGexRequest: [request: KexDHGexRequest | KexDHGexRequestOld]
+    clientKexDHGexInit: [init: KexDHGexInit]
     clientNewKeys: []
     serverNewKeys: []
     handshake: [negotiated: Readonly<NegotiatedAlgorithms>]
@@ -366,10 +374,24 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
 
             const kexAlgorithm = this.kexAlgorithm
             assert(kexAlgorithm, "No key exchange algorithm was negotiated")
-            const [clientKexDHInit] = await this.waitEvent("clientKexDHInit")
-            this.clientKexDHInit = clientKexDHInit
-            kexAlgorithm.generateKeyPair()
-            kexAlgorithm.computeSharedSecret(clientKexDHInit.data.e)
+            if (kexAlgorithm instanceof DiffieHellmanGroupExchange) {
+                const [request] = await this.waitEvent("clientKexDHGexRequest")
+                if (request instanceof KexDHGexRequestOld) {
+                    kexAlgorithm.setOldRequest(request.data.preferred)
+                } else {
+                    kexAlgorithm.setRequest(request.data)
+                }
+                const group = kexAlgorithm.selectServerGroup()
+                kexAlgorithm.generateKeyPair()
+                this.sendPacket(new KexDHGexGroup(group))
+                const [init] = await this.waitEvent("clientKexDHGexInit")
+                kexAlgorithm.computeSharedSecret(init.data.e)
+            } else {
+                const [clientKexDHInit] = await this.waitEvent("clientKexDHInit")
+                this.clientKexDHInit = clientKexDHInit
+                kexAlgorithm.generateKeyPair()
+                kexAlgorithm.computeSharedSecret(clientKexDHInit.data.e)
+            }
 
             const hostKey = this.server.options.hostKeys.find(
                 (key) => key.data.alg === this.hostKeyAlgorithm!.key_format,
@@ -377,13 +399,18 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             assert(hostKey, "No host key found for the negotiated algorithm")
             const publicKey = hostKey.data.publicKey.serialize()
             const h = kexAlgorithm.computeHServer(this, clientKexInitBuffer, publicKey)
+            const reply = {
+                K_S: publicKey,
+                f: kexAlgorithm.getPublicKey(),
+                H_sig: hostKey.sign(h, this.hostKeyAlgorithm!.signature_algorithm).serialize(),
+            }
             this.sendPacket(
-                new KexDHReply({
-                    K_S: publicKey,
-                    f: kexAlgorithm.getPublicKey(),
-                    H_sig: hostKey.sign(h, this.hostKeyAlgorithm!.signature_algorithm).serialize(),
-                    encoding: kexAlgorithm.exchangeValueEncoding,
-                }),
+                kexAlgorithm instanceof DiffieHellmanGroupExchange
+                    ? new KexDHGexReply(reply)
+                    : new KexDHReply({
+                          ...reply,
+                          encoding: kexAlgorithm.exchangeValueEncoding,
+                      }),
             )
 
             this.H = h
@@ -1304,7 +1331,11 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         if (!(packetName in packets)) {
             throw new Error("Not implemented: " + packetName)
         }
-        const packet = packets[packetName as keyof typeof packets]
+        const packet =
+            packetType === PacketNameToType.SSH_MSG_KEXDH_INIT &&
+            this.kexAlgorithm instanceof DiffieHellmanGroupExchange
+                ? KexDHGexRequestOld
+                : packets[packetName as keyof typeof packets]
 
         const p = packet.parse(payload)
         this.emit("packet", p)
@@ -1344,7 +1375,26 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 break
 
             case PacketNameToType.SSH_MSG_KEXDH_INIT:
-                this.emit("clientKexDHInit", p as KexDHInit)
+                if (p instanceof KexDHGexRequestOld) {
+                    this.emit("clientKexDHGexRequest", p)
+                } else {
+                    this.emit("clientKexDHInit", p as KexDHInit)
+                    this.packetProcessingPaused = true
+                }
+                break
+
+            case PacketNameToType.SSH_MSG_KEX_DH_GEX_REQUEST:
+                if (!(this.kexAlgorithm instanceof DiffieHellmanGroupExchange)) {
+                    throw new Error("Received a group request for another key exchange")
+                }
+                this.emit("clientKexDHGexRequest", p as KexDHGexRequest)
+                break
+
+            case PacketNameToType.SSH_MSG_KEX_DH_GEX_INIT:
+                if (!(this.kexAlgorithm instanceof DiffieHellmanGroupExchange)) {
+                    throw new Error("Received a group-exchange init for another key exchange")
+                }
+                this.emit("clientKexDHGexInit", p as KexDHGexInit)
                 this.packetProcessingPaused = true
                 break
 

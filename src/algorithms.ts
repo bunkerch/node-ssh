@@ -9,6 +9,9 @@ import DiffieHellmanGroup16SHA512 from "./algorithms/kex/diffie-hellman-group16-
 import DiffieHellmanGroup15SHA512 from "./algorithms/kex/diffie-hellman-group15-sha512.js"
 import DiffieHellmanGroup17SHA512 from "./algorithms/kex/diffie-hellman-group17-sha512.js"
 import Curve25519SHA256, { Curve25519SHA256LibSSH } from "./algorithms/kex/curve25519-sha256.js"
+import DiffieHellmanGroupExchangeSHA256, {
+    DiffieHellmanGroupExchangeSHA1,
+} from "./algorithms/kex/diffie-hellman-group-exchange.js"
 import {
     ECDHSHA2NISTP256,
     ECDHSHA2NISTP384,
@@ -104,6 +107,7 @@ export const kex_algorithms = new Map<string, typeof KexAlgorithm>([
     ["ecdh-sha2-nistp256", ECDHSHA2NISTP256],
     ["ecdh-sha2-nistp384", ECDHSHA2NISTP384],
     ["ecdh-sha2-nistp521", ECDHSHA2NISTP521],
+    ["diffie-hellman-group-exchange-sha256", DiffieHellmanGroupExchangeSHA256],
     ["diffie-hellman-group16-sha512", DiffieHellmanGroup16SHA512],
     ["diffie-hellman-group18-sha512", DiffieHellmanGroup18SHA512],
     ["diffie-hellman-group17-sha512", DiffieHellmanGroup17SHA512],
@@ -115,6 +119,7 @@ export const kex_algorithms = new Map<string, typeof KexAlgorithm>([
     // is weak and within theoretical range of the so-called Logjam attack.
     // TODO: Figure if we should disable it.
     ["diffie-hellman-group1-sha1", DiffieHellmanGroup1SHA1],
+    ["diffie-hellman-group-exchange-sha1", DiffieHellmanGroupExchangeSHA1],
 ])
 
 export abstract class EncryptionAlgorithm {

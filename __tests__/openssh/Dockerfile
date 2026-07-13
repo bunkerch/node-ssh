@@ -18,6 +18,7 @@ RUN apt-get update \
         'UsePAM yes' \
         'Banner /etc/modernssh-banner' \
         'Ciphers chacha20-poly1305@openssh.com,aes128-gcm@openssh.com,aes256-gcm@openssh.com,aes128-ctr,aes192-ctr,aes256-ctr,aes128-cbc,aes192-cbc,aes256-cbc,3des-cbc' \
+        'KexAlgorithms +diffie-hellman-group-exchange-sha1' \
         'HostKey /etc/ssh/ssh_host_ed25519_key' \
         'HostKey /etc/ssh/ssh_host_rsa_key' \
         'HostKey /etc/ssh/ssh_host_ecdsa_key' \

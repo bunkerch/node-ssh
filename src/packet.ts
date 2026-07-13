@@ -17,6 +17,9 @@ import GlobalRequest from "./packets/GlobalRequest.js"
 import Ignore from "./packets/Ignore.js"
 import KexDHInit from "./packets/KexDHInit.js"
 import KexDHReply from "./packets/KexDHReply.js"
+import KexDHGexInit from "./packets/KexDHGexInit.js"
+import KexDHGexReply from "./packets/KexDHGexReply.js"
+import KexDHGexRequest from "./packets/KexDHGexRequest.js"
 import KexInit from "./packets/KexInit.js"
 import NewKeys from "./packets/NewKeys.js"
 import RequestFailure from "./packets/RequestFailure.js"
@@ -73,6 +76,9 @@ export const packets = {
 
     SSH_MSG_KEXDH_INIT: KexDHInit,
     SSH_MSG_KEXDH_REPLY: KexDHReply,
+    SSH_MSG_KEX_DH_GEX_INIT: KexDHGexInit,
+    SSH_MSG_KEX_DH_GEX_REPLY: KexDHGexReply,
+    SSH_MSG_KEX_DH_GEX_REQUEST: KexDHGexRequest,
 
     SSH_MSG_USERAUTH_REQUEST: UserAuthRequest,
     SSH_MSG_USERAUTH_FAILURE: UserAuthFailure,

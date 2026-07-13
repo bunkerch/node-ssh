@@ -117,6 +117,11 @@ meaningful wire-level behavior.
 - RFC 5656 ECDH messages use SEC1-encoded point strings and the shared point's x-coordinate as the
   secret mpint. Validate received points on the negotiated curve, select SHA-256/384/512 by curve
   size, and cover every required NIST curve with RFC 5903 vectors plus both OpenSSH peer roles.
+- RFC 4419 group exchange uses KEX-specific opcodes 30 through 34 and includes the requested sizes,
+  p, and g in its distinct exchange hash. The legacy opcode 30 hashes only its single preferred
+  size. Enforce RFC 8270's 2048-to-8192-bit range, accept only canonical positive mpints and
+  safe-prime groups, validate public values and shared secrets against p, and cover both hash
+  variants with fixed frames plus OpenSSH in both roles across rekey. Keep SHA-1 last.
 - RFC 5656 ECDSA host keys preserve their SEC1 point encoding in the serialized key blob, validate
   points before use, encode signatures as canonical positive `r` and `s` mpints, and select
   SHA-256/384/512 by curve size. Cover every required NIST curve with authoritative fixed vectors

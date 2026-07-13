@@ -47,6 +47,11 @@ layouts have fixed SSH packets generated independently of the TypeScript codec. 
 packet parsing failures local and diagnosable instead of relying on an external implementation to
 reject malformed bytes.
 
+RFC 4419 group-exchange request, group, init, and reply messages use independently written fixed
+frames, including the context-specific opcode 31. Primitive tests select RFC 8270-sized safe groups,
+prove both sides derive the same secret, and reject invalid ranges, composite groups, non-canonical
+mpints, and out-of-range public values.
+
 Compression tests use independently generated RFC 1950 streams with the RFC 4253 partial flush at
 each packet boundary. They prove dictionary continuity across packets, exact payload-only framing,
 malformed-stream rejection, and bounded expansion. In-process peers exercise both immediate `zlib`
@@ -87,6 +92,12 @@ ECDSA host-key interoperability forces each RFC-required NIST curve in both peer
 initiates low-limit rekeys against the modern server for P-256, P-384, and P-521; separate modern
 clients force each corresponding OpenSSH host key, explicitly rekey, authenticate, and execute a
 command.
+
+Diffie-Hellman group-exchange interoperability forces both RFC 4419 SHA-256 and SHA-1 method names
+in both peer roles. OpenSSH initiates low-limit rekeys against the modern server; separate modern
+clients validate OpenSSH-selected safe groups, explicitly rekey, authenticate, and execute a
+command. SHA-1 coverage exists for legacy compatibility, while SHA-256 precedes fixed MODP methods
+in the default preference.
 
 AEAD interoperability forces ChaCha20-Poly1305 and both 128- and 256-bit AES-GCM variants in both
 peer roles. OpenSSH streams enough data to initiate low-limit rekeys against the modern server;

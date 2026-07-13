@@ -907,6 +907,94 @@ describe("OpenSSH interoperability", () => {
         }
     }, 30_000)
 
+    test("OpenSSH performs RFC 4419 group exchange with a modernssh server across rekey", async () => {
+        const algorithms = [
+            "diffie-hellman-group-exchange-sha256",
+            "diffie-hellman-group-exchange-sha1",
+        ] as const
+        const hostKey = await PrivateKey.generate("ssh-ed25519")
+        const server = new Server({
+            hostKeys: [hostKey],
+            sendAllHostKeys: false,
+            algorithms: { kex: algorithms },
+        })
+        const errors: Error[] = []
+        const handshakes: string[] = []
+        let rekeys = 0
+        server.hooker.hook("noneAuthentication", (_hook, context, decision) => {
+            decision.allowLogin = context.username === "interop"
+        })
+        server.hooker.hook("channelOpenRequest", (_hook, channel, decision) => {
+            decision.allowOpen = channel instanceof SessionChannel
+        })
+        server.on("connection", (connection) => {
+            connection.on("error", (error) => errors.push(error))
+            connection.on("handshake", (negotiated) => handshakes.push(negotiated.kex))
+            connection.on("rekey", () => rekeys++)
+            connection.on("channel", (channel) => {
+                if (!(channel instanceof SessionChannel)) return
+                channel.hooker.hook("execRequest", (_hook, _context, decision) => {
+                    decision.success = true
+                })
+                channel.events.on("exec", (_command, shell) => {
+                    shell.resume()
+                    shell.on("end", () => {
+                        shell.stdout.write("gex-ok\n", () => shell.exit(0).end())
+                    })
+                })
+            })
+        })
+        server.listen({ host: "127.0.0.1", port: 0 })
+        await new Promise<void>((resolve) => server.server!.once("listening", resolve))
+        const port = (server.server!.address() as AddressInfo).port
+
+        try {
+            for (const algorithm of algorithms) {
+                const result = await collectProcess(
+                    "/usr/bin/ssh",
+                    [
+                        "-F",
+                        "/dev/null",
+                        "-T",
+                        "-p",
+                        String(port),
+                        "-o",
+                        "BatchMode=yes",
+                        "-o",
+                        "PreferredAuthentications=none",
+                        "-o",
+                        "PubkeyAuthentication=no",
+                        "-o",
+                        "PasswordAuthentication=no",
+                        "-o",
+                        `KexAlgorithms=${algorithm}`,
+                        "-o",
+                        "RekeyLimit=1K",
+                        "-o",
+                        "StrictHostKeyChecking=no",
+                        "-o",
+                        "UserKnownHostsFile=/dev/null",
+                        "-o",
+                        "LogLevel=ERROR",
+                        "interop@127.0.0.1",
+                        "gex-test",
+                    ],
+                    "x".repeat(65_536),
+                )
+                expect(result).toEqual({ code: 0, stdout: "gex-ok\n", stderr: "" })
+            }
+
+            expect(new Set(handshakes)).toEqual(new Set(algorithms))
+            expect(rekeys).toBeGreaterThanOrEqual(algorithms.length)
+            expect(errors).toEqual([])
+        } finally {
+            for (const client of server.clients) client.terminate()
+            await new Promise<void>((resolve, reject) => {
+                server.server!.close((error) => (error ? reject(error) : resolve()))
+            })
+        }
+    }, 30_000)
+
     test("OpenSSH client exchanges AEAD traffic with a modernssh server across rekey", async () => {
         const ciphers = [
             "chacha20-poly1305@openssh.com",
@@ -1723,6 +1811,42 @@ describe("OpenSSH interoperability", () => {
             expect(Buffer.concat(keyboardOutput).toString()).toBe("keyboard-ok")
             expect(keyboardBanners).toEqual(["OpenSSH authentication banner\n"])
             keyboardClient.end()
+
+            for (const kex of [
+                "diffie-hellman-group-exchange-sha256",
+                "diffie-hellman-group-exchange-sha1",
+            ] as const) {
+                const groupExchangeClient = new Client({
+                    hostname: "127.0.0.1",
+                    port,
+                    username: "interop",
+                    password: "correct-horse-battery-staple",
+                    algorithms: { kex: [kex] },
+                })
+                const groupExchangeErrors: Error[] = []
+                const groupExchangeHandshakes: string[] = []
+                groupExchangeClient.on("error", (error) => groupExchangeErrors.push(error))
+                groupExchangeClient.on("handshake", (negotiated) => {
+                    groupExchangeHandshakes.push(negotiated.kex)
+                })
+                groupExchangeClient.hooker.hook("hostKey", (_hook, decision) => {
+                    decision.allowHostKey = true
+                })
+                await groupExchangeClient.connect()
+                await groupExchangeClient.rekey()
+                const groupExchangeSession = await groupExchangeClient.exec("printf gex-client-ok")
+                const groupExchangeOutput: Buffer[] = []
+                groupExchangeSession.on("data", (data: Buffer) => groupExchangeOutput.push(data))
+                await new Promise<void>((resolve) => groupExchangeSession.once("close", resolve))
+                expect(Buffer.concat(groupExchangeOutput).toString()).toBe("gex-client-ok")
+                expect(groupExchangeHandshakes).toEqual([kex, kex])
+                expect(groupExchangeErrors).toEqual([])
+                const groupExchangeClosed = new Promise<void>((resolve) =>
+                    groupExchangeClient.once("close", resolve),
+                )
+                groupExchangeClient.end()
+                await groupExchangeClosed
+            }
 
             for (const hostKeyAlgorithm of [
                 "ecdsa-sha2-nistp256",

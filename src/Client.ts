@@ -34,6 +34,14 @@ import {
 } from "./algorithms.js"
 import KexDHInit from "./packets/KexDHInit.js"
 import KexDHReply from "./packets/KexDHReply.js"
+import KexDHGexGroup from "./packets/KexDHGexGroup.js"
+import KexDHGexInit from "./packets/KexDHGexInit.js"
+import KexDHGexReply from "./packets/KexDHGexReply.js"
+import KexDHGexRequest from "./packets/KexDHGexRequest.js"
+import {
+    defaultGroupExchangeRequest,
+    DiffieHellmanGroupExchange,
+} from "./algorithms/kex/diffie-hellman-group-exchange.js"
 import EncodedSignature from "./utils/Signature.js"
 import ExtInfo from "./packets/ExtInfo.js"
 import PublicKey from "./utils/PublicKey.js"
@@ -161,6 +169,8 @@ export interface ClientEvents {
     serverProtocolVersion: [protocolVersion: ProtocolVersionExchange]
     serverKexInit: [serverKexInit: KexInit, payload: Buffer]
     serverKexDHReply: [serverKexDHReply: KexDHReply]
+    serverKexDHGexGroup: [group: KexDHGexGroup]
+    serverKexDHGexReply: [reply: KexDHGexReply]
     clientNewKeys: []
     serverNewKeys: []
     handshake: [negotiated: Readonly<NegotiatedAlgorithms>]
@@ -971,23 +981,34 @@ export default class Client extends EventEmitter<ClientEvents> {
 
             const kexAlgorithm = this.kexAlgorithm
             assert(kexAlgorithm, "No key exchange algorithm was negotiated")
-            kexAlgorithm.generateKeyPair()
-            this.sendPacket(
-                new KexDHInit({
-                    e: kexAlgorithm.getPublicKey(),
-                    encoding: kexAlgorithm.exchangeValueEncoding,
-                }),
-            )
-
-            const [serverKexDHReply] = await this.waitEvent("serverKexDHReply")
-            this.serverKexDHReply = serverKexDHReply
-            kexAlgorithm.computeSharedSecret(serverKexDHReply.data.f)
-            const hostKey = PublicKey.parse(serverKexDHReply.data.K_S)
+            let reply: KexDHReply | KexDHGexReply
+            if (kexAlgorithm instanceof DiffieHellmanGroupExchange) {
+                kexAlgorithm.setRequest(defaultGroupExchangeRequest)
+                this.sendPacket(new KexDHGexRequest(defaultGroupExchangeRequest))
+                const [group] = await this.waitEvent("serverKexDHGexGroup")
+                kexAlgorithm.acceptServerGroup(group.data.p, group.data.g)
+                kexAlgorithm.generateKeyPair()
+                this.sendPacket(new KexDHGexInit({ e: kexAlgorithm.getPublicKey() }))
+                reply = (await this.waitEvent("serverKexDHGexReply"))[0]
+                kexAlgorithm.setServerHostKey(reply.data.K_S)
+            } else {
+                kexAlgorithm.generateKeyPair()
+                this.sendPacket(
+                    new KexDHInit({
+                        e: kexAlgorithm.getPublicKey(),
+                        encoding: kexAlgorithm.exchangeValueEncoding,
+                    }),
+                )
+                reply = (await this.waitEvent("serverKexDHReply"))[0]
+                this.serverKexDHReply = reply
+            }
+            kexAlgorithm.computeSharedSecret(reply.data.f)
+            const hostKey = PublicKey.parse(reply.data.K_S)
             assert(
                 hostKey.data.alg === this.hostKeyAlgorithm!.key_format,
                 "Server did not use the negotiated host key algorithm",
             )
-            const signature = EncodedSignature.parse(serverKexDHReply.data.H_sig)
+            const signature = EncodedSignature.parse(reply.data.H_sig)
             assert(
                 signature.data.alg === this.hostKeyAlgorithm!.signature_algorithm,
                 "Server did not use the negotiated signature algorithm",
@@ -995,7 +1016,7 @@ export default class Client extends EventEmitter<ClientEvents> {
             const h = kexAlgorithm.computeHClient(this, serverKexInitBuffer)
             assert(hostKey.verifySignature(h, signature), "Invalid host key signature from server")
 
-            await this.verifyConfiguredHostKey(serverKexDHReply.data.K_S)
+            await this.verifyConfiguredHostKey(reply.data.K_S)
 
             if (this.hooker.hasHooks("hostKey")) {
                 const controller: ClientHookerHostKeyController = { allowHostKey: false }
@@ -1470,7 +1491,12 @@ export default class Client extends EventEmitter<ClientEvents> {
             throw new Error("Not implemented: " + packetName)
         }
         let packet: typeof Packet
-        if (packetType === PacketNameToType.SSH_MSG_USERAUTH_PK_OK) {
+        if (
+            packetType === PacketNameToType.SSH_MSG_KEXDH_REPLY &&
+            this.kexAlgorithm instanceof DiffieHellmanGroupExchange
+        ) {
+            packet = KexDHGexGroup
+        } else if (packetType === PacketNameToType.SSH_MSG_USERAUTH_PK_OK) {
             switch (this.activeAuthenticationMethod) {
                 case SSHAuthenticationMethods.Password:
                     packet = UserAuthPasswordChangeRequest
@@ -1572,8 +1598,20 @@ export default class Client extends EventEmitter<ClientEvents> {
                 break
 
             case PacketNameToType.SSH_MSG_KEXDH_REPLY:
+                if (p instanceof KexDHGexGroup) {
+                    this.emit("serverKexDHGexGroup", p)
+                } else {
+                    this.packetProcessingPaused = true
+                    this.emit("serverKexDHReply", p as KexDHReply)
+                }
+                break
+
+            case PacketNameToType.SSH_MSG_KEX_DH_GEX_REPLY:
+                if (!(this.kexAlgorithm instanceof DiffieHellmanGroupExchange)) {
+                    throw new Error("Received a group-exchange reply for another key exchange")
+                }
                 this.packetProcessingPaused = true
-                this.emit("serverKexDHReply", p as KexDHReply)
+                this.emit("serverKexDHGexReply", p as KexDHGexReply)
                 break
         }
 

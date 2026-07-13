@@ -77,6 +77,14 @@ exchange hash and transport-key derivation. RFC 5656 ECDH accepts validated SEC1
 encodes the shared point's x-coordinate as the secret mpint. Invalid points, incorrect Curve25519
 point lengths, and all-zero Curve25519 secrets terminate key exchange.
 
+RFC 4419 `diffie-hellman-group-exchange-sha256` lets the server select a safe-prime group after the
+client requests an acceptable size range. The client requests the RFC 8270 range of 2048 through
+8192 bits and prefers 3072 bits; the server chooses the smallest known safe group at least as large
+as that preference, or the largest known group within the range. Received groups, canonical mpints,
+public values, and shared secrets are validated before the exchange hash is accepted. The SHA-1
+variant and RFC 4419's single-size legacy request are available only as final compatibility paths;
+prefer SHA-256 and the bounded three-size request for configured use.
+
 The RFC 6668 `hmac-sha2-256` and `hmac-sha2-512` integrity methods are available for both
 directions. Their full 32- and 64-byte outputs authenticate the RFC 4253 sequence number followed
 by the plaintext packet. The OpenSSH `hmac-sha2-256-etm@openssh.com`,
