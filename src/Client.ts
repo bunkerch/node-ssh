@@ -38,9 +38,21 @@ import GlobalRequest from "./packets/GlobalRequest.js"
 import RequestFailure from "./packets/RequestFailure.js"
 import Debug from "./packets/Debug.js"
 import { readNextBuffer } from "./utils/Buffer.js"
-import Channel from "./Channel.js"
 import IdentificationParser from "./IdentificationParser.js"
 import { BinaryPacketDecoder, BinaryPacketEncoder } from "./BinaryPacket.js"
+import ClientChannel from "./channels/ClientChannel.js"
+import ClientSessionChannel from "./channels/ClientSessionChannel.js"
+import ChannelOpen from "./packets/ChannelOpen.js"
+import ChannelOpenConfirmation from "./packets/ChannelOpenConfirmation.js"
+import ChannelOpenFailure, { ChannelOpenFailureReasonCodes } from "./packets/ChannelOpenFailure.js"
+import ChannelWindowAdjust from "./packets/ChannelWindowAdjust.js"
+import ChannelData from "./packets/ChannelData.js"
+import ChannelExtendedData from "./packets/ChannelExtendedData.js"
+import ChannelEOF from "./packets/ChannelEOF.js"
+import ChannelClose from "./packets/ChannelClose.js"
+import ChannelRequest from "./packets/ChannelRequest.js"
+import ChannelSuccess from "./packets/ChannelSuccess.js"
+import ChannelFailure from "./packets/ChannelFailure.js"
 
 export interface ClientOptions {
     hostname: string
@@ -91,6 +103,11 @@ export type ClientHooker = {
         passwordAuthController: ClientHookerPasswordAuthController,
     ]
 }
+
+export type ClientSessionCallback = (
+    error: Error | undefined,
+    channel?: ClientSessionChannel,
+) => void
 
 export default class Client extends EventEmitter<ClientEvents> {
     options: ClientOptionsRequired
@@ -168,7 +185,7 @@ export default class Client extends EventEmitter<ClientEvents> {
     hasAuthenticated = false
 
     localChannelIndex = 0
-    channels = new Map<number, Channel>()
+    channels = new Map<number, ClientChannel>()
 
     state = SocketState.Closed
     get isConnected(): boolean {
@@ -180,6 +197,72 @@ export default class Client extends EventEmitter<ClientEvents> {
 
     debug(...message: unknown[]): void {
         this.emit("debug", ...message)
+    }
+
+    openSession(): Promise<ClientSessionChannel>
+    openSession(callback: ClientSessionCallback): this
+    openSession(callback?: ClientSessionCallback): Promise<ClientSessionChannel> | this {
+        return this.withOptionalChannelCallback(this.openSessionChannel(), callback)
+    }
+
+    exec(command: string): Promise<ClientSessionChannel>
+    exec(command: string, callback: ClientSessionCallback): this
+    exec(command: string, callback?: ClientSessionCallback): Promise<ClientSessionChannel> | this {
+        const operation = this.openSessionChannel().then(async (channel) => {
+            try {
+                await channel.exec(command)
+                return channel
+            } catch (error) {
+                channel.close()
+                throw error
+            }
+        })
+        return this.withOptionalChannelCallback(operation, callback)
+    }
+
+    shell(): Promise<ClientSessionChannel>
+    shell(callback: ClientSessionCallback): this
+    shell(callback?: ClientSessionCallback): Promise<ClientSessionChannel> | this {
+        const operation = this.openSessionChannel().then(async (channel) => {
+            try {
+                await channel.shell()
+                return channel
+            } catch (error) {
+                channel.close()
+                throw error
+            }
+        })
+        return this.withOptionalChannelCallback(operation, callback)
+    }
+
+    private async openSessionChannel(): Promise<ClientSessionChannel> {
+        if (!this.isConnected || !this.hasAuthenticated) {
+            throw new Error("Cannot open an SSH channel before authentication completes")
+        }
+
+        const channel = new ClientSessionChannel(this)
+        this.channels.set(channel.localId, channel)
+        try {
+            this.sendPacket(channel.getOpenPacket())
+            await channel.waitUntilOpen()
+            return channel
+        } catch (error) {
+            this.channels.delete(channel.localId)
+            channel.destroy()
+            throw error
+        }
+    }
+
+    private withOptionalChannelCallback(
+        operation: Promise<ClientSessionChannel>,
+        callback?: ClientSessionCallback,
+    ): Promise<ClientSessionChannel> | this {
+        if (!callback) return operation
+        operation.then(
+            (channel) => callback(undefined, channel),
+            (error: Error) => callback(error),
+        )
+        return this
     }
 
     private scheduleMessageProcessing(message: Buffer): void {
@@ -232,6 +315,8 @@ export default class Client extends EventEmitter<ClientEvents> {
                 this.state = SocketState.Closed
                 this.debug("Socket closed")
                 this.socket = undefined
+                for (const channel of this.channels.values()) channel.abort()
+                this.channels.clear()
                 this.emit("close")
             }
             this.socket!.on("close", closeListener)
@@ -656,6 +741,8 @@ export default class Client extends EventEmitter<ClientEvents> {
 
         this.emit("packet", p)
 
+        this.routeChannelPacket(p)
+
         switch (packet.type) {
             case PacketNameToType.SSH_MSG_DISCONNECT: {
                 const disconnect = p as Disconnect
@@ -704,5 +791,79 @@ export default class Client extends EventEmitter<ClientEvents> {
         if (this.packetDecoder.bufferedLength > 0) {
             this.scheduleMessageProcessing(Buffer.alloc(0))
         }
+    }
+
+    private routeChannelPacket(packet: Packet): void {
+        if (packet instanceof ChannelOpen) {
+            const reason =
+                packet.data.channel_type === "session"
+                    ? ChannelOpenFailureReasonCodes.SSH_OPEN_ADMINISTRATIVELY_PROHIBITED
+                    : ChannelOpenFailureReasonCodes.SSH_OPEN_UNKNOWN_CHANNEL_TYPE
+            this.sendPacket(
+                new ChannelOpenFailure({
+                    recipient_channel_id: packet.data.sender_channel_id,
+                    reason_code: reason,
+                    description: "Server-initiated channels are not supported",
+                    language_tag: "",
+                }),
+            )
+            return
+        }
+
+        if (packet instanceof ChannelOpenConfirmation) {
+            this.getChannel(packet.data.recipient_channel_id).confirmOpen(packet)
+            return
+        }
+        if (packet instanceof ChannelOpenFailure) {
+            const channel = this.getChannel(packet.data.recipient_channel_id)
+            channel.failOpen(packet)
+            this.channels.delete(channel.localId)
+            return
+        }
+
+        const recipient = this.channelRecipient(packet)
+        if (recipient === undefined) return
+        const channel = this.getChannel(recipient)
+
+        if (packet instanceof ChannelWindowAdjust) {
+            channel.receiveWindowAdjust(packet.data.bytes_to_add)
+        } else if (packet instanceof ChannelData) {
+            channel.receiveData(packet.data.data)
+        } else if (packet instanceof ChannelExtendedData) {
+            channel.receiveExtendedData(packet.data.data_type_code, packet.data.data)
+        } else if (packet instanceof ChannelEOF) {
+            channel.receiveEOF()
+        } else if (packet instanceof ChannelClose) {
+            channel.receiveClose()
+            if (channel.isFullyClosed) this.channels.delete(channel.localId)
+        } else if (packet instanceof ChannelRequest) {
+            channel.receiveRequest(packet)
+        } else if (packet instanceof ChannelSuccess) {
+            channel.receiveRequestSuccess()
+        } else if (packet instanceof ChannelFailure) {
+            channel.receiveRequestFailure()
+        }
+    }
+
+    private channelRecipient(packet: Packet): number | undefined {
+        if (
+            packet instanceof ChannelWindowAdjust ||
+            packet instanceof ChannelData ||
+            packet instanceof ChannelExtendedData ||
+            packet instanceof ChannelEOF ||
+            packet instanceof ChannelClose ||
+            packet instanceof ChannelRequest ||
+            packet instanceof ChannelSuccess ||
+            packet instanceof ChannelFailure
+        ) {
+            return packet.data.recipient_channel_id
+        }
+        return undefined
+    }
+
+    private getChannel(localId: number): ClientChannel {
+        const channel = this.channels.get(localId)
+        if (!channel) throw new Error(`Received a packet for unknown SSH channel ${localId}`)
+        return channel
     }
 }

@@ -3,6 +3,7 @@ import { Client as SSH2Client, Server as SSH2Server, type Algorithms } from "ssh
 import Client from "../../src/Client.js"
 import Server from "../../src/Server.js"
 import PrivateKey from "../../src/utils/PrivateKey.js"
+import { DEFAULT_CHANNEL_WINDOW_SIZE } from "../../src/channels/ClientChannel.js"
 
 const algorithms: Algorithms = {
     kex: ["diffie-hellman-group14-sha256"],
@@ -17,6 +18,8 @@ describe("ssh2 interoperability", () => {
         const hostKey = await PrivateKey.generate("ssh-ed25519")
         const serverErrors: Error[] = []
         let serverReady = false
+        let command = ""
+        const expectedStdout = Buffer.alloc(DEFAULT_CHANNEL_WINDOW_SIZE + 65_536, "o")
         const server = new SSH2Server({ hostKeys: [hostKey.toString()], algorithms })
         server.on("error", (error) => serverErrors.push(error))
         server.on("connection", (connection) => {
@@ -30,6 +33,18 @@ describe("ssh2 interoperability", () => {
             })
             connection.on("ready", () => {
                 serverReady = true
+            })
+            connection.on("session", (accept) => {
+                const session = accept()
+                session.on("exec", (acceptExec, _reject, info) => {
+                    command = info.command
+                    const stream = acceptExec()
+                    stream.stderr.write("diagnostic output")
+                    stream.write(expectedStdout, () => {
+                        stream.exit(7)
+                        stream.end()
+                    })
+                })
             })
         })
         server.listen(0, "127.0.0.1")
@@ -49,10 +64,20 @@ describe("ssh2 interoperability", () => {
 
         try {
             await client.connect()
-            await new Promise<void>((resolve) => setImmediate(resolve))
+            const channel = await client.exec("produce-output")
+            const stdout: Buffer[] = []
+            const stderr: Buffer[] = []
+            channel.on("data", (data: Buffer) => stdout.push(data))
+            channel.stderr.on("data", (data: Buffer) => stderr.push(data))
+            const exit = new Promise<number>((resolve) => channel.once("exit", resolve))
+            await new Promise<void>((resolve) => channel.once("close", resolve))
 
             expect(client.hasAuthenticated).toBe(true)
             expect(serverReady).toBe(true)
+            expect(command).toBe("produce-output")
+            expect(Buffer.concat(stdout)).toEqual(expectedStdout)
+            expect(Buffer.concat(stderr).toString()).toBe("diagnostic output")
+            expect(await exit).toBe(7)
             expect(clientErrors).toEqual([])
             expect(serverErrors).toEqual([])
         } finally {

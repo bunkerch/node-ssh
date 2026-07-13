@@ -28,6 +28,11 @@ client.on("error", (error) => {
 await client.connect()
 console.log("Authenticated", client.isConnected)
 
+const command = await client.exec("uname -a")
+command.pipe(process.stdout)
+command.stderr.pipe(process.stderr)
+await new Promise<void>((resolve) => command.once("close", resolve))
+
 client.end()
 ```
 
@@ -70,7 +75,7 @@ Ed25519 key, which changes identity after every restart.
 The package root currently exports:
 
 - `Client`, `Server`, and `ServerClient` plus their option, event, and hook types.
-- `Channel`, `SessionChannel`, and `Shell`.
+- `ClientChannel`, `ClientSessionChannel`, `Channel`, `SessionChannel`, and `Shell`.
 - `Agent`, `DiskAgent`, and their error and agent-type definitions.
 - `PublicKey`, `PrivateKey`, `EncodedSignature`, and `ProtocolVersionExchange`.
 - Public service, authentication, connection-state, and extended-data enums.

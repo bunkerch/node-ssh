@@ -6,7 +6,14 @@ export type {
     ClientHookerPasswordAuthContext,
     ClientHookerPasswordAuthController,
     ClientOptions,
+    ClientSessionCallback,
 } from "./Client.js"
+export {
+    default as ClientChannel,
+    DEFAULT_CHANNEL_PACKET_SIZE,
+    DEFAULT_CHANNEL_WINDOW_SIZE,
+} from "./channels/ClientChannel.js"
+export { default as ClientSessionChannel } from "./channels/ClientSessionChannel.js"
 
 export { default as Server } from "./Server.js"
 export type {
