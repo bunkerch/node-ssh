@@ -285,6 +285,90 @@ describe("client/server integration", () => {
         }
     }, 15_000)
 
+    test("maintains immediate and delayed compression streams across packets and rekey", async () => {
+        const hostKey = await PrivateKey.generate("ssh-ed25519")
+        const contents = Buffer.from("compressible-payload\n".repeat(6_000))
+
+        for (const compression of ["zlib", "zlib@openssh.com"] as const) {
+            const server = new Server({
+                hostKeys: [hostKey],
+                sendAllHostKeys: false,
+                algorithms: { compress: [compression] },
+            })
+            const serverErrors: Error[] = []
+            const serverHandshakes: string[] = []
+            server.hooker.hook("noneAuthentication", (_hook, _context, decision) => {
+                decision.allowLogin = true
+            })
+            server.hooker.hook("channelOpenRequest", (_hook, channel, decision) => {
+                decision.allowOpen = channel instanceof SessionChannel
+            })
+            server.on("connection", (connection) => {
+                connection.on("error", (error) => serverErrors.push(error))
+                connection.on("handshake", (negotiated) => {
+                    serverHandshakes.push(negotiated.cs.compress)
+                    expect(negotiated.sc.compress).toBe(compression)
+                })
+                connection.on("channel", (channel) => {
+                    if (!(channel instanceof SessionChannel)) return
+                    channel.hooker.hook("execRequest", (_hook, _context, decision) => {
+                        decision.success = true
+                    })
+                    channel.events.on("exec", (_command, shell) => {
+                        const input: Buffer[] = []
+                        shell.on("data", (data: Buffer) => input.push(data))
+                        shell.on("end", () => {
+                            shell.stdout.write(Buffer.concat(input), () => shell.exit(0).end())
+                        })
+                    })
+                })
+            })
+            server.listen({ host: "127.0.0.1", port: 0 })
+            await new Promise<void>((resolve) => server.server!.once("listening", resolve))
+
+            const client = new Client({
+                hostname: "127.0.0.1",
+                port: (server.server!.address() as AddressInfo).port,
+                username: "compression-test",
+                strictVendor: false,
+                algorithms: { compress: [compression] },
+            })
+            const clientErrors: Error[] = []
+            const clientHandshakes: string[] = []
+            client.on("error", (error) => clientErrors.push(error))
+            client.on("handshake", (negotiated) => {
+                clientHandshakes.push(negotiated.cs.compress)
+                expect(negotiated.sc.compress).toBe(compression)
+            })
+
+            try {
+                await client.connect()
+                expect(client.clientCompressionAlgorithm?.alg_name).toBe(compression)
+                expect(client.serverCompressionAlgorithm?.alg_name).toBe(compression)
+                await client.rekey()
+
+                const session = await client.exec("compression-roundtrip")
+                const output: Buffer[] = []
+                session.on("data", (data: Buffer) => output.push(data))
+                session.end(contents)
+                await new Promise<void>((resolve) => session.once("close", resolve))
+
+                expect(Buffer.concat(output)).toEqual(contents)
+                expect(clientHandshakes).toEqual([compression, compression])
+                expect(serverHandshakes).toEqual([compression, compression])
+                expect(clientErrors).toEqual([])
+                expect(serverErrors).toEqual([])
+            } finally {
+                const closed = new Promise<void>((resolve) => client.once("close", resolve))
+                client.end()
+                await closed
+                await new Promise<void>((resolve, reject) => {
+                    server.server!.close((error) => (error ? reject(error) : resolve()))
+                })
+            }
+        }
+    }, 15_000)
+
     test("disconnects after the configured unanswered keepalive limit", async () => {
         const hostKey = await PrivateKey.generate("ssh-ed25519")
         const server = new Server({ hostKeys: [hostKey], sendAllHostKeys: false })

@@ -18,6 +18,7 @@ import {
 } from "./AlgorithmOptions.js"
 import {
     encryption_algorithms,
+    compression_algorithms,
     host_key_algorithms,
     kex_algorithms,
     mac_algorithms,
@@ -226,7 +227,7 @@ export default class Server extends EventEmitter<ServerEvents> {
             serverHostKey: [...host_key_algorithms.keys()],
             cipher: [...encryption_algorithms.keys()],
             hmac: [...mac_algorithms.keys()],
-            compress: ["none"],
+            compress: [...compression_algorithms.keys()],
         })
         this.server = net.createServer((socket) => void this.acceptSocket(socket))
         this.server.on("error", (error) => this.emit("error", error))

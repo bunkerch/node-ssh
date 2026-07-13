@@ -62,6 +62,8 @@ describe("RFC 4253 algorithm negotiation", () => {
             encryption_algorithms_server_to_client: ["aes192-ctr", "aes256-ctr"],
             mac_algorithms_client_to_server: ["hmac-sha1", "hmac-sha2-256"],
             mac_algorithms_server_to_client: ["hmac-sha2-256", "hmac-sha1"],
+            compression_algorithms_client_to_server: ["zlib", "none"],
+            compression_algorithms_server_to_client: ["zlib@openssh.com", "none"],
         })
         client.serverKexInit = offer({
             kex_algorithms: ["diffie-hellman-group16-sha512", "diffie-hellman-group14-sha256"],
@@ -70,6 +72,8 @@ describe("RFC 4253 algorithm negotiation", () => {
             encryption_algorithms_server_to_client: ["aes256-ctr", "aes192-ctr"],
             mac_algorithms_client_to_server: ["hmac-sha2-256", "hmac-sha1"],
             mac_algorithms_server_to_client: ["hmac-sha1", "hmac-sha2-256"],
+            compression_algorithms_client_to_server: ["none", "zlib"],
+            compression_algorithms_server_to_client: ["none", "zlib@openssh.com"],
         })
 
         chooseAlgorithms(client)
@@ -83,6 +87,8 @@ describe("RFC 4253 algorithm negotiation", () => {
         expect(client.serverEncryptionAlgorithm?.alg_name).toBe("aes192-ctr")
         expect(client.clientMacAlgorithm?.alg_name).toBe("hmac-sha1")
         expect(client.serverMacAlgorithm?.alg_name).toBe("hmac-sha2-256")
+        expect(client.clientCompressionAlgorithm?.alg_name).toBe("zlib")
+        expect(client.serverCompressionAlgorithm?.alg_name).toBe("zlib@openssh.com")
     })
 
     test("treats the MAC as implicit when AEAD ciphers are negotiated", () => {
@@ -119,6 +125,22 @@ describe("RFC 4253 algorithm negotiation", () => {
         expect(() => chooseAlgorithms(client)).toThrow("No key exchange algorithm found")
         expect(client.kexAlgorithm).toBeUndefined()
         expect(client.hostKeyAlgorithm).toBeUndefined()
+        expect(client.clientCompressionAlgorithm).toBeUndefined()
+        expect(client.serverCompressionAlgorithm).toBeUndefined()
+    })
+
+    test("rejects missing compression overlap independently in each direction", () => {
+        const client = new Client({ hostname: "unused.invalid" })
+        client.clientKexInit = offer({})
+        client.serverKexInit = offer({
+            compression_algorithms_server_to_client: ["unsupported-compression@example.test"],
+        })
+
+        expect(() => chooseAlgorithms(client)).toThrow(
+            "No server to client compression algorithm found",
+        )
+        expect(client.clientCompressionAlgorithm?.alg_name).toBe("none")
+        expect(client.serverCompressionAlgorithm).toBeUndefined()
     })
 
     test("negotiates an RSA SHA-2 signature while retaining the ssh-rsa key format", () => {

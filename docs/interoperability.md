@@ -47,6 +47,11 @@ layouts have fixed SSH packets generated independently of the TypeScript codec. 
 packet parsing failures local and diagnosable instead of relying on an external implementation to
 reject malformed bytes.
 
+Compression tests use independently generated RFC 1950 streams with the RFC 4253 partial flush at
+each packet boundary. They prove dictionary continuity across packets, exact payload-only framing,
+malformed-stream rejection, and bounded expansion. In-process peers exercise both immediate `zlib`
+and delayed `zlib@openssh.com` through multi-packet bidirectional transfers and rekeying.
+
 The agent suite sends fixed RFC 9987 identity-list and signing frames through fragmented UNIX-socket
 reads. A separate integration test starts the system OpenSSH `ssh-agent`, loads an independently
 generated Ed25519 key with `ssh-add`, lists it through `modernssh`, and verifies a delegated
@@ -89,6 +94,11 @@ separate modern clients force each cipher against the containerized server, expl
 execute a command. Negotiated handshake details prove that both directions use implicit integrity
 rather than a separate MAC.
 
+Delayed-compression interoperability runs in both peer roles. OpenSSH and the modern client each
+force `zlib@openssh.com`, transfer repeated multi-packet data in both directions, and rekey while the
+compression streams are active. Handshake details confirm the selected method before traffic is
+accepted.
+
 SFTP interoperability runs in both directions. The modern client uses OpenSSH's revision 3
 subsystem for multi-packet upload and download, concurrent reads with request-id matching, file and
 directory handles, attributes and timestamps, rename, canonicalization, directory scanning, and
@@ -108,7 +118,7 @@ Together, the OpenSSH tests and known vectors exercise identification exchange, 
 negotiation, exchange-hash and signature verification, `NEWKEYS`, encrypted and authenticated
 packet framing, OpenSSH encrypt-then-MAC ordering, RFC 8731 Curve25519 and RFC 5656 ECDH in both
 peer roles, RFC 5647 AES-GCM and OpenSSH ChaCha20-Poly1305 packet protection, bidirectional key
-re-exchange, service negotiation, authentication, session
+re-exchange, immediate and delayed zlib compression, service negotiation, authentication, session
 streams, client- and server-side
 remote forwarding, and graceful disconnect behavior. Passing these tests proves the covered
 algorithms and features; it does not imply that every OpenSSH algorithm or extension has been

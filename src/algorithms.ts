@@ -21,6 +21,7 @@ import AES256CTR from "./algorithms/encryption/aes256-ctr.js"
 import AES128GCMOpenSSH from "./algorithms/encryption/aes128-gcm-openssh.js"
 import AES256GCMOpenSSH from "./algorithms/encryption/aes256-gcm-openssh.js"
 import ChaCha20Poly1305OpenSSH from "./algorithms/encryption/chacha20-poly1305-openssh.js"
+import { SSHZlibCompressor, SSHZlibDecompressor } from "./algorithms/compression/zlib.js"
 
 import HMACSHA2256 from "./algorithms/mac/hmac-sha2-256.js"
 import HMACSHA2512 from "./algorithms/mac/hmac-sha2-512.js"
@@ -35,6 +36,7 @@ import assert from "assert"
 import PublicKey from "./utils/PublicKey.js"
 import type { NegotiatedAlgorithms } from "./AlgorithmOptions.js"
 import type { InboundPacketProtection, OutboundPacketProtection } from "./BinaryPacket.js"
+import { MAXIMUM_BINARY_PACKET_SIZE } from "./BinaryPacket.js"
 
 export interface HostKeyAlgorithm {
     readonly alg_name: string
@@ -191,6 +193,21 @@ export const mac_algorithms = new Map<string, typeof MACAlgorithm>([
     ["hmac-sha1", HMACSHA1],
 ])
 
+export interface CompressionAlgorithm {
+    readonly alg_name: "none" | "zlib" | "zlib@openssh.com"
+    readonly delayed: boolean
+    readonly enabled: boolean
+}
+
+export const compression_algorithms = new Map<string, CompressionAlgorithm>([
+    ["none", Object.freeze({ alg_name: "none", delayed: false, enabled: false })],
+    [
+        "zlib@openssh.com",
+        Object.freeze({ alg_name: "zlib@openssh.com", delayed: true, enabled: true }),
+    ],
+    ["zlib", Object.freeze({ alg_name: "zlib", delayed: false, enabled: true })],
+])
+
 export function chooseAlgorithms(client: Client | ServerClient) {
     assert(client.clientKexInit, "Client KexInit not set")
     assert(client.serverKexInit, "Server KexInit not set")
@@ -202,6 +219,8 @@ export function chooseAlgorithms(client: Client | ServerClient) {
     client.serverEncryptionAlgorithm = undefined
     client.clientMacAlgorithm = undefined
     client.serverMacAlgorithm = undefined
+    client.clientCompressionAlgorithm = undefined
+    client.serverCompressionAlgorithm = undefined
 
     const server_host_key_algorithms: HostKeyAlgorithm[] = []
     for (const alg of client.serverKexInit.data.server_host_key_algorithms) {
@@ -273,16 +292,18 @@ export function chooseAlgorithms(client: Client | ServerClient) {
         assert(client.serverMacAlgorithm, "No server to client mac algorithm found")
     }
 
-    assert(
-        client.clientKexInit.data.compression_algorithms_client_to_server.includes("none") &&
-            client.serverKexInit.data.compression_algorithms_client_to_server.includes("none"),
-        "No supported client to server compression algorithm found",
+    client.clientCompressionAlgorithm = firstRegisteredMutual(
+        client.clientKexInit.data.compression_algorithms_client_to_server,
+        client.serverKexInit.data.compression_algorithms_client_to_server,
+        compression_algorithms,
     )
-    assert(
-        client.clientKexInit.data.compression_algorithms_server_to_client.includes("none") &&
-            client.serverKexInit.data.compression_algorithms_server_to_client.includes("none"),
-        "No supported server to client compression algorithm found",
+    assert(client.clientCompressionAlgorithm, "No client to server compression algorithm found")
+    client.serverCompressionAlgorithm = firstRegisteredMutual(
+        client.clientKexInit.data.compression_algorithms_server_to_client,
+        client.serverKexInit.data.compression_algorithms_server_to_client,
+        compression_algorithms,
     )
+    assert(client.serverCompressionAlgorithm, "No server to client compression algorithm found")
 
     client.debug(
         "Key Exchange Algorithm chosen:",
@@ -305,6 +326,14 @@ export function chooseAlgorithms(client: Client | ServerClient) {
         "Server to Client MAC Algorithm chosen:",
         client.serverMacAlgorithm?.alg_name ?? "<implicit>",
     )
+    client.debug(
+        "Client to Server Compression Algorithm chosen:",
+        client.clientCompressionAlgorithm.alg_name,
+    )
+    client.debug(
+        "Server to Client Compression Algorithm chosen:",
+        client.serverCompressionAlgorithm.alg_name,
+    )
 }
 
 export function describeNegotiatedAlgorithms(
@@ -314,22 +343,40 @@ export function describeNegotiatedAlgorithms(
     assert(client.hostKeyAlgorithm, "Host key algorithm not selected")
     assert(client.clientEncryptionAlgorithm, "Client cipher not selected")
     assert(client.serverEncryptionAlgorithm, "Server cipher not selected")
+    assert(client.clientCompressionAlgorithm, "Client compression not selected")
+    assert(client.serverCompressionAlgorithm, "Server compression not selected")
     return Object.freeze({
         kex: (client.kexAlgorithm.constructor as typeof KexAlgorithm).alg_name,
         srvHostKey: client.hostKeyAlgorithm.alg_name,
         cs: Object.freeze({
             cipher: client.clientEncryptionAlgorithm.alg_name,
             mac: client.clientMacAlgorithm?.alg_name ?? "",
-            compress: "none",
+            compress: client.clientCompressionAlgorithm.alg_name,
             lang: "",
         }),
         sc: Object.freeze({
             cipher: client.serverEncryptionAlgorithm.alg_name,
             mac: client.serverMacAlgorithm?.alg_name ?? "",
-            compress: "none",
+            compress: client.serverCompressionAlgorithm.alg_name,
             lang: "",
         }),
     })
+}
+
+export function createPacketCompressor(
+    algorithm: CompressionAlgorithm,
+    authenticated: boolean,
+): SSHZlibCompressor | undefined {
+    if (!algorithm.enabled || (algorithm.delayed && !authenticated)) return undefined
+    return new SSHZlibCompressor()
+}
+
+export function createPacketDecompressor(
+    algorithm: CompressionAlgorithm,
+    authenticated: boolean,
+): SSHZlibDecompressor | undefined {
+    if (!algorithm.enabled || (algorithm.delayed && !authenticated)) return undefined
+    return new SSHZlibDecompressor(MAXIMUM_BINARY_PACKET_SIZE)
 }
 
 export function createOutboundPacketProtection(

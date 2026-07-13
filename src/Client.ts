@@ -21,12 +21,16 @@ import {
     chooseAlgorithms,
     createInboundPacketProtection,
     createOutboundPacketProtection,
+    createPacketCompressor,
+    createPacketDecompressor,
     describeNegotiatedAlgorithms,
+    compression_algorithms,
     encryption_algorithms,
     host_key_algorithms,
     kex_algorithms,
     mac_algorithms,
     type HostKeyAlgorithm,
+    type CompressionAlgorithm,
 } from "./algorithms.js"
 import KexDHInit from "./packets/KexDHInit.js"
 import KexDHReply from "./packets/KexDHReply.js"
@@ -334,7 +338,7 @@ export default class Client extends EventEmitter<ClientEvents> {
             serverHostKey: [...host_key_algorithms.keys()],
             cipher: [...encryption_algorithms.keys()],
             hmac: [...mac_algorithms.keys()],
-            compress: ["none"],
+            compress: [...compression_algorithms.keys()],
         })
 
         setImmediate(() => {
@@ -386,6 +390,8 @@ export default class Client extends EventEmitter<ClientEvents> {
     serverMacAlgorithm?: typeof MACAlgorithm
     clientMac?: MACAlgorithm
     serverMac?: MACAlgorithm
+    clientCompressionAlgorithm?: CompressionAlgorithm
+    serverCompressionAlgorithm?: CompressionAlgorithm
 
     // TODO: Set those as private properties (Need to be accessed by the algorithms only)
     H?: Buffer
@@ -904,6 +910,25 @@ export default class Client extends EventEmitter<ClientEvents> {
         }
     }
 
+    private installOutboundCompression(): void {
+        assert(this.clientCompressionAlgorithm, "Client compression algorithm not selected")
+        this.packetEncoder.setCompression(
+            createPacketCompressor(this.clientCompressionAlgorithm, this.hasAuthenticated),
+        )
+    }
+
+    private installInboundCompression(): void {
+        assert(this.serverCompressionAlgorithm, "Server compression algorithm not selected")
+        this.packetDecoder.setCompression(
+            createPacketDecompressor(this.serverCompressionAlgorithm, this.hasAuthenticated),
+        )
+    }
+
+    private enableDelayedCompression(): void {
+        if (this.clientCompressionAlgorithm?.delayed) this.installOutboundCompression()
+        if (this.serverCompressionAlgorithm?.delayed) this.installInboundCompression()
+    }
+
     private createKexInit(): KexInit {
         return new KexInit({
             cookie: crypto.getRandomValues(Buffer.alloc(16)),
@@ -1003,6 +1028,7 @@ export default class Client extends EventEmitter<ClientEvents> {
                     this.clientMac,
                 ),
             )
+            this.installOutboundCompression()
             while (this.packetsQueuedDuringKeyExchange.length > 0) {
                 this.writePacket(this.packetsQueuedDuringKeyExchange.shift()!)
             }
@@ -1502,6 +1528,11 @@ export default class Client extends EventEmitter<ClientEvents> {
                 break
             }
 
+            case PacketNameToType.SSH_MSG_USERAUTH_SUCCESS:
+                this.hasAuthenticated = true
+                this.enableDelayedCompression()
+                break
+
             case PacketNameToType.SSH_MSG_EXT_INFO: {
                 const extension = (p as ExtInfo).data.extensions.find(
                     ({ name }) => name === "server-sig-algs",
@@ -1536,6 +1567,7 @@ export default class Client extends EventEmitter<ClientEvents> {
                         this.serverMac,
                     ),
                 )
+                this.installInboundCompression()
                 this.emit("serverNewKeys")
                 break
 

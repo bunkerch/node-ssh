@@ -1003,6 +1003,93 @@ describe("OpenSSH interoperability", () => {
         }
     }, 30_000)
 
+    test("OpenSSH client exchanges delayed zlib traffic with a modernssh server across rekey", async () => {
+        const hostKey = await PrivateKey.generate("ssh-ed25519")
+        const server = new Server({
+            hostKeys: [hostKey],
+            sendAllHostKeys: false,
+            algorithms: { compress: ["zlib@openssh.com"] },
+        })
+        const contents = "compressible-openssh-payload\n".repeat(4_096)
+        const errors: Error[] = []
+        const handshakes: string[] = []
+        let rekeys = 0
+        server.hooker.hook("noneAuthentication", (_hook, context, decision) => {
+            decision.allowLogin = context.username === "interop"
+        })
+        server.hooker.hook("channelOpenRequest", (_hook, channel, decision) => {
+            decision.allowOpen = channel instanceof SessionChannel
+        })
+        server.on("connection", (connection) => {
+            connection.on("error", (error) => errors.push(error))
+            connection.on("handshake", (negotiated) => {
+                handshakes.push(negotiated.cs.compress)
+                expect(negotiated.sc.compress).toBe("zlib@openssh.com")
+            })
+            connection.on("rekey", () => rekeys++)
+            connection.on("channel", (channel) => {
+                if (!(channel instanceof SessionChannel)) return
+                channel.hooker.hook("execRequest", (_hook, _context, decision) => {
+                    decision.success = true
+                })
+                channel.events.on("exec", (_command, shell) => {
+                    const input: Buffer[] = []
+                    shell.on("data", (data: Buffer) => input.push(data))
+                    shell.on("end", () => {
+                        shell.stdout.write(Buffer.concat(input), () => shell.exit(0).end())
+                    })
+                })
+            })
+        })
+        server.listen({ host: "127.0.0.1", port: 0 })
+        await new Promise<void>((resolve) => server.server!.once("listening", resolve))
+        const port = (server.server!.address() as AddressInfo).port
+
+        try {
+            const result = await collectProcess(
+                "/usr/bin/ssh",
+                [
+                    "-F",
+                    "/dev/null",
+                    "-T",
+                    "-p",
+                    String(port),
+                    "-o",
+                    "BatchMode=yes",
+                    "-o",
+                    "PreferredAuthentications=none",
+                    "-o",
+                    "PubkeyAuthentication=no",
+                    "-o",
+                    "PasswordAuthentication=no",
+                    "-o",
+                    "Compression=yes",
+                    "-o",
+                    "RekeyLimit=1K",
+                    "-o",
+                    "StrictHostKeyChecking=no",
+                    "-o",
+                    "UserKnownHostsFile=/dev/null",
+                    "-o",
+                    "LogLevel=ERROR",
+                    "interop@127.0.0.1",
+                    "compression-test",
+                ],
+                contents,
+            )
+
+            expect(result).toEqual({ code: 0, stdout: contents, stderr: "" })
+            expect(handshakes.every((name) => name === "zlib@openssh.com")).toBe(true)
+            expect(rekeys).toBeGreaterThan(0)
+            expect(errors).toEqual([])
+        } finally {
+            for (const client of server.clients) client.terminate()
+            await new Promise<void>((resolve, reject) => {
+                server.server!.close((error) => (error ? reject(error) : resolve()))
+            })
+        }
+    }, 30_000)
+
     test("OpenSSH client forwards its agent to a modernssh server", async () => {
         const agent = await createOpenSSHAgentFixture()
         const hostKey = await PrivateKey.generate("ssh-ed25519")
@@ -1623,6 +1710,40 @@ describe("OpenSSH interoperability", () => {
                 aeadClient.end()
                 await aeadClosed
             }
+
+            const compressionClient = new Client({
+                hostname: "127.0.0.1",
+                port,
+                username: "interop",
+                password: "correct-horse-battery-staple",
+                algorithms: { compress: ["zlib@openssh.com"] },
+            })
+            const compressionErrors: Error[] = []
+            const compressionHandshakes: string[] = []
+            compressionClient.on("error", (error) => compressionErrors.push(error))
+            compressionClient.on("handshake", (negotiated) => {
+                compressionHandshakes.push(negotiated.cs.compress)
+                expect(negotiated.sc.compress).toBe("zlib@openssh.com")
+            })
+            compressionClient.hooker.hook("hostKey", (_hook, decision) => {
+                decision.allowHostKey = true
+            })
+            await compressionClient.connect()
+            await compressionClient.rekey()
+            const compressionContents = Buffer.from("openssh-compression\n".repeat(4_096))
+            const compressionSession = await compressionClient.exec("cat")
+            const compressionOutput: Buffer[] = []
+            compressionSession.on("data", (data: Buffer) => compressionOutput.push(data))
+            compressionSession.end(compressionContents)
+            await new Promise<void>((resolve) => compressionSession.once("close", resolve))
+            expect(Buffer.concat(compressionOutput)).toEqual(compressionContents)
+            expect(compressionHandshakes).toEqual(["zlib@openssh.com", "zlib@openssh.com"])
+            expect(compressionErrors).toEqual([])
+            const compressionClosed = new Promise<void>((resolve) =>
+                compressionClient.once("close", resolve),
+            )
+            compressionClient.end()
+            await compressionClosed
 
             const client = new Client({
                 hostname: "127.0.0.1",

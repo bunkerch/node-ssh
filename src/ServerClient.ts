@@ -33,8 +33,11 @@ import {
     chooseAlgorithms,
     createInboundPacketProtection,
     createOutboundPacketProtection,
+    createPacketCompressor,
+    createPacketDecompressor,
     describeNegotiatedAlgorithms,
     host_key_algorithms,
+    type CompressionAlgorithm,
     type HostKeyAlgorithm,
 } from "./algorithms.js"
 import type { NegotiatedAlgorithms } from "./AlgorithmOptions.js"
@@ -180,6 +183,8 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     serverMacAlgorithm?: typeof MACAlgorithm
     clientMac?: MACAlgorithm
     serverMac?: MACAlgorithm
+    clientCompressionAlgorithm?: CompressionAlgorithm
+    serverCompressionAlgorithm?: CompressionAlgorithm
 
     // TODO: Set those as private properties (Need to be accessed by the algorithms only)
     H?: Buffer
@@ -407,6 +412,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                     this.serverMac,
                 ),
             )
+            this.installOutboundCompression()
             if (!isRekey && clientKexInit.data.kex_algorithms.includes("ext-info-c")) {
                 this.sendPacket(
                     new ExtInfo({
@@ -1157,6 +1163,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         if (allowLogin) {
             this.sendPacket(new UserAuthSuccess({}))
             this.hasAuthenticated = true
+            this.enableDelayedCompression()
         } else {
             throw new DisconnectError(
                 DisconnectReason.SSH_DISCONNECT_NO_MORE_AUTH_METHODS_AVAILABLE,
@@ -1229,6 +1236,25 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         if (this.packetDecoder.bufferedLength > 0) {
             this.scheduleMessageProcessing(Buffer.alloc(0))
         }
+    }
+
+    private installOutboundCompression(): void {
+        assert(this.serverCompressionAlgorithm, "Server compression algorithm not selected")
+        this.packetEncoder.setCompression(
+            createPacketCompressor(this.serverCompressionAlgorithm, this.hasAuthenticated),
+        )
+    }
+
+    private installInboundCompression(): void {
+        assert(this.clientCompressionAlgorithm, "Client compression algorithm not selected")
+        this.packetDecoder.setCompression(
+            createPacketDecompressor(this.clientCompressionAlgorithm, this.hasAuthenticated),
+        )
+    }
+
+    private enableDelayedCompression(): void {
+        if (this.serverCompressionAlgorithm?.delayed) this.installOutboundCompression()
+        if (this.clientCompressionAlgorithm?.delayed) this.installInboundCompression()
     }
 
     onMessage(message: Buffer): void {
@@ -1332,6 +1358,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                         this.clientMac,
                     ),
                 )
+                this.installInboundCompression()
                 this.emit("clientNewKeys")
                 break
 

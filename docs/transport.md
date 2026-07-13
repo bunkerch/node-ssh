@@ -64,8 +64,9 @@ Algorithm negotiation follows the client's name-list preference order independen
 exchange, host keys, and both transport directions. Non-AEAD ciphers also negotiate each MAC
 direction independently; AES-GCM supplies integrity itself and therefore reports an empty MAC name.
 Every exchange clears prior selections before matching, so a rekey with no mutual algorithm fails
-rather than retaining stale transport state. The currently supported compression method is `none`,
-and both directions must negotiate it explicitly.
+rather than retaining stale transport state. Compression is negotiated independently in both
+directions from `none`, delayed `zlib@openssh.com`, and immediate RFC 4253 `zlib`; `none` remains the
+first default preference.
 
 The default key-exchange preference starts with the RFC 8731 `curve25519-sha256` method and its
 wire-equivalent deployed alias `curve25519-sha256@libssh.org`, the RFC 5656
@@ -97,6 +98,20 @@ other encrypts the body and derives a one-time Poly1305 key for the full encrypt
 64-bit nonce is the SSH packet sequence number, the body starts at ChaCha20 block counter one, and
 the full 16-byte tag is verified before the body is decrypted. A separate MAC is not negotiated.
 Sequence-number reuse or wrap under one transport key is rejected and requires rekeying.
+
+## Compression
+
+RFC 4253 `zlib` compresses only the packet payload before padding, encryption, and authentication.
+Each direction owns a persistent RFC 1950 stream, performs the required partial flush at every
+packet boundary, and resets its stream when that direction activates new keys. Decompression uses a
+synchronous flush so each binary packet yields exactly one complete SSH payload; malformed streams
+and payloads that expand beyond the receive bound are rejected.
+
+`zlib@openssh.com` uses the same wire format but delays both directions until user authentication
+succeeds. The success packet itself remains uncompressed. On a later authenticated rekey, new
+delayed-compression streams start immediately after the corresponding `NEWKEYS`, just like ordinary
+`zlib`. This avoids compressing attacker-controlled pre-authentication exchanges while retaining
+compression for authenticated channel traffic.
 
 RSA host keys support the RFC 8332 `rsa-sha2-512` and `rsa-sha2-256` algorithms. The negotiated
 algorithm selects the SHA-2 signature while the serialized public key remains `ssh-rsa`, preserving
@@ -147,7 +162,8 @@ Both methods also have callback overloads and emit `rekey` after the new inbound
 and outbound protection is active. A re-exchange generates a fresh ephemeral key pair,
 exchange hash, IVs, encryption keys, and any separately required MAC keys. The session identifier
 remains the exchange hash from the first key exchange, as required for authentication identity
-continuity.
+continuity. Stateful compression streams also reset independently when the new protection for their
+direction becomes active.
 
 Once either side sends `SSH_MSG_KEXINIT`, outbound service and application packets are queued until
 that side has sent `SSH_MSG_NEWKEYS`; transport and KEX packets remain permitted. Packets already in

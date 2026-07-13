@@ -67,6 +67,7 @@
     "dependencies": {
         "asn1js": "^3.0.6",
         "bcrypt-pbkdf": "^1.0.2",
+        "pako": "^3.0.1",
         "tweetnacl": "^1.0.3"
     },
     "packageManager": "pnpm@10.19.0"

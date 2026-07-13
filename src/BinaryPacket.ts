@@ -16,6 +16,14 @@ export interface PacketDecryptor {
     decrypt(ciphertext: Buffer): Buffer
 }
 
+export interface PacketCompressor {
+    compress(payload: Buffer): Buffer
+}
+
+export interface PacketDecompressor {
+    decompress(payload: Buffer): Buffer
+}
+
 export interface PacketAEADEncryptor {
     encryptPacket(
         sequenceNumber: number,
@@ -121,6 +129,7 @@ export class BinaryPacketEncoder {
     private readonly maximumPacketSize: number
     private readonly randomBytes: (size: number) => Buffer
     private protection?: OutboundPacketProtection
+    private compressor?: PacketCompressor
     private sequenceNumber = 0
 
     constructor(options: BinaryPacketEncoderOptions = {}) {
@@ -134,9 +143,18 @@ export class BinaryPacketEncoder {
         this.protection = protection
     }
 
+    setCompression(compressor: PacketCompressor | undefined): void {
+        this.compressor = compressor
+    }
+
     encode(payload: Buffer): EncodedBinaryPacket {
         if (payload.length === 0) {
             throw new Error("SSH binary packet payload must not be empty")
+        }
+
+        payload = this.compressor?.compress(payload) ?? payload
+        if (payload.length === 0) {
+            throw new Error("SSH compression produced an empty packet payload")
         }
 
         const blockSize = Math.max(8, this.protection?.blockSize ?? 8)
@@ -219,6 +237,7 @@ export class BinaryPacketEncoder {
 export class BinaryPacketDecoder {
     private readonly maximumPacketSize: number
     private protection?: InboundPacketProtection
+    private decompressor?: PacketDecompressor
     private buffered = Buffer.alloc(0)
     private decryptedFirstBlock?: Buffer
     private sequenceNumber = 0
@@ -243,6 +262,13 @@ export class BinaryPacketDecoder {
         }
         validateProtection(protection)
         this.protection = protection
+    }
+
+    setCompression(decompressor: PacketDecompressor | undefined): void {
+        if (this.decryptedFirstBlock) {
+            throw new Error("Cannot change SSH compression while decoding a packet")
+        }
+        this.decompressor = decompressor
     }
 
     read(): DecodedBinaryPacket | undefined {
@@ -369,7 +395,11 @@ export class BinaryPacketDecoder {
         }
 
         const payloadLength = packetLength - paddingLength - 1
-        const payload = plaintext.subarray(5, 5 + payloadLength)
+        let payload = plaintext.subarray(5, 5 + payloadLength)
+        payload = this.decompressor?.decompress(payload) ?? payload
+        if (payload.length === 0) {
+            throw new Error("SSH binary packet payload is empty after decompression")
+        }
         const padding = plaintext.subarray(5 + payloadLength, encryptedLength)
         const data = this.buffered.subarray(0, totalLength)
         const sequenceNumber = this.sequenceNumber

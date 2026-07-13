@@ -133,6 +133,10 @@ meaningful wire-level behavior.
   key generation and the second 32 bytes for independent length encryption. Use the uint64-encoded
   packet sequence as nonce, authenticate encrypted length plus body before decrypting the body,
   reject nonce reuse, and cover the primitives with RFC 8439 vectors plus both peer roles.
+- RFC 4253 zlib compression is stateful per direction, applies only to the payload, uses a partial
+  flush at every packet boundary, and resets at that direction's NEWKEYS. Delayed zlib activates
+  only after USERAUTH_SUCCESS but starts immediately on later authenticated rekeys. Bound expanded
+  payloads and cover immediate mode independently plus delayed mode with both OpenSSH peer roles.
 - RFC 8332 RSA SHA-2 keeps the serialized public-key format as `ssh-rsa` while negotiating and
   encoding `rsa-sha2-256` or `rsa-sha2-512` signatures. Advertise user-auth signature support with
   RFC 8308 `server-sig-algs`, and validate both host and user signatures against OpenSSH.
