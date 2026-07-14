@@ -516,9 +516,10 @@ export class SSHED25519PublicKey implements PublicKeyAlgoritm {
     static has_encryption = false
     static has_signature = true
 
-    data: SSHED25519PublicKeyData
+    readonly data: SSHED25519PublicKeyData
     constructor(data: SSHED25519PublicKeyData) {
-        this.data = data
+        assert(data.publicKey.length === 32, "Invalid Ed25519 public key length")
+        this.data = { publicKey: Buffer.from(data.publicKey) }
     }
 
     verifySignature(
