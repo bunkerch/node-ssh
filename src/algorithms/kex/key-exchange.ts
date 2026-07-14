@@ -65,8 +65,12 @@ export default abstract class KeyExchange implements KexAlgorithm {
         return hash.digest()
     }
 
+    protected encodeSharedSecret(): Buffer {
+        return serializeMpintBufferToBuffer(this.sharedSecret!)
+    }
+
     private deriveKeys(H: Buffer, sessionID: Buffer, keyLengths: number[]): Buffer[] {
-        const K = serializeMpintBufferToBuffer(this.sharedSecret!)
+        const K = this.encodeSharedSecret()
         const KLength = Buffer.allocUnsafe(4)
         KLength.writeUint32BE(K.length)
 

@@ -19,6 +19,9 @@ import {
     ECDHSHA2NISTP521,
 } from "./algorithms/kex/ecdh-sha2-nist.js"
 import RSA2048SHA256 from "./algorithms/kex/rsa2048-sha256.js"
+import SNTRUP761X25519SHA512, {
+    SNTRUP761X25519SHA512OpenSSH,
+} from "./algorithms/kex/sntrup761x25519-sha512.js"
 
 import AES128CTR from "./algorithms/encryption/aes128-ctr.js"
 import AES192CTR from "./algorithms/encryption/aes192-ctr.js"
@@ -66,6 +69,8 @@ export interface HostKeyAlgorithm {
     readonly has_encryption: boolean
     readonly has_signature: boolean
 }
+
+export type KeyExchangeRole = "client" | "server"
 
 function hostKeyAlgorithm(
     alg_name: string,
@@ -180,7 +185,7 @@ export abstract class KexAlgorithm {
 
     abstract readonly exchangeValueEncoding: "mpint" | "string"
 
-    abstract generateKeyPair(): void
+    abstract generateKeyPair(role?: KeyExchangeRole): void
     abstract getPublicKey(): Buffer
     abstract computeSharedSecret(peerPublicKey: Buffer): void
     abstract computeHClient(client: Client, serverKexInit: Buffer): Buffer
@@ -192,6 +197,8 @@ export abstract class KexAlgorithm {
     }
 }
 export const kex_algorithms = new Map<string, typeof KexAlgorithm>([
+    ["sntrup761x25519-sha512", SNTRUP761X25519SHA512],
+    ["sntrup761x25519-sha512@openssh.com", SNTRUP761X25519SHA512OpenSSH],
     ["curve25519-sha256", Curve25519SHA256],
     ["curve25519-sha256@libssh.org", Curve25519SHA256LibSSH],
     ["curve448-sha512", Curve448SHA512],
@@ -325,6 +332,8 @@ export const compression_algorithms = new Map<string, CompressionAlgorithm>([
 
 export const default_algorithm_names: ResolvedAlgorithmOptions = Object.freeze({
     kex: Object.freeze([
+        "sntrup761x25519-sha512",
+        "sntrup761x25519-sha512@openssh.com",
         "curve25519-sha256",
         "curve25519-sha256@libssh.org",
         "curve448-sha512",

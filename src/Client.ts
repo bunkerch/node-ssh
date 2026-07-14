@@ -1351,7 +1351,7 @@ export default class Client extends EventEmitter<ClientEvents> {
                 signatureBlob = done.data.signature
             } else {
                 this.expectInboundKeyExchange(PacketNameToType.SSH_MSG_KEXDH_REPLY)
-                kexAlgorithm.generateKeyPair()
+                kexAlgorithm.generateKeyPair("client")
                 this.sendPacket(
                     new KexDHInit({
                         e: kexAlgorithm.getPublicKey(),

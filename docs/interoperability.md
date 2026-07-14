@@ -89,6 +89,14 @@ of ephemeral state. A forced in-process client/server connection exchanges authe
 before and after rekey with `curve448-sha512`, proving both SSH roles preserve the first session ID
 while deriving a new exchange hash and transport keys.
 
+RFC 9941 coverage reproduces the published SHA-512 combination of the sntrup761 KEM and X25519
+secrets, including the exact 64-byte SSH-string encoding. KEM tests cover fixed object sizes,
+encapsulation, decapsulation, implicit rejection of a changed ciphertext, and defensive ownership
+of hybrid public values. In-process peers force both the standardized method and its deployed alias
+through protected traffic and rekey. The system OpenSSH client then forces the alias against the
+library server and initiates a low-limit rekey; a separate library client executes commands before
+and after an explicit rekey against the pinned OpenSSH server.
+
 RFC 4250 name tests cover the 64-character boundary, extension-domain form, non-ASCII and control
 input, commas, empty entries, and duplicate name-list members. Packet tests separately prove that
 the validation is applied to services, extensions, channels, and requests rather than existing

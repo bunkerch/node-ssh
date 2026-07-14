@@ -263,6 +263,7 @@ describe("package exports", () => {
                     if (curve448Client.algorithmOffer.kex[0] !== "curve448-sha512") process.exit(14)
                     const knownHosts = KnownHosts.parse("packed.example.test " + publicKey.toString())
                     if (knownHosts.check("packed.example.test", publicKey).status !== "trusted") process.exit(15)
+                    if (new Client({}).algorithmOffer.kex[0] !== "sntrup761x25519-sha512") process.exit(16)
                     process.stdout.write(publicKey.toString())
                 `,
                 ],

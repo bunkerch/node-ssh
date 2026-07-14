@@ -137,7 +137,9 @@ describe("RFC 4253 algorithm negotiation", () => {
         ).toThrow("Invalid SSH algorithm list operation")
 
         const standardClient = new Client({ hostname: "unused.invalid" })
-        expect(standardClient.algorithmOffer.kex.slice(0, 3)).toEqual([
+        expect(standardClient.algorithmOffer.kex.slice(0, 5)).toEqual([
+            "sntrup761x25519-sha512",
+            "sntrup761x25519-sha512@openssh.com",
             "curve25519-sha256",
             "curve25519-sha256@libssh.org",
             "curve448-sha512",

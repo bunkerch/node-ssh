@@ -46,6 +46,7 @@ describe("server SSH handshake deadlines", () => {
             sendAllHostKeys: false,
             handshakeTimeout: 35,
             authenticationTimeout: 500,
+            algorithms: { kex: ["curve25519-sha256"] },
         })
         server.hooker.hook("noneAuthentication", async (_hook, _context, decision) => {
             await new Promise<void>((resolve) => setTimeout(resolve, 70))
@@ -57,6 +58,7 @@ describe("server SSH handshake deadlines", () => {
             port,
             username: "deadline-handoff",
             authenticationMethodsOrder: [SSHAuthenticationMethods.None],
+            algorithms: { kex: ["curve25519-sha256"] },
         })
         client.hooker.hook("hostKey", (_hook, decision) => {
             decision.allowHostKey = true

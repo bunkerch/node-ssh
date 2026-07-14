@@ -671,7 +671,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 this.expectInboundKeyExchange(PacketNameToType.SSH_MSG_KEXDH_INIT)
                 const [clientKexDHInit] = await this.waitEvent("clientKexDHInit")
                 this.clientKexDHInit = clientKexDHInit
-                kexAlgorithm.generateKeyPair()
+                kexAlgorithm.generateKeyPair("server")
                 kexAlgorithm.computeSharedSecret(clientKexDHInit.data.e)
             }
 
