@@ -211,19 +211,19 @@ describe("RFC 4253 algorithm negotiation", () => {
             compression_algorithms_server_to_client: ["none", "zlib@openssh.com"],
         })
 
-        chooseAlgorithms(client)
+        const algorithms = chooseAlgorithms(client)
 
-        expect(client.kexAlgorithm?.constructor).toHaveProperty(
+        expect(algorithms.keyExchange.constructor).toHaveProperty(
             "alg_name",
             "diffie-hellman-group14-sha256",
         )
-        expect(client.hostKeyAlgorithm?.alg_name).toBe("ssh-rsa")
-        expect(client.clientEncryptionAlgorithm?.alg_name).toBe("aes128-ctr")
-        expect(client.serverEncryptionAlgorithm?.alg_name).toBe("aes192-ctr")
-        expect(client.clientMacAlgorithm?.alg_name).toBe("hmac-sha1")
-        expect(client.serverMacAlgorithm?.alg_name).toBe("hmac-sha2-256")
-        expect(client.clientCompressionAlgorithm?.alg_name).toBe("zlib")
-        expect(client.serverCompressionAlgorithm?.alg_name).toBe("zlib@openssh.com")
+        expect(algorithms.hostKey.alg_name).toBe("ssh-rsa")
+        expect(algorithms.clientEncryption.alg_name).toBe("aes128-ctr")
+        expect(algorithms.serverEncryption.alg_name).toBe("aes192-ctr")
+        expect(algorithms.clientMac?.alg_name).toBe("hmac-sha1")
+        expect(algorithms.serverMac?.alg_name).toBe("hmac-sha2-256")
+        expect(algorithms.clientCompression.alg_name).toBe("zlib")
+        expect(algorithms.serverCompression.alg_name).toBe("zlib@openssh.com")
     })
 
     test("treats the MAC as implicit when AEAD ciphers are negotiated", () => {
@@ -241,12 +241,12 @@ describe("RFC 4253 algorithm negotiation", () => {
             mac_algorithms_server_to_client: ["server-only-mac@example.test"],
         })
 
-        chooseAlgorithms(client)
+        const algorithms = chooseAlgorithms(client)
 
-        expect(client.clientEncryptionAlgorithm?.alg_name).toBe("chacha20-poly1305@openssh.com")
-        expect(client.serverEncryptionAlgorithm?.alg_name).toBe("aes256-gcm@openssh.com")
-        expect(client.clientMacAlgorithm).toBeUndefined()
-        expect(client.serverMacAlgorithm).toBeUndefined()
+        expect(algorithms.clientEncryption.alg_name).toBe("chacha20-poly1305@openssh.com")
+        expect(algorithms.serverEncryption.alg_name).toBe("aes256-gcm@openssh.com")
+        expect(algorithms.clientMac).toBeUndefined()
+        expect(algorithms.serverMac).toBeUndefined()
     })
 
     test("requires the matching RFC 5647 MAC name for standard AES-GCM", () => {
@@ -264,14 +264,14 @@ describe("RFC 4253 algorithm negotiation", () => {
             mac_algorithms_server_to_client: ["AEAD_AES_256_GCM", "hmac-sha2-256"],
         })
 
-        chooseAlgorithms(client)
+        const algorithms = chooseAlgorithms(client)
 
-        expect(client.clientEncryptionAlgorithm?.alg_name).toBe("AEAD_AES_128_GCM")
-        expect(client.serverEncryptionAlgorithm?.alg_name).toBe("AEAD_AES_256_GCM")
-        expect(client.clientMacAlgorithm).toBeUndefined()
-        expect(client.serverMacAlgorithm).toBeUndefined()
-        expect(describeNegotiatedAlgorithms(client).cs.mac).toBe("AEAD_AES_128_GCM")
-        expect(describeNegotiatedAlgorithms(client).sc.mac).toBe("AEAD_AES_256_GCM")
+        expect(algorithms.clientEncryption.alg_name).toBe("AEAD_AES_128_GCM")
+        expect(algorithms.serverEncryption.alg_name).toBe("AEAD_AES_256_GCM")
+        expect(algorithms.clientMac).toBeUndefined()
+        expect(algorithms.serverMac).toBeUndefined()
+        expect(describeNegotiatedAlgorithms(algorithms).cs.mac).toBe("AEAD_AES_128_GCM")
+        expect(describeNegotiatedAlgorithms(algorithms).sc.mac).toBe("AEAD_AES_256_GCM")
     })
 
     test("rejects inconsistent RFC 5647 cipher and MAC selections", () => {
@@ -302,16 +302,16 @@ describe("RFC 4253 algorithm negotiation", () => {
         )
     })
 
-    test("clears a prior selection before rejecting a later exchange with no overlap", () => {
+    test("does not partially install a selection when a later exchange has no overlap", () => {
         const client = new Client({ hostname: "unused.invalid" })
         client.clientKexInit = offer({})
         client.serverKexInit = offer({})
-        chooseAlgorithms(client)
-        expect(client.kexAlgorithm).toBeDefined()
+        const first = chooseAlgorithms(client)
+        expect(first.keyExchange).toBeDefined()
 
         client.serverKexInit = offer({ kex_algorithms: ["unsupported-kex@example.test"] })
         expect(() => chooseAlgorithms(client)).toThrow("No key exchange algorithm found")
-        expect(client.kexAlgorithm).toBeUndefined()
+        expect(client.keyExchangeAlgorithm).toBeUndefined()
         expect(client.hostKeyAlgorithm).toBeUndefined()
         expect(client.clientCompressionAlgorithm).toBeUndefined()
         expect(client.serverCompressionAlgorithm).toBeUndefined()
@@ -327,7 +327,11 @@ describe("RFC 4253 algorithm negotiation", () => {
         expect(() => chooseAlgorithms(client)).toThrow(
             "No server to client compression algorithm found",
         )
-        expect(client.clientCompressionAlgorithm?.alg_name).toBe("none")
+        expect(client.keyExchangeAlgorithm).toBeUndefined()
+        expect(client.hostKeyAlgorithm).toBeUndefined()
+        expect(client.clientEncryptionAlgorithm).toBeUndefined()
+        expect(client.serverEncryptionAlgorithm).toBeUndefined()
+        expect(client.clientCompressionAlgorithm).toBeUndefined()
         expect(client.serverCompressionAlgorithm).toBeUndefined()
     })
 
@@ -340,9 +344,9 @@ describe("RFC 4253 algorithm negotiation", () => {
             server_host_key_algorithms: ["rsa-sha2-256", "rsa-sha2-512"],
         })
 
-        chooseAlgorithms(client)
+        const algorithms = chooseAlgorithms(client)
 
-        expect(client.hostKeyAlgorithm).toEqual({
+        expect(algorithms.hostKey).toEqual({
             alg_name: "rsa-sha2-512",
             key_format: "ssh-rsa",
             signature_algorithm: "rsa-sha2-512",

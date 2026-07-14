@@ -67,7 +67,7 @@ describe("registered standalone ML-KEM key exchange", () => {
             try {
                 await client.connect()
                 const sessionId = Buffer.from(client.sessionID!)
-                const firstExchangeHash = Buffer.from(client.H!)
+                const firstExchangeHash = Buffer.from(client.exchangeHash!)
                 expect(firstExchangeHash).toHaveLength(hashBytes)
                 expect(
                     await client.globalRequest("echo@example.test", Buffer.from("first")),
@@ -76,7 +76,7 @@ describe("registered standalone ML-KEM key exchange", () => {
                 await client.rekey()
                 await [...server.clients][0]!.rekey()
                 expect(client.sessionID).toEqual(sessionId)
-                expect(client.H).not.toEqual(firstExchangeHash)
+                expect(client.exchangeHash).not.toEqual(firstExchangeHash)
                 expect(
                     await client.globalRequest("echo@example.test", Buffer.from("second")),
                 ).toEqual(Buffer.from("second"))

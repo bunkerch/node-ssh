@@ -402,9 +402,7 @@ describe("client/server integration", () => {
             expect(serverPeer?.clientProtocolVersion).toEqual(
                 new ProtocolVersionExchange("2.0", "modernssh_integration", "fixed-comment"),
             )
-            expect((client.kexAlgorithm?.constructor as { alg_name?: string }).alg_name).toBe(
-                "curve25519-sha256",
-            )
+            expect(client.keyExchangeAlgorithm).toBe("curve25519-sha256")
             expect(client.clientEncryptionAlgorithm?.alg_name).toBe("aes128-ctr")
             expect(client.clientMacAlgorithm?.alg_name).toBe("hmac-sha2-256-etm@openssh.com")
             expect(serverPeer?.serverEncryptionAlgorithm?.alg_name).toBe("aes128-ctr")
@@ -431,14 +429,20 @@ describe("client/server integration", () => {
 
             const initialClientSessionId = Buffer.from(client.sessionID!)
             const initialServerSessionId = Buffer.from(serverPeer!.sessionID!)
-            const initialClientExchangeHash = Buffer.from(client.H!)
-            const initialServerExchangeHash = Buffer.from(serverPeer!.H!)
+            const initialClientExchangeHash = Buffer.from(client.exchangeHash!)
+            const initialServerExchangeHash = Buffer.from(serverPeer!.exchangeHash!)
             const exposedClientSessionId = client.sessionID!
             const exposedServerSessionId = serverPeer!.sessionID!
+            const exposedClientExchangeHash = client.exchangeHash!
+            const exposedServerExchangeHash = serverPeer!.exchangeHash!
             exposedClientSessionId.fill(0)
             exposedServerSessionId.fill(0)
+            exposedClientExchangeHash.fill(0)
+            exposedServerExchangeHash.fill(0)
             expect(client.sessionID).toEqual(initialClientSessionId)
             expect(serverPeer!.sessionID).toEqual(initialServerSessionId)
+            expect(client.exchangeHash).toEqual(initialClientExchangeHash)
+            expect(serverPeer!.exchangeHash).toEqual(initialServerExchangeHash)
 
             let clientObservedServerKexInit: KexInit | undefined
             let serverObservedClientKexInit: KexInit | undefined
@@ -528,9 +532,9 @@ describe("client/server integration", () => {
             expect(serverExchangeEvents).toEqual(["handshake", "handshake", "rekey"])
             expect(client.sessionID).toEqual(initialClientSessionId)
             expect(serverPeer!.sessionID).toEqual(initialServerSessionId)
-            expect(client.H).not.toEqual(initialClientExchangeHash)
-            expect(serverPeer!.H).not.toEqual(initialServerExchangeHash)
-            expect(client.H).toEqual(serverPeer!.H)
+            expect(client.exchangeHash).not.toEqual(initialClientExchangeHash)
+            expect(serverPeer!.exchangeHash).not.toEqual(initialServerExchangeHash)
+            expect(client.exchangeHash).toEqual(serverPeer!.exchangeHash)
             expect(client.clientKexInitPayload?.subarray(1, 17)).not.toEqual(
                 client.clientKexInit?.data.cookie,
             )

@@ -233,10 +233,32 @@ export abstract class KexAlgorithm {
     abstract computeHClient(client: Client, serverKexInit: Buffer): Buffer
     abstract computeHServer(client: ServerClient, clientKexInit: Buffer, hostKey: Buffer): Buffer
 
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    deriveKeysClient(client: Client | ServerClient): void {
+    deriveTransportKeys(
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        exchangeHash: Buffer,
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        sessionID: Buffer,
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        lengths: TransportKeyLengths,
+    ): DerivedTransportKeys {
         throw new Error("Not implemented")
     }
+}
+export interface TransportKeyLengths {
+    readonly clientIV: number
+    readonly serverIV: number
+    readonly clientEncryption: number
+    readonly serverEncryption: number
+    readonly clientIntegrity: number
+    readonly serverIntegrity: number
+}
+export interface DerivedTransportKeys {
+    readonly clientIV: Buffer
+    readonly serverIV: Buffer
+    readonly clientEncryption: Buffer
+    readonly serverEncryption: Buffer
+    readonly clientIntegrity: Buffer
+    readonly serverIntegrity: Buffer
 }
 export interface KexAlgorithmFactory {
     readonly alg_name: string
@@ -450,19 +472,21 @@ export const default_algorithm_names: ResolvedAlgorithmOptions = Object.freeze({
     compress: Object.freeze(["none", "zlib@openssh.com", "zlib"]),
 })
 
-export function chooseAlgorithms(client: Client | ServerClient) {
+export interface ChosenAlgorithms {
+    readonly keyExchange: KexAlgorithm
+    readonly hostKey: HostKeyAlgorithm
+    readonly clientEncryption: typeof EncryptionAlgorithm
+    readonly serverEncryption: typeof EncryptionAlgorithm
+    readonly clientMac?: typeof MACAlgorithm
+    readonly serverMac?: typeof MACAlgorithm
+    readonly clientCompression: CompressionAlgorithm
+    readonly serverCompression: CompressionAlgorithm
+}
+
+export function chooseAlgorithms(client: Client | ServerClient): ChosenAlgorithms {
     assert(client.clientKexInit, "Client KexInit not set")
     assert(client.serverKexInit, "Server KexInit not set")
     client.debug("Choosing algorithms...")
-
-    client.kexAlgorithm = undefined
-    client.hostKeyAlgorithm = undefined
-    client.clientEncryptionAlgorithm = undefined
-    client.serverEncryptionAlgorithm = undefined
-    client.clientMacAlgorithm = undefined
-    client.serverMacAlgorithm = undefined
-    client.clientCompressionAlgorithm = undefined
-    client.serverCompressionAlgorithm = undefined
 
     const server_host_key_algorithms: HostKeyAlgorithm[] = []
     for (const alg of client.serverKexInit.data.server_host_key_algorithms) {
@@ -480,6 +504,8 @@ export function chooseAlgorithms(client: Client | ServerClient) {
         mutual_host_key_algorithms.push(algorithm)
     }
 
+    let keyExchange: KexAlgorithm | undefined
+    let hostKey: HostKeyAlgorithm | undefined
     for (const name of client.clientKexInit.data.kex_algorithms) {
         if (!client.serverKexInit.data.kex_algorithms.includes(name)) continue
         const algorithm =
@@ -497,110 +523,101 @@ export function chooseAlgorithms(client: Client | ServerClient) {
             return true
         })
         if (!hostKeyAlgorithm) continue
-        client.kexAlgorithm = algorithm.instantiate()
-        client.hostKeyAlgorithm = hostKeyAlgorithm
+        keyExchange = algorithm.instantiate()
+        hostKey = hostKeyAlgorithm
         break
     }
     assert(
-        client.kexAlgorithm,
+        keyExchange,
         `No key exchange algorithm found (client KEX: ${client.clientKexInit.data.kex_algorithms.join(",")}; server KEX: ${client.serverKexInit.data.kex_algorithms.join(",")}; client host keys: ${client.clientKexInit.data.server_host_key_algorithms.join(",")}; server host keys: ${client.serverKexInit.data.server_host_key_algorithms.join(",")})`,
     )
-    assert(client.hostKeyAlgorithm, "No host key algorithm found")
+    assert(hostKey, "No host key algorithm found")
 
-    client.clientEncryptionAlgorithm = firstRegisteredMutual(
+    const clientEncryption = firstRegisteredMutual(
         client.clientKexInit.data.encryption_algorithms_client_to_server,
         client.serverKexInit.data.encryption_algorithms_client_to_server,
         encryption_algorithms,
     )
-    assert(client.clientEncryptionAlgorithm, "No client to server encryption algorithm found")
-    client.serverEncryptionAlgorithm = firstRegisteredMutual(
+    assert(clientEncryption, "No client to server encryption algorithm found")
+    const serverEncryption = firstRegisteredMutual(
         client.clientKexInit.data.encryption_algorithms_server_to_client,
         client.serverKexInit.data.encryption_algorithms_server_to_client,
         encryption_algorithms,
     )
-    assert(client.serverEncryptionAlgorithm, "No server to client encryption algorithm found")
+    assert(serverEncryption, "No server to client encryption algorithm found")
 
-    client.clientMacAlgorithm = negotiateMACAlgorithm(
+    const clientMac = negotiateMACAlgorithm(
         "client to server",
-        client.clientEncryptionAlgorithm,
+        clientEncryption,
         client.clientKexInit.data.mac_algorithms_client_to_server,
         client.serverKexInit.data.mac_algorithms_client_to_server,
     )
-    client.serverMacAlgorithm = negotiateMACAlgorithm(
+    const serverMac = negotiateMACAlgorithm(
         "server to client",
-        client.serverEncryptionAlgorithm,
+        serverEncryption,
         client.clientKexInit.data.mac_algorithms_server_to_client,
         client.serverKexInit.data.mac_algorithms_server_to_client,
     )
 
-    client.clientCompressionAlgorithm = firstRegisteredMutual(
+    const clientCompression = firstRegisteredMutual(
         client.clientKexInit.data.compression_algorithms_client_to_server,
         client.serverKexInit.data.compression_algorithms_client_to_server,
         compression_algorithms,
     )
-    assert(client.clientCompressionAlgorithm, "No client to server compression algorithm found")
-    client.serverCompressionAlgorithm = firstRegisteredMutual(
+    assert(clientCompression, "No client to server compression algorithm found")
+    const serverCompression = firstRegisteredMutual(
         client.clientKexInit.data.compression_algorithms_server_to_client,
         client.serverKexInit.data.compression_algorithms_server_to_client,
         compression_algorithms,
     )
-    assert(client.serverCompressionAlgorithm, "No server to client compression algorithm found")
+    assert(serverCompression, "No server to client compression algorithm found")
 
     client.debug(
         "Key Exchange Algorithm chosen:",
-        (client.kexAlgorithm.constructor as typeof KexAlgorithm).alg_name,
+        (keyExchange.constructor as typeof KexAlgorithm).alg_name,
     )
-    client.debug("Host Key Algorithm chosen:", client.hostKeyAlgorithm.alg_name)
-    client.debug(
-        "Client to Server Encryption Algorithm chosen:",
-        client.clientEncryptionAlgorithm.alg_name,
-    )
-    client.debug(
-        "Server to Client Encryption Algorithm chosen:",
-        client.serverEncryptionAlgorithm.alg_name,
-    )
+    client.debug("Host Key Algorithm chosen:", hostKey.alg_name)
+    client.debug("Client to Server Encryption Algorithm chosen:", clientEncryption.alg_name)
+    client.debug("Server to Client Encryption Algorithm chosen:", serverEncryption.alg_name)
     client.debug(
         "Client to Server MAC Algorithm chosen:",
-        negotiatedMACName(client.clientEncryptionAlgorithm, client.clientMacAlgorithm) ||
-            "<implicit>",
+        negotiatedMACName(clientEncryption, clientMac) || "<implicit>",
     )
     client.debug(
         "Server to Client MAC Algorithm chosen:",
-        negotiatedMACName(client.serverEncryptionAlgorithm, client.serverMacAlgorithm) ||
-            "<implicit>",
+        negotiatedMACName(serverEncryption, serverMac) || "<implicit>",
     )
-    client.debug(
-        "Client to Server Compression Algorithm chosen:",
-        client.clientCompressionAlgorithm.alg_name,
-    )
-    client.debug(
-        "Server to Client Compression Algorithm chosen:",
-        client.serverCompressionAlgorithm.alg_name,
-    )
+    client.debug("Client to Server Compression Algorithm chosen:", clientCompression.alg_name)
+    client.debug("Server to Client Compression Algorithm chosen:", serverCompression.alg_name)
+
+    return {
+        keyExchange,
+        hostKey,
+        clientEncryption,
+        serverEncryption,
+        clientMac,
+        serverMac,
+        clientCompression,
+        serverCompression,
+    }
 }
 
 export function describeNegotiatedAlgorithms(
-    client: Client | ServerClient,
+    algorithms: ChosenAlgorithms,
 ): Readonly<NegotiatedAlgorithms> {
-    assert(client.kexAlgorithm, "Key exchange algorithm not selected")
-    assert(client.hostKeyAlgorithm, "Host key algorithm not selected")
-    assert(client.clientEncryptionAlgorithm, "Client cipher not selected")
-    assert(client.serverEncryptionAlgorithm, "Server cipher not selected")
-    assert(client.clientCompressionAlgorithm, "Client compression not selected")
-    assert(client.serverCompressionAlgorithm, "Server compression not selected")
     return Object.freeze({
-        kex: (client.kexAlgorithm.constructor as typeof KexAlgorithm).alg_name,
-        srvHostKey: client.hostKeyAlgorithm.alg_name,
+        kex: (algorithms.keyExchange.constructor as typeof KexAlgorithm).alg_name,
+        srvHostKey: algorithms.hostKey.alg_name,
         cs: Object.freeze({
-            cipher: client.clientEncryptionAlgorithm.alg_name,
-            mac: negotiatedMACName(client.clientEncryptionAlgorithm, client.clientMacAlgorithm),
-            compress: client.clientCompressionAlgorithm.alg_name,
+            cipher: algorithms.clientEncryption.alg_name,
+            mac: negotiatedMACName(algorithms.clientEncryption, algorithms.clientMac),
+            compress: algorithms.clientCompression.alg_name,
             lang: "",
         }),
         sc: Object.freeze({
-            cipher: client.serverEncryptionAlgorithm.alg_name,
-            mac: negotiatedMACName(client.serverEncryptionAlgorithm, client.serverMacAlgorithm),
-            compress: client.serverCompressionAlgorithm.alg_name,
+            cipher: algorithms.serverEncryption.alg_name,
+            mac: negotiatedMACName(algorithms.serverEncryption, algorithms.serverMac),
+            compress: algorithms.serverCompression.alg_name,
             lang: "",
         }),
     })

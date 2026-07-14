@@ -110,7 +110,7 @@ describe("RFC 4432 RSA SHA-256 key exchange", () => {
         client.on("handshake", ({ kex }) => clientHandshakes.push(kex))
         try {
             await client.connect()
-            expect(client.kexAlgorithm?.constructor.name).toBe("RSA2048SHA256")
+            expect(client.keyExchangeAlgorithm).toBe("rsa2048-sha256")
             await client.rekey()
             const clientRekey = once(client, "rekey")
             await connection!.rekey()

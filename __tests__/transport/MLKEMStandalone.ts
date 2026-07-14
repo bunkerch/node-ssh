@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto"
 
-import type Client from "../../src/Client.js"
 import { MLKEM1024SHA384, MLKEM512SHA256, MLKEM768SHA256 } from "../../src/algorithms/kex/mlkem.js"
 
 // NIST ACVP Server FIPS 203 keyGen internalProjection case 1 (d || z).
@@ -151,15 +150,14 @@ describe("registered standalone ML-KEM key exchanges", () => {
         expect(sharedSecret[0] & 0x80).not.toBe(0)
         const exchangeHash = Buffer.alloc(32, 0x3c)
         const sessionId = Buffer.alloc(32, 0x5a)
-        const target = {
-            H: exchangeHash,
-            sessionID: sessionId,
-            clientEncryptionAlgorithm: { iv_length: 16, key_length: 16 },
-            serverEncryptionAlgorithm: { iv_length: 16, key_length: 16 },
-            clientMacAlgorithm: { key_length: 32 },
-            serverMacAlgorithm: { key_length: 32 },
-        } as unknown as Client
-        client.deriveKeysClient(target)
+        const keys = client.deriveTransportKeys(exchangeHash, sessionId, {
+            clientIV: 16,
+            serverIV: 16,
+            clientEncryption: 16,
+            serverEncryption: 16,
+            clientIntegrity: 32,
+            serverIntegrity: 32,
+        })
 
         const positiveMpint = Buffer.concat([Buffer.from([0]), sharedSecret])
         const length = Buffer.alloc(4)
@@ -173,12 +171,12 @@ describe("registered standalone ML-KEM key exchanges", () => {
                 .update(sessionId)
                 .digest(),
         )
-        expect(target.ivClientToServer).toEqual(expected[0]!.subarray(0, 16))
-        expect(target.ivServerToClient).toEqual(expected[1]!.subarray(0, 16))
-        expect(target.encryptionKeyClientToServer).toEqual(expected[2]!.subarray(0, 16))
-        expect(target.encryptionKeyServerToClient).toEqual(expected[3]!.subarray(0, 16))
-        expect(target.integrityKeyClientToServer).toEqual(expected[4])
-        expect(target.integrityKeyServerToClient).toEqual(expected[5])
+        expect(keys.clientIV).toEqual(expected[0]!.subarray(0, 16))
+        expect(keys.serverIV).toEqual(expected[1]!.subarray(0, 16))
+        expect(keys.clientEncryption).toEqual(expected[2]!.subarray(0, 16))
+        expect(keys.serverEncryption).toEqual(expected[3]!.subarray(0, 16))
+        expect(keys.clientIntegrity).toEqual(expected[4])
+        expect(keys.serverIntegrity).toEqual(expected[5])
     })
 
     test("rejects malformed role values and invalid encapsulation keys", () => {

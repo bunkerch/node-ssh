@@ -371,32 +371,36 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     get clientKexInitPayload(): Buffer | undefined {
         return this.#clientKexInitPayload && Buffer.from(this.#clientKexInitPayload)
     }
-    kexAlgorithm?: KexAlgorithm
+    #kexAlgorithm?: KexAlgorithm
     hostKeyAlgorithm?: HostKeyAlgorithm
     clientEncryptionAlgorithm?: typeof EncryptionAlgorithm
     serverEncryptionAlgorithm?: typeof EncryptionAlgorithm
-    clientEncryption?: EncryptionAlgorithm
-    serverEncryption?: EncryptionAlgorithm
+    #clientEncryption?: EncryptionAlgorithm
+    #serverEncryption?: EncryptionAlgorithm
     clientMacAlgorithm?: typeof MACAlgorithm
     serverMacAlgorithm?: typeof MACAlgorithm
-    clientMac?: MACAlgorithm
-    serverMac?: MACAlgorithm
+    #clientMac?: MACAlgorithm
+    #serverMac?: MACAlgorithm
     clientCompressionAlgorithm?: CompressionAlgorithm
     serverCompressionAlgorithm?: CompressionAlgorithm
 
-    // TODO: Set those as private properties (Need to be accessed by the algorithms only)
-    H?: Buffer
+    #exchangeHash?: Buffer
     #sessionID?: Buffer
+
+    /** The most recent key exchange hash, returned as a defensive copy. */
+    get exchangeHash(): Buffer | undefined {
+        return this.#exchangeHash && Buffer.from(this.#exchangeHash)
+    }
+
+    /** The negotiated key exchange algorithm name. */
+    get keyExchangeAlgorithm(): string | undefined {
+        const kex = this.#kexAlgorithm
+        return kex && (kex.constructor as typeof KexAlgorithm).alg_name
+    }
 
     get sessionID(): Buffer | undefined {
         return this.#sessionID && Buffer.from(this.#sessionID)
     }
-    ivClientToServer?: Buffer
-    ivServerToClient?: Buffer
-    encryptionKeyClientToServer?: Buffer
-    encryptionKeyServerToClient?: Buffer
-    integrityKeyClientToServer?: Buffer
-    integrityKeyServerToClient?: Buffer
 
     hasReceivedNewKeys = false
     hasSentNewKeys = false
@@ -881,11 +885,19 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 clientKexInit.data.kex_algorithms,
                 this.serverKexInit.data.kex_algorithms,
             )
-            chooseAlgorithms(this)
+            const algorithms = chooseAlgorithms(this)
+            this.#kexAlgorithm = algorithms.keyExchange
+            this.hostKeyAlgorithm = algorithms.hostKey
+            this.clientEncryptionAlgorithm = algorithms.clientEncryption
+            this.serverEncryptionAlgorithm = algorithms.serverEncryption
+            this.clientMacAlgorithm = algorithms.clientMac
+            this.serverMacAlgorithm = algorithms.serverMac
+            this.clientCompressionAlgorithm = algorithms.clientCompression
+            this.serverCompressionAlgorithm = algorithms.serverCompression
             this.discardNextGuessedKeyExchangePacket =
                 this.shouldDiscardGuessedPacket(clientKexInit)
 
-            const kexAlgorithm = this.kexAlgorithm
+            const kexAlgorithm = this.#kexAlgorithm
             assert(kexAlgorithm, "No key exchange algorithm was negotiated")
             const hostKey =
                 this.hostKeyAlgorithm!.alg_name === "null"
@@ -971,19 +983,10 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             }
             assert(h, "Key exchange hash was not computed")
 
-            this.H = h
+            this.#exchangeHash = Buffer.from(h)
             this.#sessionID ??= Buffer.from(h)
-            kexAlgorithm.deriveKeysClient(this)
-            this.clientEncryption = this.clientEncryptionAlgorithm!.instantiate(
-                this.encryptionKeyClientToServer!,
-                this.ivClientToServer!,
-            )
-            this.serverEncryption = this.serverEncryptionAlgorithm!.instantiate(
-                this.encryptionKeyServerToClient!,
-                this.ivServerToClient!,
-            )
-            this.clientMac = this.clientMacAlgorithm?.instantiate(this.integrityKeyClientToServer!)
-            this.serverMac = this.serverMacAlgorithm?.instantiate(this.integrityKeyServerToClient!)
+            this.installDerivedTransportKeys(kexAlgorithm, h)
+            assert(this.#serverEncryption)
             this.inboundNewKeysReady = true
             this.expectInboundKeyExchange(PacketNameToType.SSH_MSG_NEWKEYS)
             this.resumePacketProcessing()
@@ -995,9 +998,9 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             this.packetEncoder.setProtection(
                 createOutboundPacketProtection(
                     this.serverEncryptionAlgorithm!,
-                    this.serverEncryption,
+                    this.#serverEncryption,
                     this.serverMacAlgorithm,
-                    this.serverMac,
+                    this.#serverMac,
                 ),
             )
             this.installOutboundCompression()
@@ -1052,7 +1055,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             this.resetRekeyTimer()
             this.checkRekeyByteLimit()
             this.emit("serverNewKeys")
-            this.emit("handshake", describeNegotiatedAlgorithms(this))
+            this.emit("handshake", describeNegotiatedAlgorithms(algorithms))
             if (isRekey) this.emit("rekey")
         } catch (error) {
             if (error instanceof KeyExchangeError && this.socket.writable) {
@@ -2508,6 +2511,33 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         }
     }
 
+    private installDerivedTransportKeys(kex: KexAlgorithm, exchangeHash: Buffer): void {
+        assert(this.#sessionID, "SSH session identifier is unavailable")
+        assert(this.clientEncryptionAlgorithm && this.serverEncryptionAlgorithm)
+        const keys = kex.deriveTransportKeys(exchangeHash, this.#sessionID, {
+            clientIV: this.clientEncryptionAlgorithm.iv_length,
+            serverIV: this.serverEncryptionAlgorithm.iv_length,
+            clientEncryption: this.clientEncryptionAlgorithm.key_length,
+            serverEncryption: this.serverEncryptionAlgorithm.key_length,
+            clientIntegrity: this.clientMacAlgorithm?.key_length ?? 0,
+            serverIntegrity: this.serverMacAlgorithm?.key_length ?? 0,
+        })
+        try {
+            this.#clientEncryption = this.clientEncryptionAlgorithm.instantiate(
+                keys.clientEncryption,
+                keys.clientIV,
+            )
+            this.#serverEncryption = this.serverEncryptionAlgorithm.instantiate(
+                keys.serverEncryption,
+                keys.serverIV,
+            )
+            this.#clientMac = this.clientMacAlgorithm?.instantiate(keys.clientIntegrity)
+            this.#serverMac = this.serverMacAlgorithm?.instantiate(keys.serverIntegrity)
+        } finally {
+            for (const key of Object.values(keys)) key.fill(0)
+        }
+    }
+
     private installOutboundCompression(): void {
         assert(this.serverCompressionAlgorithm, "Server compression algorithm not selected")
         this.packetEncoder.setCompression(
@@ -2646,20 +2676,20 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         this.validateHigherLayerPhase(packetType)
         let p: Packet
         if (
-            this.kexAlgorithm instanceof GSSAPIKeyExchange &&
+            this.#kexAlgorithm instanceof GSSAPIKeyExchange &&
             (packetType === KexGSSAPIInit.type || packetType === KexGSSAPIContinue.type)
         ) {
             p =
                 packetType === KexGSSAPIInit.type
-                    ? KexGSSAPIInit.parse(payload, this.kexAlgorithm.exchangeValueEncoding)
+                    ? KexGSSAPIInit.parse(payload, this.#kexAlgorithm.exchangeValueEncoding)
                     : KexGSSAPIContinue.parse(payload)
         } else {
             const packet =
                 packetType === PacketNameToType.SSH_MSG_KEXDH_REPLY &&
-                this.kexAlgorithm instanceof RSA2048SHA256
+                this.#kexAlgorithm instanceof RSA2048SHA256
                     ? KexRSASecret
                     : packetType === PacketNameToType.SSH_MSG_KEXDH_INIT &&
-                        this.kexAlgorithm instanceof DiffieHellmanGroupExchange
+                        this.#kexAlgorithm instanceof DiffieHellmanGroupExchange
                       ? KexDHGexRequestOld
                       : packetType === PacketNameToType.SSH_MSG_USERAUTH_INFO_RESPONSE &&
                           this.activeAuthenticationMethod === SSHAuthenticationMethods.GSSAPIWithMIC
@@ -2696,7 +2726,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         }
         if (this.strictKeyExchange && this.strictInitialExchange) {
             const repeatableGSSContinuation =
-                this.kexAlgorithm instanceof GSSAPIKeyExchange &&
+                this.#kexAlgorithm instanceof GSSAPIKeyExchange &&
                 packetType === KexGSSAPIContinue.type
             if (!repeatableGSSContinuation && this.strictInitialPackets.has(packetType)) {
                 throw new KeyExchangeError("Received a duplicate packet during strict key exchange")
@@ -2799,7 +2829,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
 
             case PacketNameToType.SSH_MSG_KEXDH_REPLY:
                 if (p instanceof KexGSSAPIContinue) break
-                if (!(this.kexAlgorithm instanceof RSA2048SHA256)) {
+                if (!(this.#kexAlgorithm instanceof RSA2048SHA256)) {
                     throw new Error("Received an RSA secret for another key exchange")
                 }
                 this.emit("clientKexRSASecret", p as KexRSASecret)
@@ -2807,14 +2837,14 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 break
 
             case PacketNameToType.SSH_MSG_KEX_DH_GEX_REQUEST:
-                if (!(this.kexAlgorithm instanceof DiffieHellmanGroupExchange)) {
+                if (!(this.#kexAlgorithm instanceof DiffieHellmanGroupExchange)) {
                     throw new Error("Received a group request for another key exchange")
                 }
                 this.emit("clientKexDHGexRequest", p as KexDHGexRequest)
                 break
 
             case PacketNameToType.SSH_MSG_KEX_DH_GEX_INIT:
-                if (!(this.kexAlgorithm instanceof DiffieHellmanGroupExchange)) {
+                if (!(this.#kexAlgorithm instanceof DiffieHellmanGroupExchange)) {
                     throw new Error("Received a group-exchange init for another key exchange")
                 }
                 this.emit("clientKexDHGexInit", p as KexDHGexInit)
@@ -2827,9 +2857,9 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 this.packetDecoder.setProtection(
                     createInboundPacketProtection(
                         this.clientEncryptionAlgorithm!,
-                        this.clientEncryption!,
+                        this.#clientEncryption!,
                         this.clientMacAlgorithm,
-                        this.clientMac,
+                        this.#clientMac,
                     ),
                 )
                 this.installInboundCompression()
@@ -3009,7 +3039,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
 
     private shouldDiscardGuessedPacket(peerKexInit: KexInit): boolean {
         if (!peerKexInit.data.first_kex_packet_follows) return false
-        const negotiatedKex = (this.kexAlgorithm!.constructor as typeof KexAlgorithm).alg_name
+        const negotiatedKex = (this.#kexAlgorithm!.constructor as typeof KexAlgorithm).alg_name
         return (
             peerKexInit.data.kex_algorithms[0] !== negotiatedKex ||
             peerKexInit.data.server_host_key_algorithms[0] !== this.hostKeyAlgorithm!.alg_name

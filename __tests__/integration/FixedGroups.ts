@@ -66,14 +66,14 @@ describe("RFC 8268 fixed-group integration", () => {
         try {
             await client.connect()
             const sessionId = Buffer.from(client.sessionID!)
-            const firstHash = Buffer.from(client.H!)
+            const firstHash = Buffer.from(client.exchangeHash!)
             expect(await client.globalRequest("echo@example.test", Buffer.from("first"))).toEqual(
                 Buffer.from("first"),
             )
 
             await client.rekey()
             expect(client.sessionID).toEqual(sessionId)
-            expect(client.H).not.toEqual(firstHash)
+            expect(client.exchangeHash).not.toEqual(firstHash)
             expect(await client.globalRequest("echo@example.test", Buffer.from("second"))).toEqual(
                 Buffer.from("second"),
             )

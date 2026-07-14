@@ -2685,9 +2685,7 @@ describe("OpenSSH interoperability", () => {
             await expect(client.globalRequest("unknown-request@example.test")).rejects.toThrow(
                 "SSH global request unknown-request@example.test failed",
             )
-            expect((client.kexAlgorithm?.constructor as { alg_name?: string }).alg_name).toBe(
-                "curve25519-sha256",
-            )
+            expect(client.keyExchangeAlgorithm).toBe("curve25519-sha256")
             expect(client.hostKeyAlgorithm?.alg_name).toBe("rsa-sha2-512")
             expect(client.clientEncryptionAlgorithm?.alg_name).toBe("aes128-ctr")
             expect(client.clientMacAlgorithm?.alg_name).toBe("hmac-sha2-256")
@@ -2711,7 +2709,7 @@ describe("OpenSSH interoperability", () => {
             await new Promise<void>((resolve) => setTimeout(resolve, 60))
             expect(keepalives).toBeGreaterThan(0)
             const sessionId = Buffer.from(client.sessionID!)
-            const exchangeHash = Buffer.from(client.H!)
+            const exchangeHash = Buffer.from(client.exchangeHash!)
             const automaticRekey = once(client, "rekey", {
                 signal: AbortSignal.timeout(2_000),
             })
@@ -2721,7 +2719,7 @@ describe("OpenSSH interoperability", () => {
             expect(handshakes).toEqual([expectedNegotiated, expectedNegotiated])
             expect(verifiedHostHashes).toEqual([expectedHostHash, expectedHostHash])
             expect(client.sessionID).toEqual(sessionId)
-            expect(client.H).not.toEqual(exchangeHash)
+            expect(client.exchangeHash).not.toEqual(exchangeHash)
 
             const environmentSession = await client.exec('printf %s "$LANG"', {
                 env: { LANG: "C.UTF-8" },

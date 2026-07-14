@@ -1,6 +1,6 @@
 import { createHash } from "crypto"
 
-import type { KexAlgorithm } from "../../algorithms.js"
+import type { DerivedTransportKeys, KexAlgorithm, TransportKeyLengths } from "../../algorithms.js"
 import type { KeyExchangeRole } from "../../algorithms.js"
 import type Client from "../../Client.js"
 import type ServerClient from "../../ServerClient.js"
@@ -33,28 +33,34 @@ export default abstract class KeyExchange implements KexAlgorithm {
         return Buffer.from(this.sharedSecret)
     }
 
-    deriveKeysClient(client: Client | ServerClient): void {
+    deriveTransportKeys(
+        exchangeHash: Buffer,
+        sessionID: Buffer,
+        lengths: TransportKeyLengths,
+    ): DerivedTransportKeys {
         const [
-            ivClientToServer,
-            ivServerToClient,
-            encryptionKeyClientToServer,
-            encryptionKeyServerToClient,
-            integrityKeyClientToServer,
-            integrityKeyServerToClient,
-        ] = this.deriveKeys(client.H!, client.sessionID!, [
-            client.clientEncryptionAlgorithm!.iv_length,
-            client.serverEncryptionAlgorithm!.iv_length,
-            client.clientEncryptionAlgorithm!.key_length,
-            client.serverEncryptionAlgorithm!.key_length,
-            client.clientMacAlgorithm?.key_length ?? 0,
-            client.serverMacAlgorithm?.key_length ?? 0,
+            clientIV,
+            serverIV,
+            clientEncryption,
+            serverEncryption,
+            clientIntegrity,
+            serverIntegrity,
+        ] = this.deriveKeys(exchangeHash, sessionID, [
+            lengths.clientIV,
+            lengths.serverIV,
+            lengths.clientEncryption,
+            lengths.serverEncryption,
+            lengths.clientIntegrity,
+            lengths.serverIntegrity,
         ])
-        client.ivClientToServer = ivClientToServer
-        client.ivServerToClient = ivServerToClient
-        client.encryptionKeyClientToServer = encryptionKeyClientToServer
-        client.encryptionKeyServerToClient = encryptionKeyServerToClient
-        client.integrityKeyClientToServer = integrityKeyClientToServer
-        client.integrityKeyServerToClient = integrityKeyServerToClient
+        return {
+            clientIV,
+            serverIV,
+            clientEncryption,
+            serverEncryption,
+            clientIntegrity,
+            serverIntegrity,
+        }
     }
 
     protected computeExchangeHash(fields: readonly (Buffer | string)[]): Buffer {

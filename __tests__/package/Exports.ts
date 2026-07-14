@@ -350,6 +350,31 @@ describe("package exports", () => {
         expect(client).toContain("get elevated(): boolean | undefined")
         expect(client).toContain("delayCompression?: DelayCompressionConfiguration")
         expect(client).toContain("exec(command: string, options?: ClientSessionOptions)")
+        expect(client).toContain("get exchangeHash(): Buffer | undefined")
+        expect(serverClient).toContain("get exchangeHash(): Buffer | undefined")
+        expect(client).toContain("get keyExchangeAlgorithm(): string | undefined")
+        expect(serverClient).toContain("get keyExchangeAlgorithm(): string | undefined")
+        for (const exposedState of [
+            "kexAlgorithm?: KexAlgorithm",
+            "clientEncryption?: EncryptionAlgorithm",
+            "serverEncryption?: EncryptionAlgorithm",
+            "clientMac?: MACAlgorithm",
+            "serverMac?: MACAlgorithm",
+        ]) {
+            expect(client).not.toContain(exposedState)
+            expect(serverClient).not.toContain(exposedState)
+        }
+        for (const secret of [
+            "ivClientToServer",
+            "ivServerToClient",
+            "encryptionKeyClientToServer",
+            "encryptionKeyServerToClient",
+            "integrityKeyClientToServer",
+            "integrityKeyServerToClient",
+        ]) {
+            expect(client).not.toContain(secret)
+            expect(serverClient).not.toContain(secret)
+        }
         expect(clientChannel).toContain("sendData(data: Buffer | string")
         expect(clientSession).toContain("forwardAgent(): Promise<void>")
         expect(channel).toContain("sendData(data: Buffer): Promise<void>")

@@ -205,7 +205,7 @@ describe("ML-KEM OpenSSH interoperability", () => {
                 await once(first, "close")
 
                 const sessionId = Buffer.from(client.sessionID!)
-                const firstExchangeHash = Buffer.from(client.H!)
+                const firstExchangeHash = Buffer.from(client.exchangeHash!)
                 await client.rekey()
 
                 const second = await client.exec("printf mlkem-client-second")
@@ -215,7 +215,7 @@ describe("ML-KEM OpenSSH interoperability", () => {
 
                 expect({
                     errors,
-                    firstExchangeHashChanged: !client.H!.equals(firstExchangeHash),
+                    firstExchangeHashChanged: !client.exchangeHash!.equals(firstExchangeHash),
                     firstOutput: Buffer.concat(firstOutput).toString(),
                     handshakes,
                     pingReply,

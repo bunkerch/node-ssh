@@ -10,7 +10,13 @@ import type {
     GSSAPIServerMechanism,
 } from "../../GSSAPI.js"
 import type ServerClient from "../../ServerClient.js"
-import type { KexAlgorithm, KexAlgorithmFactory, KeyExchangeRole } from "../../algorithms.js"
+import type {
+    DerivedTransportKeys,
+    KexAlgorithm,
+    KexAlgorithmFactory,
+    KeyExchangeRole,
+    TransportKeyLengths,
+} from "../../algorithms.js"
 import { serializeMpintBufferToBuffer } from "../../utils/mpint.js"
 import Curve25519SHA256 from "./curve25519-sha256.js"
 import Curve448SHA512 from "./curve448-sha512.js"
@@ -210,8 +216,12 @@ export default class GSSAPIKeyExchange extends KeyExchange {
         )
     }
 
-    deriveKeysClient(client: Client | ServerClient): void {
-        this.#keyAgreement.deriveKeysClient(client)
+    deriveTransportKeys(
+        exchangeHash: Buffer,
+        sessionID: Buffer,
+        lengths: TransportKeyLengths,
+    ): DerivedTransportKeys {
+        return this.#keyAgreement.deriveTransportKeys(exchangeHash, sessionID, lengths)
     }
 
     #computeH(

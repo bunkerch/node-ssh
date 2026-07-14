@@ -181,10 +181,9 @@ normally, and an incorrect guess does not consume the real method-stage expectat
 Algorithm negotiation follows the client's name-list preference order independently for key
 exchange, host keys, and both transport directions. Non-AEAD ciphers also negotiate each MAC
 direction independently; AES-GCM supplies integrity itself and therefore reports an empty MAC name.
-Every exchange clears prior selections before matching, so a rekey with no mutual algorithm fails
-rather than retaining stale transport state. Compression is negotiated independently in both
-directions from `none`, delayed `zlib@openssh.com`, and immediate RFC 4253 `zlib`; `none` remains the
-first default preference.
+The complete selection is validated before it is installed, so a failure cannot leave a partially
+selected set. Compression is negotiated independently in both directions from `none`, delayed
+`zlib@openssh.com`, and immediate RFC 4253 `zlib`; `none` remains the first default preference.
 
 `SSH_MSG_KEXINIT` parsing consumes its complete fixed layout: the cookie is exactly 16 bytes, all
 eight mandatory algorithm lists are non-empty, the reserved uint32 is zero, and trailing bytes are
@@ -707,6 +706,12 @@ negotiated keys. The event fires for the initial exchange and every rekey, befor
 `rekey` event, and reports the `{ kex, srvHostKey, cs, sc }` structure with each
 direction's cipher, MAC, compression, and language.
 
+After an exchange, `keyExchangeAlgorithm` contains the negotiated key-exchange name and
+`exchangeHash` contains a defensive copy of that exchange's transcript hash. The latter changes on
+each rekey; `sessionID` remains the first exchange hash. Derived IVs, encryption keys, integrity
+keys, shared secrets, and live cipher, MAC, and key-exchange objects are internal transport state
+and are not exposed through either connection role.
+
 ## Key re-exchange
 
 Clients and accepted server connections support RFC 4253 section 9 key re-exchange. Either peer may
@@ -757,8 +762,9 @@ remains the exchange hash from the first key exchange, as required for authentic
 continuity. Stateful compression streams also reset independently when the new protection for their
 direction becomes active.
 
-Reading `sessionID` returns a defensive copy. Mutating application-visible bytes cannot change the
-identifier reused by public-key signatures, host-key proofs, or later transport key derivation.
+Reading `sessionID` or `exchangeHash` returns a defensive copy. Mutating application-visible bytes
+cannot change the identifier reused by public-key signatures, host-key proofs, or later transport
+key derivation, nor the retained transcript hash.
 
 Once either side sends `SSH_MSG_KEXINIT`, outbound service and application packets are queued until
 that side has sent `SSH_MSG_NEWKEYS`; transport and KEX packets remain permitted. Packets already in

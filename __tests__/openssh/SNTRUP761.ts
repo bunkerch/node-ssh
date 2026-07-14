@@ -177,10 +177,10 @@ describe("RFC 9941 OpenSSH interoperability", () => {
                 expect(Buffer.concat(firstOutput).toString()).toBe("hybrid-client-first")
 
                 const sessionId = Buffer.from(client.sessionID!)
-                const firstExchangeHash = Buffer.from(client.H!)
+                const firstExchangeHash = Buffer.from(client.exchangeHash!)
                 await client.rekey()
                 expect(client.sessionID).toEqual(sessionId)
-                expect(client.H).not.toEqual(firstExchangeHash)
+                expect(client.exchangeHash).not.toEqual(firstExchangeHash)
 
                 const second = await client.exec("printf hybrid-client-second")
                 const secondOutput: Buffer[] = []

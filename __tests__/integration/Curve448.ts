@@ -59,7 +59,7 @@ describe("RFC 8731 Curve448 integration", () => {
         try {
             await client.connect()
             const sessionId = Buffer.from(client.sessionID!)
-            const firstExchangeHash = Buffer.from(client.H!)
+            const firstExchangeHash = Buffer.from(client.exchangeHash!)
             expect(firstExchangeHash).toHaveLength(64)
             expect(await client.globalRequest("echo@example.test", Buffer.from("first"))).toEqual(
                 Buffer.from("first"),
@@ -67,7 +67,7 @@ describe("RFC 8731 Curve448 integration", () => {
 
             await client.rekey()
             expect(client.sessionID).toEqual(sessionId)
-            expect(client.H).not.toEqual(firstExchangeHash)
+            expect(client.exchangeHash).not.toEqual(firstExchangeHash)
             expect(await client.globalRequest("echo@example.test", Buffer.from("second"))).toEqual(
                 Buffer.from("second"),
             )
