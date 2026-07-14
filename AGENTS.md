@@ -223,6 +223,10 @@ meaningful wire-level behavior.
 - Accept `NEWKEYS` and method-specific key-exchange messages only while an exchange is active.
   Reject late or unsolicited exchange packets with an RFC protocol-error disconnect before parsing
   their method-specific payload or changing packet protection.
+- Track inbound NEWKEYS readiness independently of whether local NEWKEYS was sent: RFC directions
+  may switch in either order. Reset readiness at each exchange, enable it only after deriving fresh
+  inbound keys and protection objects with a validated compression selection, and consume it on the
+  first peer NEWKEYS so premature and duplicate messages cannot install stale or undefined state.
 - RFC 4253 unknown message numbers receive `SSH_MSG_UNIMPLEMENTED` with the rejected inbound packet
   sequence and must not stop later buffered processing. Keep malformed known packets fatal, and
   classify strict initial-KEX non-KEX traffic before this recovery path so it still disconnects.

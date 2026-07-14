@@ -615,6 +615,7 @@ export default class Client extends EventEmitter<ClientEvents> {
     private unansweredKeepalives = 0
     private readyTimer?: ReturnType<typeof setTimeout>
     private keyExchangeInProgress = false
+    private inboundNewKeysReady = false
     private readonly packetsQueuedDuringKeyExchange: Packet[] = []
     private readonly actionQueue = new ActionQueue()
 
@@ -711,6 +712,7 @@ export default class Client extends EventEmitter<ClientEvents> {
         this.agentForwardingEnabled = false
         this.unansweredKeepalives = 0
         this.keyExchangeInProgress = false
+        this.inboundNewKeysReady = false
         this.packetsQueuedDuringKeyExchange.length = 0
         this.actionQueue.actionQueues.clear()
     }
@@ -1432,6 +1434,7 @@ export default class Client extends EventEmitter<ClientEvents> {
         this.strictInitialExchange = !isRekey
         if (!isRekey) this.strictInitialPackets.clear()
         this.keyExchangeInProgress = true
+        this.inboundNewKeysReady = false
         this.clearKeepalive()
         this.hasReceivedNewKeys = false
         this.hasSentNewKeys = false
@@ -1537,6 +1540,7 @@ export default class Client extends EventEmitter<ClientEvents> {
             )
             this.clientMac = this.clientMacAlgorithm?.instantiate(this.integrityKeyClientToServer!)
             this.serverMac = this.serverMacAlgorithm?.instantiate(this.integrityKeyServerToClient!)
+            this.inboundNewKeysReady = true
             this.resumePacketProcessing()
 
             this.sendPacket(new NewKeys({}))
@@ -2236,6 +2240,7 @@ export default class Client extends EventEmitter<ClientEvents> {
 
             case PacketNameToType.SSH_MSG_NEWKEYS:
                 this.hasReceivedNewKeys = true
+                this.inboundNewKeysReady = false
                 this.packetDecoder.setProtection(
                     createInboundPacketProtection(
                         this.serverEncryptionAlgorithm!,
@@ -2317,6 +2322,12 @@ export default class Client extends EventEmitter<ClientEvents> {
             throw new DisconnectError(
                 DisconnectReason.SSH_DISCONNECT_PROTOCOL_ERROR,
                 "SSH server sent a key-exchange message outside key exchange",
+            )
+        }
+        if (packetType === PacketNameToType.SSH_MSG_NEWKEYS && !this.inboundNewKeysReady) {
+            throw new DisconnectError(
+                DisconnectReason.SSH_DISCONNECT_PROTOCOL_ERROR,
+                "SSH server sent NEWKEYS before fresh inbound keys were ready",
             )
         }
     }

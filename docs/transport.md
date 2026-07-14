@@ -136,7 +136,11 @@ receiver protects packets immediately after receiving its peer's `NEWKEYS`. Pack
 yields between coalesced messages so the key-exchange state machine can derive and install keys
 before decoding the next protected packet from the same TCP read. `NEWKEYS` and method-specific
 key-exchange messages are protocol errors when no exchange is active; they can never reinstall
-stale protection or pause ordinary connection traffic.
+stale protection or pause ordinary connection traffic. During an exchange, each role accepts the
+peer's `NEWKEYS` only after fresh inbound keys and protection objects have been derived and the
+compression selection is ready to instantiate, then consumes that readiness exactly once. A
+premature or duplicate message receives a protocol-error disconnect before packet protection
+changes.
 
 Algorithm negotiation follows the client's name-list preference order independently for key
 exchange, host keys, and both transport directions. Non-AEAD ciphers also negotiate each MAC

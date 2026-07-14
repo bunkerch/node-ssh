@@ -244,6 +244,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     private initialClientNewKeysReceived = false
     private clientExtInfoAfterNewKeys = false
     private keyExchangeInProgress = false
+    private inboundNewKeysReady = false
     private readonly packetsQueuedDuringKeyExchange: Packet[] = []
     private readonly remoteChannelIds = new Set<number>()
 
@@ -589,6 +590,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         this.strictInitialExchange = !isRekey
         if (!isRekey) this.strictInitialPackets.clear()
         this.keyExchangeInProgress = true
+        this.inboundNewKeysReady = false
         this.hasReceivedNewKeys = false
         this.hasSentNewKeys = false
 
@@ -676,6 +678,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             )
             this.clientMac = this.clientMacAlgorithm?.instantiate(this.integrityKeyClientToServer!)
             this.serverMac = this.serverMacAlgorithm?.instantiate(this.integrityKeyServerToClient!)
+            this.inboundNewKeysReady = true
             this.resumePacketProcessing()
 
             if (!this.hasReceivedNewKeys) await this.waitEvent("clientNewKeys")
@@ -2042,6 +2045,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
 
             case PacketNameToType.SSH_MSG_NEWKEYS:
                 this.hasReceivedNewKeys = true
+                this.inboundNewKeysReady = false
                 this.packetDecoder.setProtection(
                     createInboundPacketProtection(
                         this.clientEncryptionAlgorithm!,
@@ -2178,6 +2182,12 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             throw new DisconnectError(
                 DisconnectReason.SSH_DISCONNECT_PROTOCOL_ERROR,
                 "SSH client sent a key-exchange message outside key exchange",
+            )
+        }
+        if (packetType === PacketNameToType.SSH_MSG_NEWKEYS && !this.inboundNewKeysReady) {
+            throw new DisconnectError(
+                DisconnectReason.SSH_DISCONNECT_PROTOCOL_ERROR,
+                "SSH client sent NEWKEYS before fresh inbound keys were ready",
             )
         }
     }

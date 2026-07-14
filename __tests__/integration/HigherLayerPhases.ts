@@ -10,6 +10,7 @@ import type ServerClient from "../../src/ServerClient.js"
 import PrivateKey from "../../src/utils/PrivateKey.js"
 import NewKeys from "../../src/packets/NewKeys.js"
 import KexDHInit from "../../src/packets/KexDHInit.js"
+import KexInit from "../../src/packets/KexInit.js"
 
 async function listen(server: Server): Promise<number> {
     server.listen({ host: "127.0.0.1", port: 0 })
@@ -43,6 +44,61 @@ function peerDisconnect(peer: Client | ServerClient): Promise<Readonly<PeerDisco
 }
 
 describe("RFC higher-layer message phases", () => {
+    test.each(["client", "server"] as const)(
+        "rejects premature NEWKEYS from the %s before fresh keys are derived",
+        async (sender) => {
+            const hostKey = await PrivateKey.generate("ssh-ed25519")
+            const server = new Server({
+                hostKeys: [hostKey],
+                sendAllHostKeys: false,
+                algorithms: { kex: ["curve25519-sha256"] },
+            })
+            let connection!: ServerClient
+            let resolveDisconnect!: (info: Readonly<PeerDisconnectInfo>) => void
+            const disconnected = new Promise<Readonly<PeerDisconnectInfo>>((resolve) => {
+                resolveDisconnect = resolve
+            })
+            const client = clientFor(await listen(server))
+            client.on("error", () => undefined)
+            if (sender === "client") client.once("disconnect", resolveDisconnect)
+            const appendPrematureNewKeys = (peer: Client | ServerClient) => {
+                const transport = peer as unknown as {
+                    sendPacket: (packet: Packet) => number
+                }
+                const sendPacket = transport.sendPacket.bind(peer)
+                transport.sendPacket = (packet) => {
+                    if (packet instanceof KexInit) {
+                        packet.data.kex_algorithms = packet.data.kex_algorithms.filter(
+                            (name) => !name.startsWith("kex-strict-"),
+                        )
+                    }
+                    const sequence = sendPacket(packet)
+                    if (packet instanceof KexInit) sendPacket(new NewKeys({}))
+                    return sequence
+                }
+            }
+            if (sender === "client") appendPrematureNewKeys(client)
+            server.once("connection", (peer) => {
+                connection = peer
+                peer.on("error", () => undefined)
+                if (sender === "server") peer.once("disconnect", resolveDisconnect)
+                if (sender === "server") appendPrematureNewKeys(peer)
+            })
+
+            try {
+                await expect(client.connect()).rejects.toThrow()
+                await expect(disconnected).resolves.toMatchObject({
+                    reasonCode: DisconnectReason.SSH_DISCONNECT_PROTOCOL_ERROR,
+                    description: `SSH ${sender} sent NEWKEYS before fresh inbound keys were ready`,
+                })
+            } finally {
+                await close(server, client)
+                expect(connection).toBeDefined()
+            }
+        },
+        15_000,
+    )
+
     test.each([
         ["client", "NEWKEYS"],
         ["server", "NEWKEYS"],
