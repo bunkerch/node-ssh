@@ -204,6 +204,8 @@ meaningful wire-level behavior.
   for malformed skipped identities.
 - Decode textual public-key blobs with strict canonical standard base64. Permit canonical omitted
   trailing padding, but reject ignored characters, misplaced padding, invalid lengths, and pad bits.
+- RFC 9987 agent identity comments use fatal UTF-8 decoding. Reject malformed response text rather
+  than publishing replacement characters, while continuing to skip unsupported key algorithms.
 - Validate KEXINIT language preference entries as RFC 3066 tags, not algorithm identifiers. Preserve
   list order and repeats without imposing the 64-byte algorithm-name limit.
 - Packet tunnel channels use the `tun@openssh.com` layout from upstream `PROTOCOL`. Preserve each

@@ -356,6 +356,7 @@ Passing a socket path is shorthand for constructing `new SSHAgent(path)`. Constr
 directly when its methods or socket metadata are also needed. The implementation follows
 [RFC 9987](https://www.rfc-editor.org/rfc/rfc9987.html), bounds messages
 to OpenSSH's 256 KiB limit, handles fragmented socket reads, and treats identity IDs as opaque
-values. `OnePasswordAgent` uses the same protocol while discovering 1Password's default socket and
+values. Identity comments use fatal UTF-8 decoding, so malformed agent text fails the listing.
+`OnePasswordAgent` uses the same protocol while discovering 1Password's default socket and
 marks signing as interactive. Access to an agent socket normally grants the ability to request
 signatures, so do not expose or forward it to untrusted processes or hosts.

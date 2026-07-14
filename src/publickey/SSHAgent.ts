@@ -8,6 +8,7 @@ import {
     serializeUint32,
 } from "../utils/Buffer.js"
 import EncodedSignature from "../utils/Signature.js"
+import { decodeSSHUTF8 } from "../utils/SSHText.js"
 import Agent, { AgentError, AgentType } from "./Agent.js"
 
 const SSH_AGENT_FAILURE = 5
@@ -93,13 +94,17 @@ export default class SSHAgent implements Agent<string> {
                 let comment: Buffer
                 ;[keyBlob, raw] = readNextBuffer(raw)
                 ;[comment, raw] = readNextBuffer(raw)
+                const decodedComment =
+                    comment.length === 0
+                        ? undefined
+                        : decodeSSHUTF8(comment, "SSH agent identity comment")
                 let publicKey: PublicKey
                 try {
                     publicKey = PublicKey.parse(keyBlob)
                 } catch {
                     continue
                 }
-                publicKey.data.comment = comment.toString("utf8") || undefined
+                publicKey.data.comment = decodedComment
                 keys.push([keyBlob.toString("base64"), publicKey])
             }
             if (raw.length !== 0) throw new Error("identities response has trailing data")
