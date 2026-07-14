@@ -138,6 +138,10 @@ authenticator-data flag, origin, and extension-present state. The system `ssh-ke
 security-key certificate types; the library parses their exact vendor algorithm names and verifies
 the certificate authority signature. An in-process non-interactive agent completes host-bound
 public-key authentication with a security-key signature through the awaited server policy hook.
+Fixed private containers cover both published key-handle layouts, including encrypted storage and
+ownership checks. A literal `sk-provider@openssh.com` constrained-add frame is exercised in both
+agent roles, and the system OpenSSH agent independently accepts, lists, and removes the synthetic
+provider-backed identity without requiring the physical authenticator.
 
 Legacy Cygwin transport coverage uses the
 [socket descriptor and security exchange published by Cygwin's maintainers](https://cygwin.com/pipermail/cygwin-developers/2014-May/011417.html).

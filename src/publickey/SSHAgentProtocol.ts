@@ -10,7 +10,10 @@ import {
     serializeUint32,
 } from "../utils/Buffer.js"
 import { Hooker } from "../utils/Hooker.js"
-import PrivateKey from "../utils/PrivateKey.js"
+import PrivateKey, {
+    SSHECDSASecurityKeyPrivateKey,
+    SSHED25519SecurityKeyPrivateKey,
+} from "../utils/PrivateKey.js"
 import PublicKey from "../utils/PublicKey.js"
 import EncodedSignature from "../utils/Signature.js"
 import Agent, { AgentError, AgentType } from "./Agent.js"
@@ -47,6 +50,7 @@ export type {
 } from "./OpenSSHAgentProtocol.js"
 
 export const MAX_SSH_AGENT_MESSAGE_LENGTH = 256 * 1024
+export const OPENSSH_AGENT_SECURITY_KEY_PROVIDER = "sk-provider@openssh.com"
 
 export enum SSHAgentMessageType {
     Failure = 5,
@@ -95,10 +99,16 @@ export interface SSHAgentIdentity {
     comment?: string
 }
 
+export type OpenSSHAgentSecurityKeyProviderConstraint = Readonly<{
+    type: "openssh-security-key-provider"
+    provider: string
+}>
+
 export type SSHAgentConstraint =
     | Readonly<{ type: "lifetime"; seconds: number }>
     | Readonly<{ type: "confirm" }>
     | Readonly<{ type: "extension"; name: string; data: Buffer }>
+    | OpenSSHAgentSecurityKeyProviderConstraint
     | OpenSSHAgentKeyConstraint
 
 export interface SSHAgentAddIdentityOptions {
@@ -349,6 +359,9 @@ function constraintIdentity(constraint: SSHAgentConstraint): string {
     if (constraint.type === "openssh-associated-certificates") {
         return `extension:${OPENSSH_AGENT_ASSOCIATED_CERTIFICATES}`
     }
+    if (constraint.type === "openssh-security-key-provider") {
+        return `extension:${OPENSSH_AGENT_SECURITY_KEY_PROVIDER}`
+    }
     return constraint.type
 }
 
@@ -395,6 +408,25 @@ function serializeConstraints(
             serialized.push(serializeOpenSSHAgentConstraint(constraint, target))
             return
         }
+        if (constraint.type === "openssh-security-key-provider") {
+            if (target !== "identity") {
+                throw new SSHAgentProtocolError(
+                    "OpenSSH security-key provider constraints require an identity",
+                )
+            }
+            const provider = encodeSSHUTF8(constraint.provider, "OpenSSH security-key provider")
+            if (provider.length === 0 || provider.includes(0)) {
+                throw new SSHAgentProtocolError(
+                    "OpenSSH security-key provider must be non-empty UTF-8 without NUL",
+                )
+            }
+            serialized.push(
+                Buffer.from([SSHAgentConstraintType.Extension]),
+                serializeBuffer(Buffer.from(OPENSSH_AGENT_SECURITY_KEY_PROVIDER, "ascii")),
+                serializeBuffer(provider),
+            )
+            return
+        }
         if (constraint.type === "extension") {
             if (index !== constraints.length - 1) {
                 throw new SSHAgentProtocolError(
@@ -415,7 +447,8 @@ function serializeConstraints(
             }
             if (
                 constraint.name === OPENSSH_AGENT_RESTRICT_DESTINATION ||
-                constraint.name === OPENSSH_AGENT_ASSOCIATED_CERTIFICATES
+                constraint.name === OPENSSH_AGENT_ASSOCIATED_CERTIFICATES ||
+                constraint.name === OPENSSH_AGENT_SECURITY_KEY_PROVIDER
             ) {
                 throw new SSHAgentProtocolError(
                     "OpenSSH agent structured constraints require their typed representation",
@@ -468,6 +501,23 @@ function parseConstraints(
             const identity = `extension:${decodedName}`
             if (seen.has(identity)) throw new Error("duplicate constraint extension")
             seen.add(identity)
+            if (decodedName === OPENSSH_AGENT_SECURITY_KEY_PROVIDER) {
+                if (target !== "identity") {
+                    throw new SSHAgentProtocolError(
+                        "OpenSSH security-key provider constraints require an identity",
+                    )
+                }
+                let encodedProvider: Buffer
+                ;[encodedProvider, raw] = readNextBuffer(raw)
+                const provider = decodeSSHUTF8(encodedProvider, "OpenSSH security-key provider")
+                if (encodedProvider.length === 0 || encodedProvider.includes(0)) {
+                    throw new SSHAgentProtocolError(
+                        "OpenSSH security-key provider must be non-empty UTF-8 without NUL",
+                    )
+                }
+                constraints.push(Object.freeze({ type: "openssh-security-key-provider", provider }))
+                continue
+            }
             const parsed = parseOpenSSHAgentConstraint(decodedName, raw, target)
             if (parsed) {
                 constraints.push(...parsed[0])
@@ -489,6 +539,39 @@ function parseConstraints(
     return Object.freeze(constraints)
 }
 
+function validateSecurityKeyProviderConstraint(
+    privateKey: PrivateKey,
+    constraints: readonly SSHAgentConstraint[],
+): void {
+    if (
+        constraints.some(
+            (constraint) =>
+                constraint.type === "extension" &&
+                constraint.name === OPENSSH_AGENT_SECURITY_KEY_PROVIDER,
+        )
+    ) {
+        throw new SSHAgentProtocolError(
+            "OpenSSH agent structured constraints require their typed representation",
+        )
+    }
+    const securityKey =
+        privateKey.data.algorithm instanceof SSHED25519SecurityKeyPrivateKey ||
+        privateKey.data.algorithm instanceof SSHECDSASecurityKeyPrivateKey
+    const providerConstraints = constraints.filter(
+        (constraint) => constraint.type === "openssh-security-key-provider",
+    )
+    if (providerConstraints.length > 1) {
+        throw new SSHAgentProtocolError("SSH agent constraint must not be duplicate")
+    }
+    if (securityKey !== (providerConstraints.length === 1)) {
+        throw new SSHAgentProtocolError(
+            securityKey
+                ? "SSH agent security-key identities require one provider constraint"
+                : "SSH agent security-key provider constraints require a security-key identity",
+        )
+    }
+}
+
 function serializePrivateKeyRequest(
     privateKey: PrivateKey,
     options: SSHAgentAddIdentityOptions,
@@ -506,6 +589,7 @@ function serializePrivateKeyRequest(
         )
     }
     const constraints = options.constraints ?? []
+    validateSecurityKeyProviderConstraint(privateKey, constraints)
     const keyData = privateKey.data.algorithm.serialize()
     try {
         return Buffer.concat([
@@ -548,13 +632,15 @@ function parsePrivateKeyRequest(
     if (!constrained && raw.length !== 0) throw new Error("trailing data")
     const publicKey = algorithm.getPublicKey()
     if (publicKey.data.alg !== algorithmName) throw new Error("private key type mismatch")
+    const privateKey = new PrivateKey({
+        alg: algorithmName,
+        publicKey,
+        algorithm,
+        comment: comment.length === 0 ? undefined : comment,
+    })
+    validateSecurityKeyProviderConstraint(privateKey, constraints)
     return Object.freeze({
-        privateKey: new PrivateKey({
-            alg: algorithmName,
-            publicKey,
-            algorithm,
-            comment: comment.length === 0 ? undefined : comment,
-        }),
+        privateKey,
         comment,
         constraints,
     })

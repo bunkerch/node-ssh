@@ -33,8 +33,8 @@ try {
 
 The management methods are:
 
-- `addIdentity(privateKey, options?)` adds a DSA, ECDSA, Ed25519, Ed448, RSA, or registered custom
-  private-key type. `options.comment` overrides the key comment.
+- `addIdentity(privateKey, options?)` adds a DSA, ECDSA, Ed25519, Ed448, RSA, security-key, or
+  registered custom private-key type. `options.comment` overrides the key comment.
 - `addToken(tokenId, pin?, options?)` asks the agent to load keys from a hardware token. The add
   request treats the token identifier and PIN as opaque SSH strings.
 - `removeIdentity(publicKey)`, `removeAllIdentities()`, and `removeToken(tokenId, pin?)` remove
@@ -142,6 +142,36 @@ Associated certificates are valid only for constrained token-add requests. Every
 SSH certificate, and the list cannot be empty. `certificatesOnly` asks the token implementation to
 load only the certificate identities rather than also exposing their plain public-key identities.
 
+Security-key private containers retain an authenticator key handle rather than a locally usable
+private scalar. Load one with its published provider constraint:
+
+```ts
+import { readFile } from "node:fs/promises"
+import { PrivateKey } from "modernssh"
+
+const privateKey = PrivateKey.fromString(await readFile("./id_ed25519_sk", "utf8"))
+await agent.addIdentity(privateKey, {
+    constraints: [
+        {
+            type: "openssh-security-key-provider",
+            provider: "internal",
+        },
+    ],
+})
+```
+
+`OPENSSH_AGENT_SECURITY_KEY_PROVIDER` is the literal `sk-provider@openssh.com` extension name.
+Exactly one typed provider constraint is required for a security-key identity, and it is rejected
+for ordinary identities and token requests. Unlike a generic extension constraint, its provider is
+a length-delimited string, so another constraint may follow it. Empty, NUL-containing, malformed,
+duplicate, and untyped provider constraints are rejected before sending or before server policy.
+
+Calling `sign()` directly on `SSHED25519SecurityKeyPrivateKey` or
+`SSHECDSASecurityKeyPrivateKey` fails explicitly; signing requires an agent/provider that can use
+the retained key handle. A filesystem middleware path causes the receiving agent to load native
+code and must be treated as trusted configuration. `internal` selects the receiving agent's built-in
+provider when it offers one.
+
 Private-key, PIN, and passphrase request frames are copied for transport and cleared after they
 have been written and answered. This does not clear buffers retained by the caller.
 
@@ -236,7 +266,7 @@ when a tighter bound is appropriate, and configure `requestTimeout` on the clien
 timeout disables the deadline.
 
 The fixed-frame tests cover RFC 9987 identity, token, constraint, removal, lock, and extension
-layouts plus the published session-binding and destination-constraint layouts. Integration tests
-pass a real SSH certificate through token policy and exercise identity management, destination
-constraints, session binding, signing, locking, unlocking, and removal against the system OpenSSH
-agent.
+layouts plus the published session-binding, destination-constraint, and security-key provider
+layouts. Integration tests pass a real SSH certificate through token policy and exercise identity
+management, destination constraints, session binding, signing, locking, unlocking, removal, and a
+provider-constrained security-key identity against the system OpenSSH agent.

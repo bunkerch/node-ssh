@@ -334,7 +334,7 @@ describe("package exports", () => {
                     "--input-type=module",
                     "--eval",
                     `
-                    const { Client, createSocketAgent, CygwinAgent, CygwinAgentError, EncodedSignature, generateKeyPair, generateKeyPairSync, KnownHosts, MAX_OPENSSH_AGENT_SESSION_BINDINGS, MAX_SSH_AGENT_MESSAGE_LENGTH, OPENSSH_AGENT_SESSION_BIND, parseKey, PrivateKey, PrivateKeyAgent, PublicKey, SSH_ED25519_SECURITY_KEY_ALGORITHM, SSHAgentConstraintType, SSHAgentExtensionFailureError, SSHAgentMessageType, SSHAgentProtocolClient, SSHAgentProtocolError, SSHAgentProtocolServer, SSHED25519SecurityKeyPublicKey } = await import("modernssh")
+                    const { Client, createSocketAgent, CygwinAgent, CygwinAgentError, EncodedSignature, generateKeyPair, generateKeyPairSync, KnownHosts, MAX_OPENSSH_AGENT_SESSION_BINDINGS, MAX_SSH_AGENT_MESSAGE_LENGTH, OPENSSH_AGENT_SECURITY_KEY_PROVIDER, OPENSSH_AGENT_SESSION_BIND, parseKey, PrivateKey, PrivateKeyAgent, PublicKey, SSH_ED25519_SECURITY_KEY_ALGORITHM, SSHAgentConstraintType, SSHAgentExtensionFailureError, SSHAgentMessageType, SSHAgentProtocolClient, SSHAgentProtocolError, SSHAgentProtocolServer, SSHED25519SecurityKeyPrivateKey, SSHED25519SecurityKeyPublicKey } = await import("modernssh")
                     const { privateKey, publicKey } = await generateKeyPair("ed25519", {
                         comment: "packed@example.test",
                     })
@@ -376,6 +376,10 @@ describe("package exports", () => {
                     if (!(securityKey.data.algorithm instanceof SSHED25519SecurityKeyPublicKey)) process.exit(23)
                     if (SSH_ED25519_SECURITY_KEY_ALGORITHM !== "sk-ssh-ed25519@openssh.com") process.exit(24)
                     if (!securityKey.verifySignature(Buffer.from("security-key-message"), securityKeySignature)) process.exit(25)
+                    const securityPrivateKey = new SSHED25519SecurityKeyPrivateKey({ publicKey: securityKey.data.algorithm.data.publicKey, application: "ssh:test", flags: 1, keyHandle: Buffer.from([1]), reserved: Buffer.alloc(0) })
+                    if (!securityPrivateKey.getPublicKey().equals(securityKey)) process.exit(26)
+                    if (OPENSSH_AGENT_SECURITY_KEY_PROVIDER !== "sk-provider@openssh.com") process.exit(27)
+                    try { securityPrivateKey.sign(message); process.exit(28) } catch (error) { if (!String(error).includes("requires an SSH agent")) process.exit(29) }
                     const originalPlatform = process.platform
                     Object.defineProperty(process, "platform", { configurable: true, value: "win32" })
                     const selectedAgent = createSocketAgent("C:/cygwin/tmp/agent.socket")

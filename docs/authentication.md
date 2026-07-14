@@ -296,9 +296,10 @@ server.hooker.hook("publicKeyAuthentication", async (_hook, context, decision) =
 })
 ```
 
-The library parses public identities, certificates, and signatures and supports delegated signing
-through `Agent`; it does not enroll authenticators or retain hardware key handles. Those operations
-belong in a FIDO provider used by the application or agent.
+The library parses public identities, certificates, signatures, and private containers containing
+hardware key handles. It supports delegated signing through `Agent`, but it does not enroll
+authenticators or communicate with them directly. Those operations belong in a FIDO provider used
+by the application or receiving agent.
 
 Historical RFC 4253 DSS identities are available as `ssh-dss` for explicitly configured legacy
 peers. They use only DSA-1024 with SHA-1 and are excluded from normal algorithm offers. Do not

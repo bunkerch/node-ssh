@@ -2,9 +2,11 @@ import assert from "assert"
 import {
     readNextBuffer,
     readNextCString,
+    readNextUint8,
     readNextUint32,
     serializeBuffer,
     serializeCString,
+    serializeUint8,
     serializeUint32,
 } from "./Buffer.js"
 import PublicKey, {
@@ -16,6 +18,8 @@ import PublicKey, {
     SSHECDSAPublicKey,
     SSHRSAPublicKey,
     SSHCertificatePublicKey,
+    SSHECDSASecurityKeyPublicKey,
+    SSHED25519SecurityKeyPublicKey,
     encodeSSHKeyComment,
 } from "./PublicKey.js"
 import nacl from "tweetnacl"
@@ -684,6 +688,192 @@ export class SSHED25519PrivateKey implements PrivateKeyAlgorithm {
     }
 }
 PrivateKey.algorithms.set(SSHED25519PrivateKey.alg_name, SSHED25519PrivateKey)
+
+export interface SSHED25519SecurityKeyPrivateKeyData {
+    publicKey: Buffer
+    application: string
+    flags: number
+    keyHandle: Buffer
+    reserved: Buffer
+}
+
+export class SSHED25519SecurityKeyPrivateKey implements PrivateKeyAlgorithm {
+    static alg_name = SSHED25519SecurityKeyPublicKey.alg_name
+
+    readonly data: SSHED25519SecurityKeyPrivateKeyData
+
+    constructor(data: SSHED25519SecurityKeyPrivateKeyData) {
+        new SSHED25519SecurityKeyPublicKey({
+            publicKey: data.publicKey,
+            application: data.application,
+        })
+        serializeUint8(data.flags)
+        assert(Buffer.isBuffer(data.keyHandle), "Security-key handle must be a buffer")
+        assert(Buffer.isBuffer(data.reserved), "Security-key reserved data must be a buffer")
+        this.data = {
+            publicKey: Buffer.from(data.publicKey),
+            application: data.application,
+            flags: data.flags,
+            keyHandle: Buffer.from(data.keyHandle),
+            reserved: Buffer.from(data.reserved),
+        }
+    }
+
+    sign(): EncodedSignature {
+        throw new Error("Security-key signing requires an SSH agent security-key provider")
+    }
+
+    getPublicKey(): PublicKey {
+        return new PublicKey({
+            alg: SSHED25519SecurityKeyPrivateKey.alg_name,
+            algorithm: new SSHED25519SecurityKeyPublicKey({
+                publicKey: this.data.publicKey,
+                application: this.data.application,
+            }),
+        })
+    }
+
+    serialize(): Buffer {
+        assert(Buffer.isBuffer(this.data.keyHandle), "Security-key handle must be a buffer")
+        assert(Buffer.isBuffer(this.data.reserved), "Security-key reserved data must be a buffer")
+        return Buffer.concat([
+            this.getPublicKey().data.algorithm.serialize(),
+            serializeUint8(this.data.flags),
+            serializeBuffer(Buffer.from(this.data.keyHandle)),
+            serializeBuffer(Buffer.from(this.data.reserved)),
+        ])
+    }
+
+    static parse(raw: Buffer): [PrivateKeyAlgorithm, Buffer] {
+        let publicKey: Buffer
+        let application: Buffer
+        let flags: number
+        let keyHandle: Buffer
+        let reserved: Buffer
+        ;[publicKey, raw] = readNextBuffer(raw)
+        ;[application, raw] = readNextBuffer(raw)
+        ;[flags, raw] = readNextUint8(raw)
+        ;[keyHandle, raw] = readNextBuffer(raw)
+        ;[reserved, raw] = readNextBuffer(raw)
+        return [
+            new SSHED25519SecurityKeyPrivateKey({
+                publicKey,
+                application: decodeSSHUTF8(application, "security-key application"),
+                flags,
+                keyHandle,
+                reserved,
+            }),
+            raw,
+        ]
+    }
+
+    static generate(): Promise<PrivateKey> {
+        return Promise.reject(
+            new Error("Security-key generation requires an SSH agent security-key provider"),
+        )
+    }
+
+    static generateSync(): PrivateKey {
+        throw new Error("Security-key generation requires an SSH agent security-key provider")
+    }
+}
+PrivateKey.algorithms.set(SSHED25519SecurityKeyPrivateKey.alg_name, SSHED25519SecurityKeyPrivateKey)
+
+export interface SSHECDSASecurityKeyPrivateKeyData {
+    publicKey: Buffer
+    application: string
+    flags: number
+    keyHandle: Buffer
+    reserved: Buffer
+}
+
+export class SSHECDSASecurityKeyPrivateKey implements PrivateKeyAlgorithm {
+    static alg_name = SSHECDSASecurityKeyPublicKey.alg_name
+
+    readonly data: SSHECDSASecurityKeyPrivateKeyData
+
+    constructor(data: SSHECDSASecurityKeyPrivateKeyData) {
+        new SSHECDSASecurityKeyPublicKey({
+            publicKey: data.publicKey,
+            application: data.application,
+        })
+        serializeUint8(data.flags)
+        assert(Buffer.isBuffer(data.keyHandle), "Security-key handle must be a buffer")
+        assert(Buffer.isBuffer(data.reserved), "Security-key reserved data must be a buffer")
+        this.data = {
+            publicKey: Buffer.from(data.publicKey),
+            application: data.application,
+            flags: data.flags,
+            keyHandle: Buffer.from(data.keyHandle),
+            reserved: Buffer.from(data.reserved),
+        }
+    }
+
+    sign(): EncodedSignature {
+        throw new Error("Security-key signing requires an SSH agent security-key provider")
+    }
+
+    getPublicKey(): PublicKey {
+        return new PublicKey({
+            alg: SSHECDSASecurityKeyPrivateKey.alg_name,
+            algorithm: new SSHECDSASecurityKeyPublicKey({
+                publicKey: this.data.publicKey,
+                application: this.data.application,
+            }),
+        })
+    }
+
+    serialize(): Buffer {
+        assert(Buffer.isBuffer(this.data.keyHandle), "Security-key handle must be a buffer")
+        assert(Buffer.isBuffer(this.data.reserved), "Security-key reserved data must be a buffer")
+        return Buffer.concat([
+            this.getPublicKey().data.algorithm.serialize(),
+            serializeUint8(this.data.flags),
+            serializeBuffer(Buffer.from(this.data.keyHandle)),
+            serializeBuffer(Buffer.from(this.data.reserved)),
+        ])
+    }
+
+    static parse(raw: Buffer): [PrivateKeyAlgorithm, Buffer] {
+        let identifier: Buffer
+        let publicKey: Buffer
+        let application: Buffer
+        let flags: number
+        let keyHandle: Buffer
+        let reserved: Buffer
+        ;[identifier, raw] = readNextBuffer(raw)
+        ;[publicKey, raw] = readNextBuffer(raw)
+        ;[application, raw] = readNextBuffer(raw)
+        ;[flags, raw] = readNextUint8(raw)
+        ;[keyHandle, raw] = readNextBuffer(raw)
+        ;[reserved, raw] = readNextBuffer(raw)
+        assert(
+            identifier.equals(Buffer.from(ECDSA_CURVES[0].identifier, "ascii")),
+            "Invalid ECDSA security-key curve",
+        )
+        return [
+            new SSHECDSASecurityKeyPrivateKey({
+                publicKey,
+                application: decodeSSHUTF8(application, "security-key application"),
+                flags,
+                keyHandle,
+                reserved,
+            }),
+            raw,
+        ]
+    }
+
+    static generate(): Promise<PrivateKey> {
+        return Promise.reject(
+            new Error("Security-key generation requires an SSH agent security-key provider"),
+        )
+    }
+
+    static generateSync(): PrivateKey {
+        throw new Error("Security-key generation requires an SSH agent security-key provider")
+    }
+}
+PrivateKey.algorithms.set(SSHECDSASecurityKeyPrivateKey.alg_name, SSHECDSASecurityKeyPrivateKey)
 
 export interface SSHED448PrivateKeyData {
     publicKey: Buffer

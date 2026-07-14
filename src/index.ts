@@ -220,6 +220,7 @@ export {
     MAX_SSH_AGENT_MESSAGE_LENGTH,
     OPENSSH_AGENT_ASSOCIATED_CERTIFICATES,
     OPENSSH_AGENT_RESTRICT_DESTINATION,
+    OPENSSH_AGENT_SECURITY_KEY_PROVIDER,
     OPENSSH_AGENT_SESSION_BIND,
     SSHAgentConstraintType,
     SSHAgentExtensionFailureError,
@@ -235,6 +236,7 @@ export type {
     OpenSSHAgentDestinationKey,
     OpenSSHAgentDestinationRule,
     OpenSSHAgentKeyConstraint,
+    OpenSSHAgentSecurityKeyProviderConstraint,
     OpenSSHAgentSessionBinding,
     SSHAgentAddIdentityOptions,
     SSHAgentAddTokenOptions,
@@ -282,8 +284,17 @@ export type {
     SSHCertificateRole,
     SSHED25519SecurityKeyPublicKeyData,
 } from "./utils/PublicKey.js"
-export { default as PrivateKey, PrivateKeyAlgorithm } from "./utils/PrivateKey.js"
-export type { PrivateKeyData } from "./utils/PrivateKey.js"
+export {
+    default as PrivateKey,
+    PrivateKeyAlgorithm,
+    SSHECDSASecurityKeyPrivateKey,
+    SSHED25519SecurityKeyPrivateKey,
+} from "./utils/PrivateKey.js"
+export type {
+    PrivateKeyData,
+    SSHECDSASecurityKeyPrivateKeyData,
+    SSHED25519SecurityKeyPrivateKeyData,
+} from "./utils/PrivateKey.js"
 export { parseKey, parseKeys } from "./KeyParsing.js"
 export type { ParsedKey } from "./KeyParsing.js"
 export type {
