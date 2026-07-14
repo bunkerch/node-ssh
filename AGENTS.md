@@ -208,6 +208,10 @@ meaningful wire-level behavior.
 - Human-readable SSH fields use fatal UTF-8 decoding and RFC 3066 ASCII language tags; never allow
   replacement decoding before authentication or policy. Preserve unknown uint32 disconnect reasons
   so future and private-use assignments still produce a clean terminal disconnect.
+- RFC 4253 service negotiation is a single exact request/accept exchange after initial key
+  exchange. Reject unavailable services with reason 7 and wrong-role, mismatched, premature, or
+  repeated service messages with reason 2; keep transport and rekey traffic transparent to the
+  outstanding negotiation.
 - Preserve all inbound RFC 4253 debug fields in an immutable semantic event. Copy outbound ignore
   bytes at the API boundary, keep ignore payloads semantically opaque, and queue both debug and
   ignore messages across key exchange so they cannot violate strict-KEX ordering. Transport-level

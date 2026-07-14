@@ -65,6 +65,7 @@ import Disconnect, {
     type PeerDisconnectInfo,
 } from "./packets/Disconnect.js"
 import ServiceRequest from "./packets/ServiceRequest.js"
+import ServiceAccept from "./packets/ServiceAccept.js"
 import Agent from "./publickey/Agent.js"
 import NoneAgent from "./publickey/NoneAgent.js"
 import GlobalRequest from "./packets/GlobalRequest.js"
@@ -587,6 +588,7 @@ export default class Client extends EventEmitter<ClientEvents> {
     authenticationMethodsRemaining?: ReadonlySet<SSHAuthenticationMethods>
     partialAuthenticationSuccess = false
     private authenticationFailureSequence = 0
+    private awaitingServiceAccept = false
 
     localChannelIndex = 0
     channels = new Map<number, ClientChannel>()
@@ -1611,22 +1613,34 @@ export default class Client extends EventEmitter<ClientEvents> {
 
         this.debug("Starting authentication...")
 
-        this.sendPacket(
-            new ServiceRequest({
-                service_name: SSHServiceNames.UserAuth,
-            }),
-        )
+        this.awaitingServiceAccept = true
+        let serviceAnswer: ServiceAccept
+        try {
+            this.sendPacket(
+                new ServiceRequest({
+                    service_name: SSHServiceNames.UserAuth,
+                }),
+            )
 
-        const serviceAnswer = await this.waitForPackets(
-            {
-                SSH_MSG_SERVICE_ACCEPT: {
-                    predicate: (packet) => {
-                        return packet.data.service_name == SSHServiceNames.UserAuth
+            serviceAnswer = await this.waitForPackets(
+                {
+                    SSH_MSG_SERVICE_ACCEPT: {
+                        predicate: (packet) => {
+                            if (packet.data.service_name !== SSHServiceNames.UserAuth) {
+                                throw new DisconnectError(
+                                    DisconnectReason.SSH_DISCONNECT_PROTOCOL_ERROR,
+                                    `SSH server accepted unexpected service ${packet.data.service_name}`,
+                                )
+                            }
+                            return true
+                        },
                     },
                 },
-            },
-            10000,
-        )
+                10_000,
+            )
+        } finally {
+            this.awaitingServiceAccept = false
+        }
         assert(serviceAnswer.data.service_name == SSHServiceNames.UserAuth)
 
         const methodList = this.options.authenticationMethodsOrder
@@ -2055,6 +2069,21 @@ export default class Client extends EventEmitter<ClientEvents> {
                 this.debug(`Received debug packet:`, [debug.data.message])
                 break
             }
+
+            case PacketNameToType.SSH_MSG_SERVICE_REQUEST:
+                throw new DisconnectError(
+                    DisconnectReason.SSH_DISCONNECT_PROTOCOL_ERROR,
+                    "SSH server sent a service request",
+                )
+
+            case PacketNameToType.SSH_MSG_SERVICE_ACCEPT:
+                if (!this.awaitingServiceAccept) {
+                    throw new DisconnectError(
+                        DisconnectReason.SSH_DISCONNECT_PROTOCOL_ERROR,
+                        "SSH server sent an unexpected service acceptance",
+                    )
+                }
+                break
 
             case PacketNameToType.SSH_MSG_USERAUTH_BANNER: {
                 const banner = p as UserAuthBanner

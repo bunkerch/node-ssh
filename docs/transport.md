@@ -100,6 +100,15 @@ enforced for algorithm name-lists, services, authentication methods, extension n
 types, global and channel requests, and subsystem names. Name-lists reject empty and duplicate
 entries before negotiation.
 
+## Service negotiation
+
+After initial key exchange, the client requests `ssh-userauth` and waits for the exact matching
+acceptance before sending authentication data. The server accepts only that supported service. An
+unknown service is rejected with `SSH_DISCONNECT_SERVICE_NOT_AVAILABLE`; a mismatched acceptance,
+a message sent by the wrong peer role, application data before the request, or another service
+message after negotiation is an RFC protocol error. Transport diagnostics and key-exchange traffic
+remain independent of this wait as RFC 4253 requires.
+
 ## Binary packet framing
 
 After identification, both sides use the binary packet format from RFC 4253 section 6. The shared

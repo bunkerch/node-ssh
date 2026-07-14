@@ -234,6 +234,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     private packetDecoder = new BinaryPacketDecoder()
     private packetEncoder = new BinaryPacketEncoder()
     private packetProcessingPaused = false
+    private awaitingServiceRequest = false
     private strictKeyExchange = false
     private strictInitialExchange = false
     private readonly strictInitialPackets = new Set<PacketType>()
@@ -745,13 +746,22 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         this.debug("Keys exchanged, encryption and MAC algorithms set up")
         this.debug("Starting authentication...")
 
+        this.awaitingServiceRequest = true
         const serviceRequest = await this.waitForHigherLayerPacket()
-        assert(serviceRequest instanceof ServiceRequest, "Invalid packet type")
+        this.awaitingServiceRequest = false
+        if (!(serviceRequest instanceof ServiceRequest)) {
+            throw new DisconnectError(
+                DisconnectReason.SSH_DISCONNECT_PROTOCOL_ERROR,
+                "SSH client sent application data before requesting a service",
+            )
+        }
         this.debug("Client requested service:", serviceRequest.data.service_name)
-        assert(
-            serviceRequest.data.service_name === SSHServiceNames.UserAuth,
-            "Invalid service received from client",
-        )
+        if (serviceRequest.data.service_name !== SSHServiceNames.UserAuth) {
+            throw new DisconnectError(
+                DisconnectReason.SSH_DISCONNECT_SERVICE_NOT_AVAILABLE,
+                `SSH service is not available: ${serviceRequest.data.service_name}`,
+            )
+        }
 
         this.sendPacket(
             new ServiceAccept({
@@ -1932,6 +1942,21 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 this.debug(`Received debug packet:`, [debug.data.message])
                 break
             }
+
+            case PacketNameToType.SSH_MSG_SERVICE_REQUEST:
+                if (!this.awaitingServiceRequest) {
+                    throw new DisconnectError(
+                        DisconnectReason.SSH_DISCONNECT_PROTOCOL_ERROR,
+                        "SSH client sent an unexpected service request",
+                    )
+                }
+                break
+
+            case PacketNameToType.SSH_MSG_SERVICE_ACCEPT:
+                throw new DisconnectError(
+                    DisconnectReason.SSH_DISCONNECT_PROTOCOL_ERROR,
+                    "SSH client sent a service acceptance",
+                )
 
             case PacketNameToType.SSH_MSG_EXT_INFO: {
                 this.negotiatedClientExtensions = copySSHExtensions((p as ExtInfo).data.extensions)
