@@ -186,6 +186,8 @@ meaningful wire-level behavior.
   only on session channels with a false reply flag; validate signal names, fatal UTF-8 decoding,
   RFC 3066 language tags, and complete framing before publishing any exit metadata. Validate local
   exit-signal diagnostic text before sending the result.
+- Parse SSH boolean fields as false only for zero; accept every nonzero byte as true, while emitting
+  canonical zero and one values for local booleans.
 - Packet tunnel channels use the `tun@openssh.com` layout from upstream `PROTOCOL`. Preserve each
   IP datagram or Ethernet frame in exactly one channel-data message, wait asynchronously for enough
   remote window rather than splitting it, and validate mode-specific framing before emitting data.

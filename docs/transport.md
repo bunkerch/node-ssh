@@ -120,6 +120,9 @@ sequence number, and applies the negotiated packet protection. Conventional ciph
 complete packet and authenticate its plaintext with the negotiated MAC. Encrypt-then-MAC and AEAD
 ciphers use their separately documented layouts.
 
+SSH boolean fields follow the RFC wire definition: zero is false and every nonzero byte is true.
+Serializing a local boolean uses the canonical zero or one representation.
+
 Inbound framing is validated before the decoder waits for the claimed packet body. Packets with
 invalid padding, empty payloads, incorrect block alignment, invalid MACs, or total sizes above
 35,000 bytes are rejected. The 35,000-byte bound includes framing, padding, and MAC and satisfies

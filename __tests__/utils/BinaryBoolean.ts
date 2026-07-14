@@ -3,12 +3,14 @@ import { parseBinaryBoolean, serializeBinaryBoolean } from "../../src/utils/Bina
 describe("Utils", () => {
     describe("BinaryBoolean", () => {
         test("parseable", () => {
-            expect(parseBinaryBoolean(Buffer.from([0]))).toBe(false)
-            expect(parseBinaryBoolean(Buffer.from([1]))).toBe(true)
+            expect(parseBinaryBoolean(Buffer.from([0x00]))).toBe(false)
+            expect(parseBinaryBoolean(Buffer.from([0x01]))).toBe(true)
+            expect(parseBinaryBoolean(Buffer.from([0x02]))).toBe(true)
+            expect(parseBinaryBoolean(Buffer.from([0xff]))).toBe(true)
         })
 
         it("not parseable", () => {
-            expect(() => parseBinaryBoolean(Buffer.from([2]))).toThrow()
+            expect(() => parseBinaryBoolean(Buffer.alloc(0))).toThrow()
             expect(() => parseBinaryBoolean(Buffer.from([0, 1]))).toThrow()
         })
 
