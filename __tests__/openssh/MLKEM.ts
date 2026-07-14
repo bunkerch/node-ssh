@@ -1,8 +1,10 @@
 import { spawn } from "node:child_process"
 import { once } from "node:events"
 import type { AddressInfo } from "node:net"
+import { createConnection } from "node:net"
 
 import SessionChannel from "../../src/channels/SessionChannel.js"
+import Client from "../../src/Client.js"
 import Server from "../../src/Server.js"
 import PrivateKey from "../../src/utils/PrivateKey.js"
 
@@ -28,18 +30,38 @@ async function collectProcess(
     }
 }
 
+async function buildImage(): Promise<void> {
+    const build = await collectProcess("docker", [
+        "build",
+        "--quiet",
+        "--file",
+        "__tests__/openssh/Dockerfile.mlkem",
+        "--tag",
+        imageName,
+        "__tests__/openssh",
+    ])
+    expect(build).toMatchObject({ code: 0, stderr: "" })
+}
+
+async function waitForPort(port: number): Promise<void> {
+    for (let attempt = 0; attempt < 100; attempt++) {
+        const connected = await new Promise<boolean>((resolve) => {
+            const socket = createConnection({ host: "127.0.0.1", port })
+            socket.once("connect", () => {
+                socket.destroy()
+                resolve(true)
+            })
+            socket.once("error", () => resolve(false))
+        })
+        if (connected) return
+        await new Promise<void>((resolve) => setTimeout(resolve, 100))
+    }
+    throw new Error(`OpenSSH server did not listen on port ${port}`)
+}
+
 describe("ML-KEM OpenSSH interoperability", () => {
     test("OpenSSH exchanges traffic and rekeys with a modernssh server", async () => {
-        const build = await collectProcess("docker", [
-            "build",
-            "--quiet",
-            "--file",
-            "__tests__/openssh/Dockerfile.mlkem",
-            "--tag",
-            imageName,
-            "__tests__/openssh",
-        ])
-        expect(build).toMatchObject({ code: 0, stderr: "" })
+        await buildImage()
 
         const server = new Server({
             hostKeys: [PrivateKey.generateSync("ssh-ed25519")],
@@ -134,6 +156,84 @@ describe("ML-KEM OpenSSH interoperability", () => {
         } finally {
             for (const connection of server.clients) connection.terminate()
             await server.close()
+        }
+    }, 90_000)
+
+    test("modernssh exchanges traffic and rekeys with an OpenSSH server", async () => {
+        await buildImage()
+        const started = await collectProcess("docker", [
+            "run",
+            "--detach",
+            "--rm",
+            "--publish",
+            "127.0.0.1::22",
+            imageName,
+        ])
+        expect(started.code).toBe(0)
+        const containerId = started.stdout.trim()
+        try {
+            const portResult = await collectProcess("docker", ["port", containerId, "22/tcp"])
+            expect(portResult.code).toBe(0)
+            const port = Number(portResult.stdout.trim().match(/:(\d+)$/u)?.[1])
+            expect(Number.isInteger(port)).toBe(true)
+            await waitForPort(port)
+
+            const client = new Client({
+                hostname: "127.0.0.1",
+                port,
+                username: "interop",
+                password: "correct-horse-battery-staple",
+                algorithms: { kex: [keyExchange] },
+            })
+            const errors: Error[] = []
+            const handshakes: string[] = []
+            client.on("error", (error) => errors.push(error))
+            client.on("handshake", (negotiated) => handshakes.push(negotiated.kex))
+            client.hooker.hook("hostKey", (_hook, decision) => {
+                decision.allowHostKey = true
+            })
+            try {
+                await client.connect()
+                const first = await client.exec("printf mlkem-client-first")
+                const firstOutput: Buffer[] = []
+                first.on("data", (data: Buffer) => firstOutput.push(data))
+                await once(first, "close")
+
+                const sessionId = Buffer.from(client.sessionID!)
+                const firstExchangeHash = Buffer.from(client.H!)
+                await client.rekey()
+
+                const second = await client.exec("printf mlkem-client-second")
+                const secondOutput: Buffer[] = []
+                second.on("data", (data: Buffer) => secondOutput.push(data))
+                await once(second, "close")
+
+                expect({
+                    errors,
+                    firstExchangeHashChanged: !client.H!.equals(firstExchangeHash),
+                    firstOutput: Buffer.concat(firstOutput).toString(),
+                    handshakes,
+                    secondOutput: Buffer.concat(secondOutput).toString(),
+                    sessionIdStable: client.sessionID!.equals(sessionId),
+                }).toEqual({
+                    errors: [],
+                    firstExchangeHashChanged: true,
+                    firstOutput: "mlkem-client-first",
+                    handshakes: [keyExchange, keyExchange],
+                    secondOutput: "mlkem-client-second",
+                    sessionIdStable: true,
+                })
+            } finally {
+                if (client.isConnected) {
+                    const closed = once(client, "close")
+                    client.end()
+                    await closed
+                } else {
+                    client.destroy()
+                }
+            }
+        } finally {
+            await collectProcess("docker", ["rm", "--force", containerId])
         }
     }, 90_000)
 })
