@@ -194,13 +194,15 @@ The two optional language preference name-lists use RFC 3066 syntax rather than 
 rules. Their order and repeated tags are preserved; malformed tags are rejected in both directions.
 
 The default key-exchange preference starts with the RFC 8731 `curve25519-sha256` method and its
-wire-equivalent deployed alias `curve25519-sha256@libssh.org`, the RFC 5656
-`ecdh-sha2-nistp256`, `ecdh-sha2-nistp384`, and `ecdh-sha2-nistp521` methods, then the supported
-fixed-group Diffie-Hellman methods. Curve25519 ephemeral public keys remain exact 32-byte SSH
-strings, while the X25519 output is reinterpreted and encoded as an RFC 4251 `mpint` only for the
-exchange hash and transport-key derivation. RFC 5656 ECDH accepts validated SEC1 curve points and
-encodes the shared point's x-coordinate as the secret mpint. Invalid points, incorrect Curve25519
-point lengths, and all-zero Curve25519 secrets terminate key exchange.
+wire-equivalent deployed alias `curve25519-sha256@libssh.org`, followed by RFC 8731
+`curve448-sha512`, the RFC 5656 `ecdh-sha2-nistp256`, `ecdh-sha2-nistp384`, and
+`ecdh-sha2-nistp521` methods, then the supported fixed-group Diffie-Hellman methods. Curve25519 and
+Curve448 ephemeral public keys remain exact 32- and 56-byte SSH strings. Their X25519 or X448
+output is reinterpreted as a big-endian integer and encoded as an RFC 4251 `mpint` only for the
+exchange hash and transport-key derivation; Curve448 uses SHA-512. Both methods accept the
+non-canonical field encodings required by RFC 7748, while incorrect point lengths and all-zero
+secrets terminate key exchange. RFC 5656 ECDH accepts validated SEC1 curve points and encodes the
+shared point's x-coordinate as the secret mpint.
 
 RFC 4419 `diffie-hellman-group-exchange-sha256` lets the server select a safe-prime group after the
 client requests an acceptable size range. The client requests the RFC 8270 range of 2048 through

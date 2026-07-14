@@ -9,6 +9,7 @@ import DiffieHellmanGroup16SHA512 from "./algorithms/kex/diffie-hellman-group16-
 import DiffieHellmanGroup15SHA512 from "./algorithms/kex/diffie-hellman-group15-sha512.js"
 import DiffieHellmanGroup17SHA512 from "./algorithms/kex/diffie-hellman-group17-sha512.js"
 import Curve25519SHA256, { Curve25519SHA256LibSSH } from "./algorithms/kex/curve25519-sha256.js"
+import Curve448SHA512 from "./algorithms/kex/curve448-sha512.js"
 import DiffieHellmanGroupExchangeSHA256, {
     DiffieHellmanGroupExchangeSHA1,
 } from "./algorithms/kex/diffie-hellman-group-exchange.js"
@@ -193,6 +194,7 @@ export abstract class KexAlgorithm {
 export const kex_algorithms = new Map<string, typeof KexAlgorithm>([
     ["curve25519-sha256", Curve25519SHA256],
     ["curve25519-sha256@libssh.org", Curve25519SHA256LibSSH],
+    ["curve448-sha512", Curve448SHA512],
     ["ecdh-sha2-nistp256", ECDHSHA2NISTP256],
     ["ecdh-sha2-nistp384", ECDHSHA2NISTP384],
     ["ecdh-sha2-nistp521", ECDHSHA2NISTP521],
@@ -325,6 +327,7 @@ export const default_algorithm_names: ResolvedAlgorithmOptions = Object.freeze({
     kex: Object.freeze([
         "curve25519-sha256",
         "curve25519-sha256@libssh.org",
+        "curve448-sha512",
         "ecdh-sha2-nistp256",
         "ecdh-sha2-nistp384",
         "ecdh-sha2-nistp521",

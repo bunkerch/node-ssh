@@ -137,6 +137,11 @@ describe("RFC 4253 algorithm negotiation", () => {
         ).toThrow("Invalid SSH algorithm list operation")
 
         const standardClient = new Client({ hostname: "unused.invalid" })
+        expect(standardClient.algorithmOffer.kex.slice(0, 3)).toEqual([
+            "curve25519-sha256",
+            "curve25519-sha256@libssh.org",
+            "curve448-sha512",
+        ])
         expect(standardClient.algorithmOffer.serverHostKey).not.toContain("ssh-dss")
         expect(standardClient.algorithmOffer.serverHostKey).not.toContain("ssh-rsa")
         expect(standardClient.algorithmOffer.kex).not.toContain("diffie-hellman-group1-sha1")

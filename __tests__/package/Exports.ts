@@ -252,6 +252,8 @@ describe("package exports", () => {
                     if (!(importedPPK instanceof PrivateKey)) process.exit(11)
                     if (importedPPK.data.comment !== "RFC 8032 test vector 1") process.exit(12)
                     if (!importedPPK.data.publicKey.verifySignature(Buffer.alloc(0), importedPPK.sign(Buffer.alloc(0)))) process.exit(13)
+                    const curve448Client = new Client({ algorithms: { kex: ["curve448-sha512"] } })
+                    if (curve448Client.algorithmOffer.kex[0] !== "curve448-sha512") process.exit(14)
                     process.stdout.write(publicKey.toString())
                 `,
                 ],

@@ -2,12 +2,10 @@ import assert from "assert"
 import { randomBytes } from "crypto"
 import nacl from "tweetnacl"
 
-import type Client from "../../Client.js"
-import type ServerClient from "../../ServerClient.js"
-import { serializeMpintBufferToBuffer } from "../../utils/mpint.js"
-import KeyExchange, { KeyExchangeError } from "./key-exchange.js"
+import { KeyExchangeError } from "./key-exchange.js"
+import RFC8731KeyExchange from "./rfc8731.js"
 
-export default class Curve25519SHA256 extends KeyExchange {
+export default class Curve25519SHA256 extends RFC8731KeyExchange {
     static alg_name = "curve25519-sha256"
     static requires_encryption = false
     static requires_signature = true
@@ -15,8 +13,6 @@ export default class Curve25519SHA256 extends KeyExchange {
     static instantiate(): Curve25519SHA256 {
         return new Curve25519SHA256()
     }
-
-    readonly exchangeValueEncoding = "string" as const
 
     private configuredPrivateKey: Buffer | undefined
     private privateKey: Buffer | undefined
@@ -31,6 +27,9 @@ export default class Curve25519SHA256 extends KeyExchange {
     }
 
     generateKeyPair(): void {
+        this.privateKey?.fill(0)
+        this.sharedSecret?.fill(0)
+        this.sharedSecret = undefined
         this.privateKey = this.configuredPrivateKey ?? randomBytes(32)
         this.configuredPrivateKey = undefined
         this.publicKey = Buffer.from(nacl.scalarMult.base(this.privateKey))
@@ -59,32 +58,6 @@ export default class Curve25519SHA256 extends KeyExchange {
 
         this.sharedSecret = sharedSecret
         return Buffer.from(sharedSecret)
-    }
-
-    computeHClient(client: Client, serverKexInit: Buffer): Buffer {
-        return this.computeExchangeHash([
-            client.options.protocolVersionExchange.toString().slice(0, -2),
-            client.serverProtocolVersion!.toString().slice(0, -2),
-            client.clientKexInitPayload!,
-            serverKexInit,
-            client.serverKexDHReply!.data.K_S,
-            this.getPublicKey(),
-            client.serverKexDHReply!.data.f,
-            serializeMpintBufferToBuffer(this.sharedSecret!),
-        ])
-    }
-
-    computeHServer(client: ServerClient, clientKexInit: Buffer, hostKey: Buffer): Buffer {
-        return this.computeExchangeHash([
-            client.clientProtocolVersion!.toString().slice(0, -2),
-            client.server.options.protocolVersionExchange!.toString().slice(0, -2),
-            clientKexInit,
-            client.serverKexInitPayload!,
-            hostKey,
-            client.clientKexDHInit!.data.e,
-            this.getPublicKey(),
-            serializeMpintBufferToBuffer(this.sharedSecret!),
-        ])
     }
 }
 

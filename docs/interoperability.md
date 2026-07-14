@@ -82,6 +82,13 @@ layouts have fixed SSH packets generated independently of the TypeScript codec. 
 packet parsing failures local and diagnosable instead of relying on an external implementation to
 reject malformed bytes.
 
+RFC 8731 Curve448 coverage uses RFC 7748's literal Alice and Bob private keys, public values, and
+shared secret. It also verifies the required reduction of a non-canonical field coordinate, exact
+56-byte SSH-string framing, rejection of wrong-length and low-order peers, and defensive ownership
+of ephemeral state. A forced in-process client/server connection exchanges authenticated traffic
+before and after rekey with `curve448-sha512`, proving both SSH roles preserve the first session ID
+while deriving a new exchange hash and transport keys.
+
 RFC 4250 name tests cover the 64-character boundary, extension-domain form, non-ASCII and control
 input, commas, empty entries, and duplicate name-list members. Packet tests separately prove that
 the validation is applied to services, extensions, channels, and requests rather than existing
