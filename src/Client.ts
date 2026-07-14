@@ -178,6 +178,8 @@ export interface ClientOptions {
     readyTimeout?: number
     /** Already-connected duplex transport, such as an SSH direct-tcpip channel. */
     sock?: Duplex
+    /** Receive the same already-redacted diagnostic arguments as the `debug` event. */
+    debug?: (...message: unknown[]) => void
 }
 
 export interface ClientOptionsRequired
@@ -196,6 +198,7 @@ export interface ClientOptionsRequired
             | "certificate"
             | "passphrase"
             | "agent"
+            | "debug"
         >
     > {
     sock?: Duplex
@@ -210,6 +213,7 @@ export interface ClientOptionsRequired
     certificate?: PublicKey | string | Buffer
     passphrase?: string | Buffer
     agent: Agent
+    debug?: (...message: unknown[]) => void
 }
 
 export type ClientHostVerifier = (
@@ -399,6 +403,9 @@ export default class Client extends EventEmitter<ClientEvents> {
         this.options.strictVendor ??= true
         this.options.username ??= "root"
         this.options.password ??= ""
+        if (this.options.debug !== undefined && typeof this.options.debug !== "function") {
+            throw new TypeError("SSH debug option must be a function")
+        }
         this.options.agentForward ??= false
         if (typeof this.options.agent === "string") {
             this.options.agent = new SSHAgent(this.options.agent)
@@ -515,6 +522,7 @@ export default class Client extends EventEmitter<ClientEvents> {
                 certificate: undefined,
                 passphrase: undefined,
                 agent: this.options.agent.constructor.name,
+                debug: this.options.debug ? "<configured>" : undefined,
             })
         })
 
@@ -637,6 +645,7 @@ export default class Client extends EventEmitter<ClientEvents> {
     }
 
     debug(...message: unknown[]): void {
+        this.options.debug?.(...message)
         this.emit("debug", ...message)
     }
 

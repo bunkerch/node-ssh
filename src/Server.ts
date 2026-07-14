@@ -55,12 +55,15 @@ export interface ServerOptions {
     keepaliveInterval?: number
     /** Consecutive unanswered probes allowed before terminating a connection. */
     keepaliveCountMax?: number
+    /** Receive the same diagnostic arguments as the `debug` event. */
+    debug?: (...message: unknown[]) => void
 }
 export interface ServerOptionsRequired
-    extends Required<Omit<ServerOptions, "ident" | "algorithms" | "hostCertificates">> {
+    extends Required<Omit<ServerOptions, "ident" | "algorithms" | "hostCertificates" | "debug">> {
     ident?: string | Buffer
     algorithms?: ServerAlgorithmOptions
     hostCertificates?: (PublicKey | string | Buffer)[]
+    debug?: (...message: unknown[]) => void
 }
 
 function normalizeGreeting(greeting: string): string {
@@ -265,6 +268,9 @@ export default class Server extends EventEmitter<ServerEvents> {
     constructor(options: ServerOptions = {}) {
         super()
         this.options = { ...options } as ServerOptionsRequired
+        if (this.options.debug !== undefined && typeof this.options.debug !== "function") {
+            throw new TypeError("SSH debug option must be a function")
+        }
         if (
             this.options.ident !== undefined &&
             this.options.protocolVersionExchange !== undefined
@@ -435,6 +441,7 @@ export default class Server extends EventEmitter<ServerEvents> {
     }
 
     debug(...message: unknown[]): void {
+        this.options.debug?.(...message)
         this.emit("debug", ...message)
     }
 }

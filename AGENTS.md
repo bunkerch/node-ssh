@@ -214,6 +214,9 @@ meaningful wire-level behavior.
 - Human-readable SSH fields use fatal UTF-8 decoding and RFC 3066 ASCII language tags; never allow
   replacement decoding before authentication or policy. Preserve unknown uint32 disconnect reasons
   so future and private-use assignments still produce a clean terminal disconnect.
+- Configured diagnostic sinks and `debug` events receive the same semantic arguments. Route both
+  through the existing redaction path; never expose passwords, prompt responses, passphrases,
+  private key inputs, derived secrets, or transport keys in either surface.
 - RFC 4253 service negotiation is a single exact request/accept exchange after initial key
   exchange. Reject unavailable services with reason 7 and wrong-role, mismatched, premature, or
   repeated service messages with reason 2; keep transport and rekey traffic transparent to the

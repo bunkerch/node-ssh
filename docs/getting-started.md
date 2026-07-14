@@ -41,6 +41,19 @@ await new Promise<void>((resolve) => command.once("close", resolve))
 client.end()
 ```
 
+Both `Client` and `Server` accept a `debug(...message)` option for diagnostics that must be
+available from the start of their lifecycle. It receives the same arguments as the corresponding
+`debug` event; applications may use either or both. Authentication secrets and key material are
+redacted before this surface is called. Treat all remaining values as operationally sensitive and
+ensure the diagnostic callback does not throw.
+
+```ts
+const client = new Client({
+    hostname: "ssh.example.com",
+    debug: (...message) => logger.debug({ component: "ssh", message }),
+})
+```
+
 Configure `hostVerifier` in production and compare the received raw serialized key, or the
 lowercase hexadecimal `hostHash` digest shown above, with a value from a trusted source. The
 verifier may return a boolean or call its second argument asynchronously. The existing `hostKey`
