@@ -43,6 +43,42 @@ function asClientChannel(channel: SFTPServerFixture): ClientSessionChannel {
 }
 
 describe("SFTP client request engine", () => {
+    test("rejects an invalid write limit before sending a request", async () => {
+        let writeRequests = 0
+        const fixture = new SFTPServerFixture((packet) => {
+            if (packet.type === SFTPPacketType.Init) {
+                fixture.send({ type: SFTPPacketType.Version, version: 3, extensions: [] })
+            } else if (packet.type === SFTPPacketType.Write) {
+                writeRequests++
+                fixture.send({
+                    type: SFTPPacketType.Status,
+                    requestId: packet.requestId,
+                    code: SFTPStatusCode.Failure,
+                    message: "write reached server",
+                    languageTag: "",
+                })
+            }
+        })
+
+        const client = await SFTPClient.connect(asClientChannel(fixture))
+        client.maxWriteLength = 0
+        let error: unknown
+        try {
+            await client.write(Buffer.from("handle"), Buffer.from("data"), 0)
+        } catch (caught) {
+            error = caught
+        }
+
+        expect({
+            error: error instanceof Error ? `${error.name}: ${error.message}` : error,
+            writeRequests,
+        }).toEqual({
+            error: "RangeError: SFTP maximum write length must be a positive safe integer",
+            writeRequests: 0,
+        })
+        fixture.destroy()
+    })
+
     test("rejects invalid UTF-8 string paths before writing a request", async () => {
         let requests = 0
         const fixture = new SFTPServerFixture((packet) => {

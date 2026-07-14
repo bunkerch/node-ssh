@@ -30,7 +30,8 @@ The baseline operations are Promise-based:
   matched by request identifier. A write snapshots its handle and data when it starts, so caller
   mutation while an earlier chunk awaits acknowledgement cannot alter later chunks. The negotiated
   chunk limit is also fixed for the operation, preventing overlap if public limit metadata is
-  changed while a chunk is pending.
+  changed while a chunk is pending. Assigning an invalid `maxWriteLength` rejects locally before a
+  request is sent; the value must be a positive safe integer.
 - `writeFile` copies Buffer input before opening the remote file; mutation during the open request
   cannot change the eventual contents.
 - `stat`, `lstat`, `fstat`, `setstat`, and `fsetstat` retrieve or change attributes. `chmod`,

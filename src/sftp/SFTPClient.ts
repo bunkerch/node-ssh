@@ -546,6 +546,9 @@ export default class SFTPClient {
         const ownedHandle = Buffer.from(handle)
         const ownedData = Buffer.from(data)
         const maximumWriteLength = this.maxWriteLength
+        if (!Number.isSafeInteger(maximumWriteLength) || maximumWriteLength < 1) {
+            throw new RangeError("SFTP maximum write length must be a positive safe integer")
+        }
         let offset = positionBigInt(position)
         for (let start = 0; start < ownedData.length; start += maximumWriteLength) {
             const chunk = ownedData.subarray(start, start + maximumWriteLength)
