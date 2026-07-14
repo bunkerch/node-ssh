@@ -252,7 +252,13 @@ returns; copy one only when the backing token operation genuinely requires longe
 successful lock stores a salted, derived verifier instead of the passphrase. While locked, the
 server refuses signing, identity/token addition, and extensions before invoking their hooks. An
 unlock hook runs only after the supplied passphrase matches, and the derived verifier is cleared
-after approval. The `locked` getter reports the current state.
+after approval. The lock state changes only after every corresponding handler completes without
+rejection: a failed lock chain leaves the server unlocked, and a failed unlock chain retains the
+existing verifier. The `locked` getter reports the current state.
+
+Extension results, the advertised extension list, and session bindings follow the same complete
+handler-chain rule. A later contained failure suppresses an earlier extension result or list and
+does not retain a proposed session binding.
 
 The server validates private and public key relationships, UTF-8 fields, key constraints,
 signature flags and algorithms, response bounds, and exact trailing data. It verifies policy

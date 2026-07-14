@@ -68,6 +68,8 @@ Fixed public agent-protocol exchanges also prove that a contained later policy f
 release an earlier identity list or cryptographic signature.
 Management exchanges independently apply that failure ordering to identity and token additions,
 individual and bulk identity removal, and token removal.
+Stateful agent tests additionally prove that later failures cannot transition lock state, expose an
+extension result or advertised list, or retain a proposed session binding.
 
 RFC 8308 no-flow-control coverage checks the literal `p` and `s` values and every bilateral
 preference outcome. In-process peers transfer data in both directions after their advertised

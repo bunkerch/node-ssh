@@ -11,6 +11,7 @@ import {
     OPENSSH_AGENT_SESSION_BIND,
     SSHAgentExtensionFailureError,
     SSHAgentProtocolClient,
+    type SSHAgentProtocolConnectionContext,
     SSHAgentProtocolServer,
 } from "../../src/publickey/SSHAgentProtocol.js"
 import PrivateKey, {
@@ -572,6 +573,151 @@ describe("SSH agent management protocol", () => {
         clientStream.end()
         await serving
         clientStream.destroy()
+        serverStream.destroy()
+    })
+
+    test("server does not retain lock approval after a later policy failure", async () => {
+        const [clientStream, serverStream] = streamPair()
+        const server = new SSHAgentProtocolServer()
+        const hookErrors: Error[] = []
+        server.hooker.on("uncaughtException", (_event, error) => hookErrors.push(error))
+        server.hooker.hook("lock", (_hook, _request, decision) => {
+            decision.success = true
+        })
+        server.hooker.hook("lock", async () => {
+            await Promise.resolve()
+            throw new Error("lock policy backend failed")
+        })
+        const serving = server.serve(serverStream)
+        const client = new SSHAgentProtocolClient(clientStream)
+
+        await expect(client.lock("secret")).rejects.toThrow("refused")
+        expect(server.locked).toBeFalse()
+        expect(hookErrors.map((error) => error.message)).toEqual(["lock policy backend failed"])
+
+        clientStream.end()
+        await serving
+        client.destroy()
+        serverStream.destroy()
+    })
+
+    test("server does not retain unlock approval after a later policy failure", async () => {
+        const [clientStream, serverStream] = streamPair()
+        const server = new SSHAgentProtocolServer()
+        const hookErrors: Error[] = []
+        server.hooker.on("uncaughtException", (_event, error) => hookErrors.push(error))
+        server.hooker.hook("lock", (_hook, _request, decision) => {
+            decision.success = true
+        })
+        server.hooker.hook("unlock", (_hook, _request, decision) => {
+            decision.success = true
+        })
+        server.hooker.hook("unlock", async () => {
+            await Promise.resolve()
+            throw new Error("unlock policy backend failed")
+        })
+        const serving = server.serve(serverStream)
+        const client = new SSHAgentProtocolClient(clientStream)
+
+        await client.lock("secret")
+        await expect(client.unlock("secret")).rejects.toThrow("refused")
+        expect(server.locked).toBeTrue()
+        expect(hookErrors.map((error) => error.message)).toEqual(["unlock policy backend failed"])
+
+        clientStream.end()
+        await serving
+        client.destroy()
+        serverStream.destroy()
+    })
+
+    test("server does not retain an extension result after a later policy failure", async () => {
+        const [clientStream, serverStream] = streamPair()
+        const server = new SSHAgentProtocolServer()
+        const hookErrors: Error[] = []
+        server.hooker.on("uncaughtException", (_event, error) => hookErrors.push(error))
+        server.hooker.hook("extension", (_hook, _request, decision) => {
+            decision.result = { kind: "success" }
+        })
+        server.hooker.hook("extension", async () => {
+            await Promise.resolve()
+            throw new Error("extension policy backend failed")
+        })
+        const serving = server.serve(serverStream)
+        const client = new SSHAgentProtocolClient(clientStream)
+
+        await expect(client.extension("mutate@example.test")).rejects.toThrow("refused")
+        expect(hookErrors.map((error) => error.message)).toEqual([
+            "extension policy backend failed",
+        ])
+
+        clientStream.end()
+        await serving
+        client.destroy()
+        serverStream.destroy()
+    })
+
+    test("server does not retain an extension list after a later policy failure", async () => {
+        const [clientStream, serverStream] = streamPair()
+        const server = new SSHAgentProtocolServer()
+        const hookErrors: Error[] = []
+        server.hooker.on("uncaughtException", (_event, error) => hookErrors.push(error))
+        server.hooker.hook("queryExtensions", (_hook, decision) => {
+            decision.extensions = ["one@example.test"]
+        })
+        server.hooker.hook("queryExtensions", async () => {
+            await Promise.resolve()
+            throw new Error("extension registry backend failed")
+        })
+        const serving = server.serve(serverStream)
+        const client = new SSHAgentProtocolClient(clientStream)
+
+        await expect(client.queryExtensions()).rejects.toThrow("refused")
+        expect(hookErrors.map((error) => error.message)).toEqual([
+            "extension registry backend failed",
+        ])
+
+        clientStream.end()
+        await serving
+        client.destroy()
+        serverStream.destroy()
+    })
+
+    test("server does not retain a session binding after a later policy failure", async () => {
+        const [clientStream, serverStream] = streamPair()
+        const server = new SSHAgentProtocolServer()
+        const privateKey = fixedPrivateKey()
+        const sessionIdentifier = Buffer.alloc(32, 0x52)
+        const hookErrors: Error[] = []
+        let connection: SSHAgentProtocolConnectionContext | undefined
+        server.hooker.on("uncaughtException", (_event, error) => hookErrors.push(error))
+        server.hooker.hook("sessionBind", (_hook, _binding, decision, context) => {
+            connection = context
+            decision.success = true
+        })
+        server.hooker.hook("sessionBind", async () => {
+            await Promise.resolve()
+            throw new Error("session-binding policy backend failed")
+        })
+        const serving = server.serve(serverStream)
+        const client = new SSHAgentProtocolClient(clientStream)
+
+        await expect(
+            client.opensshSessionBind({
+                hostKey: privateKey.data.publicKey,
+                sessionIdentifier,
+                signature: privateKey.sign(sessionIdentifier),
+                forwarding: true,
+            }),
+        ).rejects.toBeInstanceOf(SSHAgentExtensionFailureError)
+        expect(connection?.sessionBindAttempted).toBeTrue()
+        expect(connection?.sessionBindings).toEqual([])
+        expect(hookErrors.map((error) => error.message)).toEqual([
+            "session-binding policy backend failed",
+        ])
+
+        clientStream.end()
+        await serving
+        client.destroy()
         serverStream.destroy()
     })
 

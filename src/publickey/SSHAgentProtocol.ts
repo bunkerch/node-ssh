@@ -1392,8 +1392,13 @@ export class SSHAgentProtocolServer {
                 passphrase: hookPassphrase,
             })
             const controller: SSHAgentServerSuccessController = { success: undefined }
-            await this.hooker.triggerHook("lock", context, controller, connection.context)
-            if (controller.success !== true) return this.#failure()
+            const policyCompleted = await this.hooker.triggerHookChecked(
+                "lock",
+                context,
+                controller,
+                connection.context,
+            )
+            if (!policyCompleted || controller.success !== true) return this.#failure()
             const salt = randomBytes(16)
             let verifier: Buffer
             try {
@@ -1427,8 +1432,13 @@ export class SSHAgentProtocolServer {
                 passphrase: hookPassphrase,
             })
             const controller: SSHAgentServerSuccessController = { success: undefined }
-            await this.hooker.triggerHook("unlock", context, controller, connection.context)
-            if (controller.success !== true) return this.#failure()
+            const policyCompleted = await this.hooker.triggerHookChecked(
+                "unlock",
+                context,
+                controller,
+                connection.context,
+            )
+            if (!policyCompleted || controller.success !== true) return this.#failure()
             state.salt.fill(0)
             state.verifier.fill(0)
             this.#lockState = undefined
@@ -1459,7 +1469,13 @@ export class SSHAgentProtocolServer {
             contents: Buffer.from(raw),
         })
         const controller: SSHAgentServerExtensionController = { result: undefined }
-        await this.hooker.triggerHook("extension", context, controller, connection.context)
+        const policyCompleted = await this.hooker.triggerHookChecked(
+            "extension",
+            context,
+            controller,
+            connection.context,
+        )
+        if (!policyCompleted) return this.#failure()
         const result = controller.result
         if (result === undefined) return this.#failure()
         if (result.kind === "failure") {
@@ -1481,7 +1497,12 @@ export class SSHAgentProtocolServer {
 
     async #handleQueryExtensions(connection: SSHAgentProtocolConnectionState): Promise<Buffer> {
         const controller: SSHAgentServerQueryExtensionsController = { extensions: undefined }
-        await this.hooker.triggerHook("queryExtensions", controller, connection.context)
+        const policyCompleted = await this.hooker.triggerHookChecked(
+            "queryExtensions",
+            controller,
+            connection.context,
+        )
+        if (!policyCompleted) return this.#failure()
         const sessionBindSupported = this.hooker.hasHooks("sessionBind")
         if (controller.extensions === undefined && !sessionBindSupported) return this.#failure()
         if (controller.extensions !== undefined && !Array.isArray(controller.extensions)) {
@@ -1536,8 +1557,13 @@ export class SSHAgentProtocolServer {
             return Buffer.from([SSHAgentMessageType.ExtensionFailure])
         }
         const controller: SSHAgentServerSuccessController = { success: undefined }
-        await this.hooker.triggerHook("sessionBind", binding, controller, connection.context)
-        if (controller.success !== true) {
+        const policyCompleted = await this.hooker.triggerHookChecked(
+            "sessionBind",
+            binding,
+            controller,
+            connection.context,
+        )
+        if (!policyCompleted || controller.success !== true) {
             return Buffer.from([SSHAgentMessageType.ExtensionFailure])
         }
         let retainedBinding: OpenSSHAgentSessionBinding
