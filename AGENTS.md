@@ -55,6 +55,10 @@ meaningful wire-level behavior.
 - OpenSSH private-key encryption follows upstream `PROTOCOL.key`. Keep passphrase and derived-key
   buffers short-lived, validate authenticated modes before parsing plaintext, compare the public
   envelope with the private key, and exercise every supported cipher with real `ssh-keygen` output.
+- Public key generation accepts semantic Ed25519, RSA, and ECDSA family names, uses 3072-bit RSA and
+  P-256 defaults, restricts ECDSA to the three RFC 5656 curves, and propagates a line-safe comment to
+  both returned key objects. Validate every family with signing plus real `ssh-keygen` derivation
+  and fingerprinting, including the documented RSA default.
 - User authentication follows RFC 4252 and RFC 4256. Decode method-specific opcode 60 from the
   active authentication context, never as a globally fixed packet. Honor advertised continuation
   lists and partial success, keep at most one keyboard-interactive request outstanding, and test

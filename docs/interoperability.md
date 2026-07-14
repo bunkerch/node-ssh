@@ -102,6 +102,11 @@ OpenSSH private-key tests also generate every required ECDSA curve and prove par
 matching, signing, and verification. An RFC 6979 P-256/SHA-256 signature is independently encoded as
 the RFC 5656 pair of SSH mpints and verified as a fixed cryptographic vector.
 
+Generated-key interoperability creates Ed25519, 2048-bit RSA, and every required ECDSA curve through
+the public `generateKeyPair()` API. OpenSSH `ssh-keygen` derives and fingerprints each generated
+private key, while independent signing checks prove that each returned public key matches. A
+separate default-generation test verifies the documented 3072-bit RSA modulus.
+
 Authentication interoperability covers RFC 4252 banners and password changes plus RFC 4256
 keyboard-interactive exchanges. OpenSSH's client completes a two-prompt keyboard-interactive round
 and a forced password change against the modern server. The modern client authenticates through

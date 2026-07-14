@@ -159,6 +159,30 @@ injected connected socket after acceptance.
 
 ## Passphrase-protected private keys
 
+Generate new Ed25519, RSA, or RFC 5656 ECDSA key pairs with `generateKeyPair()`. RSA defaults to a
+3072-bit modulus; ECDSA defaults to NIST P-256 and accepts 256, 384, or 521 bits. The returned
+`PrivateKey` and `PublicKey` objects are immediately usable for signing, server host keys, agents,
+or OpenSSH serialization.
+
+```ts
+import { writeFile } from "node:fs/promises"
+import { generateKeyPair } from "modernssh"
+
+const { privateKey, publicKey } = await generateKeyPair("ed25519", {
+    comment: "deploy@build01",
+})
+await writeFile("./id_ed25519", `${privateKey.toString()}\n`, { mode: 0o600 })
+await writeFile("./id_ed25519.pub", `${publicKey.toString()}\n`)
+```
+
+RSA accepts `bits` from 1024 through 16384, though new deployments should retain the 3072-bit
+default or choose a larger policy-approved size. Ed25519 has a fixed size and rejects `bits`.
+Comments cannot contain NUL or line endings because the public-key format is line-oriented. Key
+generation uses the runtime cryptographic random source; write private material with restrictive
+permissions and avoid logging it.
+
+### Reading protected keys
+
 `PrivateKey.fromString()` and `PrivateKey.parse()` accept an optional string or `Buffer`
 passphrase. They read the `openssh-key-v1` format produced by `ssh-keygen`, including Ed25519, RSA,
 and ECDSA keys encrypted with any cipher accepted by current OpenSSH: 3DES-CBC, AES-CBC, AES-CTR,

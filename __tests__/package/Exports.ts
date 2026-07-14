@@ -1,3 +1,8 @@
+import { execFile } from "node:child_process"
+import { mkdir, mkdtemp, readdir, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { promisify } from "node:util"
 import {
     Agent,
     Channel,
@@ -19,6 +24,7 @@ import {
     ForwardedAgentChannel,
     ForwardedStreamLocalChannel,
     ForwardedX11Channel,
+    generateKeyPair,
     HTTPAgent,
     HTTPSAgent,
     OnePasswordAgent,
@@ -49,6 +55,8 @@ import {
     type ServerOptions,
 } from "../../src/index.js"
 
+const execFileAsync = promisify(execFile)
+
 describe("package exports", () => {
     test("exposes the supported source API without executing a demo", () => {
         const clientOptions: ClientOptions = { hostname: "example.test" }
@@ -76,6 +84,7 @@ describe("package exports", () => {
             ForwardedAgentChannel,
             ForwardedStreamLocalChannel,
             ForwardedX11Channel,
+            generateKeyPair,
             HTTPAgent,
             HTTPSAgent,
             OnePasswordAgent,
@@ -90,7 +99,7 @@ describe("package exports", () => {
             SSHAgent,
             SSHHTTPAgent,
             SSHHTTPSAgent,
-        ]).toHaveLength(31)
+        ]).toHaveLength(32)
         expect(SSHAuthenticationMethods.PublicKey).toBe("publickey")
         expect(SSHAuthenticationMethods.KeyboardInteractive).toBe("keyboard-interactive")
         expect(encodeSFTPPacket).toBeFunction()
@@ -121,6 +130,7 @@ describe("package exports", () => {
         expect(entry.SSHHTTPSAgent).toBeDefined()
         expect(entry.HTTPAgent).toBe(entry.SSHHTTPAgent)
         expect(entry.HTTPSAgent).toBe(entry.SSHHTTPSAgent)
+        expect(entry.generateKeyPair).toBeFunction()
         expect(entry.DirectTCPIPChannel).toBeDefined()
         expect(entry.DirectStreamLocalChannel).toBeDefined()
         expect(entry.ForwardedTCPIPChannel).toBeDefined()
@@ -142,5 +152,39 @@ describe("package exports", () => {
         expect(entry.OPEN_MODE.READ).toBe(1)
         expect(entry.STATUS_CODE.OK).toBe(0)
         expect(entry.decodeSFTPLimits).toBeDefined()
+    })
+
+    test("package archive exposes working ESM key generation", async () => {
+        const directory = await mkdtemp(join(tmpdir(), "modernssh-package-"))
+        try {
+            await execFileAsync("pnpm", ["pack", "--pack-destination", directory])
+            const archive = (await readdir(directory)).find((name) => name.endsWith(".tgz"))
+            expect(archive).toBeDefined()
+            const consumer = join(directory, "consumer")
+            await mkdir(consumer)
+            await execFileAsync("pnpm", ["add", "--dir", consumer, join(directory, archive!)])
+            const { stdout, stderr } = await execFileAsync(
+                "node",
+                [
+                    "--input-type=module",
+                    "--eval",
+                    `
+                    const { generateKeyPair } = await import("modernssh")
+                    const { privateKey, publicKey } = await generateKeyPair("ed25519", {
+                        comment: "packed@example.test",
+                    })
+                    const message = Buffer.from("packed-key-generation")
+                    if (!publicKey.verifySignature(message, privateKey.sign(message))) process.exit(2)
+                    process.stdout.write(publicKey.toString())
+                `,
+                ],
+                { cwd: consumer },
+            )
+            expect(stdout).toStartWith("ssh-ed25519 ")
+            expect(stdout).toEndWith(" packed@example.test")
+            expect(stderr).toBe("")
+        } finally {
+            await rm(directory, { recursive: true, force: true })
+        }
     })
 })

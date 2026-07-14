@@ -188,6 +188,8 @@ export {
 export type { PublicKeyData } from "./utils/PublicKey.js"
 export { default as PrivateKey, PrivateKeyAlgorithm } from "./utils/PrivateKey.js"
 export type { PrivateKeyData } from "./utils/PrivateKey.js"
+export { generateKeyPair } from "./KeyGeneration.js"
+export type { GeneratedKeyPair, GenerateKeyPairOptions, KeyPairType } from "./KeyGeneration.js"
 export { default as EncodedSignature } from "./utils/Signature.js"
 export type { EncodedSignatureData } from "./utils/Signature.js"
 export type {
