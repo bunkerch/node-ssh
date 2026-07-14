@@ -368,6 +368,67 @@ describe("RFC 4252 multi-method authentication", () => {
         }
     }, 15_000)
 
+    test.each([
+        { explicitOrder: false, authenticates: true },
+        { explicitOrder: true, authenticates: false },
+    ])(
+        "uses an awaited keyboard-interactive hook with default ordering: $explicitOrder",
+        async ({ explicitOrder, authenticates }) => {
+            const hostKey = await PrivateKey.generate("ssh-ed25519")
+            const server = new Server({ hostKeys: [hostKey], sendAllHostKeys: false })
+            let policyCalls = 0
+            server.hooker.hook("keyboardInteractiveAuthentication", (_hook, context, decision) => {
+                policyCalls++
+                if (context.round === 0) {
+                    decision.prompts = [{ prompt: "Verification code: ", echo: false }]
+                } else {
+                    decision.allowLogin = context.responses?.[0] === "123456"
+                }
+            })
+            server.listen({ host: "127.0.0.1", port: 0 })
+            await new Promise<void>((resolve) => server.server!.once("listening", resolve))
+
+            const client = new Client({
+                hostname: "127.0.0.1",
+                port: (server.server!.address() as AddressInfo).port,
+                username: "interactive-default",
+                ...(explicitOrder
+                    ? { authenticationMethodsOrder: [SSHAuthenticationMethods.None] }
+                    : {}),
+            })
+            client.hooker.hook("hostKey", (_hook, decision) => {
+                decision.allowHostKey = true
+            })
+            client.hooker.hook("keyboardInteractive", async (_hook, context, decision) => {
+                await Promise.resolve()
+                decision.responses = context.prompts.map(() => "123456")
+            })
+
+            try {
+                if (authenticates) {
+                    await client.connect()
+                    expect(client.isConnected).toBe(true)
+                    expect(policyCalls).toBe(2)
+                } else {
+                    await expect(client.connect()).rejects.toThrow(
+                        "All authentication methods failed",
+                    )
+                    expect(policyCalls).toBe(0)
+                }
+                expect(client.options.authenticationMethodsOrder).not.toContain(
+                    SSHAuthenticationMethods.KeyboardInteractive,
+                )
+            } finally {
+                client.destroy()
+                for (const connection of server.clients) connection.terminate()
+                await new Promise<void>((resolve, reject) => {
+                    server.server!.close((error) => (error ? reject(error) : resolve()))
+                })
+            }
+        },
+        15_000,
+    )
+
     test("restarts advertised method selection after partial success", async () => {
         const hostKey = await PrivateKey.generate("ssh-ed25519")
         const server = new Server({

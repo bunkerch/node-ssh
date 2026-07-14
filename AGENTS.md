@@ -117,6 +117,9 @@ meaningful wire-level behavior.
   unconfigured, already-failed, or unadvertised choice. Keep at most one keyboard-interactive
   request outstanding, and test prompts, banners, and password changes with fixed vectors plus
   OpenSSH.
+- An awaited client keyboard-interactive hook enables that method only when the caller did not
+  provide an explicit authentication order. Resolve this at connect time without mutating retained
+  options; explicit orders remain strict allow-lists across every partial-success stage.
 - Enforce higher-layer phases before parsing method-specific payloads: authentication packets are
   valid only during the negotiated authentication phase and only in their assigned peer direction;
   connection packets are valid only after authentication. Reject cross-phase traffic with reason 2

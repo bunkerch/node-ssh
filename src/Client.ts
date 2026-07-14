@@ -391,10 +391,12 @@ interface RemoteForwarding {
 export default class Client extends EventEmitter<ClientEvents> {
     options: ClientOptionsRequired
     peerDisconnect?: Readonly<PeerDisconnectInfo>
+    private readonly explicitAuthenticationMethodsOrder: boolean
 
     constructor(options: ClientOptions) {
         super()
 
+        this.explicitAuthenticationMethodsOrder = options.authenticationMethodsOrder !== undefined
         this.options = { ...options } as ClientOptionsRequired
         this.options.hostname ??= "localhost"
         this.options.port ??= 22
@@ -1653,7 +1655,19 @@ export default class Client extends EventEmitter<ClientEvents> {
         }
         assert(serviceAnswer.data.service_name == SSHServiceNames.UserAuth)
 
-        const methodList = this.options.authenticationMethodsOrder
+        const methodList = [...this.options.authenticationMethodsOrder]
+        if (
+            !this.explicitAuthenticationMethodsOrder &&
+            this.hooker.hasHooks("keyboardInteractive") &&
+            !methodList.includes(SSHAuthenticationMethods.KeyboardInteractive)
+        ) {
+            const passwordIndex = methodList.indexOf(SSHAuthenticationMethods.Password)
+            methodList.splice(
+                passwordIndex < 0 ? methodList.length : passwordIndex,
+                0,
+                SSHAuthenticationMethods.KeyboardInteractive,
+            )
+        }
         const attemptedMethods = new Set<SSHAuthenticationMethods>()
         this.authenticationInProgress = true
         try {

@@ -20,6 +20,12 @@ diagnostics and key re-exchange remain valid independently of those higher-layer
 Choose the allowed order with `authenticationMethodsOrder`. `none` is useful as the first entry
 because it asks the server which methods may continue. It is never advertised by a server.
 
+When no order is supplied, registering an awaited `keyboardInteractive` hook adds
+`keyboard-interactive` to the default strategy immediately before password authentication. This
+happens when `connect()` begins, so handlers may be installed after constructing the client. An
+explicit `authenticationMethodsOrder` is a strict allow-list and is never broadened by hooks. The
+resolved per-connection strategy does not mutate `client.options.authenticationMethodsOrder`.
+
 ```ts
 import { Client, SSHAuthenticationMethods } from "modernssh"
 
