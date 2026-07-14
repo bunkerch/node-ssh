@@ -35,7 +35,7 @@ export interface ServerOptions {
     /** Informational text sent before the SSH identification. */
     greeting?: string
     algorithms?: ServerAlgorithmOptions
-    hostKeys?: PrivateKey[]
+    hostKeys?: (PrivateKey | string | Buffer | ServerHostKeyInput)[]
     /** Public host certificates paired with matching entries in `hostKeys`. */
     hostCertificates?: (PublicKey | string | Buffer)[]
     // by default, the Server will send all available hostkeys
@@ -60,10 +60,17 @@ export interface ServerOptions {
     /** Receive the same diagnostic arguments as the `debug` event. */
     debug?: (...message: unknown[]) => void
 }
+export interface ServerHostKeyInput {
+    key: PrivateKey | string | Buffer
+    passphrase?: string | Buffer
+}
 export interface ServerOptionsRequired
-    extends Required<Omit<ServerOptions, "ident" | "algorithms" | "hostCertificates" | "debug">> {
+    extends Required<
+        Omit<ServerOptions, "ident" | "algorithms" | "hostKeys" | "hostCertificates" | "debug">
+    > {
     ident?: string | Buffer
     algorithms?: ServerAlgorithmOptions
+    hostKeys: PrivateKey[]
     hostCertificates?: (PublicKey | string | Buffer)[]
     debug?: (...message: unknown[]) => void
 }
@@ -286,7 +293,23 @@ export default class Server extends EventEmitter<ServerEvents> {
                 ? (this.options.protocolVersionExchange ?? ProtocolVersionExchange.defaultValue)
                 : ProtocolVersionExchange.fromIdent(this.options.ident)
         this.options.greeting = normalizeGreeting(this.options.greeting ?? "")
-        this.options.hostKeys = [...(this.options.hostKeys ?? [])]
+        this.options.hostKeys = (options.hostKeys ?? []).map((input) => {
+            const wrapped =
+                typeof input === "object" &&
+                input !== null &&
+                !(input instanceof PrivateKey) &&
+                !Buffer.isBuffer(input)
+            const keyInput = wrapped ? input.key : input
+            const passphrase = wrapped ? input.passphrase : undefined
+            if (keyInput instanceof PrivateKey && passphrase !== undefined) {
+                throw new TypeError("SSH host-key passphrase is only valid for an encoded key")
+            }
+            const key = keyInput instanceof PrivateKey ? keyInput : parseKey(keyInput, passphrase)
+            if (!(key instanceof PrivateKey)) {
+                throw new TypeError("SSH hostKeys entries must contain private keys")
+            }
+            return key
+        })
         for (const certificateInput of this.options.hostCertificates ?? []) {
             const certificate =
                 certificateInput instanceof PublicKey

@@ -516,14 +516,26 @@ describe("OpenSSH interoperability", () => {
 
     test("OpenSSH client executes a command on a modernssh server", async () => {
         const hostKey = await PrivateKey.generate("ssh-ed25519")
+        const encodedHostKey = hostKey.serialize({
+            passphrase: "encrypted-host-key-passphrase",
+        })
         const server = new Server({
-            hostKeys: [hostKey],
+            hostKeys: [
+                {
+                    key: encodedHostKey,
+                    passphrase: Buffer.from("encrypted-host-key-passphrase"),
+                },
+            ],
             sendAllHostKeys: false,
             algorithms: {
                 kex: ["ecdh-sha2-nistp384"],
                 hmac: ["hmac-sha2-512-etm@openssh.com"],
             },
         })
+        expect(server.options.hostKeys).toHaveLength(1)
+        expect(server.options.hostKeys[0]).toBeInstanceOf(PrivateKey)
+        expect(server.options.hostKeys[0].data.publicKey.equals(hostKey.data.publicKey)).toBe(true)
+        expect(server.options.hostKeys).not.toContain(encodedHostKey)
         const errors: Error[] = []
         const input: Buffer[] = []
         let command = ""

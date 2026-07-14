@@ -149,10 +149,17 @@ cannot be reused for another connection.
 
 ```ts
 import { readFile } from "node:fs/promises"
-import { PrivateKey, Server } from "modernssh"
+import { Server } from "modernssh"
 
-const hostKey = PrivateKey.fromString(await readFile("./ssh_host_ed25519_key", "utf8"))
-const server = new Server({ hostKeys: [hostKey] })
+const server = new Server({
+    hostKeys: [
+        await readFile("./ssh_host_ed25519_key"),
+        {
+            key: await readFile("./ssh_host_ecdsa_key"),
+            passphrase: process.env.SSH_HOST_KEY_PASSPHRASE,
+        },
+    ],
+})
 
 server.hooker.hook("passwordAuthentication", (_hook, context, decision) => {
     decision.allowLogin =
@@ -168,8 +175,12 @@ server.on("connection", (connection) => {
 server.listen(22, "127.0.0.1")
 ```
 
-Supply persistent host keys in production. If `hostKeys` is empty, the server generates a temporary
-Ed25519 key, which changes identity after every restart.
+Supply persistent host keys in production. Entries may be loaded `PrivateKey` objects, encoded
+strings or buffers, or `{ key, passphrase }` objects for encrypted containers. The constructor
+parses every entry eagerly, rejects public keys and incorrect passphrases, and retains only parsed
+private-key objects in `server.options`; it does not retain encoded containers or passphrases. If
+`hostKeys` is empty, the server generates a temporary Ed25519 key, which changes identity after
+every restart.
 
 `Server` mirrors the useful Node TCP-server controls: `address()`, `getConnections()`, `close()`,
 `ref()`, and `unref()` all operate without reaching into an internal socket and return the server

@@ -90,6 +90,9 @@ meaningful wire-level behavior.
   construction, rejects ambiguous agent configuration, and removes encoded keys and passphrases
   from retained client options. Keep multi-key in-memory signing in `PrivateKeyAgent`, and validate
   the direct option against real OpenSSH without password fallback.
+- Server host-key inputs accept parsed private keys, encoded containers, and explicit per-key
+  passphrases. Parse them eagerly, reject public keys and ambiguous passphrases, retain only parsed
+  private-key objects, and validate encrypted input through a real OpenSSH client connection.
 - Private-key PEM import delegates PKCS#8, PKCS#1, SEC1, and their encrypted forms to Node's native
   parser, then converts only Ed25519, Ed448, RSA, and the three RFC 5656 ECDSA curves into validated SSH
   key objects. Reject unsupported families and prove every accepted container with OpenSSL input,

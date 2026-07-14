@@ -127,6 +127,7 @@ export type {
     ServerHookerStreamLocalForwardController,
     ServerHookerTCPIPForwardContext,
     ServerHookerTCPIPForwardController,
+    ServerHostKeyInput,
     ServerOptions,
 } from "./Server.js"
 export type { UserAuthPrompt } from "./packets/UserAuthInfoRequest.js"
