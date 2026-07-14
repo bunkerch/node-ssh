@@ -158,13 +158,9 @@ export default class PublicKey {
     }
 
     static parseString(content: string): PublicKey {
-        const parts = content.trim().split(/\s+/)
-
-        assert(
-            parts.length === 3 || parts.length === 2,
-            `Invalid number of parts in the public key`,
-        )
-        const [alg, key, comment] = parts
+        const match = /^(\S+)\s+(\S+)(?:\s+(.+))?$/u.exec(content.trim())
+        assert(match, "Invalid text public key")
+        const [, alg, key, comment] = match
 
         const publicKey = PublicKey.parse(Buffer.from(key, "base64"))
         assert(

@@ -168,6 +168,8 @@ const client = new Client({
 `PrivateKey.withCertificate(certificate)` provides the same pairing for `PrivateKeyAgent`.
 `DiskAgent` automatically prefers `name-cert.pub` over `name.pub`, and delegated agents may return
 certificate identities directly. The certificate stays separate from private-key serialization.
+Malformed discovered public-key files are skipped and can be reported through the awaited
+`onInvalidPublicKey` option.
 
 On the server, `context.certificate` contains the verified certificate when present. Before the
 awaited policy hook runs, the library checks its CA signature, user role, validity interval, and

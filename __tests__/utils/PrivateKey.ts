@@ -299,13 +299,33 @@ describe("OpenSSH private keys", () => {
         try {
             const fixture = await generateKey(directory, "id_ed25519", "ed25519")
             const keyPath = join(directory, "id_ed25519")
+            const publicKeyPath = `${keyPath}.pub`
+            const [algorithm, blob, comment] = (await readFile(publicKeyPath, "utf8"))
+                .trim()
+                .split(/\s+/u)
+            const multiwordComment = `${comment} deployment identity`
+            await writeFile(publicKeyPath, `${algorithm}\t${blob}   ${multiwordComment}\n`)
+            const invalidKeyPath = join(directory, "invalid")
+            await writeFile(invalidKeyPath, "not a private key")
+            await writeFile(`${invalidKeyPath}.pub`, "not a public key")
             const requestedPaths: string[] = []
-            const agent = new DiskAgent(directory, {
+            const invalidPublicKeys: string[] = []
+            const agent = new DiskAgent(`${directory}/`, {
                 passphrase(path) {
                     requestedPaths.push(path)
                     return passphrase
                 },
+                async onInvalidPublicKey(_error, path) {
+                    await Promise.resolve()
+                    invalidPublicKeys.push(path)
+                },
             })
+            const discovered = await agent.getPublicKeys()
+            expect(discovered).toHaveLength(1)
+            expect(discovered[0]?.[0]).toBe(keyPath)
+            expect(discovered[0]?.[1].equals(fixture.publicKey)).toBe(true)
+            expect(discovered[0]?.[1].data.comment).toBe(multiwordComment)
+            expect(invalidPublicKeys).toEqual([`${invalidKeyPath}.pub`])
             const data = Buffer.from("signed using DiskAgent")
             const signature = await agent.sign(keyPath, data)
 

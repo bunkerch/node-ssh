@@ -303,6 +303,9 @@ import { Client, DiskAgent } from "modernssh"
 
 const agent = new DiskAgent("/home/deploy/.ssh", {
     passphrase: async (privateKeyPath) => secretStore.read(privateKeyPath),
+    onInvalidPublicKey: async (error, publicKeyPath) => {
+        await auditLog.write({ error, publicKeyPath })
+    },
 })
 const client = new Client({ hostname: "ssh.example.com", agent })
 ```
@@ -310,6 +313,11 @@ const client = new Client({ hostname: "ssh.example.com", agent })
 Passphrases and derived key material are copied into temporary buffers and cleared after the
 decryption attempt. JavaScript strings themselves cannot be cleared; use a `Buffer` when the
 caller also needs explicit control over its original secret storage.
+
+The directory is resolved to an absolute normalized path. Discovery skips malformed public-key
+companions; `onInvalidPublicKey` is awaited for each skipped identity so applications can report or
+audit it. Direct lookup and discovery share the same whitespace-tolerant public-key parser.
+Public-key comments may contain spaces and are preserved.
 
 ## Public exports
 
