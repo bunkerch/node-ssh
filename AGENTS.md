@@ -308,6 +308,8 @@ meaningful wire-level behavior.
   subsystems on both parse and serialization paths.
 - Ordinary and host-bound public-key authentication use the strict SSH-name codec for their
   signature algorithm field and copy caller-owned method metadata before retaining it.
+- Host-based authentication applies the same strict algorithm codec and metadata isolation, and
+  maps certificate request names to their underlying signature algorithm.
 - Public and private key envelopes bind their validated SSH algorithm name to the contained key
   implementation, require private/public identity agreement, and copy caller-owned envelope data.
 - Key comments use fatal UTF-8, exclude NUL and line endings on every construction and parse path,

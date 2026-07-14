@@ -239,5 +239,24 @@ describe("RFC 4252 and RFC 4256 authentication vectors", () => {
         expect(() => new HostbasedAuthMethod({ ...method.data, clientUsername: "" })).toThrow(
             "username is invalid",
         )
+
+        const malformedAlgorithm = Buffer.from(hostbasedRequest)
+        const algorithmOffset = malformedAlgorithm.indexOf("ssh-ed25519")
+        expect(algorithmOffset).toBeGreaterThanOrEqual(0)
+        malformedAlgorithm[algorithmOffset] = 0xff
+        expect(() => UserAuthRequest.parse(malformedAlgorithm)).toThrow(
+            "SSH hostbased signature algorithm must be US-ASCII",
+        )
+    })
+
+    test("does not retain hostbased constructor metadata", () => {
+        const parsed = UserAuthRequest.parse(hostbasedRequest).data.method as HostbasedAuthMethod
+        const input = { ...parsed.data }
+        const method = new HostbasedAuthMethod(input)
+        input.algorithm = "ssh-rsa"
+        input.clientHostname = "other.example"
+
+        expect(method.data.algorithm).toBe("ssh-ed25519")
+        expect(method.data.clientHostname).toBe("client.example")
     })
 })

@@ -9,6 +9,7 @@ import PublicKey from "../utils/PublicKey.js"
 import EncodedSignature from "../utils/Signature.js"
 import AuthMethod from "./AuthMethod.js"
 import { decodeSSHUTF8, encodeSSHUTF8 } from "../utils/SSHText.js"
+import { decodeSSHName, encodeSSHName } from "../utils/SSHName.js"
 
 export interface HostbasedAuthMethodData {
     publicKey: PublicKey
@@ -20,19 +21,25 @@ export interface HostbasedAuthMethodData {
 
 export default class HostbasedAuthMethod implements AuthMethod {
     static method_name = SSHAuthenticationMethods.Hostbased
+    readonly data: HostbasedAuthMethodData
 
     get method_name(): SSHAuthenticationMethods {
         return HostbasedAuthMethod.method_name
     }
 
-    constructor(readonly data: HostbasedAuthMethodData) {
+    constructor(data: HostbasedAuthMethodData) {
+        encodeSSHName(data.algorithm, "SSH hostbased signature algorithm")
         assert(
             data.publicKey.supportsSignatureAlgorithm(data.algorithm),
             `Signature algorithm ${data.algorithm} is incompatible with ${data.publicKey.data.alg}`,
         )
         validateClientHostname(data.clientHostname)
         validateClientUsername(data.clientUsername)
-        assert(data.signature.data.alg === data.algorithm, "Hostbased signature algorithm mismatch")
+        assert(
+            data.signature.data.alg === data.publicKey.signatureAlgorithmFor(data.algorithm),
+            "Hostbased signature algorithm mismatch",
+        )
+        this.data = { ...data }
     }
 
     serialize(): Buffer {
@@ -45,7 +52,9 @@ export default class HostbasedAuthMethod implements AuthMethod {
     serializeForSignature(): Buffer {
         return Buffer.concat([
             serializeBuffer(Buffer.from(HostbasedAuthMethod.method_name, "ascii")),
-            serializeBuffer(Buffer.from(this.data.algorithm, "ascii")),
+            serializeBuffer(
+                encodeSSHName(this.data.algorithm, "SSH hostbased signature algorithm"),
+            ),
             serializeBuffer(this.data.publicKey.serialize()),
             serializeBuffer(Buffer.from(this.data.clientHostname, "ascii")),
             serializeBuffer(encodeSSHUTF8(this.data.clientUsername, "SSH hostbased client user")),
@@ -65,8 +74,7 @@ export default class HostbasedAuthMethod implements AuthMethod {
         ;[signature, raw] = readNextBuffer(raw)
         assert(raw.length === 0)
 
-        const algorithmName = algorithm.toString("ascii")
-        assert(Buffer.from(algorithmName, "ascii").equals(algorithm), "Invalid host key algorithm")
+        const algorithmName = decodeSSHName(algorithm, "SSH hostbased signature algorithm")
         const publicKey = PublicKey.parse(publicKeyBlob)
         const encodedSignature = EncodedSignature.parse(signature)
         return new HostbasedAuthMethod({
@@ -88,7 +96,10 @@ export default class HostbasedAuthMethod implements AuthMethod {
             publicKey.supportsSignatureAlgorithm(algorithm),
             `Signature algorithm ${algorithm} is incompatible with ${publicKey.data.alg}`,
         )
-        const placeholder = new EncodedSignature({ alg: algorithm, data: Buffer.alloc(0) })
+        const placeholder = new EncodedSignature({
+            alg: publicKey.signatureAlgorithmFor(algorithm),
+            data: Buffer.alloc(0),
+        })
         const method = new HostbasedAuthMethod({
             publicKey,
             algorithm,

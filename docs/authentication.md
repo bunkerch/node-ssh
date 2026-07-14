@@ -203,6 +203,9 @@ const client = new Client({
 ```
 
 The strongest signature algorithm supported by the key is selected unless `algorithm` is set.
+The request's signature algorithm uses the strict RFC 4250 name codec. Certificate request names
+map to their underlying signature algorithm before signing and verification, and method
+construction copies caller-owned metadata.
 Protect a client host key more strictly than an ordinary user's key: anyone who obtains it may be
 able to impersonate users from that host wherever host-based trust is configured.
 
