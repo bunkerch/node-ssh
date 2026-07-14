@@ -226,7 +226,9 @@ every restart.
 `listening` event, and `address()`, `ref()`, and `unref()` remain synchronous. Call `listen()` only
 once until the server has closed; a duplicate request made while host-key preparation or native
 listener startup is pending throws synchronously instead of creating an unhandled deferred error.
-Other deferred startup failures are reported through the server's `error` event.
+Calling `close()` during that pending phase cancels startup, emits `close`, and resolves without
+opening a listener later. Other deferred startup failures are reported through the server's `error`
+event.
 The `connection` event's immutable endpoint snapshot retains the remote and local address, family,
 and port after the socket closes. Fields may be undefined for an injected or non-IP transport that
 does not expose them.

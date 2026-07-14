@@ -505,6 +505,7 @@ export default class Server extends EventEmitter<ServerEvents> {
     readonly kexAlgorithms: ReadonlyMap<string, KexAlgorithmFactory>
     private readonly hostKeysReady: Promise<void>
     private listenRequested = false
+    private listenRequestId = 0
 
     listen(port?: number, hostname?: string, backlog?: number): this
     listen(port?: number, backlog?: number): this
@@ -519,15 +520,18 @@ export default class Server extends EventEmitter<ServerEvents> {
             throw new Error("SSH server is already starting or listening")
         }
         this.listenRequested = true
+        const requestId = ++this.listenRequestId
         void this.hostKeysReady
             .then(() => {
+                if (requestId !== this.listenRequestId) return
                 try {
                     Reflect.apply(this.server.listen, this.server, args)
                 } finally {
-                    this.listenRequested = false
+                    if (requestId === this.listenRequestId) this.listenRequested = false
                 }
             })
             .catch((error: unknown) => {
+                if (requestId !== this.listenRequestId) return
                 this.listenRequested = false
                 this.emit("error", error instanceof Error ? error : new Error(String(error)))
             })
@@ -552,6 +556,13 @@ export default class Server extends EventEmitter<ServerEvents> {
     }
 
     close(): Promise<void> {
+        if (this.listenRequested && !this.server.listening) {
+            this.listenRequested = false
+            this.listenRequestId++
+            this.debug("Server startup cancelled")
+            this.emit("close")
+            return Promise.resolve()
+        }
         return new Promise((resolve, reject) => {
             this.server.close((error) => (error ? reject(error) : resolve()))
         })
