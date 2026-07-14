@@ -32,7 +32,8 @@ client.globalRequest("query@example.com", Buffer.alloc(0), (error, response) => 
 
 Request names must be non-empty printable ASCII and arguments must be a `Buffer`. A failure reply
 rejects with `GlobalRequestError`. Concurrent calls are matched to replies in RFC wire order, and
-pending calls reject if the connection closes.
+pending calls reject if the connection closes. A success or failure response without a pending
+request is a protocol error and closes the connection.
 
 Accepted server connections expose the same API on `ServerClient`, for connection-wide requests
 directed at an SSH client:

@@ -53,6 +53,7 @@ import Disconnect, {
     DisconnectError,
     DisconnectReason,
     PeerDisconnectError,
+    ProtocolError,
     peerDisconnectInfo,
     type PeerDisconnectInfo,
 } from "./packets/Disconnect.js"
@@ -543,7 +544,9 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     private routeGlobalRequestReply(packet: Packet): void {
         if (!(packet instanceof RequestSuccess) && !(packet instanceof RequestFailure)) return
         const request = this.pendingGlobalRequests.shift()
-        if (!request) throw new Error("Received an unexpected SSH global request response")
+        if (!request) {
+            throw new ProtocolError("Received an unexpected SSH global request response")
+        }
         if (packet instanceof RequestSuccess) {
             request.resolve(Buffer.from(packet.data.args))
         } else {

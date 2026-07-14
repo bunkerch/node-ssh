@@ -13,6 +13,8 @@ import KexDHInit from "../../src/packets/KexDHInit.js"
 import KexInit from "../../src/packets/KexInit.js"
 import KexDHGexRequest from "../../src/packets/KexDHGexRequest.js"
 import KexDHReply from "../../src/packets/KexDHReply.js"
+import RequestSuccess from "../../src/packets/RequestSuccess.js"
+import RequestFailure from "../../src/packets/RequestFailure.js"
 
 async function listen(server: Server): Promise<number> {
     server.listen({ host: "127.0.0.1", port: 0 })
@@ -46,6 +48,46 @@ function peerDisconnect(peer: Client | ServerClient): Promise<Readonly<PeerDisco
 }
 
 describe("RFC higher-layer message phases", () => {
+    test.each([
+        ["success", "client"],
+        ["success", "server"],
+        ["failure", "client"],
+        ["failure", "server"],
+    ] as const)(
+        "rejects an unsolicited global-request %s from the %s",
+        async (response, sender) => {
+            const hostKey = await PrivateKey.generate("ssh-ed25519")
+            const server = new Server({ hostKeys: [hostKey], sendAllHostKeys: false })
+            server.hooker.hook("noneAuthentication", (_hook, _context, decision) => {
+                decision.allowLogin = true
+            })
+            let connection!: ServerClient
+            server.once("connection", (peer) => {
+                connection = peer
+                peer.on("error", () => undefined)
+            })
+            const client = clientFor(await listen(server))
+
+            try {
+                await client.connect()
+                const disconnected = peerDisconnect(sender === "client" ? client : connection)
+                const packet =
+                    response === "success"
+                        ? new RequestSuccess({ args: Buffer.from("unsolicited") })
+                        : new RequestFailure({})
+                if (sender === "client") client.sendPacket(packet)
+                else connection.sendPacket(packet)
+                await expect(disconnected).resolves.toMatchObject({
+                    reasonCode: DisconnectReason.SSH_DISCONNECT_PROTOCOL_ERROR,
+                    description: "Received an unexpected SSH global request response",
+                })
+            } finally {
+                await close(server, client)
+            }
+        },
+        15_000,
+    )
+
     test.each(["client", "server"] as const)(
         "discards one incorrect optimistic KEX guess from the %s",
         async (sender) => {

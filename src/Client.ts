@@ -2510,7 +2510,9 @@ export default class Client extends EventEmitter<ClientEvents> {
     private routeGlobalRequestReply(packet: Packet): void {
         if (!(packet instanceof RequestSuccess) && !(packet instanceof RequestFailure)) return
         const request = this.pendingGlobalRequests.shift()
-        if (!request) throw new Error("Received an unexpected SSH global request response")
+        if (!request) {
+            throw new ProtocolError("Received an unexpected SSH global request response")
+        }
         if (packet instanceof RequestSuccess) {
             request.resolve(packet.data.args)
         } else {
