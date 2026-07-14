@@ -1206,8 +1206,12 @@ export class SSHAgentProtocolServer {
 
     async #handleIdentities(connection: SSHAgentProtocolConnectionState): Promise<Buffer> {
         const controller: SSHAgentServerIdentitiesController = { identities: undefined }
-        await this.hooker.triggerHook("identities", controller, connection.context)
-        if (controller.identities === undefined) return this.#failure()
+        const policyCompleted = await this.hooker.triggerHookChecked(
+            "identities",
+            controller,
+            connection.context,
+        )
+        if (!policyCompleted || controller.identities === undefined) return this.#failure()
         const identities = controller.identities.map((identity) => {
             if (!(identity.publicKey instanceof PublicKey)) {
                 throw new TypeError("SSH agent identity must contain a PublicKey")
@@ -1247,7 +1251,13 @@ export class SSHAgentProtocolServer {
             flags,
         })
         const controller: SSHAgentServerSignController = { signature: undefined }
-        await this.hooker.triggerHook("sign", context, controller, connection.context)
+        const policyCompleted = await this.hooker.triggerHookChecked(
+            "sign",
+            context,
+            controller,
+            connection.context,
+        )
+        if (!policyCompleted) return this.#failure()
         const signature = controller.signature
         if (
             !signature ||

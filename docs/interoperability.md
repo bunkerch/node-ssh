@@ -64,6 +64,8 @@ Agent-forwarding integration also connects the library's client and server direc
 literal `agent-forward` version `0` advertisement, and proves that `forwardAgent()` selects
 `agent-req` followed by `agent-connect`. Replacement-extension coverage proves that omitting the
 advertisement clears the capability instead of retaining stale negotiation state.
+Fixed public agent-protocol exchanges also prove that a contained later policy failure cannot
+release an earlier identity list or cryptographic signature.
 
 RFC 8308 no-flow-control coverage checks the literal `p` and `s` values and every bilateral
 preference outcome. In-process peers transfer data in both directions after their advertised

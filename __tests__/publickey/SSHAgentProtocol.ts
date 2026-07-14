@@ -163,6 +163,54 @@ describe("SSH agent protocol", () => {
         serverStream.destroy()
     })
 
+    test("server does not retain identities after a later policy failure", async () => {
+        const [clientStream, serverStream] = streamPair()
+        const privateKey = fixedPrivateKey()
+        const server = new SSHAgentProtocolServer()
+        const hookErrors: Error[] = []
+        server.hooker.on("uncaughtException", (_event, error) => hookErrors.push(error))
+        server.hooker.hook("identities", (_hook, decision) => {
+            decision.identities = [{ publicKey: privateKey.data.publicKey, comment: "fixture" }]
+        })
+        server.hooker.hook("identities", async () => {
+            await Promise.resolve()
+            throw new Error("identity policy backend failed")
+        })
+        const serving = server.serve(serverStream)
+        const response = readFrames(clientStream, 1)
+
+        clientStream.end(requestIdentities)
+        expect(await response).toEqual([Buffer.from("0000000105", "hex")])
+        await serving
+        expect(hookErrors.map((error) => error.message)).toEqual(["identity policy backend failed"])
+        clientStream.destroy()
+        serverStream.destroy()
+    })
+
+    test("server does not retain a signature after a later policy failure", async () => {
+        const [clientStream, serverStream] = streamPair()
+        const privateKey = fixedPrivateKey()
+        const server = new SSHAgentProtocolServer()
+        const hookErrors: Error[] = []
+        server.hooker.on("uncaughtException", (_event, error) => hookErrors.push(error))
+        server.hooker.hook("sign", (_hook, context, decision) => {
+            decision.signature = privateKey.sign(context.data, context.algorithm)
+        })
+        server.hooker.hook("sign", async () => {
+            await Promise.resolve()
+            throw new Error("signing policy backend failed")
+        })
+        const serving = server.serve(serverStream)
+        const response = readFrames(clientStream, 1)
+
+        clientStream.end(signRequest)
+        expect(await response).toEqual([Buffer.from("0000000105", "hex")])
+        await serving
+        expect(hookErrors.map((error) => error.message)).toEqual(["signing policy backend failed"])
+        clientStream.destroy()
+        serverStream.destroy()
+    })
+
     test("denies missing policy and unsupported requests, and rejects malformed framing", async () => {
         const [clientStream, serverStream] = streamPair()
         const server = new SSHAgentProtocolServer()

@@ -178,7 +178,9 @@ have been written and answered. This does not clear buffers retained by the call
 ## Server
 
 `SSHAgentProtocolServer` exposes application-owned identities through awaited `Hooker` policy.
-Every security-sensitive decision is denied unless its hook explicitly supplies a valid result.
+Every security-sensitive decision is denied unless its hook explicitly supplies a valid result and
+every registered handler completes without rejection. In particular, a contained later identity or
+signing failure discards a result supplied by an earlier handler.
 
 ```ts
 import { SSHAgentProtocolServer } from "@bunkerch/modernssh"
