@@ -216,7 +216,9 @@ An application that already owns an accepted `net.Socket` can pass it through th
 and handshake path with `server.injectSocket(socket)`. Injected sockets still run the `preconnect`
 policy hook, appear in `server.clients` and `getConnections()`, and are removed on close. The
 injecting application retains responsibility for the outer listener; the SSH server owns the
-injected connected socket after acceptance.
+injected connected socket after acceptance. When `preconnect` hooks are present, they must complete
+without rejection and explicitly set `allowConnection = true`; denial happens before the public
+`connection` event.
 
 ## Passphrase-protected private keys
 

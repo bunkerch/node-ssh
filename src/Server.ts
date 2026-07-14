@@ -551,9 +551,13 @@ export default class Server extends EventEmitter<ServerEvents> {
         const client = new ServerClient(socket, this)
         try {
             if (this.hooker.hasHooks("preconnect")) {
-                const controller: ServerHookerPreconnectController = { allowConnection: true }
-                await this.hooker.triggerHook("preconnect", controller, client)
-                if (!controller.allowConnection) {
+                const controller: ServerHookerPreconnectController = { allowConnection: false }
+                const policyCompleted = await this.hooker.triggerHookChecked(
+                    "preconnect",
+                    controller,
+                    client,
+                )
+                if (!policyCompleted || !controller.allowConnection) {
                     client.terminate()
                     return
                 }

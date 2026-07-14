@@ -49,8 +49,16 @@ export class Hooker<types extends Record<string, unknown[]>> extends EventEmitte
         event: event,
         ...values: types[event]
     ): Promise<void> {
+        await this.triggerHookChecked(event, ...values)
+    }
+
+    /** Trigger handlers while reporting whether every contained handler completed successfully. */
+    async triggerHookChecked<event extends keyof types>(
+        event: event,
+        ...values: types[event]
+    ): Promise<boolean> {
         if (!this.hooks.has(event)) {
-            return
+            return true
         }
 
         // copy array so to prevent the loop from breaking
@@ -58,6 +66,7 @@ export class Hooker<types extends Record<string, unknown[]>> extends EventEmitte
         const hooks = Array.from(this.hooks.get(event)!)
 
         let stopPropagation = false
+        let successful = true
         const controller: HookController = {
             stopPropagation() {
                 stopPropagation = true
@@ -68,6 +77,7 @@ export class Hooker<types extends Record<string, unknown[]>> extends EventEmitte
             try {
                 await hook(controller, ...values)
             } catch (err) {
+                successful = false
                 if (this.listenerCount("uncaughtException") > 0) {
                     this.emit("uncaughtException", event as string, err as Error)
                 } else {
@@ -85,5 +95,6 @@ export class Hooker<types extends Record<string, unknown[]>> extends EventEmitte
                 break
             }
         }
+        return successful
     }
 }

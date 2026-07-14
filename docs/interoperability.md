@@ -146,7 +146,9 @@ also verify that EOF terminates both peer roles immediately rather than leaving 
 a readiness or handshake deadline.
 
 Server admission integration verifies that the public connection event receives an immutable
-snapshot of both TCP endpoints and retains it after the peer closes.
+snapshot of both TCP endpoints and retains it after the peer closes. A separate real SSH handshake
+proves that a rejected async `preconnect` chain fails closed even when an earlier handler allowed
+the connection.
 
 Server shell integration verifies RFC 4254 directional half-close semantics: ending stdout sends
 EOF without CLOSE, the client sends additional stdin afterward, and explicit close then completes

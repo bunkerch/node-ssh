@@ -401,6 +401,12 @@ disconnect, so expiry destroys the socket and emits `Timed out while waiting for
 through that `ServerClient`'s `error` event. Accepting the service clears this timer before any
 authentication policy runs.
 
+When at least one `preconnect` hook is installed, admission is denied until the hook chain completes
+without a rejected handler and explicitly sets `allowConnection = true`. A contained async hook
+rejection is still reported through Hooker's `uncaughtException` event, but it cannot retain an
+allow decision made by an earlier handler. Rejected sockets are terminated before the server emits
+`connection` or adds them to `server.clients`.
+
 `authenticationTimeout` bounds the whole authentication phase in milliseconds after the service is
 accepted; its RFC-recommended default is ten minutes, and `0` disables this deadline.
 `maxAuthenticationAttempts` defaults to 20 and must be a positive integer. Rejected authentication
