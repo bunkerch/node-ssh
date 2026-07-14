@@ -713,7 +713,9 @@ each rekey; `sessionID` remains the first exchange hash. Derived IVs, encryption
 keys, shared secrets, and live cipher, MAC, and key-exchange objects are internal transport state
 and are not exposed through either connection role. Raw KEXINIT transcripts and method-specific
 key-exchange packets are likewise internal; use the `handshake` event for negotiated algorithm
-metadata.
+metadata. Completed and failed exchanges explicitly zero retained shared-secret and software
+private-scalar buffers, release native ephemeral key objects, and discard derived key buffers after
+constructing packet protection.
 
 ## Key re-exchange
 

@@ -2,6 +2,12 @@ import { createHash } from "node:crypto"
 
 import { MLKEM1024SHA384, MLKEM512SHA256, MLKEM768SHA256 } from "../../src/algorithms/kex/mlkem.js"
 
+class InspectableMLKEM512 extends MLKEM512SHA256 {
+    get retainedSecret(): Buffer | undefined {
+        return this.sharedSecret
+    }
+}
+
 // NIST ACVP Server FIPS 203 keyGen internalProjection case 1 (d || z).
 const mlkem512Seed = Buffer.from(
     "47b893474672ba92e4b12ee44fb32953af8e8503b5fb471d1614fb8a021a660a" +
@@ -134,6 +140,22 @@ describe("registered standalone ML-KEM key exchanges", () => {
         })
         const expected = createHash("sha256").update(Buffer.concat(encodedFields)).digest()
         expect(actual).toEqual(expected)
+    })
+
+    test("zeroes retained post-quantum secret state when disposed", () => {
+        const client = withDeterministicEntropy(InspectableMLKEM512, mlkem512Seed)
+        const server = withDeterministicEntropy(MLKEM512SHA256, Buffer.alloc(32, 0xa5))
+        client.generateKeyPair("client")
+        server.generateKeyPair("server")
+        server.computeSharedSecret(client.getPublicKey())
+        client.computeSharedSecret(server.getPublicKey())
+
+        const retainedSecret = client.retainedSecret!
+        client.dispose()
+
+        expect(retainedSecret).toEqual(Buffer.alloc(retainedSecret.length))
+        expect(client.retainedSecret).toBeUndefined()
+        expect(() => client.getSharedSecret()).toThrow("not been computed")
     })
 
     test("derives transport keys from the ML-KEM secret as an mpint", () => {

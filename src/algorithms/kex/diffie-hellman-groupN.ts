@@ -24,7 +24,7 @@ export default class DiffieHellmanGroupN extends KeyExchange {
     readonly exchangeValueEncoding = "mpint" as const
 
     private keyPair: DiffieHellman | DiffieHellmanGroup | undefined
-    private readonly privateKey: Buffer | undefined
+    private privateKey: Buffer | undefined
 
     constructor(groupName: string, hashName: string, privateKey?: Buffer) {
         super(hashName)
@@ -34,14 +34,19 @@ export default class DiffieHellmanGroupN extends KeyExchange {
 
     generateKeyPair() {
         const group = createDiffieHellmanGroup(this.groupName)
-        if (this.privateKey === undefined) {
-            this.keyPair = group
-        } else {
-            const keyPair = createDiffieHellman(group.getPrime(), group.getGenerator())
-            keyPair.setPrivateKey(this.privateKey)
-            this.keyPair = keyPair
+        try {
+            if (this.privateKey === undefined) {
+                this.keyPair = group
+            } else {
+                const keyPair = createDiffieHellman(group.getPrime(), group.getGenerator())
+                keyPair.setPrivateKey(this.privateKey)
+                this.keyPair = keyPair
+            }
+            this.keyPair.generateKeys()
+        } finally {
+            this.privateKey?.fill(0)
+            this.privateKey = undefined
         }
-        this.keyPair.generateKeys()
     }
 
     getPublicKey(): Buffer {
@@ -93,5 +98,12 @@ export default class DiffieHellmanGroupN extends KeyExchange {
             // K
             serializeMpintBufferToBuffer(this.sharedSecret!),
         ])
+    }
+
+    override dispose(): void {
+        this.privateKey?.fill(0)
+        this.privateKey = undefined
+        this.keyPair = undefined
+        super.dispose()
     }
 }

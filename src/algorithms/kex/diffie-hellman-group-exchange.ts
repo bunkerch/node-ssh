@@ -196,6 +196,11 @@ export class DiffieHellmanGroupExchange extends KeyExchange {
         )
     }
 
+    override dispose(): void {
+        this.keyPair = undefined
+        super.dispose()
+    }
+
     private installKeyPair(keyPair: DiffieHellman | DiffieHellmanGroup): void {
         this.keyPair = keyPair
         this.prime = keyPair.getPrime()

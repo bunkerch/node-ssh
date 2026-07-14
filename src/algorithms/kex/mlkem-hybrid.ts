@@ -223,6 +223,16 @@ abstract class MLKEMHybridKeyExchange extends KeyExchange {
         return this.sharedSecret
     }
 
+    override dispose(): void {
+        this.configuredClassicalPrivateKey?.fill(0)
+        this.configuredMLKEMSeed?.fill(0)
+        this.configuredEncapsulationSeed?.fill(0)
+        this.configuredClassicalPrivateKey = undefined
+        this.configuredMLKEMSeed = undefined
+        this.configuredEncapsulationSeed = undefined
+        this.wipeEphemeralState()
+    }
+
     private splitPeerPublicKey(
         peerPublicKey: Buffer,
         postQuantumBytes: number,

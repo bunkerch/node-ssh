@@ -148,6 +148,12 @@ export default class SNTRUP761X25519SHA512 extends KeyExchange {
         return this.sharedSecret
     }
 
+    override dispose(): void {
+        this.configuredX25519PrivateKey?.fill(0)
+        this.configuredX25519PrivateKey = undefined
+        this.wipeEphemeralState()
+    }
+
     private wipeEphemeralState(): void {
         this.x25519PrivateKey?.fill(0)
         this.kemKeyPair?.secretKey.fill(0)

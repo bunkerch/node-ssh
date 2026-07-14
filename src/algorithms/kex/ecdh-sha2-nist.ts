@@ -56,6 +56,13 @@ export default abstract class ECDHSHA2NIST extends KeyExchange {
             serializeMpintBufferToBuffer(this.sharedSecret!),
         ])
     }
+
+    override dispose(): void {
+        this.configuredPrivateKey?.fill(0)
+        this.configuredPrivateKey = undefined
+        this.keyPair = undefined
+        super.dispose()
+    }
 }
 
 export class ECDHSHA2NISTP256 extends ECDHSHA2NIST {

@@ -35,6 +35,11 @@ export default abstract class KeyExchange implements KexAlgorithm {
         return Buffer.from(this.sharedSecret)
     }
 
+    dispose(): void {
+        this.sharedSecret?.fill(0)
+        this.sharedSecret = undefined
+    }
+
     deriveTransportKeys(
         exchangeHash: Buffer,
         sessionID: Buffer,

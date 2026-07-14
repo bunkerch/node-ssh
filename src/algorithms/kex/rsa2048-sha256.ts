@@ -167,6 +167,15 @@ export default class RSA2048SHA256 extends KeyExchange {
         )
     }
 
+    override dispose(): void {
+        this.transientPrivateKey = undefined
+        this.hostKey = undefined
+        this.transientPublicKey = undefined
+        this.transientModulusBits = undefined
+        this.encryptedSecret = undefined
+        super.dispose()
+    }
+
     private computeHash(
         clientVersion: string,
         serverVersion: string,

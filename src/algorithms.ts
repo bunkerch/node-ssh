@@ -229,6 +229,7 @@ export abstract class KexAlgorithm {
     abstract getPublicKey(): Buffer
     abstract computeSharedSecret(peerPublicKey: Buffer): void
     abstract getSharedSecret(): Buffer
+    abstract dispose(): void
     abstract computeExchangeHash(context: Readonly<KeyExchangeHashContext>): Buffer
 
     deriveTransportKeys(

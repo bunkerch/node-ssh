@@ -1095,6 +1095,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             }
             throw error
         } finally {
+            this.#kexAlgorithm?.dispose()
             this.keyExchangeInProgress = false
             this.strictInitialExchange = false
             this.expectedInboundKeyExchangePackets.clear()
@@ -2539,15 +2540,16 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     private installDerivedTransportKeys(kex: KexAlgorithm, exchangeHash: Buffer): void {
         assert(this.#sessionID, "SSH session identifier is unavailable")
         assert(this.clientEncryptionAlgorithm && this.serverEncryptionAlgorithm)
-        const keys = kex.deriveTransportKeys(exchangeHash, this.#sessionID, {
-            clientIV: this.clientEncryptionAlgorithm.iv_length,
-            serverIV: this.serverEncryptionAlgorithm.iv_length,
-            clientEncryption: this.clientEncryptionAlgorithm.key_length,
-            serverEncryption: this.serverEncryptionAlgorithm.key_length,
-            clientIntegrity: this.clientMacAlgorithm?.key_length ?? 0,
-            serverIntegrity: this.serverMacAlgorithm?.key_length ?? 0,
-        })
+        let keys: ReturnType<KexAlgorithm["deriveTransportKeys"]> | undefined
         try {
+            keys = kex.deriveTransportKeys(exchangeHash, this.#sessionID, {
+                clientIV: this.clientEncryptionAlgorithm.iv_length,
+                serverIV: this.serverEncryptionAlgorithm.iv_length,
+                clientEncryption: this.clientEncryptionAlgorithm.key_length,
+                serverEncryption: this.serverEncryptionAlgorithm.key_length,
+                clientIntegrity: this.clientMacAlgorithm?.key_length ?? 0,
+                serverIntegrity: this.serverMacAlgorithm?.key_length ?? 0,
+            })
             this.#clientEncryption = this.clientEncryptionAlgorithm.instantiate(
                 keys.clientEncryption,
                 keys.clientIV,
@@ -2559,7 +2561,8 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             this.#clientMac = this.clientMacAlgorithm?.instantiate(keys.clientIntegrity)
             this.#serverMac = this.serverMacAlgorithm?.instantiate(keys.serverIntegrity)
         } finally {
-            for (const key of Object.values(keys)) key.fill(0)
+            if (keys) for (const key of Object.values(keys)) key.fill(0)
+            kex.dispose()
         }
     }
 

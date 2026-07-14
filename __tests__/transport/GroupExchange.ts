@@ -72,6 +72,11 @@ describe("RFC 4419 Diffie-Hellman group exchange", () => {
         client.computeSharedSecret(serializeMpintBufferToBuffer(server.getPublicKey()))
         expect(client.secret).toEqual(server.secret)
         expect(client.secret?.length).toBeGreaterThanOrEqual(256)
+
+        const retainedSecret = client.secret!
+        client.dispose()
+        expect(retainedSecret).toEqual(Buffer.alloc(retainedSecret.length))
+        expect(client.secret).toBeUndefined()
     })
 
     test("chooses only a known safe group inside the requested range", () => {

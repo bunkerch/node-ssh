@@ -61,4 +61,13 @@ export default class Curve448SHA512 extends RFC8731KeyExchange {
         this.sharedSecret = sharedSecret
         return Buffer.from(sharedSecret)
     }
+
+    override dispose(): void {
+        this.configuredPrivateKey?.fill(0)
+        this.privateKey?.fill(0)
+        this.configuredPrivateKey = undefined
+        this.privateKey = undefined
+        this.publicKey = undefined
+        super.dispose()
+    }
 }

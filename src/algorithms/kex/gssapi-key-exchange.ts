@@ -161,6 +161,12 @@ export default class GSSAPIKeyExchange extends KeyExchange {
         return this.#keyAgreement.getSharedSecret()
     }
 
+    dispose(): void {
+        this.#keyAgreement.dispose()
+        this.#role = undefined
+        super.dispose()
+    }
+
     createClientContext(
         options: Readonly<GSSAPIKeyExchangeClientContextOptions>,
     ): GSSAPIKeyExchangeClientContext | Promise<GSSAPIKeyExchangeClientContext> {

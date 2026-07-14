@@ -115,6 +115,10 @@ abstract class MLKEMKeyExchange extends KeyExchange {
         return randomBytes(length)
     }
 
+    override dispose(): void {
+        this.wipeEphemeralState()
+    }
+
     private wipeEphemeralState(): void {
         this.kemSecretKey?.fill(0)
         this.sharedSecret?.fill(0)
