@@ -113,6 +113,11 @@ Public PEM interoperability covers generic SubjectPublicKeyInfo for Ed25519, RSA
 from its independently imported private half, and `ssh-keygen` accepts and fingerprints the
 canonical SSH public-key output. Unsupported X25519 public keys are rejected explicitly.
 
+Ed448 coverage uses RFC 8032's empty-message key and signature vector, wrapped in the exact RFC
+8709 SSH public-key and signature encodings. A native Node subprocess independently generates an
+Ed448 PKCS#8 and SubjectPublicKeyInfo pair, imports both, and verifies a signature; generated
+library keys also round-trip through the private-key container.
+
 Legacy DSS coverage uses the RFC 6979 DSA-1024/SHA-1 vector with RFC 4253's literal four-mpint key
 blob and fixed 40-byte signature. OpenSSH-generated private, public, and PEM containers are parsed,
 signed, serialized, and derived again with `ssh-keygen`. With the method explicitly enabled,

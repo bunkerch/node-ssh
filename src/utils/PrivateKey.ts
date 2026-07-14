@@ -11,6 +11,7 @@ import PublicKey, {
     ECDSA_CURVES,
     type ECDSACurve,
     SSHED25519PublicKey,
+    SSHED448PublicKey,
     SSHDSSPublicKey,
     SSHECDSAPublicKey,
     SSHRSAPublicKey,
@@ -41,6 +42,7 @@ import {
     type DSAPrivateParameters,
     validateDSAPrivateParameters,
 } from "./DSA.js"
+import { ed448 } from "@noble/curves/ed448.js"
 
 export interface PrivateKeyData {
     publicKey: PublicKey
@@ -312,6 +314,21 @@ function privateKeyFromKeyObject(key: KeyObject): PrivateKey {
             algorithm,
         })
     }
+    if (jwk.kty === "OKP" && jwk.crv === "Ed448") {
+        const publicKey = jwkBuffer(jwk, "x")
+        const seed = jwkBuffer(jwk, "d")
+        assert(publicKey.length === 57 && seed.length === 57, "Invalid Ed448 JWK")
+        const algorithm = new SSHED448PrivateKey({
+            publicKey,
+            privateKey: Buffer.concat([seed, publicKey]),
+        })
+        seed.fill(0)
+        return new PrivateKey({
+            alg: SSHED448PrivateKey.alg_name,
+            publicKey: algorithm.getPublicKey(),
+            algorithm,
+        })
+    }
     if (jwk.kty === "RSA") {
         const algorithm = new SSHRSAPrivateKey({
             modulus: positiveMpint(jwkBuffer(jwk, "n")),
@@ -456,6 +473,79 @@ export class SSHED25519PrivateKey implements PrivateKeyAlgorithm {
     }
 }
 PrivateKey.algorithms.set(SSHED25519PrivateKey.alg_name, SSHED25519PrivateKey)
+
+export interface SSHED448PrivateKeyData {
+    publicKey: Buffer
+    /** RFC 8032 private seed followed by the public key. */
+    privateKey: Buffer
+}
+
+export class SSHED448PrivateKey implements PrivateKeyAlgorithm {
+    static alg_name = "ssh-ed448"
+
+    readonly data: SSHED448PrivateKeyData
+    constructor(data: SSHED448PrivateKeyData) {
+        assert(data.publicKey.length === 57, "Invalid Ed448 public key length")
+        assert(data.privateKey.length === 114, "Invalid Ed448 private key length")
+        assert(
+            data.privateKey.subarray(57).equals(data.publicKey),
+            "Ed448 private and public key data do not match",
+        )
+        this.data = {
+            publicKey: Buffer.from(data.publicKey),
+            privateKey: Buffer.from(data.privateKey),
+        }
+    }
+
+    sign(data: Buffer, algorithm = SSHED448PrivateKey.alg_name): EncodedSignature {
+        assert(
+            algorithm === SSHED448PrivateKey.alg_name,
+            `Unsupported Ed448 signature algorithm: ${algorithm}`,
+        )
+        return new EncodedSignature({
+            alg: algorithm,
+            data: Buffer.from(ed448.sign(data, this.data.privateKey.subarray(0, 57))),
+        })
+    }
+
+    getPublicKey(): PublicKey {
+        return new PublicKey({
+            alg: SSHED448PrivateKey.alg_name,
+            algorithm: new SSHED448PublicKey({ publicKey: this.data.publicKey }),
+        })
+    }
+
+    serialize(): Buffer {
+        return Buffer.concat([
+            serializeBuffer(this.data.publicKey),
+            serializeBuffer(this.data.privateKey),
+        ])
+    }
+
+    static parse(raw: Buffer): [PrivateKeyAlgorithm, Buffer] {
+        let publicKey: Buffer
+        let privateKey: Buffer
+        ;[publicKey, raw] = readNextBuffer(raw)
+        ;[privateKey, raw] = readNextBuffer(raw)
+        return [new SSHED448PrivateKey({ publicKey, privateKey }), raw]
+    }
+
+    static async generate(): Promise<PrivateKey> {
+        const key = ed448.keygen()
+        const publicKey = Buffer.from(key.publicKey)
+        const algorithm = new SSHED448PrivateKey({
+            publicKey,
+            privateKey: Buffer.concat([Buffer.from(key.secretKey), publicKey]),
+        })
+        key.secretKey.fill(0)
+        return new PrivateKey({
+            alg: SSHED448PrivateKey.alg_name,
+            publicKey: algorithm.getPublicKey(),
+            algorithm,
+        })
+    }
+}
+PrivateKey.algorithms.set(SSHED448PrivateKey.alg_name, SSHED448PrivateKey)
 
 export type SSHDSSPrivateKeyData = DSAPrivateParameters
 

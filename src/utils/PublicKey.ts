@@ -3,6 +3,7 @@ import { readNextBuffer, readNextUint32, readNextUint64, serializeBuffer } from 
 import EncodedSignature from "./Signature.js"
 import asn1js from "asn1js"
 import crypto, { createHash, ECDH, type JsonWebKey } from "crypto"
+import { ed448 } from "@noble/curves/ed448.js"
 import nacl from "tweetnacl"
 import {
     dsaParametersFromPublicKey,
@@ -200,6 +201,15 @@ export default class PublicKey {
             return new PublicKey({
                 alg: SSHED25519PublicKey.alg_name,
                 algorithm: new SSHED25519PublicKey({ publicKey }),
+            })
+        }
+
+        if (jwk.kty === "OKP" && jwk.crv === "Ed448" && jwk.x) {
+            const publicKey = decodeJWKField(jwk.x, "Ed448 public key")
+            assert(publicKey.length === 57, "Invalid Ed448 public key length")
+            return new PublicKey({
+                alg: SSHED448PublicKey.alg_name,
+                algorithm: new SSHED448PublicKey({ publicKey }),
             })
         }
 
@@ -543,6 +553,53 @@ export class SSHED25519PublicKey implements PublicKeyAlgoritm {
     }
 }
 PublicKey.algorithms.set(SSHED25519PublicKey.alg_name, SSHED25519PublicKey)
+
+export interface SSHED448PublicKeyData {
+    publicKey: Buffer
+}
+
+export class SSHED448PublicKey implements PublicKeyAlgoritm {
+    static alg_name = "ssh-ed448"
+    static has_encryption = false
+    static has_signature = true
+
+    readonly data: SSHED448PublicKeyData
+    constructor(data: SSHED448PublicKeyData) {
+        assert(data.publicKey.length === 57, "Invalid Ed448 public key length")
+        this.data = { publicKey: Buffer.from(data.publicKey) }
+    }
+
+    verifySignature(
+        data: Buffer,
+        signature: Buffer,
+        algorithm = SSHED448PublicKey.alg_name,
+    ): boolean {
+        if (algorithm !== SSHED448PublicKey.alg_name || signature.length !== 114) return false
+        try {
+            return ed448.verify(signature, data, this.data.publicKey)
+        } catch {
+            return false
+        }
+    }
+
+    serialize(): Buffer {
+        return serializeBuffer(this.data.publicKey)
+    }
+
+    equals(other: PublicKeyAlgoritm): boolean {
+        return (
+            other instanceof SSHED448PublicKey && this.data.publicKey.equals(other.data.publicKey)
+        )
+    }
+
+    static parse(raw: Buffer): SSHED448PublicKey {
+        let publicKey: Buffer
+        ;[publicKey, raw] = readNextBuffer(raw)
+        assert(raw.length === 0, "Unexpected Ed448 public key data")
+        return new SSHED448PublicKey({ publicKey })
+    }
+}
+PublicKey.algorithms.set(SSHED448PublicKey.alg_name, SSHED448PublicKey)
 
 export type SSHDSSPublicKeyData = DSAParameters
 

@@ -10,6 +10,20 @@ import PublicKey from "../../src/utils/PublicKey.js"
 const execFileAsync = promisify(execFile)
 
 describe("SSH key-pair generation", () => {
+    test("generates fixed-size Ed448 keys", async () => {
+        const pair = await generateKeyPair("ed448", { comment: "ed448@example.test" })
+        const message = Buffer.from("generated-ed448")
+        expect(pair.publicKey.data.alg).toBe("ssh-ed448")
+        expect(pair.publicKey.data.comment).toBe("ed448@example.test")
+        expect(pair.publicKey.verifySignature(message, pair.privateKey.sign(message))).toBe(true)
+        expect(
+            PrivateKey.fromString(pair.privateKey.toString()).data.publicKey.equals(pair.publicKey),
+        ).toBe(true)
+        await expect(generateKeyPair("ed448", { bits: 448 })).rejects.toThrow(
+            "does not accept bits",
+        )
+    })
+
     test.each([
         ["ed25519", undefined, "ssh-ed25519", "ED25519"],
         ["rsa", 2048, "ssh-rsa", "RSA"],

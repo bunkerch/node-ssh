@@ -1,7 +1,7 @@
 import PrivateKey, { SSHRSAPrivateKey } from "./utils/PrivateKey.js"
 import PublicKey from "./utils/PublicKey.js"
 
-export type KeyPairType = "ed25519" | "rsa" | "ecdsa" | "dsa"
+export type KeyPairType = "ed25519" | "ed448" | "rsa" | "ecdsa" | "dsa"
 
 export interface GenerateKeyPairOptions {
     /** RSA modulus or ECDSA curve size. RSA defaults to 3072; ECDSA defaults to 256; fixed-size keys reject it. */
@@ -26,6 +26,10 @@ function algorithm(type: KeyPairType, bits: number | undefined): string | undefi
     if (type === "ed25519") {
         if (bits !== undefined) throw new TypeError("Ed25519 key generation does not accept bits")
         return "ssh-ed25519"
+    }
+    if (type === "ed448") {
+        if (bits !== undefined) throw new TypeError("Ed448 key generation does not accept bits")
+        return "ssh-ed448"
     }
     if (type === "ecdsa") {
         const size = bits ?? 256

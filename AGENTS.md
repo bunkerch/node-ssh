@@ -57,10 +57,13 @@ meaningful wire-level behavior.
   envelope with the private key, and exercise both decryption and serialization for every supported
   cipher with real `ssh-keygen` output. Serialization copies caller passphrases, uses fresh salts,
   validates bcrypt rounds, and clears derived material plus temporary plaintext key buffers.
-- Public key generation accepts semantic Ed25519, RSA, and ECDSA family names, uses 3072-bit RSA and
+- Public key generation accepts semantic Ed25519, Ed448, RSA, and ECDSA family names, uses 3072-bit RSA and
   P-256 defaults, restricts ECDSA to the three RFC 5656 curves, and propagates a line-safe comment to
   both returned key objects. Validate every family with signing plus real `ssh-keygen` derivation
   and fingerprinting, including the documented RSA default.
+- RFC 8709 Ed448 uses exact 57-byte public keys and 114-byte signatures, remains explicit rather
+  than default, and is validated with RFC 8032 vectors. Use the portable curve primitive for core
+  operations so Bun tests remain meaningful; validate PKCS#8/SPKI conversion in native Node.
 - RFC 4253 DSS is legacy opt-in only: enforce 1024-bit `p`, 160-bit `q`, canonical positive mpints,
   prime and subgroup checks, matching private/public values, SHA-1, and fixed 20-byte `r` plus
   20-byte `s`. Validate the RFC 6979 vector and both signing roles with OpenSSH. Keep DSS, SHA-1 key
@@ -71,11 +74,11 @@ meaningful wire-level behavior.
   from retained client options. Keep multi-key in-memory signing in `PrivateKeyAgent`, and validate
   the direct option against real OpenSSH without password fallback.
 - Private-key PEM import delegates PKCS#8, PKCS#1, SEC1, and their encrypted forms to Node's native
-  parser, then converts only Ed25519, RSA, and the three RFC 5656 ECDSA curves into validated SSH
+  parser, then converts only Ed25519, Ed448, RSA, and the three RFC 5656 ECDSA curves into validated SSH
   key objects. Reject unsupported families and prove every accepted container with OpenSSL input,
   signing, OpenSSH serialization, and `ssh-keygen` public-key derivation.
 - Unified key parsing must route by explicit container framing rather than exception-driven parser
-  fallback. Public PEM import accepts only Ed25519, RSA, and the three RFC 5656 ECDSA curves;
+  fallback. Public PEM import accepts only Ed25519, Ed448, RSA, and the three RFC 5656 ECDSA curves;
   validate converted keys through signing and real `ssh-keygen` fingerprinting.
 - Certificate public keys preserve the exact signed wire prefix, expose serials and validity times
   as `bigint`, reject certificate CA keys and malformed option ordering, and verify the CA signature

@@ -152,6 +152,11 @@ explicitly. Initial key exchange also advertises RFC 8308 extension negotiation;
 `server-sig-algs` immediately after `NEWKEYS` so clients can select an accepted user-authentication
 signature without guessing.
 
+RFC 8709 `ssh-ed448` public keys contain exactly 57 key octets and use 114-octet Ed448 signatures.
+The key format is registered for host-key and authentication use and can be selected explicitly;
+it is not part of the default offer. Parsing rejects trailing fields and incorrect lengths, while
+verification rejects incorrect signature names or sizes before curve verification.
+
 RFC 4253 `ssh-dss` host and user keys are supported only when explicitly configured. Their public
 blob contains the canonical positive `p`, `q`, `g`, and `y` mpints; private containers add `x`.
 The implementation enforces the historical 1024-bit `p` and 160-bit `q`, validates primes,

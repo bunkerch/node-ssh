@@ -111,6 +111,7 @@ export const host_key_algorithms = new Map<string, HostKeyAlgorithm>([
         ),
     ],
     ["ssh-ed25519", hostKeyAlgorithm("ssh-ed25519")],
+    ["ssh-ed448", hostKeyAlgorithm("ssh-ed448")],
     ["ecdsa-sha2-nistp256", hostKeyAlgorithm("ecdsa-sha2-nistp256")],
     ["ecdsa-sha2-nistp384", hostKeyAlgorithm("ecdsa-sha2-nistp384")],
     ["ecdsa-sha2-nistp521", hostKeyAlgorithm("ecdsa-sha2-nistp521")],
