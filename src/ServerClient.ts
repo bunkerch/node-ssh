@@ -156,6 +156,13 @@ import {
     UserAuthGSSAPIResponse,
     UserAuthGSSAPIToken,
 } from "./packets/UserAuthGSSAPI.js"
+import {
+    findNoFlowControlValue,
+    negotiateNoFlowControl,
+    noFlowControlExtension,
+    noFlowControlValue,
+    type NoFlowControlValue,
+} from "./NoFlowControl.js"
 import PacketEventQueue from "./utils/PacketEventQueue.js"
 import {
     AGENT_FORWARDING_EXTENSION,
@@ -296,6 +303,8 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     private initialClientNewKeysReceived = false
     private clientExtInfoAfterNewKeys = false
     private clientAuthenticationExtInfoSupported = false
+    private advertisedNoFlowControlValue?: NoFlowControlValue
+    private noFlowControlEnabled = false
     private authenticationRequestReceived = false
     private authenticationExtInfoSent = false
     private keyExchangeInProgress = false
@@ -395,6 +404,27 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         return this.clientAuthenticationExtInfoSupported
     }
 
+    /** Whether RFC 8308 no-flow-control is active for this connection. */
+    get noFlowControl(): boolean {
+        return this.noFlowControlEnabled
+    }
+
+    private updateNoFlowControl(): void {
+        this.noFlowControlEnabled = negotiateNoFlowControl(
+            this.advertisedNoFlowControlValue,
+            this.negotiatedClientExtensions,
+        )
+    }
+
+    private assertChannelCapacity(): void {
+        if (
+            this.noFlowControlEnabled &&
+            (this.channels.size !== 0 || this.remoteChannelIds.size !== 0)
+        ) {
+            throw new Error("RFC 8308 no-flow-control permits only one simultaneous SSH channel")
+        }
+    }
+
     [authorizeAgentForwarding](protocol: AgentForwardingProtocol): void {
         this.agentForwardingEnabled = true
         if (protocol === "rfc9987" || !this.agentForwardingProtocol) {
@@ -423,6 +453,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         if (!this.agentForwardingEnabled) {
             throw new Error("The SSH client has not authorized agent forwarding")
         }
+        this.assertChannelCapacity()
         const channel = new ForwardedAgentChannel(this, protocol)
         this.channels.set(channel.localId, channel)
         try {
@@ -472,6 +503,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         if (!authorization) throw new Error("The SSH client has not authorized X11 forwarding")
         if (authorization[1].single) this.x11Forwardings.delete(authorization[0])
 
+        this.assertChannelCapacity()
         const channel = new ForwardedX11Channel(this, { originatorAddress, originatorPort })
         this.channels.set(channel.localId, channel)
         try {
@@ -573,7 +605,10 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         if (this.authenticationExtInfoSent) {
             throw new Error("SSH server already sent authentication extension information")
         }
+        const noFlowControl = findNoFlowControlValue(extensions)
         this.sendPacket(new ExtInfo({ extensions }))
+        this.advertisedNoFlowControlValue = noFlowControl
+        this.updateNoFlowControl()
         this.authenticationExtInfoSent = true
         return this
     }
@@ -903,6 +938,10 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             )
             this.installOutboundCompression()
             if (!isRekey && clientKexInit.data.kex_algorithms.includes("ext-info-c")) {
+                const noFlowControl = noFlowControlExtension(this.server.options.noFlowControl)
+                this.advertisedNoFlowControlValue = noFlowControlValue(
+                    this.server.options.noFlowControl,
+                )
                 this.sendPacket(
                     new ExtInfo({
                         extensions: [
@@ -926,6 +965,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                                       },
                                   ]
                                 : []),
+                            ...(noFlowControl ? [noFlowControl] : []),
                         ],
                     }),
                 )
@@ -1080,6 +1120,16 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         const lock = await this.queue.obtainLock("channelOpenRequest")
         let accepted = false
         try {
+            if (
+                this.noFlowControlEnabled &&
+                (this.channels.size !== 0 || this.remoteChannelIds.size > 1)
+            ) {
+                throw new ChannelOpenError(
+                    ChannelOpenFailureReasonCodes.SSH_OPEN_RESOURCE_SHORTAGE,
+                    packet.data.sender_channel_id,
+                    "RFC 8308 no-flow-control permits only one simultaneous SSH channel",
+                )
+            }
             if (this.noMoreSessionsRequested && packet.data.channel_type === "session") {
                 throw new ChannelOpenError(
                     ChannelOpenFailureReasonCodes.SSH_OPEN_ADMINISTRATIVELY_PROHIBITED,
@@ -1477,6 +1527,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         if (!this.isConnected || !this.hasAuthenticated) {
             throw new Error("Cannot open a forwarded channel before authentication completes")
         }
+        this.assertChannelCapacity()
         this.channels.set(channel.localId, channel)
         try {
             this.sendPacket(channel.getChannelOpenPacket())
@@ -1514,11 +1565,12 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         assert(stream, "Forwarded channel has no stream")
         const pendingInput = new PassThrough()
         socket.pipe(pendingInput)
-        this.channels.set(channel.localId, channel)
         socket.on("error", () => channel.terminate())
         socket.on("close", () => channel.close())
 
         try {
+            this.assertChannelCapacity()
+            this.channels.set(channel.localId, channel)
             this.sendPacket(channel.getChannelOpenPacket())
             await channel.waitUntilOpen()
             if (socket.destroyed) {
@@ -2496,6 +2548,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 this.clientAuthenticationExtInfoSupported = this.negotiatedClientExtensions.some(
                     ({ name }) => name === AUTHENTICATION_EXT_INFO_EXTENSION,
                 )
+                this.updateNoFlowControl()
                 this.emit("clientExtensions", this.clientExtensions)
                 break
             }

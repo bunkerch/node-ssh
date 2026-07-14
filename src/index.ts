@@ -33,6 +33,8 @@ export type {
     ClientSessionOptions,
 } from "./Client.js"
 export type { AgentForwardingProtocol } from "./AgentForwarding.js"
+export { NO_FLOW_CONTROL_EXTENSION } from "./NoFlowControl.js"
+export type { NoFlowControlPreference } from "./NoFlowControl.js"
 export {
     buildGSSAPIKeyExchangeUserAuthMIC,
     buildGSSAPIUserAuthMIC,

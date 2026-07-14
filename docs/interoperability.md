@@ -65,6 +65,13 @@ literal `agent-forward` version `0` advertisement, and proves that `forwardAgent
 `agent-req` followed by `agent-connect`. Replacement-extension coverage proves that omitting the
 advertisement clears the capability instead of retaining stale negotiation state.
 
+RFC 8308 no-flow-control coverage checks the literal `p` and `s` values and every bilateral
+preference outcome. In-process peers transfer data in both directions after their advertised
+windows are exhausted, ignore otherwise overflowing window adjustments, refuse a second live
+channel, permit another after complete close, and disable the capability when a replacement server
+extension set omits it. Packet-size checks remain active while channel-window accounting is
+disabled.
+
 Session interoperability sends a BREAK from the modern client to a real OpenSSH PTY and delivers
 an `xon-xoff` notification from the modern server to the system OpenSSH client. In-process peers
 also prove that BREAK policy hooks are awaited, success and failure replies match the completed

@@ -39,6 +39,7 @@ import {
     MAX_OPENSSH_AGENT_SESSION_BINDINGS,
     MAX_OPENSSH_AGENT_SESSION_IDENTIFIER_LENGTH,
     MAX_SSH_AGENT_MESSAGE_LENGTH,
+    NO_FLOW_CONTROL_EXTENSION,
     OnePasswordAgent,
     OPENSSH_AGENT_ASSOCIATED_CERTIFICATES,
     OPENSSH_AGENT_RESTRICT_DESTINATION,
@@ -80,6 +81,7 @@ import {
     type ClientSessionOptions,
     type CygwinAgentOptions,
     type GSSAPIKeyExchangeClientContextOptions,
+    type NoFlowControlPreference,
     type OpenSSHAgentDestinationConstraint,
     type OpenSSHAgentSessionBinding,
     type SSHAgentProtocolOptions,
@@ -95,6 +97,9 @@ describe("package exports", () => {
         const clientOptions: ClientOptions = { hostname: "example.test" }
         const sessionOptions: ClientSessionOptions = { env: { LANG: "C" }, pty: true }
         const serverOptions: ServerOptions = { sendAllHostKeys: false }
+        const noFlowControl: NoFlowControlPreference = "supported"
+        clientOptions.noFlowControl = noFlowControl
+        serverOptions.noFlowControl = noFlowControl
         const keyExchangeOptions: GSSAPIKeyExchangeClientContextOptions = {
             hostname: "example.test",
             service: "host",
@@ -213,6 +218,7 @@ describe("package exports", () => {
         expect(CygwinAgent).toBeFunction()
         expect(CygwinAgentError).toBeFunction()
         expect(createSocketAgent).toBeFunction()
+        expect(NO_FLOW_CONTROL_EXTENSION).toBe("no-flow-control")
     })
 
     test("compiled entry point provides the same side-effect-free API", async () => {
@@ -269,6 +275,7 @@ describe("package exports", () => {
         expect(entry.CygwinAgent).toBeFunction()
         expect(entry.CygwinAgentError).toBeFunction()
         expect(entry.createSocketAgent).toBeFunction()
+        expect(entry.NO_FLOW_CONTROL_EXTENSION).toBe("no-flow-control")
     })
 
     test("compiled declarations expose Promise-only completion APIs", async () => {
@@ -338,7 +345,7 @@ describe("package exports", () => {
                     "--input-type=module",
                     "--eval",
                     `
-                    const { Client, createSocketAgent, CygwinAgent, CygwinAgentError, EncodedSignature, generateKeyPair, generateKeyPairSync, KnownHosts, MAX_OPENSSH_AGENT_SESSION_BINDINGS, MAX_SSH_AGENT_MESSAGE_LENGTH, OnePasswordAgent, OPENSSH_AGENT_SECURITY_KEY_PROVIDER, OPENSSH_AGENT_SESSION_BIND, parseKey, PrivateKey, PrivateKeyAgent, PublicKey, SSH_ED25519_SECURITY_KEY_ALGORITHM, SSHAgentConstraintType, SSHAgentExtensionFailureError, SSHAgentMessageType, SSHAgentProtocolClient, SSHAgentProtocolError, SSHAgentProtocolServer, SSHED25519SecurityKeyPrivateKey, SSHED25519SecurityKeyPublicKey } = await import("modernssh")
+                    const { Client, createSocketAgent, CygwinAgent, CygwinAgentError, EncodedSignature, generateKeyPair, generateKeyPairSync, KnownHosts, MAX_OPENSSH_AGENT_SESSION_BINDINGS, MAX_SSH_AGENT_MESSAGE_LENGTH, NO_FLOW_CONTROL_EXTENSION, OnePasswordAgent, OPENSSH_AGENT_SECURITY_KEY_PROVIDER, OPENSSH_AGENT_SESSION_BIND, parseKey, PrivateKey, PrivateKeyAgent, PublicKey, SSH_ED25519_SECURITY_KEY_ALGORITHM, SSHAgentConstraintType, SSHAgentExtensionFailureError, SSHAgentMessageType, SSHAgentProtocolClient, SSHAgentProtocolError, SSHAgentProtocolServer, SSHED25519SecurityKeyPrivateKey, SSHED25519SecurityKeyPublicKey } = await import("modernssh")
                     const { privateKey, publicKey } = await generateKeyPair("ed25519", {
                         comment: "packed@example.test",
                     })
@@ -392,6 +399,7 @@ describe("package exports", () => {
                     Object.defineProperty(process, "platform", { configurable: true, value: originalPlatform })
                     if (!(selectedAgent instanceof CygwinAgent) || !(selectedClient.options.agent instanceof CygwinAgent)) process.exit(20)
                     if (onePasswordAgent.socketPath !== ${JSON.stringify(String.raw`\\.\pipe\openssh-ssh-agent`)}) process.exit(30)
+                    if (NO_FLOW_CONTROL_EXTENSION !== "no-flow-control" || new Client({ noFlowControl: "preferred" }).options.noFlowControl !== "preferred") process.exit(31)
                     process.stdout.write(publicKey.toString())
                 `,
                 ],

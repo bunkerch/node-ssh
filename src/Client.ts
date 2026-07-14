@@ -164,6 +164,13 @@ import GSSAPIKeyExchange, {
     createGSSAPIKeyExchangeAlgorithms,
 } from "./algorithms/kex/gssapi-key-exchange.js"
 import {
+    negotiateNoFlowControl,
+    noFlowControlExtension,
+    noFlowControlValue,
+    normalizeNoFlowControlPreference,
+    type NoFlowControlPreference,
+} from "./NoFlowControl.js"
+import {
     KexGSSAPIComplete,
     KexGSSAPIContinue,
     KexGSSAPIError,
@@ -231,6 +238,8 @@ export interface ClientOptions {
     agent?: Agent | string
     /** Request agent forwarding by default for exec and shell sessions. */
     agentForward?: boolean
+    /** RFC 8308 infinite channel windows. Both peers must opt in and one must prefer it. */
+    noFlowControl?: NoFlowControlPreference
     /** Private key object or encoded private-key container used for public-key authentication. */
     privateKey?: PrivateKey | string | Buffer
     /** Certificate public key paired with `privateKey` for certificate authentication. */
@@ -480,6 +489,7 @@ export default class Client extends EventEmitter<ClientEvents> {
             throw new TypeError("SSH debug option must be a function")
         }
         this.options.agentForward ??= false
+        this.options.noFlowControl = normalizeNoFlowControlPreference(this.options.noFlowControl)
         this.options.gssapi = normalizeGSSAPIClientMechanisms(this.options.gssapi ?? [])
         this.options.gssapiDelegateCredentials ??= false
         this.options.gssapiKeyExchangeAuthentication ??= true
@@ -740,6 +750,7 @@ export default class Client extends EventEmitter<ClientEvents> {
     private readonly pendingPings: PendingPing[] = []
     private transportPingSupported = false
     private rfc9987AgentForwardingSupported = false
+    private noFlowControlEnabled = false
     private readonly remoteForwardings = new Map<string, RemoteForwarding>()
     private readonly remoteStreamLocalForwardings = new Set<string>()
     private readonly x11Forwardings = new Map<number, { single: boolean }>()
@@ -769,6 +780,11 @@ export default class Client extends EventEmitter<ClientEvents> {
     /** Whether the server advertised RFC 9987 agent forwarding version 0. */
     get rfc9987AgentForwarding(): boolean {
         return this.rfc9987AgentForwardingSupported
+    }
+
+    /** Whether RFC 8308 no-flow-control is active for this connection. */
+    get noFlowControl(): boolean {
+        return this.noFlowControlEnabled
     }
 
     async createGSSAPIKeyExchangeAuthenticationMIC(
@@ -877,6 +893,7 @@ export default class Client extends EventEmitter<ClientEvents> {
         this.pendingPings.length = 0
         this.transportPingSupported = false
         this.rfc9987AgentForwardingSupported = false
+        this.noFlowControlEnabled = false
         this.remoteForwardings.clear()
         this.remoteStreamLocalForwardings.clear()
         this.x11Forwardings.clear()
@@ -1138,6 +1155,12 @@ export default class Client extends EventEmitter<ClientEvents> {
     private async openClientChannel<T extends ClientChannel>(channel: T): Promise<T> {
         if (!this.isConnected || !this.hasAuthenticated) {
             throw new Error("Cannot open an SSH channel before authentication completes")
+        }
+        if (
+            this.noFlowControlEnabled &&
+            (this.channels.size !== 0 || this.remoteChannelIds.size !== 0)
+        ) {
+            throw new Error("RFC 8308 no-flow-control permits only one simultaneous SSH channel")
         }
 
         this.channels.set(channel.localId, channel)
@@ -1743,6 +1766,7 @@ export default class Client extends EventEmitter<ClientEvents> {
             )
             this.installOutboundCompression()
             if (!isRekey && serverKexInit.data.kex_algorithms.includes("ext-info-s")) {
+                const noFlowControl = noFlowControlExtension(this.options.noFlowControl)
                 this.sendPacket(
                     new ExtInfo({
                         extensions: [
@@ -1750,6 +1774,7 @@ export default class Client extends EventEmitter<ClientEvents> {
                                 name: AUTHENTICATION_EXT_INFO_EXTENSION,
                                 value: Buffer.alloc(0),
                             },
+                            ...(noFlowControl ? [noFlowControl] : []),
                         ],
                     }),
                 )
@@ -2706,6 +2731,7 @@ export default class Client extends EventEmitter<ClientEvents> {
         this.transportPingSupported = false
         this.hostboundAuthenticationSupported = false
         this.rfc9987AgentForwardingSupported = false
+        this.noFlowControlEnabled = false
 
         const signatureAlgorithms = extensions.find(({ name }) => name === "server-sig-algs")
         if (signatureAlgorithms) {
@@ -2724,6 +2750,10 @@ export default class Client extends EventEmitter<ClientEvents> {
         const agentForwarding = extensions.find(({ name }) => name === AGENT_FORWARDING_EXTENSION)
         this.rfc9987AgentForwardingSupported =
             agentForwarding?.value.equals(AGENT_FORWARDING_EXTENSION_VERSION) === true
+        this.noFlowControlEnabled = negotiateNoFlowControl(
+            noFlowControlValue(this.options.noFlowControl),
+            extensions,
+        )
         this.emit("serverExtensions", this.serverExtensions)
     }
 
@@ -2957,6 +2987,17 @@ export default class Client extends EventEmitter<ClientEvents> {
 
     private handleIncomingChannelOpen(packet: ChannelOpen): void {
         this.reserveRemoteChannelId(packet.data.sender_channel_id)
+        if (
+            this.noFlowControlEnabled &&
+            (this.channels.size !== 0 || this.remoteChannelIds.size > 1)
+        ) {
+            this.rejectIncomingChannel(
+                packet,
+                ChannelOpenFailureReasonCodes.SSH_OPEN_RESOURCE_SHORTAGE,
+                "RFC 8308 no-flow-control permits only one simultaneous SSH channel",
+            )
+            return
+        }
         if (packet.data.channel_type === ClientX11Channel.channelType) {
             this.handleIncomingX11ChannelOpen(packet)
             return

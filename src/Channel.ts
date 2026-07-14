@@ -281,6 +281,7 @@ export default class Channel {
     }
 
     receiveWindowAdjust(bytesToAdd: number): void {
+        if (this.client.noFlowControl) return
         if (bytesToAdd > MAXIMUM_CHANNEL_WINDOW_SIZE - this.remote_window_size) {
             throw new ProtocolError(`SSH channel ${this.localId} window adjustment exceeds uint32`)
         }
@@ -423,16 +424,24 @@ export default class Channel {
         try {
             while (
                 this.pendingWrites.length > 0 &&
-                this.remote_window_size > 0 &&
+                (this.client.noFlowControl || this.remote_window_size > 0) &&
                 this.remote_maximum_packet_size > 0
             ) {
                 const pending = this.pendingWrites[0]
-                if (pending.atomic && this.remote_window_size < pending.data.length) return
+                if (
+                    !this.client.noFlowControl &&
+                    pending.atomic &&
+                    this.remote_window_size < pending.data.length
+                ) {
+                    return
+                }
                 const length = pending.atomic
                     ? pending.data.length
                     : Math.min(
                           pending.data.length - pending.offset,
-                          this.remote_window_size,
+                          this.client.noFlowControl
+                              ? Number.MAX_SAFE_INTEGER
+                              : this.remote_window_size,
                           this.remote_maximum_packet_size,
                           DEFAULT_SERVER_CHANNEL_PACKET_SIZE,
                       )
@@ -451,7 +460,7 @@ export default class Channel {
                     )
                 }
                 pending.offset += length
-                this.remote_window_size -= length
+                if (!this.client.noFlowControl) this.remote_window_size -= length
                 if (pending.offset === pending.data.length) {
                     this.pendingWrites.shift()
                     pending.resolve()
@@ -471,6 +480,7 @@ export default class Channel {
         if (data.length > this.local_maximum_packet_size) {
             throw new ProtocolError(`SSH channel ${this.localId} received an oversized data packet`)
         }
+        if (this.client.noFlowControl) return
         if (data.length > this.local_window_size) {
             throw new ProtocolError(`SSH channel ${this.localId} received data beyond its window`)
         }
@@ -478,6 +488,7 @@ export default class Channel {
     }
 
     private adjustWindowIfNeeded(): void {
+        if (this.client.noFlowControl) return
         if (
             this.remoteId === undefined ||
             this.sentClose ||

@@ -434,6 +434,37 @@ events fire whenever a valid complete set arrives. Mutating a returned value can
 negotiation state. Unknown names remain observable but have no effect unless the application
 implements their specification.
 
+### No channel flow control
+
+RFC 8308 `no-flow-control` can be enabled independently on the client and server with
+`noFlowControl: "supported"` or `noFlowControl: "preferred"`. Both peers must advertise the
+extension, and at least one must prefer it, before it takes effect:
+
+```ts
+const server = new Server({
+    hostKeys,
+    noFlowControl: "supported",
+})
+
+const client = new Client({
+    hostname,
+    username,
+    noFlowControl: "preferred",
+})
+```
+
+`client.noFlowControl` and `serverConnection.noFlowControl` report the negotiated state. The wire
+values are exactly `p` for preferred and `s` for supported; any other value from a participating
+peer is a protocol error. A later server extension set replaces the first one, so omitting
+`no-flow-control` disables it before authentication completes.
+
+When active, channel-open window fields and window-adjust messages are ignored in both directions.
+Packet-size limits, channel close ordering, and SSH packet bounds still apply. The connection
+refuses a second simultaneous channel, including while another channel open is pending, but another
+channel may be opened after both sides completely close the first. This mode is therefore suitable
+only for deliberately single-channel applications; leave it disabled for multiplexed sessions and
+forwarding workloads.
+
 Initial key exchange also offers strict key-exchange markers under both the standardized names and
 the widely deployed vendor-qualified names. Strict mode is enabled only when client and server
 offer a matching pair. It requires each peer's KEXINIT to be binary packet zero, rejects non-KEX

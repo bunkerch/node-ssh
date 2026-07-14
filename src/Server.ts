@@ -36,6 +36,7 @@ import {
 } from "./RekeyLimits.js"
 import { normalizeGSSAPIServerMechanisms, type GSSAPIServerMechanism } from "./GSSAPI.js"
 import { createGSSAPIKeyExchangeAlgorithms } from "./algorithms/kex/gssapi-key-exchange.js"
+import { normalizeNoFlowControlPreference, type NoFlowControlPreference } from "./NoFlowControl.js"
 
 export interface ServerOptions {
     protocolVersionExchange?: ProtocolVersionExchange
@@ -72,6 +73,8 @@ export interface ServerOptions {
     rekeyInterval?: number
     /** RFC 4462 GSS-API mechanisms accepted by this server. */
     gssapi?: readonly GSSAPIServerMechanism[]
+    /** RFC 8308 infinite channel windows. Both peers must opt in and one must prefer it. */
+    noFlowControl?: NoFlowControlPreference
     /** Receive the same diagnostic arguments as the `debug` event. */
     debug?: (...message: unknown[]) => void
 }
@@ -363,6 +366,7 @@ export default class Server extends EventEmitter<ServerEvents> {
         this.options.hostCertificates = undefined
         this.options.sendAllHostKeys ??= true
         this.options.gssapi = normalizeGSSAPIServerMechanisms(this.options.gssapi ?? [])
+        this.options.noFlowControl = normalizeNoFlowControlPreference(this.options.noFlowControl)
         this.options.banner ??= ""
         this.options.handshakeTimeout ??= 20_000
         this.options.authenticationTimeout ??= 600_000

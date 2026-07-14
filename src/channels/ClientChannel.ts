@@ -277,6 +277,7 @@ export default class ClientChannel extends Duplex {
     }
 
     receiveWindowAdjust(bytesToAdd: number): void {
+        if (this.client.noFlowControl) return
         if (bytesToAdd > MAXIMUM_CHANNEL_WINDOW_SIZE - this.remoteWindowSize) {
             throw new ProtocolError(`SSH channel ${this.localId} window adjustment exceeds uint32`)
         }
@@ -504,6 +505,7 @@ export default class ClientChannel extends Duplex {
         if (data.length > this.localMaximumPacketSize) {
             throw new ProtocolError(`SSH channel ${this.localId} received an oversized data packet`)
         }
+        if (this.client.noFlowControl) return
         if (data.length > this.localWindowSize) {
             throw new ProtocolError(`SSH channel ${this.localId} received data beyond its window`)
         }
@@ -511,6 +513,7 @@ export default class ClientChannel extends Duplex {
     }
 
     protected adjustWindowIfNeeded(): void {
+        if (this.client.noFlowControl) return
         if (
             this.remoteId === undefined ||
             this.sentClose ||
@@ -537,17 +540,25 @@ export default class ClientChannel extends Duplex {
         try {
             while (this.pendingWrites.length > 0) {
                 const pending = this.pendingWrites[0]!
-                if (pending.atomic && this.remoteWindowSize < pending.data.length) return
+                if (
+                    !this.client.noFlowControl &&
+                    pending.atomic &&
+                    this.remoteWindowSize < pending.data.length
+                ) {
+                    return
+                }
                 while (
                     pending.offset < pending.data.length &&
-                    this.remoteWindowSize > 0 &&
+                    (this.client.noFlowControl || this.remoteWindowSize > 0) &&
                     this.remoteMaximumPacketSize > 0
                 ) {
                     const length = pending.atomic
                         ? pending.data.length
                         : Math.min(
                               pending.data.length - pending.offset,
-                              this.remoteWindowSize,
+                              this.client.noFlowControl
+                                  ? Number.MAX_SAFE_INTEGER
+                                  : this.remoteWindowSize,
                               this.remoteMaximumPacketSize,
                               DEFAULT_CHANNEL_PACKET_SIZE,
                           )
@@ -559,7 +570,7 @@ export default class ClientChannel extends Duplex {
                         }),
                     )
                     pending.offset += length
-                    this.remoteWindowSize -= length
+                    if (!this.client.noFlowControl) this.remoteWindowSize -= length
                 }
                 if (pending.offset !== pending.data.length) return
                 this.pendingWrites.shift()
