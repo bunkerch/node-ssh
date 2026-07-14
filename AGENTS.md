@@ -300,6 +300,8 @@ meaningful wire-level behavior.
   at-sign plus domain form for local extensions, reject empty and duplicate name-list entries, and
   apply the shared codec to services, methods, algorithms, extensions, channels, requests, and
   subsystems on both parse and serialization paths.
+- Public and private key envelopes bind their validated SSH algorithm name to the contained key
+  implementation, require private/public identity agreement, and copy caller-owned envelope data.
 - Strict key exchange advertises both the standard and deployed marker pairs only in the initial
   KEXINIT. Enable it only for a matching pair, require the peer's initial KEXINIT at sequence zero,
   reject non-KEX and duplicate KEX messages during that exchange, and reset each direction's

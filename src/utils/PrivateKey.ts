@@ -44,6 +44,7 @@ import {
     validateDSAPrivateParameters,
 } from "./DSA.js"
 import { ed448 } from "@noble/curves/ed448.js"
+import { decodeSSHName, encodeSSHName } from "./SSHName.js"
 
 export interface PrivateKeyData {
     publicKey: PublicKey
@@ -57,7 +58,21 @@ export default class PrivateKey {
 
     data: PrivateKeyData
     constructor(data: PrivateKeyData) {
-        this.data = data
+        encodeSSHName(data.alg, "SSH private key algorithm")
+        assert(
+            data.alg === data.publicKey.data.alg,
+            "Private key algorithm does not match public key",
+        )
+        const expectedPublicKey = data.algorithm.getPublicKey()
+        const suppliedPublicKey =
+            data.publicKey.data.algorithm instanceof SSHCertificatePublicKey
+                ? data.publicKey.data.algorithm.publicKey
+                : data.publicKey
+        assert(
+            suppliedPublicKey.equals(expectedPublicKey),
+            "Private and public key data do not match",
+        )
+        this.data = { ...data }
     }
 
     sign(
@@ -107,7 +122,7 @@ export default class PrivateKey {
                 "Serialize the underlying private key separately from its certificate",
             )
             const algorithmPayload = key.data.algorithm.serialize()
-            prv.push(serializeBuffer(Buffer.from(key.data.alg, "utf8")))
+            prv.push(serializeBuffer(encodeSSHName(key.data.alg, "SSH private key algorithm")))
             prv.push(algorithmPayload)
             prv.push(serializeBuffer(Buffer.from(key.data.comment ?? "", "utf8")))
             algorithmPayloads.push(algorithmPayload)
@@ -234,7 +249,7 @@ export default class PrivateKey {
         for (const publicKey of publicKeys) {
             let alg: Buffer
             ;[alg, raw] = readNextBuffer(raw)
-            const algorithmName = alg.toString("utf8")
+            const algorithmName = decodeSSHName(alg, "SSH private key algorithm")
             assert(
                 algorithmName === publicKey.data.alg,
                 "Private key algorithm does not match public key algorithm",

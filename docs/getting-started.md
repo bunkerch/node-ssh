@@ -289,6 +289,11 @@ Call `PublicKey.fromPEM()` directly when the input is known to be a public PEM. 
 Ed448, RSA, legacy DSA, and the three supported ECDSA curves and converts them to the canonical SSH
 public-key form.
 
+Key envelopes validate algorithm identifiers with the RFC 4250 SSH-name rules and require the name
+to match the contained key implementation. Private envelopes additionally require their public
+identity to match the private material. Constructed envelopes copy their metadata object, so later
+mutation of the caller's input object cannot silently relabel a retained key.
+
 Certificate public-key lines and wire blobs are parsed into `PublicKey` objects whose algorithm is
 an exported `SSHCertificatePublicKey`. Its `data` exposes the certified plain key, CA key, serial,
 role, identifier, principals, validity interval, critical options, and extensions without losing

@@ -7,6 +7,7 @@ import { ed448 } from "@noble/curves/ed448.js"
 import nacl from "tweetnacl"
 import { decodeBigIntBE } from "./BigInt.js"
 import { parseBufferToMpintBuffer } from "./mpint.js"
+import { decodeSSHName, encodeSSHName } from "./SSHName.js"
 import {
     dsaParametersFromPublicKey,
     type DSAParameters,
@@ -61,7 +62,15 @@ export default class PublicKey {
 
     data: PublicKeyData
     constructor(data: PublicKeyData) {
-        this.data = data
+        encodeSSHName(data.alg, "SSH public key algorithm")
+        const expectedAlgorithm =
+            data.algorithm instanceof SSHCertificatePublicKey
+                ? data.algorithm.algorithmName
+                : data.algorithm instanceof SSHECDSAPublicKey
+                  ? data.algorithm.curve.algorithm
+                  : (data.algorithm.constructor as typeof PublicKeyAlgoritm).alg_name
+        assert(data.alg === expectedAlgorithm, "Public key algorithm does not match key data")
+        this.data = { ...data }
     }
 
     get signatureAlgorithms(): readonly string[] {
@@ -123,7 +132,7 @@ export default class PublicKey {
     serialize(): Buffer {
         const buffers = []
 
-        buffers.push(serializeBuffer(Buffer.from(this.data.alg, "utf8")))
+        buffers.push(serializeBuffer(encodeSSHName(this.data.alg, "SSH public key algorithm")))
         buffers.push(this.data.algorithm.serialize())
 
         return Buffer.concat(buffers)
@@ -137,7 +146,7 @@ export default class PublicKey {
         let alg: Buffer
         ;[alg, raw] = readNextBuffer(raw)
 
-        const algorithmName = alg.toString("utf8")
+        const algorithmName = decodeSSHName(alg, "SSH public key algorithm")
         const certificateKeyAlgorithm = CERTIFICATE_KEY_ALGORITHMS.get(algorithmName)
         if (certificateKeyAlgorithm) {
             return new PublicKey({
@@ -154,7 +163,7 @@ export default class PublicKey {
         assert(algorithm, `Unsupported algorithm: ${alg.toString("utf8")}`)
 
         return new PublicKey({
-            alg: alg.toString("utf8"),
+            alg: algorithmName,
             algorithm: algorithm.parse(raw),
         })
     }
