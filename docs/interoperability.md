@@ -130,7 +130,9 @@ fixed SHA-256 digests of NIST ACVP FIPS 203 test cases 26 and 51. Independent fi
 specified SHA-256 and SHA-384 `K_PQ || K_CL` combiners. Tests exercise exact client/server message
 sizes, compressed and uncompressed NIST points, invalid ML-KEM and classical values, ciphertext
 implicit rejection, and defensive buffer ownership. In-process peers force all three registered
-method names through authenticated traffic and rekeys initiated by both roles.
+method names through authenticated traffic and rekeys initiated by both roles. A digest-pinned
+OpenSSH 10 client additionally forces `mlkem768x25519-sha256` against the library server, exchanges
+channel traffic, and completes a byte-limit rekey. Independent server-role coverage remains open.
 
 Standalone ML-KEM coverage fixes all three FIPS 203 encapsulation-key parameter sets to NIST ACVP
 vectors and checks the SHA-256 digest of each published encapsulation key. It verifies exact
