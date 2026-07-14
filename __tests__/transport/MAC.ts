@@ -5,6 +5,7 @@ import HMACMD5 from "../../src/algorithms/mac/hmac-md5.js"
 import HMACMD596 from "../../src/algorithms/mac/hmac-md5-96.js"
 import HMACMD5ETM from "../../src/algorithms/mac/hmac-md5-etm.js"
 import HMACMD596ETM from "../../src/algorithms/mac/hmac-md5-96-etm.js"
+import HMACRIPEMD160 from "../../src/algorithms/mac/hmac-ripemd160.js"
 import {
     UMAC128ETMOpenSSH,
     UMAC128OpenSSH,
@@ -89,5 +90,18 @@ describe("SSH MAC algorithms", () => {
         )
         expect(HMACMD5ETM.encrypt_then_mac).toBe(true)
         expect(HMACMD596ETM.encrypt_then_mac).toBe(true)
+    })
+
+    test("hmac-ripemd160 matches the RFC 2286 vector", () => {
+        const key = Buffer.alloc(20, 0x0b)
+        const expected = Buffer.from("24cb4bd67d20fc1a5d2ed7732dcc39377f0a5668", "hex")
+        const mac = new HMACRIPEMD160(key)
+        key.fill(0)
+
+        // uint32(sequence_number) || packet forms RFC 2286's fixed message "Hi There".
+        expect(mac.computeMAC(0x4869_2054, Buffer.from("here"))).toEqual(expected)
+        expect(HMACRIPEMD160.key_length).toBe(20)
+        expect(HMACRIPEMD160.digest_length).toBe(20)
+        expect(() => new HMACRIPEMD160(Buffer.alloc(19))).toThrow("key must be 20 bytes")
     })
 })

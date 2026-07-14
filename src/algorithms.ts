@@ -48,6 +48,7 @@ import HMACMD5 from "./algorithms/mac/hmac-md5.js"
 import HMACMD596 from "./algorithms/mac/hmac-md5-96.js"
 import HMACMD5ETM from "./algorithms/mac/hmac-md5-etm.js"
 import HMACMD596ETM from "./algorithms/mac/hmac-md5-96-etm.js"
+import HMACRIPEMD160 from "./algorithms/mac/hmac-ripemd160.js"
 import {
     UMAC128ETMOpenSSH,
     UMAC128OpenSSH,
@@ -356,6 +357,7 @@ export const mac_algorithms = new Map<string, typeof MACAlgorithm>([
     ["hmac-md5-96-etm@openssh.com", HMACMD596ETM],
     ["hmac-md5", HMACMD5],
     ["hmac-md5-96", HMACMD596],
+    ["hmac-ripemd160", HMACRIPEMD160],
 ])
 
 export const mac_algorithm_names: readonly string[] = Object.freeze([

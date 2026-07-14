@@ -269,6 +269,11 @@ full 16-byte HMAC-MD5 result or its first 12 bytes. The deployed
 encrypt-then-MAC layout. All four exist only for explicitly configured interoperability with legacy
 peers; new deployments should not select them.
 
+The legacy `hmac-ripemd160` compatibility method uses a 20-byte key and the complete 20-byte
+HMAC-RIPEMD160 result over the RFC 4253 sequence number and plaintext packet. It is available only
+through explicit algorithm configuration and remains outside the default offer. Prefer a default
+SHA-2 or UMAC method unless a peer specifically requires RIPEMD-160.
+
 RFC 5647 AES-GCM is available under its registered `AEAD_AES_128_GCM` and
 `AEAD_AES_256_GCM` names. The RFC requires the selected name to appear in both the encryption and
 MAC lists for each direction. Configure both lists when opting in:

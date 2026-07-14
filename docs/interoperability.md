@@ -301,6 +301,12 @@ deployed encrypt-then-MAC forms with AES-128-CTR. OpenSSH and the modern client 
 and rekey for every name in both peer roles. An RFC 2202 vector independently verifies the full
 digest and first-12-byte truncation; these methods remain last and are not recommended for new use.
 
+Legacy HMAC-RIPEMD160 coverage forms RFC 2286's literal `Hi There` input through the SSH sequence
+number and packet fields and checks its complete 20-byte digest. An in-process client and server
+then force `hmac-ripemd160` with AES-128-CTR, exchange authenticated traffic in both directions,
+and rekey. The method remains an explicit compatibility choice; the system OpenSSH fixture does not
+advertise it.
+
 UMAC coverage checks the RFC 4418 messages from empty through 32 MiB, including verified erratum
 3507 for the long-message polynomial transition, plus 32-, 64-, and 96-bit output iterations. The
 system SSH client then forces each deployed 64-/128-bit ordinary and encrypt-then-MAC variant and
