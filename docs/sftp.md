@@ -31,7 +31,9 @@ The baseline operations are Promise-based:
   mutation while an earlier chunk awaits acknowledgement cannot alter later chunks. The negotiated
   chunk limit is also fixed for the operation, preventing overlap if public limit metadata is
   changed while a chunk is pending. Assigning an invalid `maxWriteLength` rejects locally before a
-  request is sent; the value must be a positive safe integer.
+  request is sent; the value must be a positive safe integer. `read` applies the same requirement
+  to `maxReadLength` before treating a zero requested length as an empty result, so whole-file reads
+  cannot mistake an invalid limit for end-of-file.
 - `writeFile` copies Buffer input before opening the remote file; mutation during the open request
   cannot change the eventual contents.
 - `stat`, `lstat`, `fstat`, `setstat`, and `fsetstat` retrieve or change attributes. `chmod`,

@@ -521,8 +521,12 @@ export default class SFTPClient {
     }
 
     async read(handle: Buffer, length: number, position: SFTPPosition): Promise<Buffer> {
-        if (!Number.isSafeInteger(length) || length < 0 || length > this.maxReadLength) {
-            throw new RangeError(`SFTP read length must be between 0 and ${this.maxReadLength}`)
+        const maximumReadLength = this.maxReadLength
+        if (!Number.isSafeInteger(maximumReadLength) || maximumReadLength < 1) {
+            throw new RangeError("SFTP maximum read length must be a positive safe integer")
+        }
+        if (!Number.isSafeInteger(length) || length < 0 || length > maximumReadLength) {
+            throw new RangeError(`SFTP read length must be between 0 and ${maximumReadLength}`)
         }
         if (length === 0) return Buffer.alloc(0)
         const response = await this.request(
