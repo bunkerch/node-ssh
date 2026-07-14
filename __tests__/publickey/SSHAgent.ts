@@ -1,4 +1,5 @@
 import { execFile, spawn } from "node:child_process"
+import { once } from "node:events"
 import { access, mkdtemp, rm } from "node:fs/promises"
 import { createServer, type Socket } from "node:net"
 import { tmpdir } from "node:os"
@@ -105,6 +106,60 @@ describe("SSHAgent", () => {
                 signRequest,
             ])
         } finally {
+            await new Promise<void>((resolve, reject) => {
+                server.close((error) => (error ? reject(error) : resolve()))
+            })
+            await rm(directory, { recursive: true, force: true })
+        }
+    })
+
+    test("owns signing data before the asynchronous identity lookup", async () => {
+        const directory = await mkdtemp(join(tmpdir(), "modernssh-agent-sign-ownership-"))
+        const socketPath = join(directory, "agent.sock")
+        const keyLength = signRequest.readUInt32BE(5)
+        const id = signRequest.subarray(9, 9 + keyLength).toString("base64")
+        let releaseIdentity!: () => void
+        const identityReleased = new Promise<void>((resolve) => {
+            releaseIdentity = resolve
+        })
+        let reportIdentity!: () => void
+        const identityReceived = new Promise<void>((resolve) => {
+            reportIdentity = resolve
+        })
+        let receivedSignRequest: Buffer | undefined
+        const server = createServer((socket) => {
+            socket.once("data", (request) => {
+                if (request.equals(requestIdentities)) {
+                    reportIdentity()
+                    void identityReleased
+                        .then(() => writeFragmented(socket, identitiesAnswer))
+                        .catch((error: unknown) =>
+                            socket.destroy(
+                                error instanceof Error ? error : new Error(String(error)),
+                            ),
+                        )
+                    return
+                }
+                receivedSignRequest = Buffer.from(request)
+                void writeFragmented(socket, signAnswer).catch((error: unknown) =>
+                    socket.destroy(error instanceof Error ? error : new Error(String(error))),
+                )
+            })
+        })
+        server.listen(socketPath)
+        await once(server, "listening")
+
+        try {
+            const data = Buffer.from("abc")
+            const signing = new SSHAgent(socketPath).sign(id, data)
+            await identityReceived
+            data.fill(0x7a)
+            releaseIdentity()
+            await signing
+
+            expect(receivedSignRequest).toEqual(signRequest)
+        } finally {
+            releaseIdentity()
             await new Promise<void>((resolve, reject) => {
                 server.close((error) => (error ? reject(error) : resolve()))
             })

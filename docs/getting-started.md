@@ -454,7 +454,8 @@ to the root exports as its implementation and tests become library-ready.
 
 `SSHAgent` uses a Unix-domain socket or Windows named pipe supplied explicitly or through
 `SSH_AUTH_SOCK`. The client lists the agent's public identities and delegates signatures without
-reading private key material.
+reading private key material. `sign()` snapshots its message before the asynchronous identity
+lookup, so later mutation of a caller-owned buffer cannot change what the agent signs.
 
 ```ts
 import { Client } from "@bunkerch/modernssh"
