@@ -203,6 +203,19 @@ buffers after encryption; callers remain responsible for clearing their original
 
 ### Reading protected keys
 
+Use `parseKey()` when input may contain either a private or public key. It routes raw OpenSSH
+private containers, armored private keys, SSH public-key blobs, authorized-key lines, generic
+SubjectPublicKeyInfo public PEM, and PKCS#1 RSA public PEM by their explicit framing. The return
+type is `PrivateKey | PublicKey`; a passphrase is accepted only when the input is private.
+
+```ts
+import { readFile } from "node:fs/promises"
+import { parseKey, PrivateKey } from "modernssh"
+
+const key = parseKey(await readFile("./deploy_key"), process.env.SSH_KEY_PASSPHRASE)
+if (!(key instanceof PrivateKey)) throw new Error("A private key is required")
+```
+
 `PrivateKey.fromString()` and `PrivateKey.parse()` accept an optional string or `Buffer`
 passphrase. They read the `openssh-key-v1` format produced by `ssh-keygen`, including Ed25519, RSA,
 and ECDSA keys encrypted with any cipher accepted by current OpenSSH: 3DES-CBC, AES-CBC, AES-CTR,
@@ -214,15 +227,8 @@ use the same optional passphrase argument and are decrypted by Node's native key
 conversion into the library's validated SSH representation. Unsupported key families and curves
 are rejected rather than silently coerced.
 
-```ts
-import { readFile } from "node:fs/promises"
-import { PrivateKey } from "modernssh"
-
-const privateKey = PrivateKey.fromString(
-    await readFile("./id_ed25519", "utf8"),
-    process.env.SSH_KEY_PASSPHRASE,
-)
-```
+Call `PublicKey.fromPEM()` directly when the input is known to be a public PEM. It accepts Ed25519,
+RSA, and the three supported ECDSA curves and converts them to the canonical SSH public-key form.
 
 `DiskAgent` can receive a fixed passphrase or resolve one for each key path. A resolver is useful
 when the secret comes from an application credential store and should only be fetched when a

@@ -108,6 +108,11 @@ SEC1 ECDSA, and encrypted ECDSA PKCS#8 inputs. Each imported key signs data and 
 OpenSSH private-key container whose derived public key is checked by `ssh-keygen`. An unsupported
 X25519 PKCS#8 key is rejected explicitly.
 
+Public PEM interoperability covers generic SubjectPublicKeyInfo for Ed25519, RSA, and every RFC
+5656 ECDSA curve, plus traditional PKCS#1 RSA public keys. Each converted key verifies a signature
+from its independently imported private half, and `ssh-keygen` accepts and fingerprints the
+canonical SSH public-key output. Unsupported X25519 public keys are rejected explicitly.
+
 OpenSSH private-key tests also generate every required ECDSA curve and prove parsing, public-key
 matching, signing, and verification. An RFC 6979 P-256/SHA-256 signature is independently encoded as
 the RFC 5656 pair of SSH mpints and verified as a fixed cryptographic vector.

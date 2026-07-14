@@ -29,6 +29,7 @@ import {
     HTTPSAgent,
     OnePasswordAgent,
     OPEN_MODE,
+    parseKey,
     PrivateKey,
     ProtocolVersionExchange,
     PublicKey,
@@ -88,6 +89,7 @@ describe("package exports", () => {
             HTTPAgent,
             HTTPSAgent,
             OnePasswordAgent,
+            parseKey,
             PrivateKey,
             ProtocolVersionExchange,
             PublicKey,
@@ -99,7 +101,7 @@ describe("package exports", () => {
             SSHAgent,
             SSHHTTPAgent,
             SSHHTTPSAgent,
-        ]).toHaveLength(32)
+        ]).toHaveLength(33)
         expect(SSHAuthenticationMethods.PublicKey).toBe("publickey")
         expect(SSHAuthenticationMethods.KeyboardInteractive).toBe("keyboard-interactive")
         expect(encodeSFTPPacket).toBeFunction()
@@ -169,7 +171,7 @@ describe("package exports", () => {
                     "--input-type=module",
                     "--eval",
                     `
-                    const { generateKeyPair, PrivateKey } = await import("modernssh")
+                    const { generateKeyPair, parseKey, PrivateKey } = await import("modernssh")
                     const { privateKey, publicKey } = await generateKeyPair("ed25519", {
                         comment: "packed@example.test",
                     })
@@ -178,6 +180,7 @@ describe("package exports", () => {
                     const encrypted = privateKey.toString({ passphrase: "packed-secret", rounds: 1 })
                     const parsed = PrivateKey.fromString(encrypted, "packed-secret")
                     if (!parsed.data.publicKey.equals(publicKey)) process.exit(3)
+                    if (!parseKey(publicKey.toString()).equals(publicKey)) process.exit(4)
                     process.stdout.write(publicKey.toString())
                 `,
                 ],

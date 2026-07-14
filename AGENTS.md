@@ -65,6 +65,9 @@ meaningful wire-level behavior.
   parser, then converts only Ed25519, RSA, and the three RFC 5656 ECDSA curves into validated SSH
   key objects. Reject unsupported families and prove every accepted container with OpenSSL input,
   signing, OpenSSH serialization, and `ssh-keygen` public-key derivation.
+- Unified key parsing must route by explicit container framing rather than exception-driven parser
+  fallback. Public PEM import accepts only Ed25519, RSA, and the three RFC 5656 ECDSA curves;
+  validate converted keys through signing and real `ssh-keygen` fingerprinting.
 - User authentication follows RFC 4252 and RFC 4256. Decode method-specific opcode 60 from the
   active authentication context, never as a globally fixed packet. Honor advertised continuation
   lists and partial success, keep at most one keyboard-interactive request outstanding, and test

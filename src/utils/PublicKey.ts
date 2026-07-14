@@ -133,6 +133,53 @@ export default class PublicKey {
         return publicKey
     }
 
+    static fromPEM(data: string | Buffer): PublicKey {
+        let jwk: JsonWebKey
+        try {
+            jwk = crypto.createPublicKey(data).export({ format: "jwk" })
+        } catch (error) {
+            throw new Error("Invalid public key PEM", { cause: error })
+        }
+
+        if (jwk.kty === "OKP" && jwk.crv === "Ed25519" && jwk.x) {
+            const publicKey = decodeJWKField(jwk.x, "Ed25519 public key")
+            assert(publicKey.length === 32, "Invalid Ed25519 public key length")
+            return new PublicKey({
+                alg: SSHED25519PublicKey.alg_name,
+                algorithm: new SSHED25519PublicKey({ publicKey }),
+            })
+        }
+
+        if (jwk.kty === "RSA" && jwk.e && jwk.n) {
+            return new PublicKey({
+                alg: SSHRSAPublicKey.alg_name,
+                algorithm: new SSHRSAPublicKey({
+                    publicExponent: positiveMpint(decodeJWKField(jwk.e, "RSA public exponent")),
+                    modulus: positiveMpint(decodeJWKField(jwk.n, "RSA modulus")),
+                }),
+            })
+        }
+
+        if (jwk.kty === "EC" && jwk.crv && jwk.x && jwk.y) {
+            const curve = ECDSA_CURVES.find(({ jwkName }) => jwkName === jwk.crv)
+            assert(curve, `Unsupported ECDSA curve: ${jwk.crv}`)
+            const x = decodeJWKField(jwk.x, "ECDSA x coordinate")
+            const y = decodeJWKField(jwk.y, "ECDSA y coordinate")
+            assert(
+                x.length === curve.coordinateLength && y.length === curve.coordinateLength,
+                `Invalid ${curve.identifier} public key coordinates`,
+            )
+            return new PublicKey({
+                alg: curve.algorithm,
+                algorithm: new SSHECDSAPublicKey(curve, {
+                    publicKey: Buffer.concat([Buffer.from([4]), x, y]),
+                }),
+            })
+        }
+
+        throw new Error(`Unsupported public key type: ${jwk.crv ?? jwk.kty ?? "unknown"}`)
+    }
+
     static parseAuthorizedKeysFile(content: string): PublicKey[] {
         // ~/.ssh/authorized_keys is just a text file, where each
         // line is a new public key.
@@ -150,6 +197,20 @@ export default class PublicKey {
 
         return keys
     }
+}
+
+function decodeJWKField(value: string, name: string): Buffer {
+    assert(/^[A-Za-z0-9_-]+$/.test(value), `Invalid ${name}`)
+    const decoded = Buffer.from(value, "base64url")
+    assert(decoded.length > 0, `Invalid ${name}`)
+    return decoded
+}
+
+function positiveMpint(value: Buffer): Buffer {
+    let first = 0
+    while (first < value.length - 1 && value[first] === 0) first++
+    const unsigned = value.subarray(first)
+    return (unsigned[0] & 0x80) === 0 ? unsigned : Buffer.concat([Buffer.from([0]), unsigned])
 }
 
 export abstract class PublicKeyAlgoritm {
