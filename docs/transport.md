@@ -169,6 +169,9 @@ first default preference.
 eight mandatory algorithm lists are non-empty, the reserved uint32 is zero, and trailing bytes are
 rejected before negotiation begins.
 
+The two optional language preference name-lists use RFC 3066 syntax rather than algorithm-name
+rules. Their order and repeated tags are preserved; malformed tags are rejected in both directions.
+
 The default key-exchange preference starts with the RFC 8731 `curve25519-sha256` method and its
 wire-equivalent deployed alias `curve25519-sha256@libssh.org`, the RFC 5656
 `ecdh-sha2-nistp256`, `ecdh-sha2-nistp384`, and `ecdh-sha2-nistp521` methods, then the supported

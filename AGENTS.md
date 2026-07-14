@@ -192,6 +192,8 @@ meaningful wire-level behavior.
   only malformed names and framing, not duplicates.
 - Treat KEXINIT as a fixed-layout packet: require its 16-byte cookie, all eight non-empty algorithm
   lists, zero reserved field, and no trailing data before publishing an offer.
+- Validate KEXINIT language preference entries as RFC 3066 tags, not algorithm identifiers. Preserve
+  list order and repeats without imposing the 64-byte algorithm-name limit.
 - Packet tunnel channels use the `tun@openssh.com` layout from upstream `PROTOCOL`. Preserve each
   IP datagram or Ethernet frame in exactly one channel-data message, wait asynchronously for enough
   remote window rather than splitting it, and validate mode-specific framing before emitting data.

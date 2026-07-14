@@ -3,7 +3,14 @@ import { PacketNameToType } from "../constants.js"
 import Packet from "../packet.js"
 import { readNextNameList, serializeNameList } from "../utils/NameList.js"
 import { serializeBinaryBoolean } from "../utils/BinaryBoolean.js"
-import { readNextBinaryBoolean, readNextUint32, readNextUint8 } from "../utils/Buffer.js"
+import {
+    readNextBinaryBoolean,
+    readNextBuffer,
+    readNextUint32,
+    readNextUint8,
+    serializeBuffer,
+} from "../utils/Buffer.js"
+import { decodeSSHLanguageTag, encodeSSHLanguageTag } from "../utils/SSHText.js"
 
 export interface KexInitData {
     cookie: Buffer
@@ -34,6 +41,39 @@ function validateKexInitData(data: KexInitData): void {
     ] as const) {
         assert(algorithms.length > 0, `SSH KEXINIT ${name} list must not be empty`)
     }
+    for (const tag of [...data.languages_client_to_server, ...data.languages_server_to_client]) {
+        assert(tag.length > 0, "SSH KEXINIT language list must not contain an empty tag")
+        encodeSSHLanguageTag(tag, "SSH KEXINIT language tag")
+    }
+}
+
+function serializeLanguageList(tags: readonly string[]): Buffer {
+    return serializeBuffer(
+        Buffer.concat(
+            tags.flatMap((tag, index) => [
+                ...(index === 0 ? [] : [Buffer.from(",", "ascii")]),
+                encodeSSHLanguageTag(tag, "SSH KEXINIT language tag"),
+            ]),
+        ),
+    )
+}
+
+function readNextLanguageList(raw: Buffer): [string[], Buffer] {
+    let encoded: Buffer
+    ;[encoded, raw] = readNextBuffer(raw)
+    if (encoded.length === 0) return [[], raw]
+    if (encoded.some((byte) => byte > 0x7f)) {
+        throw new Error("SSH KEXINIT language tag is not valid RFC 3066")
+    }
+    return [
+        encoded
+            .toString("ascii")
+            .split(",")
+            .map((tag) =>
+                decodeSSHLanguageTag(Buffer.from(tag, "ascii"), "SSH KEXINIT language tag"),
+            ),
+        raw,
+    ]
 }
 
 export default class KexInit implements Packet {
@@ -61,8 +101,8 @@ export default class KexInit implements Packet {
         buffers.push(serializeNameList(this.data.mac_algorithms_server_to_client))
         buffers.push(serializeNameList(this.data.compression_algorithms_client_to_server))
         buffers.push(serializeNameList(this.data.compression_algorithms_server_to_client))
-        buffers.push(serializeNameList(this.data.languages_client_to_server))
-        buffers.push(serializeNameList(this.data.languages_server_to_client))
+        buffers.push(serializeLanguageList(this.data.languages_client_to_server))
+        buffers.push(serializeLanguageList(this.data.languages_server_to_client))
 
         buffers.push(serializeBinaryBoolean(this.data.first_kex_packet_follows))
         buffers.push(Buffer.alloc(4))
@@ -104,10 +144,10 @@ export default class KexInit implements Packet {
         ;[compression_algorithms_server_to_client, raw] = readNextNameList(raw)
 
         let languages_client_to_server: string[]
-        ;[languages_client_to_server, raw] = readNextNameList(raw)
+        ;[languages_client_to_server, raw] = readNextLanguageList(raw)
 
         let languages_server_to_client: string[]
-        ;[languages_server_to_client, raw] = readNextNameList(raw)
+        ;[languages_server_to_client, raw] = readNextLanguageList(raw)
 
         let first_kex_packet_follows: boolean
         ;[first_kex_packet_follows, raw] = readNextBinaryBoolean(raw)

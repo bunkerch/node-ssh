@@ -121,5 +121,38 @@ describe("Packets", () => {
                 "server-to-client compression list must not be empty",
             )
         })
+
+        test("validates language name-lists as RFC 3066 tags", () => {
+            const parsed = KexInit.parse(sample)
+            const longTag = `en-${Array.from({ length: 8 }, () => "abcdefgh").join("-")}`
+            const withLanguages = new KexInit({
+                ...parsed.data,
+                languages_client_to_server: [longTag, "i-klingon"],
+                languages_server_to_client: ["en-US"],
+            })
+            expect(
+                KexInit.parse(withLanguages.serialize()).data.languages_client_to_server,
+            ).toEqual([longTag, "i-klingon"])
+
+            expect(
+                () =>
+                    new KexInit({
+                        ...parsed.data,
+                        languages_client_to_server: ["en_US"],
+                    }),
+            ).toThrow("not valid RFC 3066")
+
+            const oneName = Buffer.from("0000000161", "hex")
+            const malformedWire = Buffer.concat([
+                Buffer.from([KexInit.type]),
+                Buffer.alloc(16, 0x5a),
+                ...Array.from({ length: 8 }, () => oneName),
+                Buffer.from("00000005656e5f5553", "hex"),
+                Buffer.alloc(4),
+                Buffer.from([0]),
+                Buffer.alloc(4),
+            ])
+            expect(() => KexInit.parse(malformedWire)).toThrow("not valid RFC 3066")
+        })
     })
 })
