@@ -57,7 +57,9 @@ meaningful wire-level behavior.
   its `uncaughtException` policy. Do not pass async functions directly to EventEmitter `on()` or
   `once()` because EventEmitter ignores returned promises. In sequential flows, await `once()` from
   `node:events`; for ongoing subscriptions, use a synchronous listener that starts the operation and
-  attaches explicit rejection handling.
+  attaches explicit rejection handling. The type-aware ESLint configuration enforces this for
+  production sources; route internal operation failures back through a synchronous error path so an
+  observer exception cannot become an unhandled promise rejection.
 
 - Implement behavior from the RFCs in `../rfcs`; fetch missing RFCs from an authoritative source
   when needed.

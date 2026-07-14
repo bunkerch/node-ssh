@@ -823,97 +823,111 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             )
         }
 
-        this.on("channelOpenRequest", async (packet) => {
-            this.debug(`ChannelOpenRequest`, packet)
-
-            const lock = await this.queue.obtainLock("channelOpenRequest")
-            let accepted = false
-            try {
-                if (this.noMoreSessionsRequested && packet.data.channel_type === "session") {
-                    throw new ChannelOpenError(
-                        ChannelOpenFailureReasonCodes.SSH_OPEN_ADMINISTRATIVELY_PROHIBITED,
-                        packet.data.sender_channel_id,
-                        "Additional SSH session channels have been disabled",
-                    )
-                }
-                const channel = channelFromChannelOpenPacket(packet, this)
-                const controller: ServerHookerChannelOpenRequestController = {
-                    allowOpen: false,
-                }
-
-                await this.server.hooker.triggerHook(
-                    "channelOpenRequest",
-                    channel,
-                    controller,
-                    this,
-                )
-
-                if (!controller.allowOpen) {
-                    throw new ChannelOpenError(
-                        ChannelOpenFailureReasonCodes.SSH_OPEN_ADMINISTRATIVELY_PROHIBITED,
-                        packet.data.sender_channel_id,
-                        "Opening channel type not allowed by the server.",
-                    )
-                }
-
-                this.debug(`Opening channel`, channel)
-                this.channels.set(channel.localId, channel)
-                accepted = true
-                this.sendPacket(channel.getChannelOpenConfirmationPacket())
-                this.emit("channel", channel)
-            } catch (err) {
-                this.debug(`ChannelOpenRequest failed:`, err)
-
-                if (err instanceof ChannelOpenError) {
-                    this.sendPacket(err.getOpenFailurePacket())
-                } else {
-                    this.debug(`An error occured:`, err)
-                    this.sendPacket(
-                        new ChannelOpenFailure({
-                            reason_code: ChannelOpenFailureReasonCodes.SSH_OPEN_CONNECT_FAILED,
-                            description: "An error occured on the server",
-                            language_tag: "",
-                            recipient_channel_id: packet.data.sender_channel_id,
-                        }),
-                    )
-                }
-            } finally {
-                if (!accepted) this.remoteChannelIds.delete(packet.data.sender_channel_id)
-                lock.release()
-            }
+        this.on("channelOpenRequest", (packet) => {
+            this.startEventOperation(this.handleChannelOpenRequest(packet), "channel-open request")
         })
-        this.on("channelRequest", async (packet) => {
-            const channel = this.channels.get(packet.data.recipient_channel_id)
-            if (!channel) {
-                const error = new DisconnectError(
-                    DisconnectReason.SSH_DISCONNECT_PROTOCOL_ERROR,
-                    "Invalid channel id received.",
+        this.on("channelRequest", (packet) => {
+            this.startEventOperation(this.handleChannelRequest(packet), "channel request")
+        })
+    }
+
+    private startEventOperation(operation: Promise<void>, description: string): void {
+        void operation.catch((error: unknown) => {
+            const failure = error instanceof Error ? error : new Error(String(error))
+            this.debug(`Unhandled failure while processing SSH ${description}:`, failure)
+            // Leave the rejected-promise chain before entering EventEmitter's synchronous error
+            // path. If an error observer itself throws, Node reports that as an ordinary uncaught
+            // listener exception instead of turning it into an unhandled promise rejection.
+            queueMicrotask(() => this.handleMessageError(failure))
+        })
+    }
+
+    private async handleChannelOpenRequest(packet: ChannelOpen): Promise<void> {
+        this.debug(`ChannelOpenRequest`, packet)
+
+        const lock = await this.queue.obtainLock("channelOpenRequest")
+        let accepted = false
+        try {
+            if (this.noMoreSessionsRequested && packet.data.channel_type === "session") {
+                throw new ChannelOpenError(
+                    ChannelOpenFailureReasonCodes.SSH_OPEN_ADMINISTRATIVELY_PROHIBITED,
+                    packet.data.sender_channel_id,
+                    "Additional SSH session channels have been disabled",
                 )
-                this.emit("error", error)
-                this.terminate()
-                return
+            }
+            const channel = channelFromChannelOpenPacket(packet, this)
+            const controller: ServerHookerChannelOpenRequestController = {
+                allowOpen: false,
             }
 
-            // make sure pty request is handled before exec/shell, etc
-            const lock = await this.queue.obtainLock(
-                `channelRequest:${packet.data.recipient_channel_id}`,
+            await this.server.hooker.triggerHook("channelOpenRequest", channel, controller, this)
+
+            if (!controller.allowOpen) {
+                throw new ChannelOpenError(
+                    ChannelOpenFailureReasonCodes.SSH_OPEN_ADMINISTRATIVELY_PROHIBITED,
+                    packet.data.sender_channel_id,
+                    "Opening channel type not allowed by the server.",
+                )
+            }
+
+            this.debug(`Opening channel`, channel)
+            this.channels.set(channel.localId, channel)
+            accepted = true
+            this.sendPacket(channel.getChannelOpenConfirmationPacket())
+            this.emit("channel", channel)
+        } catch (err) {
+            this.debug(`ChannelOpenRequest failed:`, err)
+
+            if (err instanceof ChannelOpenError) {
+                this.sendPacket(err.getOpenFailurePacket())
+            } else {
+                this.debug(`An error occured:`, err)
+                this.sendPacket(
+                    new ChannelOpenFailure({
+                        reason_code: ChannelOpenFailureReasonCodes.SSH_OPEN_CONNECT_FAILED,
+                        description: "An error occured on the server",
+                        language_tag: "",
+                        recipient_channel_id: packet.data.sender_channel_id,
+                    }),
+                )
+            }
+        } finally {
+            if (!accepted) this.remoteChannelIds.delete(packet.data.sender_channel_id)
+            lock.release()
+        }
+    }
+
+    private async handleChannelRequest(packet: ChannelRequest): Promise<void> {
+        const channel = this.channels.get(packet.data.recipient_channel_id)
+        if (!channel) {
+            const error = new DisconnectError(
+                DisconnectReason.SSH_DISCONNECT_PROTOCOL_ERROR,
+                "Invalid channel id received.",
             )
-            try {
-                const deny = await channel.preHandleChannelRequest(packet)
-                if (deny) return
+            this.emit("error", error)
+            this.terminate()
+            return
+        }
 
-                await channel.handleChannelRequest(packet)
-            } catch (err) {
-                this.debug(
-                    `An error occured in the Channel Request handler. This could be due to a faulty request or an implementation bug.`,
-                    err,
-                )
-                // the base method will send a channel failure.
-                await Channel.prototype.handleChannelRequest.call(channel, packet)
-            } finally {
-                lock.release()
-            }
-        })
+        // Make sure PTY setup is handled before exec, shell, and later requests.
+        const lock = await this.queue.obtainLock(
+            `channelRequest:${packet.data.recipient_channel_id}`,
+        )
+        try {
+            const deny = await channel.preHandleChannelRequest(packet)
+            if (deny) return
+
+            await channel.handleChannelRequest(packet)
+        } catch (err) {
+            this.debug(
+                `An error occured in the Channel Request handler. This could be due to a faulty request or an implementation bug.`,
+                err,
+            )
+            // The base method sends channel failure for an otherwise unhandled request.
+            await Channel.prototype.handleChannelRequest.call(channel, packet)
+        } finally {
+            lock.release()
+        }
     }
 
     private async handleGlobalRequest(packet: GlobalRequest): Promise<void> {

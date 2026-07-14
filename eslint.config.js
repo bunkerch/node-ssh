@@ -18,6 +18,30 @@ export default defineConfig(
     tseslint.configs.stylistic,
 
     {
+        files: ["src/**/*.ts"],
+        languageOptions: {
+            parserOptions: {
+                projectService: true,
+            },
+        },
+        rules: {
+            "@typescript-eslint/no-misused-promises": [
+                "error",
+                {
+                    checksVoidReturn: {
+                        arguments: true,
+                        attributes: false,
+                        inheritedMethods: false,
+                        properties: false,
+                        returns: false,
+                        variables: false,
+                    },
+                },
+            ],
+        },
+    },
+
+    {
         rules: {
             // Managed by typescript
             "no-undef": "off",
@@ -44,6 +68,22 @@ export default defineConfig(
                 {
                     avoidEscape: true,
                     allowTemplateLiterals: "always",
+                },
+            ],
+
+            "no-restricted-syntax": [
+                "error",
+                {
+                    selector:
+                        "CallExpression[callee.type='MemberExpression'][callee.property.name=/^(on|once|addListener)$/] > ArrowFunctionExpression[async=true]",
+                    message:
+                        "EventEmitter does not await returned promises; use a synchronous listener with explicit rejection handling.",
+                },
+                {
+                    selector:
+                        "CallExpression[callee.type='MemberExpression'][callee.property.name=/^(on|once|addListener)$/] > FunctionExpression[async=true]",
+                    message:
+                        "EventEmitter does not await returned promises; use a synchronous listener with explicit rejection handling.",
                 },
             ],
         },

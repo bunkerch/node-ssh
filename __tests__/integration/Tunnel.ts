@@ -21,14 +21,13 @@ describe("packet tunnel integration", () => {
             policyFinished = true
             controller.allowOpen = channel instanceof TunnelChannel
         })
-        const received = new Promise<Buffer>((resolve) => {
+        const received = new Promise<Buffer>((resolve, reject) => {
             server.on("connection", (peer) => {
                 peer.on("channel", (channel) => {
                     if (!(channel instanceof TunnelChannel)) return
-                    channel.events.once("packet", async ({ family, data }) => {
+                    channel.events.once("packet", ({ family, data }) => {
                         expect(family).toBe(TunnelAddressFamily.IPv4)
-                        await channel.sendIPv4(data)
-                        resolve(data)
+                        void channel.sendIPv4(data).then(() => resolve(data), reject)
                     })
                 })
             })
