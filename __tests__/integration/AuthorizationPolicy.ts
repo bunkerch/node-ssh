@@ -6,6 +6,7 @@ import { join } from "node:path"
 import Client from "../../src/Client.js"
 import SessionChannel from "../../src/channels/SessionChannel.js"
 import { SSHAuthenticationMethods } from "../../src/constants.js"
+import Agent, { AgentType } from "../../src/publickey/Agent.js"
 import Server from "../../src/Server.js"
 import type ServerClient from "../../src/ServerClient.js"
 import PrivateKey from "../../src/utils/PrivateKey.js"
@@ -385,6 +386,438 @@ describe("contained authorization hook failures", () => {
             expect(shells).toBe(0)
             expect(hookErrors.map((error) => error.message)).toEqual([
                 "shell policy backend failed",
+            ])
+        } finally {
+            await close(server, client)
+        }
+    }, 15_000)
+
+    test("cannot retain an earlier PTY-request decision", async () => {
+        const hostKey = await PrivateKey.generate("ssh-ed25519")
+        const server = new Server({
+            hostKeys: [hostKey],
+            sendAllHostKeys: false,
+            algorithms: { kex: ["curve25519-sha256"] },
+        })
+        server.hooker.hook("noneAuthentication", (_hook, _context, controller) => {
+            controller.allowLogin = true
+        })
+        server.hooker.hook("channelOpenRequest", (_hook, channel, controller) => {
+            controller.allowOpen = channel instanceof SessionChannel
+        })
+        const hookErrors: Error[] = []
+        let serverChannel: SessionChannel | undefined
+        let ptyEvents = 0
+        server.on("connection", (connection) => {
+            connection.on("channel", (channel) => {
+                if (!(channel instanceof SessionChannel)) return
+                serverChannel = channel
+                channel.hooker.on("uncaughtException", (_event, error) => hookErrors.push(error))
+                channel.hooker.hook("ptyRequest", (_hook, _context, controller) => {
+                    controller.success = true
+                })
+                channel.hooker.hook("ptyRequest", async () => {
+                    await Promise.resolve()
+                    throw new Error("PTY policy backend failed")
+                })
+                channel.events.on("pty", () => {
+                    ptyEvents++
+                })
+            })
+        })
+        const port = await listen(server)
+
+        const client = new Client({
+            hostname: "127.0.0.1",
+            port,
+            username: "pty-policy-failure",
+            authenticationMethodsOrder: [SSHAuthenticationMethods.None],
+            algorithms: { kex: ["curve25519-sha256"] },
+        })
+        client.hooker.hook("hostKey", (_hook, controller) => {
+            controller.allowHostKey = true
+        })
+
+        try {
+            await client.connect()
+            const channel = await client.openSession()
+            await expect(
+                channel.requestPty({ term: "xterm", columns: 100, rows: 40 }),
+            ).rejects.toThrow("failed")
+            expect(serverChannel?.pty).toBeUndefined()
+            expect(ptyEvents).toBe(0)
+            expect(hookErrors.map((error) => error.message)).toEqual(["PTY policy backend failed"])
+        } finally {
+            await close(server, client)
+        }
+    }, 15_000)
+
+    test("cannot retain an earlier environment-request decision", async () => {
+        const hostKey = await PrivateKey.generate("ssh-ed25519")
+        const server = new Server({
+            hostKeys: [hostKey],
+            sendAllHostKeys: false,
+            algorithms: { kex: ["curve25519-sha256"] },
+        })
+        server.hooker.hook("noneAuthentication", (_hook, _context, controller) => {
+            controller.allowLogin = true
+        })
+        server.hooker.hook("channelOpenRequest", (_hook, channel, controller) => {
+            controller.allowOpen = channel instanceof SessionChannel
+        })
+        const hookErrors: Error[] = []
+        let serverChannel: SessionChannel | undefined
+        let envEvents = 0
+        server.on("connection", (connection) => {
+            connection.on("channel", (channel) => {
+                if (!(channel instanceof SessionChannel)) return
+                serverChannel = channel
+                channel.hooker.on("uncaughtException", (_event, error) => hookErrors.push(error))
+                channel.hooker.hook("envRequest", (_hook, _context, controller) => {
+                    controller.success = true
+                })
+                channel.hooker.hook("envRequest", async () => {
+                    await Promise.resolve()
+                    throw new Error("environment policy backend failed")
+                })
+                channel.events.on("env", () => {
+                    envEvents++
+                })
+            })
+        })
+        const port = await listen(server)
+
+        const client = new Client({
+            hostname: "127.0.0.1",
+            port,
+            username: "environment-policy-failure",
+            authenticationMethodsOrder: [SSHAuthenticationMethods.None],
+            algorithms: { kex: ["curve25519-sha256"] },
+        })
+        client.hooker.hook("hostKey", (_hook, controller) => {
+            controller.allowHostKey = true
+        })
+
+        try {
+            await client.connect()
+            const channel = await client.openSession()
+            await expect(channel.setEnv("ROLE", "operator")).rejects.toThrow("failed")
+            expect(serverChannel?.env).toEqual(new Map())
+            expect(envEvents).toBe(0)
+            expect(hookErrors.map((error) => error.message)).toEqual([
+                "environment policy backend failed",
+            ])
+        } finally {
+            await close(server, client)
+        }
+    }, 15_000)
+
+    test("cannot retain an earlier exec-request decision", async () => {
+        const hostKey = await PrivateKey.generate("ssh-ed25519")
+        const server = new Server({
+            hostKeys: [hostKey],
+            sendAllHostKeys: false,
+            algorithms: { kex: ["curve25519-sha256"] },
+        })
+        server.hooker.hook("noneAuthentication", (_hook, _context, controller) => {
+            controller.allowLogin = true
+        })
+        server.hooker.hook("channelOpenRequest", (_hook, channel, controller) => {
+            controller.allowOpen = channel instanceof SessionChannel
+        })
+        const hookErrors: Error[] = []
+        let serverChannel: SessionChannel | undefined
+        let execEvents = 0
+        server.on("connection", (connection) => {
+            connection.on("channel", (channel) => {
+                if (!(channel instanceof SessionChannel)) return
+                serverChannel = channel
+                channel.hooker.on("uncaughtException", (_event, error) => hookErrors.push(error))
+                channel.hooker.hook("execRequest", (_hook, _context, controller) => {
+                    controller.success = true
+                })
+                channel.hooker.hook("execRequest", async () => {
+                    await Promise.resolve()
+                    throw new Error("exec policy backend failed")
+                })
+                channel.events.on("exec", () => {
+                    execEvents++
+                })
+            })
+        })
+        const port = await listen(server)
+
+        const client = new Client({
+            hostname: "127.0.0.1",
+            port,
+            username: "exec-policy-failure",
+            authenticationMethodsOrder: [SSHAuthenticationMethods.None],
+            algorithms: { kex: ["curve25519-sha256"] },
+        })
+        client.hooker.hook("hostKey", (_hook, controller) => {
+            controller.allowHostKey = true
+        })
+
+        try {
+            await client.connect()
+            const channel = await client.openSession()
+            await expect(channel.exec("id -u")).rejects.toThrow("failed")
+            expect(serverChannel).toMatchObject({ consumed: false, shell: undefined })
+            expect(execEvents).toBe(0)
+            expect(hookErrors.map((error) => error.message)).toEqual(["exec policy backend failed"])
+        } finally {
+            await close(server, client)
+        }
+    }, 15_000)
+
+    test("cannot retain an earlier subsystem-request decision", async () => {
+        const hostKey = await PrivateKey.generate("ssh-ed25519")
+        const server = new Server({
+            hostKeys: [hostKey],
+            sendAllHostKeys: false,
+            algorithms: { kex: ["curve25519-sha256"] },
+        })
+        server.hooker.hook("noneAuthentication", (_hook, _context, controller) => {
+            controller.allowLogin = true
+        })
+        server.hooker.hook("channelOpenRequest", (_hook, channel, controller) => {
+            controller.allowOpen = channel instanceof SessionChannel
+        })
+        const hookErrors: Error[] = []
+        let serverChannel: SessionChannel | undefined
+        let subsystemEvents = 0
+        server.on("connection", (connection) => {
+            connection.on("channel", (channel) => {
+                if (!(channel instanceof SessionChannel)) return
+                serverChannel = channel
+                channel.hooker.on("uncaughtException", (_event, error) => hookErrors.push(error))
+                channel.hooker.hook("subsystemRequest", (_hook, _context, controller) => {
+                    controller.success = true
+                })
+                channel.hooker.hook("subsystemRequest", async () => {
+                    await Promise.resolve()
+                    throw new Error("subsystem policy backend failed")
+                })
+                channel.events.on("subsystem", () => {
+                    subsystemEvents++
+                })
+            })
+        })
+        const port = await listen(server)
+
+        const client = new Client({
+            hostname: "127.0.0.1",
+            port,
+            username: "subsystem-policy-failure",
+            authenticationMethodsOrder: [SSHAuthenticationMethods.None],
+            algorithms: { kex: ["curve25519-sha256"] },
+        })
+        client.hooker.hook("hostKey", (_hook, controller) => {
+            controller.allowHostKey = true
+        })
+
+        try {
+            await client.connect()
+            const channel = await client.openSession()
+            await expect(channel.subsystem("audit@example.test")).rejects.toThrow("failed")
+            expect(serverChannel).toMatchObject({ consumed: false, shell: undefined })
+            expect(subsystemEvents).toBe(0)
+            expect(hookErrors.map((error) => error.message)).toEqual([
+                "subsystem policy backend failed",
+            ])
+        } finally {
+            await close(server, client)
+        }
+    }, 15_000)
+
+    test("cannot retain an earlier X11-request decision", async () => {
+        const hostKey = await PrivateKey.generate("ssh-ed25519")
+        const server = new Server({
+            hostKeys: [hostKey],
+            sendAllHostKeys: false,
+            algorithms: { kex: ["curve25519-sha256"] },
+        })
+        server.hooker.hook("noneAuthentication", (_hook, _context, controller) => {
+            controller.allowLogin = true
+        })
+        server.hooker.hook("channelOpenRequest", (_hook, channel, controller) => {
+            controller.allowOpen = channel instanceof SessionChannel
+        })
+        const hookErrors: Error[] = []
+        let serverChannel: SessionChannel | undefined
+        let x11Events = 0
+        server.on("connection", (connection) => {
+            connection.on("channel", (channel) => {
+                if (!(channel instanceof SessionChannel)) return
+                serverChannel = channel
+                channel.hooker.on("uncaughtException", (_event, error) => hookErrors.push(error))
+                channel.hooker.hook("x11Request", (_hook, _context, controller) => {
+                    controller.success = true
+                })
+                channel.hooker.hook("x11Request", async () => {
+                    await Promise.resolve()
+                    throw new Error("X11 policy backend failed")
+                })
+                channel.events.on("x11", () => {
+                    x11Events++
+                })
+            })
+        })
+        const port = await listen(server)
+
+        const client = new Client({
+            hostname: "127.0.0.1",
+            port,
+            username: "x11-policy-failure",
+            authenticationMethodsOrder: [SSHAuthenticationMethods.None],
+            algorithms: { kex: ["curve25519-sha256"] },
+        })
+        client.hooker.hook("hostKey", (_hook, controller) => {
+            controller.allowHostKey = true
+        })
+
+        try {
+            await client.connect()
+            const channel = await client.openSession()
+            await expect(
+                channel.requestX11({ cookie: "00112233445566778899aabbccddeeff" }),
+            ).rejects.toThrow("failed")
+            expect(serverChannel?.x11).toBeUndefined()
+            expect(x11Events).toBe(0)
+            expect(hookErrors.map((error) => error.message)).toEqual(["X11 policy backend failed"])
+        } finally {
+            await close(server, client)
+        }
+    }, 15_000)
+
+    test("cannot retain an earlier BREAK-request decision", async () => {
+        const hostKey = await PrivateKey.generate("ssh-ed25519")
+        const server = new Server({
+            hostKeys: [hostKey],
+            sendAllHostKeys: false,
+            algorithms: { kex: ["curve25519-sha256"] },
+        })
+        server.hooker.hook("noneAuthentication", (_hook, _context, controller) => {
+            controller.allowLogin = true
+        })
+        server.hooker.hook("channelOpenRequest", (_hook, channel, controller) => {
+            controller.allowOpen = channel instanceof SessionChannel
+        })
+        const hookErrors: Error[] = []
+        let breakEvents = 0
+        server.on("connection", (connection) => {
+            connection.on("channel", (channel) => {
+                if (!(channel instanceof SessionChannel)) return
+                channel.hooker.on("uncaughtException", (_event, error) => hookErrors.push(error))
+                channel.hooker.hook("execRequest", (_hook, _context, controller) => {
+                    controller.success = true
+                })
+                channel.hooker.hook("breakRequest", (_hook, _context, controller) => {
+                    controller.success = true
+                })
+                channel.hooker.hook("breakRequest", async () => {
+                    await Promise.resolve()
+                    throw new Error("BREAK policy backend failed")
+                })
+                channel.events.on("break", () => {
+                    breakEvents++
+                })
+            })
+        })
+        const port = await listen(server)
+
+        const client = new Client({
+            hostname: "127.0.0.1",
+            port,
+            username: "break-policy-failure",
+            authenticationMethodsOrder: [SSHAuthenticationMethods.None],
+            algorithms: { kex: ["curve25519-sha256"] },
+        })
+        client.hooker.hook("hostKey", (_hook, controller) => {
+            controller.allowHostKey = true
+        })
+
+        try {
+            await client.connect()
+            const channel = await client.openSession()
+            await channel.exec("interactive-program")
+            await expect(channel.sendBreak(750)).rejects.toThrow("failed")
+            expect(breakEvents).toBe(0)
+            expect(hookErrors.map((error) => error.message)).toEqual([
+                "BREAK policy backend failed",
+            ])
+        } finally {
+            await close(server, client)
+        }
+    }, 15_000)
+
+    test("cannot retain an earlier agent-forwarding decision", async () => {
+        const hostKey = await PrivateKey.generate("ssh-ed25519")
+        const server = new Server({
+            hostKeys: [hostKey],
+            sendAllHostKeys: false,
+            algorithms: { kex: ["curve25519-sha256"] },
+        })
+        server.hooker.hook("noneAuthentication", (_hook, _context, controller) => {
+            controller.allowLogin = true
+        })
+        server.hooker.hook("channelOpenRequest", (_hook, channel, controller) => {
+            controller.allowOpen = channel instanceof SessionChannel
+        })
+        const hookErrors: Error[] = []
+        let forwardingEvents = 0
+        server.on("connection", (connection) => {
+            connection.on("channel", (channel) => {
+                if (!(channel instanceof SessionChannel)) return
+                channel.hooker.on("uncaughtException", (_event, error) => hookErrors.push(error))
+                channel.hooker.hook("agentForwardRequest", (_hook, controller) => {
+                    controller.success = true
+                })
+                channel.hooker.hook("agentForwardRequest", async () => {
+                    await Promise.resolve()
+                    throw new Error("agent-forwarding policy backend failed")
+                })
+                channel.events.on("agentForward", () => {
+                    forwardingEvents++
+                })
+            })
+        })
+        const port = await listen(server)
+        const agent: Agent<string> = {
+            type: AgentType.NonInteractive,
+            async getPublicKeys() {
+                return []
+            },
+            async getPublicKey() {
+                throw new Error("No test identity")
+            },
+            async sign() {
+                throw new Error("No test identity")
+            },
+            async getStream() {
+                throw new Error("A denied forwarding request must not open the agent")
+            },
+        }
+
+        const client = new Client({
+            hostname: "127.0.0.1",
+            port,
+            username: "agent-forwarding-policy-failure",
+            agent,
+            authenticationMethodsOrder: [SSHAuthenticationMethods.None],
+            algorithms: { kex: ["curve25519-sha256"] },
+        })
+        client.hooker.hook("hostKey", (_hook, controller) => {
+            controller.allowHostKey = true
+        })
+
+        try {
+            await client.connect()
+            const channel = await client.openSession()
+            await expect(channel.forwardAgent()).rejects.toThrow("failed")
+            expect(forwardingEvents).toBe(0)
+            expect(hookErrors.map((error) => error.message)).toEqual([
+                "agent-forwarding policy backend failed",
             ])
         } finally {
             await close(server, client)

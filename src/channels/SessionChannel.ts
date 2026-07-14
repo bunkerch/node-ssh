@@ -206,9 +206,12 @@ export default class SessionChannel extends Channel {
                 const controller: SessionChannelHookerAgentForwardRequestController = {
                     success: false,
                 }
-                await this.hooker.triggerHook("agentForwardRequest", controller)
+                const policyCompleted = await this.hooker.triggerHookChecked(
+                    "agentForwardRequest",
+                    controller,
+                )
                 if (!this.isOpen) return
-                if (controller.success) {
+                if (policyCompleted && controller.success) {
                     ;(this.client as ServerClient)[authorizeAgentForwarding](protocol)
                     this.sendRequestSuccess(request)
                     this.events.emit("agentForward")
@@ -221,9 +224,13 @@ export default class SessionChannel extends Channel {
                 assert(!this.x11, "This SSH session channel already has X11 forwarding")
                 const context = Object.freeze(SessionChannel.parseX11Request(request.data.args))
                 const controller: SessionChannelHookerX11RequestController = { success: false }
-                await this.hooker.triggerHook("x11Request", context, controller)
+                const policyCompleted = await this.hooker.triggerHookChecked(
+                    "x11Request",
+                    context,
+                    controller,
+                )
                 if (!this.isOpen) return
-                if (controller.success) {
+                if (policyCompleted && controller.success) {
                     this.x11 = context
                     ;(this.client as ServerClient).registerX11Forwarding(
                         this.localId,
@@ -240,9 +247,13 @@ export default class SessionChannel extends Channel {
                 assert(!this.pty, "This SSH session channel already has a PTY")
                 const pty = Object.freeze(this.parsePtyRequest(request.data.args))
                 const controller: SessionChannelHookerPtyRequestController = { success: false }
-                await this.hooker.triggerHook("ptyRequest", pty, controller)
+                const policyCompleted = await this.hooker.triggerHookChecked(
+                    "ptyRequest",
+                    pty,
+                    controller,
+                )
                 if (!this.isOpen) return
-                if (controller.success) {
+                if (policyCompleted && controller.success) {
                     this.pty = pty
                     this.sendRequestSuccess(request)
                     this.events.emit("pty", pty)
@@ -263,10 +274,14 @@ export default class SessionChannel extends Channel {
                     value: value,
                 }
 
-                await this.hooker.triggerHook("envRequest", Object.freeze(context), controller)
+                const policyCompleted = await this.hooker.triggerHookChecked(
+                    "envRequest",
+                    Object.freeze(context),
+                    controller,
+                )
                 if (!this.isOpen) return
 
-                if (controller.success) {
+                if (policyCompleted && controller.success) {
                     this.env.set(key, value)
                     this.sendRequestSuccess(request)
                     this.events.emit("env", key, value)
@@ -286,10 +301,14 @@ export default class SessionChannel extends Channel {
                 const context: SessionChannelHookerExecRequestContext = {
                     command: command,
                 }
-                await this.hooker.triggerHook("execRequest", Object.freeze(context), controller)
+                const policyCompleted = await this.hooker.triggerHookChecked(
+                    "execRequest",
+                    Object.freeze(context),
+                    controller,
+                )
                 if (!this.isOpen) return
 
-                if (controller.success) {
+                if (policyCompleted && controller.success) {
                     this.consumed = true
                     const shell = this.activateShell()
                     this.sendRequestSuccess(request)
@@ -331,13 +350,13 @@ export default class SessionChannel extends Channel {
                     success: false,
                 }
                 const context: SessionChannelHookerSubsystemRequestContext = { subsystem }
-                await this.hooker.triggerHook(
+                const policyCompleted = await this.hooker.triggerHookChecked(
                     "subsystemRequest",
                     Object.freeze(context),
                     controller,
                 )
                 if (!this.isOpen) return
-                if (controller.success) {
+                if (policyCompleted && controller.success) {
                     if (controller.sftp && subsystem !== "sftp") {
                         throw new Error("SFTP options require the sftp subsystem")
                     }
@@ -393,9 +412,13 @@ export default class SessionChannel extends Channel {
                 assert(remaining.length === 0, "SSH BREAK request has trailing data")
                 const context = Object.freeze({ duration })
                 const controller: SessionChannelHookerBreakRequestController = { success: false }
-                await this.hooker.triggerHook("breakRequest", context, controller)
+                const policyCompleted = await this.hooker.triggerHookChecked(
+                    "breakRequest",
+                    context,
+                    controller,
+                )
                 if (!this.isOpen) return
-                if (controller.success) {
+                if (policyCompleted && controller.success) {
                     this.sendRequestSuccess(request)
                     this.events.emit("break", duration)
                     return

@@ -326,9 +326,9 @@ server.on("connection", (connection) => {
 })
 ```
 
-Program requests consume a session only after their policy succeeds. In particular, every
-`shellRequest` handler must complete without rejection; a contained later failure discards an
-earlier success and does not activate or publish a shell stream.
+Program requests consume a session only after their policy succeeds. Every `shellRequest`,
+`execRequest`, and `subsystemRequest` handler must complete without rejection; a contained later
+failure discards an earlier success and does not activate or publish a shell or subsystem stream.
 
 The `Shell` passed to `exec` and `shell` events is a Node.js `Duplex`. It is also available through
 the `stdin` and `stdout` aliases, and has a separate writable `stderr`. Await `writeStdout()` or
@@ -343,9 +343,11 @@ and teardown caused by an existing peer CLOSE or transport failure remains idemp
 
 Session hooks also cover `ptyRequest`, `envRequest`, and `subsystemRequest`. Accepted values are
 available in `channel.pty` and `channel.env`; the corresponding `pty`, `env`, and `subsystem` events
-are emitted after acceptance. Session command, terminal, and environment text must be valid UTF-8;
-malformed values are rejected before any policy hook runs. Runtime `windowChange` and `signal`
-notifications first run ordered, awaited hooks and are then exposed as observation events:
+are emitted after acceptance. Every decision-bearing handler must complete without rejection before
+its success is retained or any accepted state or event is published. Session command, terminal, and
+environment text must be valid UTF-8; malformed values are rejected before any policy hook runs.
+Runtime `windowChange` and `signal` notifications first run ordered, awaited hooks and are then
+exposed as observation events:
 
 ```ts
 channel.hooker.hook("windowChange", async (_hook, dimensions) => {
@@ -373,12 +375,15 @@ channel.hooker.hook("breakRequest", async (_hook, context, decision) => {
 ```
 
 Treat BREAK authorization as security-sensitive: consoles may interpret it as a request to halt a
-system or enter privileged configuration. After accepting a PTY, the server may also call
+system or enter privileged configuration. Every `breakRequest` handler must complete successfully;
+a later contained failure discards an earlier approval and suppresses the `break` event. After
+accepting a PTY, the server may also call
 `stream.setXonXoff(clientCanDo)` to send RFC 4254's one-way local-flow-control notification. Clients
 emit `xonXoff` with the boolean value and never reply to this notification.
 
 Agent forwarding is separately denied by default even for an allowed session. The server must
-approve `agentForwardRequest`; after approval it may open one or more bounded agent channels:
+approve `agentForwardRequest`; every handler must complete successfully before the authorization is
+registered. After approval it may open one or more bounded agent channels:
 
 ```ts
 channel.hooker.hook("agentForwardRequest", (_hook, decision) => {
@@ -430,8 +435,8 @@ greater exposure. Cookies are validated as non-empty hexadecimal data. `single: 
 exactly one incoming channel, and all unused authorization is removed when its session closes.
 
 On a server, `x11Request` receives the requested single-connection flag, authentication protocol,
-hex cookie, and screen. After explicit approval, `connection.x11()` opens a bounded channel back to
-the client:
+hex cookie, and screen. Every handler must complete successfully before the authorization is
+registered. After explicit approval, `connection.x11()` opens a bounded channel back to the client:
 
 ```ts
 channel.hooker.hook("x11Request", (_hook, request, decision) => {
