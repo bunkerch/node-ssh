@@ -67,11 +67,13 @@ automatically requests an ownership proof bound to the current session and emits
 with keys whose signatures verify:
 
 ```ts
-client.on("hostKeys", async (publicKeys) => {
-    await knownHosts.replaceHostKeys(
-        client.options.hostname,
-        publicKeys.map((key) => key.toString()),
-    )
+client.on("hostKeys", (publicKeys) => {
+    void knownHosts
+        .replaceHostKeys(
+            client.options.hostname,
+            publicKeys.map((key) => key.toString()),
+        )
+        .catch((error) => logger.error({ error }, "Could not update known hosts"))
 })
 ```
 

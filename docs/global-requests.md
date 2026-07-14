@@ -32,15 +32,16 @@ Accepted server connections expose the same API on `ServerClient`, for connectio
 directed at an SSH client:
 
 ```ts
-server.on("connection", (connection) => {
-    connection.once("connect", async () => {
-        const response = await connection.globalRequest(
-            "query-client@example.com",
-            Buffer.from("opaque request bytes"),
-        )
-        console.log(response)
-    })
-})
+import { once } from "node:events"
+
+const [connection] = await once(server, "connection")
+await once(connection, "connect")
+
+const response = await connection.globalRequest(
+    "query-client@example.com",
+    Buffer.from("opaque request bytes"),
+)
+console.log(response)
 ```
 
 It has the same validation, FIFO matching, rekey queuing, and close-settlement rules. Failure

@@ -208,6 +208,14 @@ configure each accepted `SessionChannel`. Request hooks decide whether an indivi
 accepted; channel events provide its duplex stream after the success reply is sent.
 
 ```ts
+async function runStatusCommand(stream) {
+    stream.stdin.pipe(process.stdout)
+    await stream.writeStderr("diagnostics\n")
+    await stream.writeStdout("ok\n")
+    stream.exit(0)
+    stream.stdout.end()
+}
+
 server.hooker.hook("channelOpenRequest", (_hook, channel, decision) => {
     decision.allowOpen = channel instanceof SessionChannel
 })
@@ -220,12 +228,10 @@ server.on("connection", (connection) => {
             decision.success = context.command === "status"
         })
 
-        channel.events.on("exec", async (_command, stream) => {
-            stream.stdin.pipe(process.stdout)
-            await stream.writeStderr("diagnostics\n")
-            await stream.writeStdout("ok\n")
-            stream.exit(0)
-            stream.stdout.end()
+        channel.events.on("exec", (_command, stream) => {
+            void runStatusCommand(stream).catch((error) => {
+                stream.destroy(error)
+            })
         })
     })
 })

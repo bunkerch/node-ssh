@@ -153,15 +153,21 @@ and the server has accepted the exact bind. `ServerClient.forwardOut()` checks t
 opens the RFC 4254 `forwarded-tcpip` channel, and returns its flow-controlled channel:
 
 ```ts
+async function forwardIncomingConnection(socket, acceptedBind, connection) {
+    const channel = await connection.forwardOut(
+        acceptedBind.address,
+        acceptedBind.port,
+        socket.remoteAddress ?? "",
+        socket.remotePort ?? 0,
+    )
+    socket.pipe(channel.stream).pipe(socket)
+}
+
 server.on("connection", (connection) => {
-    incomingConnections.on("connection", async (socket, acceptedBind) => {
-        const channel = await connection.forwardOut(
-            acceptedBind.address,
-            acceptedBind.port,
-            socket.remoteAddress ?? "",
-            socket.remotePort ?? 0,
-        )
-        socket.pipe(channel.stream).pipe(socket)
+    incomingConnections.on("connection", (socket, acceptedBind) => {
+        void forwardIncomingConnection(socket, acceptedBind, connection).catch((error) => {
+            socket.destroy(error)
+        })
     })
 })
 ```

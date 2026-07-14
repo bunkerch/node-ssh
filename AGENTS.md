@@ -53,6 +53,11 @@ meaningful wire-level behavior.
   Hooker policies and EventEmitter notifications remain the application extension mechanisms.
   Callbacks required internally by Node stream, socket, HTTP agent, or crypto interfaces are not
   public API flows.
+- Async `Hooker` handlers are encouraged: `Hooker` awaits them and contains rejected promises using
+  its `uncaughtException` policy. Do not pass async functions directly to EventEmitter `on()` or
+  `once()` because EventEmitter ignores returned promises. In sequential flows, await `once()` from
+  `node:events`; for ongoing subscriptions, use a synchronous listener that starts the operation and
+  attaches explicit rejection handling.
 
 - Implement behavior from the RFCs in `../rfcs`; fetch missing RFCs from an authoritative source
   when needed.
