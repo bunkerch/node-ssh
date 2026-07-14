@@ -73,11 +73,11 @@ support algorithm tests but do not define separate public SSH protocol surfaces.
 | `PROTOCOL.u2f`                            | P-256 and Ed25519 security-key identities, certificates, raw/WebAuthn signatures, private key handles, and agent provider constraints in `src/utils/` and `src/publickey/`  | `__tests__/utils/SecurityKey.ts`, `__tests__/utils/SecurityKeyPrivateKey.ts`, `__tests__/publickey/SecurityKeyAgent.ts`, `__tests__/integration/SecurityKeyAuthentication.ts` | Fixed signed values, negative verification, containers, agent handling, and authentication are covered. Hardware enrollment and `ssh-sk-attest-v00`/`v01` records are not implemented; [authentication.md](authentication.md) documents the enrollment boundary. |
 | Current IETF ML-KEM SSH drafts            | Registered hybrid and standalone ML-KEM key exchanges in `src/algorithms/kex/mlkem-hybrid.ts` and `src/algorithms/kex/mlkem.ts`                                             | `__tests__/transport/MLKEM.ts`, `__tests__/transport/MLKEMStandalone.ts`, and matching encrypted integration suites                                                           | NIST ACVP-derived data, exact sizes, malformed values, implicit rejection, both roles, and rekey are covered. **Gap:** the claimed draft revisions are not mirrored in `../rfcs`, and no independent SSH peer coverage exists yet.                               |
 
-RFC 8758 deprecates RC4 for SSH. No RC4 algorithm is present in the production algorithm catalog.
-**Gap:** a focused regression test does not yet assert that the catalog remains RC4-free. RFC 9519
-changes IANA registration policy only and therefore requires no wire implementation. RFCs present
-in `../rfcs` but used solely as primitive dependencies are covered by the supporting-specification
-paragraph above rather than duplicated in the protocol tables.
+RFC 8758 prohibits all three RC4 SSH names. `__tests__/transport/RFC8758.ts` keeps them out of the
+production and default catalogs and verifies that explicit client configuration cannot enable
+them. RFC 9519 changes IANA registration policy only and therefore requires no wire
+implementation. RFCs present in `../rfcs` but used solely as primitive dependencies are covered by
+the supporting-specification paragraph above rather than duplicated in the protocol tables.
 
 ## Open evidence work
 
@@ -86,6 +86,6 @@ The remaining evidence gaps are therefore bounded and explicit:
 1. Add independent-peer or system-provider coverage for GSS-API, RFC 4432, registered RFC 5647
    names, Ed448, Curve448, RFC 4819, and newer RFC 8308/RFC 9987 operations when capable fixtures
    are available.
-2. Add a table-driven RFC 9142 default-policy test and a focused RFC 8758 no-RC4 catalog test.
+2. Add a table-driven RFC 9142 default-policy test.
 3. Mirror RFCs 4419, 4819, 8270, 8731, and 8732 into `../rfcs` so every claimed standard has a local
    primary-source copy.
