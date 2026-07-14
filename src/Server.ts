@@ -504,6 +504,7 @@ export default class Server extends EventEmitter<ServerEvents> {
     readonly algorithmOffer: ResolvedAlgorithmOptions
     readonly kexAlgorithms: ReadonlyMap<string, KexAlgorithmFactory>
     private readonly hostKeysReady: Promise<void>
+    private listenRequested = false
 
     listen(port?: number, hostname?: string, backlog?: number): this
     listen(port?: number, backlog?: number): this
@@ -514,9 +515,22 @@ export default class Server extends EventEmitter<ServerEvents> {
         if (args.some((argument) => typeof argument === "function")) {
             throw new TypeError("Server.listen does not accept callback listeners; use 'listening'")
         }
-        void this.hostKeysReady.then(() => {
-            Reflect.apply(this.server.listen, this.server, args)
-        })
+        if (this.listenRequested || this.server.listening) {
+            throw new Error("SSH server is already starting or listening")
+        }
+        this.listenRequested = true
+        void this.hostKeysReady
+            .then(() => {
+                try {
+                    Reflect.apply(this.server.listen, this.server, args)
+                } finally {
+                    this.listenRequested = false
+                }
+            })
+            .catch((error: unknown) => {
+                this.listenRequested = false
+                this.emit("error", error instanceof Error ? error : new Error(String(error)))
+            })
 
         return this
     }
