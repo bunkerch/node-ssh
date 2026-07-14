@@ -1,5 +1,5 @@
 {
-    "name": "modernssh",
+    "name": "@bunkerch/modernssh",
     "version": "1.0.0",
     "description": "A modern, typed SSH client and server library for Node.js",
     "type": "module",
