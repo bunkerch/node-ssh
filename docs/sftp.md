@@ -148,6 +148,35 @@ OpenSSH reverses the two wire arguments of the standard `SSH_FXP_SYMLINK` reques
 the peer's SSH identification to apply that published OpenSSH behavior while preserving the draft's
 ordering for other implementations.
 
+## Application extensions
+
+Applications can use negotiated extensions without bypassing the bounded request engine. The
+server must advertise the extension name; an optional `version` requires its payload to match
+exactly. `extended()` copies the opaque request data and defaults to accepting
+`SSH_FXP_EXTENDED_REPLY`:
+
+```ts
+const reply = await sftp.extended("lookup@example.com", Buffer.from("alice"), {
+    version: "1",
+})
+
+if (reply.type === SFTPPacketType.ExtendedReply) console.log(reply.data)
+```
+
+Extensions that define another successful response packet declare it explicitly:
+
+```ts
+await sftp.extended("notify@example.com", payload, {
+    expectedTypes: [SFTPPacketType.Status],
+})
+```
+
+A non-success status becomes `SFTPStatusError`. A successful response type outside the declared
+set is a protocol error and closes the SFTP session, preventing a malformed response from being
+interpreted as another extension's layout. On the server, advertise application extensions through
+`SFTPServerOptions.extensions` and handle them with the awaited `EXTENDED` hook; reply with
+`extendedReply()`, `status()`, or the response method specified by that extension.
+
 ## OpenSSH extensions
 
 Every extension method checks the exact version advertised in `SSH_FXP_VERSION` before sending a

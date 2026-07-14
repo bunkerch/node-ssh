@@ -19,6 +19,7 @@ import PrivateKey from "../../src/utils/PrivateKey.js"
 import Packet from "../../src/packet.js"
 import Unimplemented from "../../src/packets/Unimplemented.js"
 import { serializeBuffer, serializeUint32 } from "../../src/utils/Buffer.js"
+import { SFTPPacketType } from "../../src/sftp/constants.js"
 
 class UnsupportedPacket {
     static type = 200
@@ -159,6 +160,15 @@ describe("client/server integration", () => {
                     controller.success = context.command === "configured-command"
                     if (controller.success) configuredSession = channel
                 })
+                channel.hooker.hook("subsystemRequest", (_hook, context, controller) => {
+                    if (context.subsystem !== "sftp") return
+                    controller.success = true
+                    controller.sftp = {
+                        extensions: [
+                            { name: "query@example.test", data: Buffer.from("1", "ascii") },
+                        ],
+                    }
+                })
                 channel.hooker.hook("breakRequest", async (_hook, context, controller) => {
                     await Promise.resolve()
                     breakDurations.push(context.duration)
@@ -178,6 +188,16 @@ describe("client/server integration", () => {
                 channel.events.on("signal", (signal) => {
                     runtimeControls.push(`event:signal:${signal}`)
                     resolveRuntimeControls?.()
+                })
+                channel.events.on("sftp", (sftp) => {
+                    sftp.hooker.hook("EXTENDED", async (_hook, request) => {
+                        await Promise.resolve()
+                        if (request.request !== "query@example.test") return
+                        sftp.extendedReply(
+                            request.requestId,
+                            Buffer.from(request.data.toString("ascii").toUpperCase()),
+                        )
+                    })
                 })
                 channel.events.on("exec", (_command, shell) => {
                     configuredShell = shell
@@ -588,6 +608,17 @@ describe("client/server integration", () => {
             )
             configured.close()
             await configuredClosed
+
+            const applicationSFTP = await client.sftp()
+            const applicationReply = await applicationSFTP.extended(
+                "query@example.test",
+                Buffer.from("ordered extension"),
+            )
+            expect(applicationReply).toMatchObject({
+                type: SFTPPacketType.ExtendedReply,
+                data: Buffer.from("ORDERED EXTENSION"),
+            })
+            applicationSFTP.end()
 
             const forwardedPort = await client.forwardIn("127.0.0.1", 0)
             expect(forwardedPort).toBeGreaterThan(0)

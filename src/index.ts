@@ -36,6 +36,7 @@ export {
 export type {
     SFTPFastGetOptions,
     SFTPFastPutOptions,
+    SFTPExtendedRequestOptions,
     SFTPPath,
     SFTPPosition,
     SFTPReadFileOptions,
@@ -214,6 +215,8 @@ export type {
     SFTPExtendedAttribute,
     SFTPExtendedPacket,
     SFTPExtendedReplyPacket,
+    SFTPExtensionResponsePacket,
+    SFTPExtensionResponseType,
     SFTPExtension,
     SFTPFSetStatPacket,
     SFTPHandlePacket,

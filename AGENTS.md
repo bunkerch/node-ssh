@@ -81,6 +81,10 @@ meaningful wire-level behavior.
   negotiate advertised `limits@openssh.com` v1, retain exact limit values as `bigint`, and keep
   conservative sizes when the server rejects the request. Never accept a malformed successful
   limits reply as a downgrade.
+- Generic SFTP application extensions must be advertised before the client sends them. Copy opaque
+  request data, optionally gate an exact version, require callers to declare every accepted success
+  response type, and treat an undeclared successful type as a fatal protocol mismatch. Exercise the
+  client against the server's awaited `EXTENDED` hook as well as literal frames.
 - Keep high-level SFTP transfers within negotiated request sizes. Parallel workers must stop
   scheduling after the first error but settle every in-flight operation before closing handles;
   preserve the primary operation error if cleanup also fails.

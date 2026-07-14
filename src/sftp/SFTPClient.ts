@@ -32,10 +32,19 @@ import {
 import type {
     SFTPAttributes,
     SFTPExtension,
+    SFTPExtensionResponsePacket,
+    SFTPExtensionResponseType,
     SFTPPacket,
     SFTPRequestPacketBase,
     SFTPStatusPacket,
 } from "./types.js"
+
+export interface SFTPExtendedRequestOptions {
+    /** Require this exact advertised extension version. */
+    version?: string
+    /** Successful packet types accepted for this extension. Defaults to EXTENDED_REPLY. */
+    expectedTypes?: readonly SFTPExtensionResponseType[]
+}
 
 const MAX_PENDING_REQUESTS = 1024
 const DEFAULT_READ_WRITE_LENGTH = 32768
@@ -258,6 +267,51 @@ export default class SFTPClient {
                 extension.name === name &&
                 (version === undefined || extension.data.toString("ascii") === version),
         )
+    }
+
+    extended(
+        name: string,
+        data: Buffer = Buffer.alloc(0),
+        options: SFTPExtendedRequestOptions = {},
+    ): Promise<SFTPExtensionResponsePacket> {
+        if (!/^[\x21-\x7e]+$/u.test(name)) {
+            return Promise.reject(
+                new TypeError("SFTP extension name must be non-empty printable ASCII"),
+            )
+        }
+        if (!Buffer.isBuffer(data)) {
+            return Promise.reject(new TypeError("SFTP extension data must be a buffer"))
+        }
+        if (!this.supportsExtension(name, options.version)) {
+            const version = options.version === undefined ? "" : ` version ${options.version}`
+            return Promise.reject(new Error(`SFTP server does not advertise ${name}${version}`))
+        }
+        const expectedTypes = options.expectedTypes ?? [SFTPPacketType.ExtendedReply]
+        if (!Array.isArray(expectedTypes) || expectedTypes.length === 0) {
+            return Promise.reject(
+                new TypeError("SFTP extension must accept at least one response type"),
+            )
+        }
+        const allowed = new Set<number>([
+            SFTPPacketType.Status,
+            SFTPPacketType.Handle,
+            SFTPPacketType.Data,
+            SFTPPacketType.Name,
+            SFTPPacketType.Attrs,
+            SFTPPacketType.ExtendedReply,
+        ])
+        if (expectedTypes.some((type) => !allowed.has(type))) {
+            return Promise.reject(new TypeError("Invalid SFTP extension response type"))
+        }
+        return this.request(
+            {
+                type: SFTPPacketType.Extended,
+                requestId: this.allocateRequestId(),
+                request: name,
+                data: Buffer.from(data),
+            },
+            ...new Set(expectedTypes),
+        ) as Promise<SFTPExtensionResponsePacket>
     }
 
     createReadStream(path: SFTPPath, options?: SFTPReadStreamOptions): SFTPReadStream {

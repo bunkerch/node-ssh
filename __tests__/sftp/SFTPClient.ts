@@ -43,6 +43,69 @@ function asClientChannel(channel: SFTPServerFixture): ClientSessionChannel {
 }
 
 describe("SFTP client request engine", () => {
+    test("sends negotiated application extensions with explicit response contracts", async () => {
+        const requests: { name: string; data: Buffer }[] = []
+        const fixture = new SFTPServerFixture((packet) => {
+            if (packet.type === SFTPPacketType.Init) {
+                fixture.send({
+                    type: SFTPPacketType.Version,
+                    version: 3,
+                    extensions: [{ name: "query@example.test", data: Buffer.from("2") }],
+                })
+                return
+            }
+            if (packet.type !== SFTPPacketType.Extended) return
+            requests.push({ name: packet.request, data: Buffer.from(packet.data) })
+            if (requests.length === 1) {
+                fixture.send({
+                    type: SFTPPacketType.ExtendedReply,
+                    requestId: packet.requestId,
+                    data: Buffer.from("answer"),
+                })
+            } else {
+                fixture.send({
+                    type: SFTPPacketType.Status,
+                    requestId: packet.requestId,
+                    code: SFTPStatusCode.Ok,
+                    message: "",
+                    languageTag: "",
+                })
+            }
+        })
+
+        const client = await SFTPClient.connect(asClientChannel(fixture))
+        const requestData = Buffer.from("question")
+        const replyPromise = client.extended("query@example.test", requestData, { version: "2" })
+        requestData.fill(0)
+        const reply = await replyPromise
+        expect(reply).toMatchObject({
+            type: SFTPPacketType.ExtendedReply,
+            data: Buffer.from("answer"),
+        })
+        const status = await client.extended("query@example.test", Buffer.from("notify"), {
+            expectedTypes: [SFTPPacketType.Status],
+        })
+        expect(status.type).toBe(SFTPPacketType.Status)
+        expect(requests).toEqual([
+            { name: "query@example.test", data: Buffer.from("question") },
+            { name: "query@example.test", data: Buffer.from("notify") },
+        ])
+        await expect(client.extended("missing@example.test")).rejects.toThrow(
+            "does not advertise missing@example.test",
+        )
+        await expect(
+            client.extended("query@example.test", Buffer.alloc(0), { version: "1" }),
+        ).rejects.toThrow("does not advertise query@example.test version 1")
+        await expect(
+            client.extended("query@example.test", Buffer.alloc(0), { expectedTypes: [] }),
+        ).rejects.toThrow("at least one response type")
+        expect(requests).toHaveLength(2)
+        await expect(client.extended("query@example.test")).rejects.toThrow(
+            "successful STATUS instead of response data",
+        )
+        expect(fixture.destroyed).toBe(true)
+    })
+
     test("provides whole-file helpers without leaking handles on success or limits", async () => {
         const files = new Map<string, Buffer>()
         const openHandles = new Set<string>()
