@@ -15,11 +15,9 @@ class ServerStderr extends Writable {
 
     _write(data: Buffer | string, encoding: BufferEncoding, callback: WriteCallback): void {
         const buffer = Buffer.isBuffer(data) ? data : Buffer.from(data, encoding)
-        this.channel.sendExtendedData(
-            SSHExtendedDataTypes.SSH_EXTENDED_DATA_STDERR,
-            buffer,
-            callback,
-        )
+        void this.channel
+            .sendExtendedData(SSHExtendedDataTypes.SSH_EXTENDED_DATA_STDERR, buffer)
+            .then(() => callback(), callback)
     }
 }
 
@@ -43,7 +41,7 @@ export default class Shell extends Duplex {
 
     _write(data: Buffer | string, encoding: BufferEncoding, callback: WriteCallback): void {
         const buffer = Buffer.isBuffer(data) ? data : Buffer.from(data, encoding)
-        this.channel.sendData(buffer, callback)
+        void this.channel.sendData(buffer).then(() => callback(), callback)
     }
 
     _final(callback: WriteCallback): void {

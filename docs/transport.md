@@ -418,8 +418,8 @@ await client.rekey()
 await serverConnection.rekey()
 ```
 
-Both methods also have callback overloads and emit `rekey` after the new inbound
-and outbound protection is active. A re-exchange generates a fresh ephemeral key pair,
+Both methods emit `rekey` after the new inbound and outbound protection is active. A re-exchange
+generates a fresh ephemeral key pair,
 exchange hash, IVs, encryption keys, and any separately required MAC keys. The session identifier
 remains the exchange hash from the first key exchange, as required for authentication identity
 continuity. Stateful compression streams also reset independently when the new protection for their

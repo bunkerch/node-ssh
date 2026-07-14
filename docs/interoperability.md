@@ -58,8 +58,8 @@ operation, requested durations are preserved, and client notifications carry the
 
 In-process forwarding tests additionally open server-initiated TCP and UNIX channels through the
 public connection APIs only after matching requests have been accepted. They assert every source
-and destination field, exchange data in both directions through the bounded channel streams, cover
-the callback and promise forms, and reject attempts after cancellation.
+and destination field, exchange data in both directions through the bounded channel streams, and
+reject attempts after cancellation.
 
 Transport tests likewise use deterministic identification, binary framing, encryption-boundary,
 MAC, AEAD, fragmentation, and maximum-size vectors. AES-GCM is checked against a published NIST

@@ -21,15 +21,6 @@ const response = await client.globalRequest(
 )
 ```
 
-The callback overload returns the client:
-
-```ts
-client.globalRequest("query@example.com", Buffer.alloc(0), (error, response) => {
-    if (error) throw error
-    console.log(response)
-})
-```
-
 Request names must be non-empty printable ASCII and arguments must be a `Buffer`. A failure reply
 rejects with `GlobalRequestError`. Concurrent calls are matched to replies in RFC wire order, and
 pending calls reject if the connection closes. A success or failure response without a pending
@@ -52,8 +43,8 @@ server.on("connection", (connection) => {
 })
 ```
 
-Its Promise and callback overloads have the same validation, FIFO matching, rekey queuing, and
-close-settlement rules. Failure replies reject with `ServerGlobalRequestError`.
+It has the same validation, FIFO matching, rekey queuing, and close-settlement rules. Failure
+replies reject with `ServerGlobalRequestError`.
 
 ## Receiving application requests
 

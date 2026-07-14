@@ -11,7 +11,6 @@ import ServerClient from "../../src/ServerClient.js"
 import SessionChannel from "../../src/channels/SessionChannel.js"
 import ClientForwardedTCPIPChannel from "../../src/channels/ClientForwardedTCPIPChannel.js"
 import ClientForwardedStreamLocalChannel from "../../src/channels/ClientForwardedStreamLocalChannel.js"
-import ForwardedTCPIPChannel from "../../src/channels/ForwardedTCPIPChannel.js"
 import Shell from "../../src/channels/Session/Shell.js"
 import RequestFailure from "../../src/packets/RequestFailure.js"
 import GlobalRequest from "../../src/packets/GlobalRequest.js"
@@ -285,17 +284,7 @@ describe("client/server integration", () => {
                     client.ping(Buffer.from("second-ping")),
                 ]),
             ).toEqual([Buffer.from("first-ping"), Buffer.from("second-ping")])
-            await new Promise<void>((resolve, reject) => {
-                expect(
-                    client.ping(Buffer.from("callback-ping"), (error, reply) => {
-                        if (error) reject(error)
-                        else {
-                            expect(reply).toEqual(Buffer.from("callback-ping"))
-                            resolve()
-                        }
-                    }),
-                ).toBe(client)
-            })
+            expect(await client.ping(Buffer.from("third-ping"))).toEqual(Buffer.from("third-ping"))
 
             const clientUnimplemented = new Promise<Unimplemented[]>((resolve) => {
                 const replies: Unimplemented[] = []
@@ -355,21 +344,9 @@ describe("client/server integration", () => {
             await expect(client.globalRequest("invalid request name")).rejects.toThrow(
                 "SSH global request name must be non-empty printable ASCII",
             )
-            await new Promise<void>((resolve, reject) => {
-                expect(
-                    client.globalRequest(
-                        "ordered-one@example.test",
-                        Buffer.from("callback"),
-                        (error, response) => {
-                            if (error) reject(error)
-                            else {
-                                expect(response).toEqual(Buffer.from("CALLBACK"))
-                                resolve()
-                            }
-                        },
-                    ),
-                ).toBe(client)
-            })
+            expect(
+                await client.globalRequest("ordered-one@example.test", Buffer.from("third")),
+            ).toEqual(Buffer.from("THIRD"))
 
             expect(
                 await Promise.all([
@@ -390,21 +367,12 @@ describe("client/server integration", () => {
             await expect(serverPeer!.globalRequest("server-denied@example.test")).rejects.toThrow(
                 "SSH global request server-denied@example.test failed",
             )
-            await new Promise<void>((resolve, reject) => {
-                expect(
-                    serverPeer!.globalRequest(
-                        "server-query-two@example.test",
-                        Buffer.from("callback"),
-                        (error, response) => {
-                            if (error) reject(error)
-                            else {
-                                expect(response).toEqual(Buffer.from("reply:callback"))
-                                resolve()
-                            }
-                        },
-                    ),
-                ).toBe(serverPeer!)
-            })
+            expect(
+                await serverPeer!.globalRequest(
+                    "server-query-two@example.test",
+                    Buffer.from("third"),
+                ),
+            ).toEqual(Buffer.from("reply:third"))
 
             client.sendPacket(
                 new GlobalRequest({
@@ -451,17 +419,7 @@ describe("client/server integration", () => {
             }
             expect(clientHandshakes).toEqual([expectedNegotiated])
             expect(serverHandshakes).toEqual([expectedNegotiated])
-            await new Promise<void>((resolve, reject) => {
-                expect(
-                    server.getConnections((error, count) => {
-                        if (error) reject(error)
-                        else {
-                            expect(count).toBe(1)
-                            resolve()
-                        }
-                    }),
-                ).toBe(server)
-            })
+            expect(await server.getConnections()).toBe(1)
 
             const initialClientSessionId = Buffer.from(client.sessionID!)
             const initialServerSessionId = Buffer.from(serverPeer!.sessionID!)
@@ -587,11 +545,7 @@ describe("client/server integration", () => {
             const clientAcceptedServerRekey = new Promise<void>((resolve) =>
                 client.once("rekey", resolve),
             )
-            const serverRekey = new Promise<void>((resolve, reject) => {
-                expect(serverPeer!.rekey((error) => (error ? reject(error) : resolve()))).toBe(
-                    serverPeer!,
-                )
-            })
+            const serverRekey = serverPeer!.rekey()
             const serverRequestDuringRekey = serverPeer!.globalRequest(
                 "server-query-two@example.test",
                 Buffer.from("during-rekey"),
@@ -713,17 +667,12 @@ describe("client/server integration", () => {
                     resolve({ details, channel: accept()! })
                 })
             })
-            const serverTCP = new Promise<ForwardedTCPIPChannel>((resolve, reject) => {
-                expect(
-                    serverPeer!.forwardOut(
-                        "127.0.0.1",
-                        forwardedPort,
-                        "192.0.2.50",
-                        51_234,
-                        (error, channel) => (error ? reject(error) : resolve(channel!)),
-                    ),
-                ).toBe(serverPeer!)
-            })
+            const serverTCP = serverPeer!.forwardOut(
+                "127.0.0.1",
+                forwardedPort,
+                "192.0.2.50",
+                51_234,
+            )
             const [{ details: tcpDetails, channel: clientTCP }, serverTCPChannel] =
                 await Promise.all([incomingTCP, serverTCP])
             expect(tcpDetails).toEqual({
@@ -839,9 +788,7 @@ describe("client/server integration", () => {
                 expect(await pendingServerRequest).toBe("SSH peer disconnected (reason 11)")
             }
             expect(client.isConnected).toBe(false)
-            await new Promise<void>((resolve, reject) => {
-                expect(server.close((error) => (error ? reject(error) : resolve()))).toBe(server)
-            })
+            await server.close()
             await rm(streamLocalPath, { force: true })
         }
     }, 15_000)
@@ -1124,9 +1071,7 @@ describe("client/server integration", () => {
         expect(presentedKey).toEqual(hostKey.data.publicKey.serialize())
         expect(client.canConnect).toBe(true)
 
-        await new Promise<void>((resolve, reject) => {
-            server.close((error) => (error ? reject(error) : resolve()))
-        })
+        await server.close()
         expect(() => new Client({ hostHash: "not-a-real-hash" })).toThrow(
             "Unsupported SSH host hash algorithm: not-a-real-hash",
         )
@@ -1173,7 +1118,7 @@ describe("client/server integration", () => {
         } finally {
             client.destroy()
             for (const peer of server.clients) peer.terminate()
-            await new Promise<void>((resolve) => server.close(() => resolve()))
+            await server.close()
         }
     }, 15_000)
 })

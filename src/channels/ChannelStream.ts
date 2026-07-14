@@ -13,7 +13,9 @@ export default class ChannelStream extends Duplex {
     }
 
     _write(data: Buffer | string, encoding: BufferEncoding, callback: WriteCallback): void {
-        this.channel.sendData(Buffer.isBuffer(data) ? data : Buffer.from(data, encoding), callback)
+        void this.channel
+            .sendData(Buffer.isBuffer(data) ? data : Buffer.from(data, encoding))
+            .then(() => callback(), callback)
     }
 
     _final(callback: WriteCallback): void {

@@ -21,14 +21,6 @@ channel.on("exit", (code, signal) => {
 
 `client.shell()` opens the same kind of stream and requests an interactive shell. `openSession()`
 opens a session without choosing a program, so callers can issue lower-level channel requests.
-Callback forms are also available:
-
-```ts
-client.exec("node --version", (error, channel) => {
-    if (error) throw error
-    channel!.pipe(process.stdout)
-})
-```
 
 `exec()` accepts typed session setup options and applies them before the program request, in SSH
 protocol order:
@@ -47,8 +39,7 @@ Environment requests from this convenience API do not ask for replies, matching 
 OpenSSH behavior; servers may silently ignore variables outside their `AcceptEnv` policy. PTY, X11,
 and agent-forwarding requests require success before `exec` starts. `shell()` accepts the same
 options and requests a default PTY unless `pty: false` is supplied. `sftp(environment)` sends the
-given environment before starting the subsystem. The callback overloads accept these option
-objects as the argument before the callback.
+given environment before starting the subsystem.
 
 For PTY, environment, resize, signal, or subsystem setup, open a session explicitly and make the
 requests in protocol order:
@@ -131,8 +122,8 @@ const session = await client.exec("deploy")
 await client.opensshNoMoreSessions()
 ```
 
-`opensshNoMoreSessions()` is the promise API; `openssh_noMoreSessions()` additionally provides the
-callback form. The request is irreversible for the connection. Existing session
+`opensshNoMoreSessions()` and its compatibility alias `openssh_noMoreSessions()` both return a
+Promise. The request is irreversible for the connection. Existing session
 channels and non-session channel types are unaffected, while a `modernssh` server rejects later
 session opens before invoking application channel policy. OpenSSH may enforce the request by
 disconnecting a client that attempts another session, so pending channel operations are rejected

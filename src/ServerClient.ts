@@ -132,12 +132,6 @@ interface RemoteForwardListener {
     server: net.Server
 }
 
-export type ServerForwardCallback<T extends Channel> = (
-    error: Error | undefined,
-    channel?: T,
-) => void
-export type ServerGlobalRequestCallback = (error: Error | undefined, response?: Buffer) => void
-
 export class ServerGlobalRequestError extends Error {
     name = "ServerGlobalRequestError"
 }
@@ -349,41 +343,12 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         boundPort: number,
         remoteAddress: string,
         remotePort: number,
-    ): Promise<ForwardedTCPIPChannel>
-    forwardOut(
-        boundAddress: string,
-        boundPort: number,
-        remoteAddress: string,
-        remotePort: number,
-        callback: ServerForwardCallback<ForwardedTCPIPChannel>,
-    ): this
-    forwardOut(
-        boundAddress: string,
-        boundPort: number,
-        remoteAddress: string,
-        remotePort: number,
-        callback?: ServerForwardCallback<ForwardedTCPIPChannel>,
-    ): Promise<ForwardedTCPIPChannel> | this {
-        const operation = this.openForwardedTCPIPChannel(
-            boundAddress,
-            boundPort,
-            remoteAddress,
-            remotePort,
-        )
-        return this.withOptionalForwardCallback(operation, callback)
+    ): Promise<ForwardedTCPIPChannel> {
+        return this.openForwardedTCPIPChannel(boundAddress, boundPort, remoteAddress, remotePort)
     }
 
-    openssh_forwardOutStreamLocal(socketPath: string): Promise<ForwardedStreamLocalChannel>
-    openssh_forwardOutStreamLocal(
-        socketPath: string,
-        callback: ServerForwardCallback<ForwardedStreamLocalChannel>,
-    ): this
-    openssh_forwardOutStreamLocal(
-        socketPath: string,
-        callback?: ServerForwardCallback<ForwardedStreamLocalChannel>,
-    ): Promise<ForwardedStreamLocalChannel> | this {
-        const operation = this.openForwardedStreamLocalChannel(socketPath)
-        return this.withOptionalForwardCallback(operation, callback)
+    openssh_forwardOutStreamLocal(socketPath: string): Promise<ForwardedStreamLocalChannel> {
+        return this.openForwardedStreamLocalChannel(socketPath)
     }
 
     registerX11Forwarding(sessionId: number, single: boolean): void {
@@ -459,31 +424,17 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         return this
     }
 
-    rekey(): Promise<void>
-    rekey(callback: (error?: Error) => void): this
-    rekey(callback?: (error?: Error) => void): Promise<void> | this {
+    rekey(): Promise<void> {
         if (!this.isConnected || !this.hasAuthenticated) {
-            const error = new Error("Cannot rekey before the SSH connection is ready")
-            if (!callback) return Promise.reject(error)
-            queueMicrotask(() => callback(error))
-            return this
+            return Promise.reject(new Error("Cannot rekey before the SSH connection is ready"))
         }
         if (this.keyExchangeInProgress) {
-            const error = new Error("SSH key exchange is already in progress")
-            if (!callback) return Promise.reject(error)
-            queueMicrotask(() => callback(error))
-            return this
+            return Promise.reject(new Error("SSH key exchange is already in progress"))
         }
-        const operation = this.performKeyExchange().catch((error: unknown) => {
+        return this.performKeyExchange().catch((error: unknown) => {
             this.terminate()
             throw error
         })
-        if (!callback) return operation
-        operation.then(
-            () => callback(),
-            (error: Error) => callback(error),
-        )
-        return this
     }
 
     sendDebug(message: string, alwaysDisplay = false, languageTag = ""): this {
@@ -505,23 +456,13 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         return this
     }
 
-    globalRequest(name: string, args?: Buffer): Promise<Buffer>
-    globalRequest(name: string, callback: ServerGlobalRequestCallback): this
-    globalRequest(name: string, args: Buffer, callback: ServerGlobalRequestCallback): this
-    globalRequest(
-        name: string,
-        argsOrCallback: Buffer | ServerGlobalRequestCallback = Buffer.alloc(0),
-        callback?: ServerGlobalRequestCallback,
-    ): Promise<Buffer> | this {
-        const args = typeof argsOrCallback === "function" ? Buffer.alloc(0) : argsOrCallback
-        callback = typeof argsOrCallback === "function" ? argsOrCallback : callback
-        let operation: Promise<Buffer>
+    globalRequest(name: string, args: Buffer = Buffer.alloc(0)): Promise<Buffer> {
         try {
             this.validateGlobalRequest(name, args)
             if (!this.isConnected || !this.hasAuthenticated) {
                 throw new Error("Cannot send an SSH global request before authentication")
             }
-            operation = new Promise<Buffer>((resolve, reject) => {
+            return new Promise<Buffer>((resolve, reject) => {
                 this.pendingGlobalRequests.push({ name, resolve, reject })
                 try {
                     this.sendPacket(
@@ -537,14 +478,8 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 }
             })
         } catch (error) {
-            operation = Promise.reject(error as Error)
+            return Promise.reject(error as Error)
         }
-        if (!callback) return operation
-        operation.then(
-            (response) => callback(undefined, response),
-            (error: Error) => callback(error),
-        )
-        return this
     }
 
     private validateGlobalRequest(name: string, args: Buffer): void {
@@ -1294,18 +1229,6 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             channel.abort(error as Error)
             throw error
         }
-    }
-
-    private withOptionalForwardCallback<T extends Channel>(
-        operation: Promise<T>,
-        callback?: ServerForwardCallback<T>,
-    ): Promise<T> | this {
-        if (!callback) return operation
-        operation.then(
-            (channel) => callback(undefined, channel),
-            (error: Error) => callback(error),
-        )
-        return this
     }
 
     private validateForwardingPort(port: number, name: string): void {

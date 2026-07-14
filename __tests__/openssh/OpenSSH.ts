@@ -2592,9 +2592,10 @@ describe("OpenSSH interoperability", () => {
                 keepaliveInterval: 20,
                 keepaliveCountMax: 3,
                 hostHash: "sha256",
-                hostVerifier: (hash, verified) => {
+                hostVerifier: async (hash) => {
                     verifiedHostHashes.push(hash)
-                    setImmediate(() => verified(hash === expectedHostHash))
+                    await new Promise<void>((resolve) => setImmediate(resolve))
+                    return hash === expectedHostHash
                 },
                 algorithms: {
                     kex: ["curve25519-sha256"],

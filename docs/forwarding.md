@@ -164,8 +164,8 @@ server.on("connection", (connection) => {
 ```
 
 The bound address and port must identify a currently active forwarding request. This prevents an
-application bug from opening an unsolicited server-initiated channel. Both promise and callback
-forms are available; channel-open rejection is reported through the returned promise or callback.
+application bug from opening an unsolicited server-initiated channel. Channel-open rejection is
+reported through the returned Promise.
 
 ## OpenSSH UNIX-domain socket forwarding
 

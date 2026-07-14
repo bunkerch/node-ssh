@@ -51,8 +51,6 @@ export default class TunnelChannel extends Channel {
     }
 
     private sendPayload(payload: Buffer): Promise<void> {
-        return new Promise<void>((resolve, reject) => {
-            this.sendAtomicData(payload, (error) => (error ? reject(error) : resolve()))
-        })
+        return this.sendAtomicData(payload)
     }
 }

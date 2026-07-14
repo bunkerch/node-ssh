@@ -48,6 +48,12 @@ meaningful wire-level behavior.
 
 ## Protocol and Library Practices
 
+- Public asynchronous operations are Promise-only. Do not add Node-style completion callbacks,
+  callback overloads, or callback-returning aliases; callers can chain `.then()` when desired.
+  Hooker policies and EventEmitter notifications remain the application extension mechanisms.
+  Callbacks required internally by Node stream, socket, HTTP agent, or crypto interfaces are not
+  public API flows.
+
 - Implement behavior from the RFCs in `../rfcs`; fetch missing RFCs from an authoritative source
   when needed.
 - Treat third-party implementations only as a short-lived feature-gap inventory. Do not mention,
@@ -272,14 +278,14 @@ meaningful wire-level behavior.
   every terminal path; test expiry against a real silent TCP peer rather than a mocked transport.
 - Host verification runs only after the exchange-hash signature is cryptographically valid and
   before `NEWKEYS`. Pass the exact serialized host-key blob (or the requested Node hash as lowercase
-  hex), honor synchronous and callback decisions once, and reverify the key on every rekey. Use a
+  hex), honor synchronous and promised decisions once, and reverify the key on every rekey. Use a
   real OpenSSH host key to prove the public verifier contract.
 - Identification compatibility options must still pass through the RFC 4253 validator. Preserve
   greeting bytes and line endings until the peer identifier arrives, emit the combined greeting
   once, and retain the existing per-line observability events. Normalize configured server
   greetings to CRLF and reject values that could be mistaken for an SSH identification.
 - OpenSSH-only client requests are vendor-gated by default from the authenticated peer's validated
-  identification. Apply the same gate to promise and callback APIs, allow an explicit compatibility
+  identification. Apply the same gate to all Promise APIs, allow an explicit compatibility
   override, and prove rejection before a request reaches a non-OpenSSH server.
 - RFC 4253 rekeying preserves the first exchange hash as the session identifier while deriving all
   new transport keys from the current exchange hash. Queue application output after sending

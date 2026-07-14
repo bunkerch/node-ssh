@@ -7,6 +7,7 @@ connections or install global patches.
 ## Client connection
 
 ```ts
+import { once } from "node:events"
 import { Client } from "modernssh"
 
 const client = new Client({
@@ -36,7 +37,7 @@ console.log("Authenticated", client.isConnected)
 const command = await client.exec("uname -a")
 command.pipe(process.stdout)
 command.stderr.pipe(process.stderr)
-await new Promise<void>((resolve) => command.once("close", resolve))
+await once(command, "close")
 
 client.end()
 ```
@@ -45,7 +46,7 @@ Both `Client` and `Server` accept a `debug(...message)` option for diagnostics t
 available from the start of their lifecycle. It receives the same arguments as the corresponding
 `debug` event; applications may use either or both. Authentication secrets and key material are
 redacted before this surface is called. Treat all remaining values as operationally sensitive and
-ensure the diagnostic callback does not throw.
+ensure the diagnostic handler does not throw.
 
 ```ts
 const client = new Client({
@@ -56,7 +57,7 @@ const client = new Client({
 
 Configure `hostVerifier` in production and compare the received raw serialized key, or the
 lowercase hexadecimal `hostHash` digest shown above, with a value from a trusted source. The
-verifier may return a boolean or call its second argument asynchronously. The existing `hostKey`
+verifier may return a boolean or a promise of one. The existing `hostKey`
 hook can perform richer verification with a parsed `PublicKey`; when both mechanisms are present,
 both must allow the key. With neither configured, the client accepts the cryptographically valid
 host key implicitly, which does not authenticate an unknown server.
@@ -189,9 +190,10 @@ private-key objects in `server.options`; it does not retain encoded containers o
 `hostKeys` is empty, the server generates a temporary Ed25519 key, which changes identity after
 every restart.
 
-`Server` mirrors the useful Node TCP-server controls: `address()`, `getConnections()`, `close()`,
-`ref()`, and `unref()` all operate without reaching into an internal socket and return the server
-where Node supports chaining. `ServerClient.setNoDelay()` controls Nagle's algorithm per accepted
+`Server` mirrors useful Node TCP-server controls without exposing callback completion flows:
+`getConnections()` and `close()` return Promises, `listen()` reports readiness through the
+`listening` event, and `address()`, `ref()`, and `unref()` remain synchronous.
+`ServerClient.setNoDelay()` controls Nagle's algorithm per accepted
 connection. Call `ServerClient.end()` for a graceful application shutdown: it sends an RFC 4253
 `BY_APPLICATION` disconnect before ending the socket. `terminate()` destroys the socket
 immediately, while `disconnect(error)` sends a caller-selected protocol reason.

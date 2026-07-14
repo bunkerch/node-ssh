@@ -74,14 +74,12 @@ export class SFTPReadStream extends Readable {
         return this.handle === undefined && !this.isClosed
     }
 
-    close(callback?: (error?: Error) => void): void {
-        if (this.isClosed) {
-            if (callback) queueMicrotask(() => callback())
-            return
-        }
+    close(): Promise<void> {
+        if (this.isClosed) return Promise.resolve()
+        const closed = closePromise(this)
         this.forceClose = true
-        if (callback) closeCallback(this, callback)
         this.destroy()
+        return closed
     }
 
     override _read(size: number): void {
@@ -208,14 +206,12 @@ export class SFTPWriteStream extends Writable {
         return this.handle === undefined && !this.isClosed
     }
 
-    close(callback?: (error?: Error) => void): void {
-        if (this.isClosed) {
-            if (callback) queueMicrotask(() => callback())
-            return
-        }
-        if (callback) closeCallback(this, callback)
+    close(): Promise<void> {
+        if (this.isClosed) return Promise.resolve()
+        const closed = closePromise(this)
         this.forceClose = true
         this.end(() => this.destroy())
+        return closed
     }
 
     destroySoon(): this {
@@ -326,20 +322,17 @@ function isSFTPEOF(error: unknown): boolean {
     )
 }
 
-function closeCallback(
-    stream: SFTPReadStream | SFTPWriteStream,
-    callback: (error?: Error) => void,
-): void {
-    let called = false
-    const finish = (error?: Error): void => {
-        if (called) return
-        called = true
-        stream.off("close", onClose)
-        stream.off("error", onError)
-        callback(error)
-    }
-    const onClose = (): void => finish()
-    const onError = (error: Error): void => finish(error)
-    stream.once("close", onClose)
-    stream.once("error", onError)
+function closePromise(stream: SFTPReadStream | SFTPWriteStream): Promise<void> {
+    return new Promise((resolve, reject) => {
+        const finish = (error?: Error): void => {
+            stream.off("close", onClose)
+            stream.off("error", onError)
+            if (error) reject(error)
+            else resolve()
+        }
+        const onClose = (): void => finish()
+        const onError = (error: Error): void => finish(error)
+        stream.once("close", onClose)
+        stream.once("error", onError)
+    })
 }

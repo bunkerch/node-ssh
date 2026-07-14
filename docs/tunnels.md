@@ -26,7 +26,7 @@ Pass a non-negative unit number as the second argument to request a particular u
 channel, use `TunnelMode.Ethernet`, listen for `frame`, and call `sendFrame(frame)`.
 
 The client method is vendor-gated when strict vendor checking is enabled, consistently with other
-vendor extensions. Promise and callback forms are both available.
+vendor extensions. These operations return Promises.
 
 ## Server policy
 
