@@ -11,11 +11,15 @@ export default class HMACMD5 implements MACAlgorithm {
         return new HMACMD5(key)
     }
 
-    constructor(readonly key: Buffer) {}
+    readonly #key: Buffer
+
+    constructor(key: Buffer) {
+        this.#key = Buffer.from(key)
+    }
 
     computeMAC(sequenceNumber: number, packet: Buffer): Buffer {
         const sequence = Buffer.allocUnsafe(4)
         sequence.writeUInt32BE(sequenceNumber)
-        return crypto.createHmac("md5", this.key).update(sequence).update(packet).digest()
+        return crypto.createHmac("md5", this.#key).update(sequence).update(packet).digest()
     }
 }

@@ -87,24 +87,29 @@ describe("SSH MAC algorithms", () => {
         expect(HMACSHA2256.digest_length).toBe(32)
     })
 
-    test("hmac-sha1-96 truncates the RFC 2202 HMAC-SHA1 vector to 96 bits", () => {
+    test("hmac-sha1-96 owns its key and truncates the RFC 2202 vector", () => {
         const key = Buffer.alloc(20, 0x0b)
         const expected = Buffer.from("b617318655057264e28bc0b6", "hex")
+        const mac = new HMACSHA196(key)
+        key.fill(0)
 
         // uint32(sequence_number) || packet forms RFC 2202's fixed message "Hi There".
-        expect(new HMACSHA196(key).computeMAC(0x4869_2054, Buffer.from("here"))).toEqual(expected)
+        expect(mac.computeMAC(0x4869_2054, Buffer.from("here"))).toEqual(expected)
         expect(HMACSHA196.digest_length).toBe(12)
         expect(HMACSHA196ETM.digest_length).toBe(12)
         expect(HMACSHA196ETM.encrypt_then_mac).toBe(true)
     })
 
-    test("hmac-md5 and hmac-md5-96 match the RFC 2202 vector", () => {
+    test("hmac-md5 variants own their key and match the RFC 2202 vector", () => {
         const key = Buffer.alloc(16, 0x0b)
         const expected = Buffer.from("9294727a3638bb1c13f48ef8158bfc9d", "hex")
+        const full = new HMACMD5(key)
+        const truncated = new HMACMD596(key)
+        key.fill(0)
 
         // uint32(sequence_number) || packet forms RFC 2202's fixed message "Hi There".
-        expect(new HMACMD5(key).computeMAC(0x4869_2054, Buffer.from("here"))).toEqual(expected)
-        expect(new HMACMD596(key).computeMAC(0x4869_2054, Buffer.from("here"))).toEqual(
+        expect(full.computeMAC(0x4869_2054, Buffer.from("here"))).toEqual(expected)
+        expect(truncated.computeMAC(0x4869_2054, Buffer.from("here"))).toEqual(
             expected.subarray(0, 12),
         )
         expect(HMACMD5ETM.encrypt_then_mac).toBe(true)

@@ -1,4 +1,4 @@
-import crypto from "crypto"
+import crypto from "node:crypto"
 import { MACAlgorithm } from "../../algorithms.js"
 
 export default class HMACSHA1 implements MACAlgorithm {
@@ -11,18 +11,19 @@ export default class HMACSHA1 implements MACAlgorithm {
         return new HMACSHA1(key)
     }
 
-    key: Buffer
+    readonly #key: Buffer
+
     constructor(key: Buffer) {
-        this.key = key
+        this.#key = Buffer.from(key)
     }
 
-    computeMAC(sequence_number: number, packet: Buffer): Buffer {
-        const seq = Buffer.allocUnsafe(4)
+    computeMAC(sequenceNumber: number, packet: Buffer): Buffer {
+        const sequence = Buffer.allocUnsafe(4)
 
-        seq.writeUInt32BE(sequence_number)
+        sequence.writeUInt32BE(sequenceNumber)
 
-        const hmac = crypto.createHmac("sha1", this.key)
-        hmac.update(seq)
+        const hmac = crypto.createHmac("sha1", this.#key)
+        hmac.update(sequence)
         hmac.update(packet)
         return hmac.digest()
     }
