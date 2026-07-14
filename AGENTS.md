@@ -306,6 +306,8 @@ meaningful wire-level behavior.
   at-sign plus domain form for local extensions, reject empty and duplicate name-list entries, and
   apply the shared codec to services, methods, algorithms, extensions, channels, requests, and
   subsystems on both parse and serialization paths.
+- Ordinary and host-bound public-key authentication use the strict SSH-name codec for their
+  signature algorithm field and copy caller-owned method metadata before retaining it.
 - Public and private key envelopes bind their validated SSH algorithm name to the contained key
   implementation, require private/public identity agreement, and copy caller-owned envelope data.
 - Key comments use fatal UTF-8, exclude NUL and line endings on every construction and parse path,

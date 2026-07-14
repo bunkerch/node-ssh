@@ -129,6 +129,8 @@ RSA identities use RFC 8332 SHA-2 signatures by preference: `rsa-sha2-512`, then
 8308 `server-sig-algs` extension, the client restricts its attempts to the advertised signature
 algorithms. Direct private keys, `PrivateKeyAgent`, and `DiskAgent` select the requested hash
 locally, while `SSHAgent` sends the corresponding RFC 9987 RSA SHA-2 flag to the external agent.
+Ordinary and host-bound requests encode these identifiers with the shared RFC 4250 SSH-name codec;
+malformed, non-ASCII, overlong, or comma-containing names are rejected before key policy.
 
 ECDSA identities on `nistp256`, `nistp384`, and `nistp521` use the matching RFC 5656 algorithm name
 and SHA-2 hash. Disk-backed OpenSSH ECDSA keys and delegated agent signatures use the same public-key

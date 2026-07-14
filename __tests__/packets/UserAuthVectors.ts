@@ -186,6 +186,31 @@ describe("RFC 4252 and RFC 4256 authentication vectors", () => {
         ).toEqual(hostboundSignatureMessage)
     })
 
+    test.each([
+        ["ordinary", rsaSha512Request],
+        ["host-bound", hostboundRequest],
+    ])("rejects a malformed %s public-key signature algorithm", (_name, request) => {
+        const malformed = Buffer.from(request)
+        const algorithm = Buffer.from(request === rsaSha512Request ? "rsa-sha2-512" : "ssh-ed25519")
+        const offset = malformed.indexOf(algorithm)
+        expect(offset).toBeGreaterThanOrEqual(0)
+        malformed[offset] = 0xff
+
+        expect(() => UserAuthRequest.parse(malformed)).toThrow(
+            "SSH public-key signature algorithm must be US-ASCII",
+        )
+    })
+
+    test("does not mutate or retain public-key method constructor metadata", () => {
+        const parsed = UserAuthRequest.parse(rsaSha512Request).data.method as PublicKeyAuthMethod
+        const input = { ...parsed.data, signature: undefined }
+        const method = new PublicKeyAuthMethod(input)
+        expect(input.algorithm).toBe("rsa-sha2-512")
+        input.algorithm = "ssh-rsa"
+
+        expect(method.data.algorithm).toBe("rsa-sha2-512")
+    })
+
     test("parses and serializes an independently written RFC 4252 hostbased request", () => {
         const packet = UserAuthRequest.parse(hostbasedRequest)
         const method = packet.data.method as HostbasedAuthMethod

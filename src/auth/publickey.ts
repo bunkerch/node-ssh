@@ -11,6 +11,7 @@ import UserAuthSuccess from "../packets/UserAuthSuccess.js"
 import UserAuthFailure from "../packets/UserAuthFailure.js"
 import UserAuthPKOK from "../packets/UserAuthPKOK.js"
 import EncodedSignature from "../utils/Signature.js"
+import { decodeSSHName, encodeSSHName } from "../utils/SSHName.js"
 
 export interface PublicKeyAuthMethodData {
     publicKey: PublicKey
@@ -29,12 +30,13 @@ export default class PublicKeyAuthMethod implements AuthMethod {
 
     data: PublicKeyAuthMethodData
     constructor(data: PublicKeyAuthMethodData) {
-        this.data = data
-        this.data.algorithm ??= this.data.publicKey.data.alg
+        const algorithm = data.algorithm ?? data.publicKey.data.alg
+        encodeSSHName(algorithm, "SSH public-key signature algorithm")
         assert(
-            this.data.publicKey.supportsSignatureAlgorithm(this.data.algorithm),
-            `Signature algorithm ${this.data.algorithm} is incompatible with ${this.data.publicKey.data.alg}`,
+            data.publicKey.supportsSignatureAlgorithm(algorithm),
+            `Signature algorithm ${algorithm} is incompatible with ${data.publicKey.data.alg}`,
         )
+        this.data = { ...data, algorithm }
     }
 
     serialize(): Buffer {
@@ -43,7 +45,11 @@ export default class PublicKeyAuthMethod implements AuthMethod {
         buffers.push(serializeBuffer(Buffer.from(PublicKeyAuthMethod.method_name, "utf-8")))
 
         buffers.push(serializeBinaryBoolean(this.data.signature !== undefined))
-        buffers.push(serializeBuffer(Buffer.from(this.data.algorithm!, "utf-8")))
+        buffers.push(
+            serializeBuffer(
+                encodeSSHName(this.data.algorithm!, "SSH public-key signature algorithm"),
+            ),
+        )
         buffers.push(serializeBuffer(this.data.publicKey.serialize()))
 
         if (this.data.signature) {
@@ -59,7 +65,11 @@ export default class PublicKeyAuthMethod implements AuthMethod {
         buffers.push(serializeBuffer(Buffer.from(PublicKeyAuthMethod.method_name, "utf-8")))
 
         buffers.push(serializeBinaryBoolean(true))
-        buffers.push(serializeBuffer(Buffer.from(this.data.algorithm!, "utf-8")))
+        buffers.push(
+            serializeBuffer(
+                encodeSSHName(this.data.algorithm!, "SSH public-key signature algorithm"),
+            ),
+        )
         buffers.push(serializeBuffer(this.data.publicKey.serialize()))
 
         return Buffer.concat(buffers)
@@ -76,7 +86,10 @@ export default class PublicKeyAuthMethod implements AuthMethod {
         ;[publicKeyBlob, raw] = readNextBuffer(raw)
 
         const publicKey = PublicKey.parse(publicKeyBlob)
-        const algorithm = publicKeyAlgorithmName.toString("utf-8")
+        const algorithm = decodeSSHName(
+            publicKeyAlgorithmName,
+            "SSH public-key signature algorithm",
+        )
         assert(publicKey.supportsSignatureAlgorithm(algorithm))
 
         let signature: Buffer | undefined
@@ -224,7 +237,9 @@ export class HostboundPublicKeyAuthMethod extends PublicKeyAuthMethod {
         return Buffer.concat([
             serializeBuffer(Buffer.from(this.method_name, "ascii")),
             serializeBinaryBoolean(this.data.signature !== undefined),
-            serializeBuffer(Buffer.from(this.data.algorithm!, "ascii")),
+            serializeBuffer(
+                encodeSSHName(this.data.algorithm!, "SSH public-key signature algorithm"),
+            ),
             serializeBuffer(this.data.publicKey.serialize()),
             serializeBuffer(this.data.serverHostKey),
             ...(this.data.signature ? [serializeBuffer(this.data.signature.serialize())] : []),
@@ -235,7 +250,9 @@ export class HostboundPublicKeyAuthMethod extends PublicKeyAuthMethod {
         return Buffer.concat([
             serializeBuffer(Buffer.from(this.method_name, "ascii")),
             serializeBinaryBoolean(true),
-            serializeBuffer(Buffer.from(this.data.algorithm!, "ascii")),
+            serializeBuffer(
+                encodeSSHName(this.data.algorithm!, "SSH public-key signature algorithm"),
+            ),
             serializeBuffer(this.data.publicKey.serialize()),
             serializeBuffer(this.data.serverHostKey),
         ])
@@ -252,7 +269,7 @@ export class HostboundPublicKeyAuthMethod extends PublicKeyAuthMethod {
         ;[serverHostKey, raw] = readNextBuffer(raw)
 
         const publicKey = PublicKey.parse(publicKeyBlob)
-        const algorithm = algorithmBuffer.toString("ascii")
+        const algorithm = decodeSSHName(algorithmBuffer, "SSH public-key signature algorithm")
         assert(publicKey.supportsSignatureAlgorithm(algorithm))
 
         let signature: Buffer | undefined
