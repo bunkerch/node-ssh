@@ -7,7 +7,7 @@ import Server from "../../src/Server.js"
 import { SFTPStatusCode } from "../../src/sftp/constants.js"
 import PrivateKey from "../../src/utils/PrivateKey.js"
 
-test("SFTP writes own handle and data buffers across acknowledged chunks", async () => {
+test("SFTP writes own buffers and chunk limit across acknowledgements", async () => {
     const server = new Server({
         hostKeys: [await PrivateKey.generate("ssh-ed25519")],
         sendAllHostKeys: false,
@@ -78,6 +78,7 @@ test("SFTP writes own handle and data buffers across acknowledged chunks", async
         await firstWriteReceived
         handle.fill(0x78)
         data.fill(0x7a)
+        sftp.maxWriteLength = 2
         releaseFirstWrite()
         await writing
 

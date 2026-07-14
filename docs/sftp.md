@@ -28,7 +28,9 @@ The baseline operations are Promise-based:
 - `open`, `close`, `read`, and `write` operate on opaque handles. `write` splits large buffers into
   server-safe requests; independent requests may be outstanding concurrently and responses are
   matched by request identifier. A write snapshots its handle and data when it starts, so caller
-  mutation while an earlier chunk awaits acknowledgement cannot alter later chunks.
+  mutation while an earlier chunk awaits acknowledgement cannot alter later chunks. The negotiated
+  chunk limit is also fixed for the operation, preventing overlap if public limit metadata is
+  changed while a chunk is pending.
 - `writeFile` copies Buffer input before opening the remote file; mutation during the open request
   cannot change the eventual contents.
 - `stat`, `lstat`, `fstat`, `setstat`, and `fsetstat` retrieve or change attributes. `chmod`,
