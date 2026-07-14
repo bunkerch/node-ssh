@@ -377,6 +377,48 @@ describe("SFTP client request engine", () => {
         fixture.destroy()
     })
 
+    test("truncates paths and handles with exact uint64 sizes", async () => {
+        const requests: SFTPPacket[] = []
+        const fixture = new SFTPServerFixture((packet) => {
+            if (packet.type === SFTPPacketType.Init) {
+                fixture.send({ type: SFTPPacketType.Version, version: 3, extensions: [] })
+                return
+            }
+            requests.push(packet)
+            if ("requestId" in packet) {
+                fixture.send({
+                    type: SFTPPacketType.Status,
+                    requestId: packet.requestId,
+                    code: SFTPStatusCode.Ok,
+                    message: "",
+                    languageTag: "",
+                })
+            }
+        })
+        const client = await SFTPClient.connect(asClientChannel(fixture))
+
+        await client.truncate(Buffer.from("file"), 4_294_967_297n)
+        await client.ftruncate(Buffer.from([0x00, 0xff]), Number.MAX_SAFE_INTEGER)
+
+        expect(requests).toEqual([
+            {
+                type: SFTPPacketType.SetStat,
+                requestId: 0,
+                path: Buffer.from("file"),
+                attributes: { size: 4_294_967_297n },
+            },
+            {
+                type: SFTPPacketType.FSetStat,
+                requestId: 1,
+                handle: Buffer.from([0x00, 0xff]),
+                attributes: { size: BigInt(Number.MAX_SAFE_INTEGER) },
+            },
+        ])
+        expect(() => client.truncate("file", -1)).toThrow("non-negative safe integer")
+        expect(() => client.ftruncate(Buffer.from("h"), 0x1_0000_0000_0000_0000n)).toThrow("uint64")
+        fixture.destroy()
+    })
+
     test("rejects the active request and closes on a mismatched response", async () => {
         const fixture = new SFTPServerFixture((packet) => {
             if (packet.type === SFTPPacketType.Init) {

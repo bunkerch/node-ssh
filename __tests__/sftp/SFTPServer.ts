@@ -120,6 +120,41 @@ describe("SFTP server request engine", () => {
         fixture.destroy()
     })
 
+    test("awaits a SETSTAT handler with an exact uint64 size", async () => {
+        const fixture = new SFTPClientFixture()
+        const server = new SFTPServer(asShell(fixture))
+        let release!: () => void
+        const pending = new Promise<void>((resolve) => {
+            release = resolve
+        })
+        let receivedSize: bigint | undefined
+        server.hooker.hook("SETSTAT", async (_hook, request) => {
+            receivedSize = request.attributes.size
+            await pending
+            server.status(request.requestId, SFTPStatusCode.Ok)
+        })
+
+        fixture.send({ type: SFTPPacketType.Init, version: 3, extensions: [] })
+        fixture.send({
+            type: SFTPPacketType.SetStat,
+            requestId: 42,
+            path: Buffer.from("large-file"),
+            attributes: { size: 4_294_967_297n },
+        })
+        await flush()
+        expect(receivedSize).toBe(4_294_967_297n)
+        expect(fixture.responses).toHaveLength(1)
+
+        release()
+        await flush()
+        expect(fixture.responses[1]).toMatchObject({
+            type: SFTPPacketType.Status,
+            requestId: 42,
+            code: SFTPStatusCode.Ok,
+        })
+        fixture.destroy()
+    })
+
     test("enforces response type, size, cardinality, and exactly-once rules", async () => {
         const fixture = new SFTPClientFixture()
         const server = new SFTPServer(asShell(fixture))

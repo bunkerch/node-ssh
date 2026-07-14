@@ -29,7 +29,7 @@ The baseline operations are Promise-based:
   server-safe requests; independent requests may be outstanding concurrently and responses are
   matched by request identifier.
 - `stat`, `lstat`, `fstat`, `setstat`, and `fsetstat` retrieve or change attributes. `chmod`,
-  `fchmod`, `chown`, `fchown`, `utimes`, and `futimes` are focused helpers.
+  `fchmod`, `chown`, `fchown`, `utimes`, `futimes`, `truncate`, and `ftruncate` are focused helpers.
 - `opendir` and `readdir` expose incremental directory scanning. `readDirectory` reads all batches,
   filters the conventional `.` and `..` entries, and closes the directory handle even after an
   error.
@@ -42,6 +42,7 @@ For example:
 const handle = await sftp.open("incoming/archive.bin", "wx", { permissions: 0o640 })
 try {
     await sftp.write(handle, archive, 0n)
+    await sftp.ftruncate(handle, 4_294_967_297n)
     const attributes = await sftp.fstat(handle)
     console.log(attributes.size) // bigint | undefined
 } finally {
@@ -103,7 +104,8 @@ opaque bytes. File handles are always opaque `Buffer` values and are limited to 
 Offsets and file sizes are unsigned 64-bit wire values. The API accepts `bigint` positions and
 returns `bigint` sizes so values larger than JavaScript's safe integer range remain exact. Numeric
 positions are accepted only when they are non-negative safe integers. Access and modification
-times are version 3's unsigned 32-bit Unix seconds.
+times are version 3's unsigned 32-bit Unix seconds. Truncation lengths accept a non-negative safe
+integer or exact uint64 `bigint`; invalid lengths fail before a request identifier is allocated.
 
 `SFTPAttributes` contains only fields present on the wire:
 

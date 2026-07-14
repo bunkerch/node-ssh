@@ -159,9 +159,16 @@ describe("SFTP v3 fixed packet vectors", () => {
         }
 
         const fsetstat = hex(`0000000e 0a 00000001 00000001 68 00000000`)
+        const truncate = hex(`00000016 09 0000002a 00000001 66 00000001 0000000100000001`)
         const rename = hex(`0000000f 12 00000001 00000001 61 00000001 62`)
         const symlink = hex(`0000000f 14 00000001 00000001 61 00000001 62`)
-        for (const vector of [fsetstat, rename, symlink]) {
+        expect(decodeSFTPPacket(truncate)).toEqual({
+            type: SFTPPacketType.SetStat,
+            requestId: 42,
+            path: Buffer.from("f"),
+            attributes: { size: 4_294_967_297n },
+        })
+        for (const vector of [fsetstat, truncate, rename, symlink]) {
             expect(encodeSFTPPacket(decodeSFTPPacket(vector))).toEqual(vector)
         }
     })

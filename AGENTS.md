@@ -162,6 +162,9 @@ meaningful wire-level behavior.
 - Keep the SFTP wire codec's attribute representation plain and exact. Add client ergonomics by
   wrapping responses in `SFTPStats`; derive file types only from the POSIX type mask and never
   coerce uint64 sizes away from `bigint`.
+- SFTP truncation is an exact size-only `SETSTAT` or `FSETSTAT` request. Accept safe non-negative
+  numbers or uint64 bigints, reject invalid lengths before allocating a request id, and route the
+  server operation through the ordinary awaited request hook.
 - Implement vendor extensions from their upstream protocol documents (for example OpenSSH's
   `PROTOCOL`), and keep them explicitly named and separately tested from RFC behavior.
 - Treat OpenSSH's `no-more-sessions@openssh.com` request as irreversible. Existing sessions remain

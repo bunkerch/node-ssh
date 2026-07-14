@@ -588,6 +588,16 @@ export default class SFTPClient {
         })
     }
 
+    truncate(path: SFTPPath, length: SFTPPosition): Promise<void> {
+        return this.setstat(path, { size: uint64BigInt(length, "SFTP truncate length") })
+    }
+
+    ftruncate(handle: Buffer, length: SFTPPosition): Promise<void> {
+        return this.fsetstat(handle, {
+            size: uint64BigInt(length, "SFTP truncate length"),
+        })
+    }
+
     async opendir(path: SFTPPath): Promise<Buffer> {
         const response = await this.request(
             {
@@ -1169,16 +1179,20 @@ function pathBuffer(path: SFTPPath): Buffer {
 }
 
 function positionBigInt(position: SFTPPosition): bigint {
-    if (typeof position === "bigint") {
-        if (position < 0n || position > 0xffff_ffff_ffff_ffffn) {
-            throw new RangeError("SFTP position must be a uint64")
+    return uint64BigInt(position, "SFTP position")
+}
+
+function uint64BigInt(value: SFTPPosition, name: string): bigint {
+    if (typeof value === "bigint") {
+        if (value < 0n || value > 0xffff_ffff_ffff_ffffn) {
+            throw new RangeError(`${name} must be a uint64`)
         }
-        return position
+        return value
     }
-    if (!Number.isSafeInteger(position) || position < 0) {
-        throw new RangeError("Numeric SFTP position must be a non-negative safe integer")
+    if (!Number.isSafeInteger(value) || value < 0) {
+        throw new RangeError(`Numeric ${name} must be a non-negative safe integer`)
     }
-    return BigInt(position)
+    return BigInt(value)
 }
 
 function validateHandle(handle: Buffer): void {
