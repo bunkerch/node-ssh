@@ -24,6 +24,7 @@ import {
     host_key_algorithms,
     kex_algorithms,
     mac_algorithms,
+    default_algorithm_names,
 } from "./algorithms.js"
 
 export interface ServerOptions {
@@ -284,13 +285,17 @@ export default class Server extends EventEmitter<ServerEvents> {
         ) {
             throw new RangeError("SSH maximum authentication attempts must be a positive integer")
         }
-        this.algorithmOffer = resolveServerAlgorithmOptions(this.options.algorithms, {
-            kex: [...kex_algorithms.keys()],
-            serverHostKey: [...host_key_algorithms.keys()],
-            cipher: [...encryption_algorithms.keys()],
-            hmac: [...mac_algorithms.keys()],
-            compress: [...compression_algorithms.keys()],
-        })
+        this.algorithmOffer = resolveServerAlgorithmOptions(
+            this.options.algorithms,
+            {
+                kex: [...kex_algorithms.keys()],
+                serverHostKey: [...host_key_algorithms.keys()],
+                cipher: [...encryption_algorithms.keys()],
+                hmac: [...mac_algorithms.keys()],
+                compress: [...compression_algorithms.keys()],
+            },
+            default_algorithm_names,
+        )
         this.server = net.createServer((socket) => void this.acceptSocket(socket))
         this.server.on("error", (error) => this.emit("error", error))
         this.server.on("listening", () => this.emit("listening"))

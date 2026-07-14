@@ -88,8 +88,8 @@ client requests an acceptable size range. The client requests the RFC 8270 range
 8192 bits and prefers 3072 bits; the server chooses the smallest known safe group at least as large
 as that preference, or the largest known group within the range. Received groups, canonical mpints,
 public values, and shared secrets are validated before the exchange hash is accepted. The SHA-1
-variant and RFC 4419's single-size legacy request are available only as final compatibility paths;
-prefer SHA-256 and the bounded three-size request for configured use.
+variant and RFC 4419's single-size legacy request are supported only as explicit compatibility
+paths; prefer SHA-256 and the bounded three-size request for configured use.
 
 The RFC 6668 `hmac-sha2-256` and `hmac-sha2-512` integrity methods are available for both
 directions. Their full 32- and 64-byte outputs authenticate the RFC 4253 sequence number followed
@@ -101,14 +101,13 @@ ciphertext is decrypted.
 
 RFC 4253's `hmac-sha1-96` uses a 20-byte key and the first 12 bytes of the HMAC-SHA1 result.
 `hmac-sha1-96-etm@openssh.com` applies the same truncation to the encrypt-then-MAC packet layout.
-Both are ordered after SHA-2 and full-length alternatives and should be enabled only for legacy
-compatibility.
+Both are excluded from the default offer and should be enabled only for legacy compatibility.
 
 RFC 4253's optional `hmac-md5` and `hmac-md5-96` methods use a 16-byte key and produce either the
 full 16-byte HMAC-MD5 result or its first 12 bytes. The deployed
 `hmac-md5-etm@openssh.com` and `hmac-md5-96-etm@openssh.com` variants apply those tags to the
-encrypt-then-MAC layout. All four appear last in the MAC preference list and exist only for explicit
-interoperability with legacy peers; new deployments should not select them.
+encrypt-then-MAC layout. All four exist only for explicitly configured interoperability with legacy
+peers; new deployments should not select them.
 
 The `aes128-gcm@openssh.com` and `aes256-gcm@openssh.com` AEAD ciphers use the RFC 5647 AES-GCM
 packet construction. The four-byte packet length is clear authenticated data; the padding length,
@@ -125,11 +124,12 @@ the full 16-byte tag is verified before the body is decrypted. A separate MAC is
 Sequence-number reuse or wrap under one transport key is rejected and requires rekeying.
 
 The RFC 4253 `aes128-cbc`, `aes192-cbc`, `aes256-cbc`, and three-key `3des-cbc` ciphers are
-available as trailing compatibility choices. CBC chaining state continues across packet boundaries;
-SSH packet padding supplies the required block alignment, so the cipher applies no additional
-padding. Each direction starts with newly derived key and IV material after `NEWKEYS` and always
-uses a separately negotiated MAC. Prefer the default AEAD and CTR choices for new deployments;
-configure CBC explicitly only when interoperability with an older peer requires it.
+supported as explicit compatibility choices but excluded from defaults. CBC chaining state
+continues across packet boundaries; SSH packet padding supplies the required block alignment, so
+the cipher applies no additional padding. Each direction starts with newly derived key and IV
+material after `NEWKEYS` and always uses a separately negotiated MAC. Prefer the default AEAD and
+CTR choices for new deployments; configure CBC explicitly only when interoperability with an older
+peer requires it.
 
 ## Compression
 
@@ -151,6 +151,13 @@ the key blob and fingerprint. The legacy `ssh-rsa` SHA-1 signature remains avail
 explicitly. Initial key exchange also advertises RFC 8308 extension negotiation; servers send
 `server-sig-algs` immediately after `NEWKEYS` so clients can select an accepted user-authentication
 signature without guessing.
+
+RFC 4253 `ssh-dss` host and user keys are supported only when explicitly configured. Their public
+blob contains the canonical positive `p`, `q`, `g`, and `y` mpints; private containers add `x`.
+The implementation enforces the historical 1024-bit `p` and 160-bit `q`, validates primes,
+subgroup membership, and the private/public relationship, and encodes signatures as the required
+fixed 20-byte `r` followed by 20-byte `s`. DSS always uses SHA-1 and is excluded from defaults; use
+Ed25519, ECDSA, or RSA SHA-2 for every new deployment.
 
 RFC 8308 extension messages are position-checked. A client message is accepted only immediately
 after its first `NEWKEYS`; the client sends an empty message at that point when the server offered
@@ -188,7 +195,10 @@ Both `ClientOptions` and `ServerOptions` accept an `algorithms` object with `kex
 `cipher`, `hmac`, and `compress` categories. Server values are exact ordered arrays. Client values
 may be exact arrays or `{ remove, prepend, append }` changes whose entries are names or regular
 expressions. Unknown names and empty resolved lists are rejected during construction, defaults are
-copied rather than mutated, and the same configured offer is used for every rekey.
+copied rather than mutated, and the same configured offer is used for every rekey. Exact arrays can
+select supported legacy methods. Client `{ append }` changes can add them after modern defaults;
+SHA-1 key exchange and host signatures, DSS, CBC/3DES, and MD5/SHA-1 MACs are not offered unless
+configured.
 
 ```ts
 const client = new Client({

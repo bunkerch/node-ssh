@@ -93,6 +93,10 @@ ECDSA identities on `nistp256`, `nistp384`, and `nistp521` use the matching RFC 
 and SHA-2 hash. Disk-backed OpenSSH ECDSA keys and delegated agent signatures use the same public-key
 authentication path as Ed25519 and RSA identities.
 
+Historical RFC 4253 DSS identities are available as `ssh-dss` for explicitly configured legacy
+peers. They use only DSA-1024 with SHA-1 and are excluded from normal algorithm offers. Do not
+enable them for new credentials; prefer Ed25519, ECDSA, or RSA SHA-2.
+
 When a server advertises `publickey-hostbound@openssh.com` version 0, public-key authentication
 automatically uses the host-bound request. The signed message then contains the exact host-key blob
 that completed key exchange, so a delegated signature cannot be replayed to another server. The

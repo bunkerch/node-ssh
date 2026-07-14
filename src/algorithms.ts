@@ -47,7 +47,7 @@ import Client from "./Client.js"
 import ServerClient from "./ServerClient.js"
 import assert from "assert"
 import PublicKey from "./utils/PublicKey.js"
-import type { NegotiatedAlgorithms } from "./AlgorithmOptions.js"
+import type { NegotiatedAlgorithms, ResolvedAlgorithmOptions } from "./AlgorithmOptions.js"
 import type { InboundPacketProtection, OutboundPacketProtection } from "./BinaryPacket.js"
 import { MAXIMUM_BINARY_PACKET_SIZE } from "./BinaryPacket.js"
 
@@ -83,6 +83,7 @@ export const host_key_algorithms = new Map<string, HostKeyAlgorithm>([
     ["rsa-sha2-512", hostKeyAlgorithm("rsa-sha2-512", "ssh-rsa")],
     ["rsa-sha2-256", hostKeyAlgorithm("rsa-sha2-256", "ssh-rsa")],
     ["ssh-rsa", hostKeyAlgorithm("ssh-rsa")],
+    ["ssh-dss", hostKeyAlgorithm("ssh-dss")],
 ])
 
 export abstract class KexAlgorithm {
@@ -232,6 +233,45 @@ export const compression_algorithms = new Map<string, CompressionAlgorithm>([
     ],
     ["zlib", Object.freeze({ alg_name: "zlib", delayed: false, enabled: true })],
 ])
+
+export const default_algorithm_names: ResolvedAlgorithmOptions = Object.freeze({
+    kex: Object.freeze([
+        "curve25519-sha256",
+        "curve25519-sha256@libssh.org",
+        "ecdh-sha2-nistp256",
+        "ecdh-sha2-nistp384",
+        "ecdh-sha2-nistp521",
+        "diffie-hellman-group-exchange-sha256",
+        "diffie-hellman-group16-sha512",
+        "diffie-hellman-group18-sha512",
+        "diffie-hellman-group17-sha512",
+        "diffie-hellman-group15-sha512",
+        "diffie-hellman-group14-sha256",
+    ]),
+    serverHostKey: Object.freeze([
+        "ssh-ed25519",
+        "ecdsa-sha2-nistp256",
+        "ecdsa-sha2-nistp384",
+        "ecdsa-sha2-nistp521",
+        "rsa-sha2-512",
+        "rsa-sha2-256",
+    ]),
+    cipher: Object.freeze([
+        "chacha20-poly1305@openssh.com",
+        "aes256-gcm@openssh.com",
+        "aes128-gcm@openssh.com",
+        "aes256-ctr",
+        "aes192-ctr",
+        "aes128-ctr",
+    ]),
+    hmac: Object.freeze([
+        "hmac-sha2-256-etm@openssh.com",
+        "hmac-sha2-512-etm@openssh.com",
+        "hmac-sha2-256",
+        "hmac-sha2-512",
+    ]),
+    compress: Object.freeze(["none", "zlib@openssh.com", "zlib"]),
+})
 
 export function chooseAlgorithms(client: Client | ServerClient) {
     assert(client.clientKexInit, "Client KexInit not set")

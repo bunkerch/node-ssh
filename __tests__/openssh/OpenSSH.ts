@@ -973,6 +973,82 @@ describe("OpenSSH interoperability", () => {
         }
     }, 30_000)
 
+    test("OpenSSH verifies an explicitly enabled legacy DSS host key", async () => {
+        const directory = await mkdtemp(join(tmpdir(), "modernssh-dss-host-"))
+        const keyPath = join(directory, "host_key")
+        await execFileAsync("ssh-keygen", ["-q", "-t", "dsa", "-N", "", "-f", keyPath])
+        const hostKey = PrivateKey.fromString(await readFile(keyPath, "utf8"))
+        const server = new Server({
+            hostKeys: [hostKey],
+            sendAllHostKeys: false,
+            algorithms: { serverHostKey: ["ssh-dss"] },
+        })
+        const errors: Error[] = []
+        server.hooker.hook("noneAuthentication", (_hook, context, decision) => {
+            decision.allowLogin = context.username === "interop"
+        })
+        server.hooker.hook("channelOpenRequest", (_hook, channel, decision) => {
+            decision.allowOpen = channel instanceof SessionChannel
+        })
+        server.on("connection", (connection) => {
+            connection.on("error", (error) => errors.push(error))
+            connection.on("channel", (channel) => {
+                if (!(channel instanceof SessionChannel)) return
+                channel.hooker.hook("execRequest", (_hook, _context, decision) => {
+                    decision.success = true
+                })
+                channel.events.on("exec", (_command, shell) => {
+                    shell.resume()
+                    shell.on("end", () => {
+                        shell.stdout.write("dss-host-key-ok\n", () => shell.exit(0).end())
+                    })
+                })
+            })
+        })
+        server.listen({ host: "127.0.0.1", port: 0 })
+        await new Promise<void>((resolve) => server.server!.once("listening", resolve))
+        const port = (server.server!.address() as AddressInfo).port
+        try {
+            const result = await collectProcess(
+                "/usr/bin/ssh",
+                [
+                    "-F",
+                    "/dev/null",
+                    "-T",
+                    "-p",
+                    String(port),
+                    "-o",
+                    "BatchMode=yes",
+                    "-o",
+                    "PreferredAuthentications=none",
+                    "-o",
+                    "PubkeyAuthentication=no",
+                    "-o",
+                    "PasswordAuthentication=no",
+                    "-o",
+                    "HostKeyAlgorithms=ssh-dss",
+                    "-o",
+                    "StrictHostKeyChecking=no",
+                    "-o",
+                    "UserKnownHostsFile=/dev/null",
+                    "-o",
+                    "LogLevel=ERROR",
+                    "interop@127.0.0.1",
+                    "dss-host-key-test",
+                ],
+                "",
+            )
+            expect(result).toEqual({ code: 0, stdout: "dss-host-key-ok\n", stderr: "" })
+            expect(errors).toEqual([])
+        } finally {
+            for (const client of server.clients) client.terminate()
+            await new Promise<void>((resolve, reject) => {
+                server.server!.close((error) => (error ? reject(error) : resolve()))
+            })
+            await rm(directory, { recursive: true, force: true })
+        }
+    }, 20_000)
+
     test("OpenSSH performs RFC 4419 group exchange with a modernssh server across rekey", async () => {
         const algorithms = [
             "diffie-hellman-group-exchange-sha256",
@@ -1990,6 +2066,26 @@ describe("OpenSSH interoperability", () => {
             expect(Number.isInteger(port)).toBe(true)
             await waitForPort(port)
             agentFixture = await createOpenSSHAgentFixture()
+            const dsaUserKeyPath = join(agentFixture.directory, "id_dsa")
+            await execFileAsync("ssh-keygen", [
+                "-q",
+                "-t",
+                "dsa",
+                "-N",
+                "",
+                "-C",
+                "legacy-user-fixture",
+                "-f",
+                dsaUserKeyPath,
+            ])
+            const authorizedKeysPath = join(agentFixture.directory, "authorized_keys")
+            await writeFile(
+                authorizedKeysPath,
+                Buffer.concat([
+                    await readFile(join(agentFixture.directory, "id_rsa.pub")),
+                    await readFile(`${dsaUserKeyPath}.pub`),
+                ]),
+            )
             await execFileAsync("docker", [
                 "exec",
                 containerId,
@@ -1999,7 +2095,7 @@ describe("OpenSSH interoperability", () => {
             ])
             await execFileAsync("docker", [
                 "cp",
-                join(agentFixture.directory, "id_rsa.pub"),
+                authorizedKeysPath,
                 `${containerId}:/home/interop/.ssh/authorized_keys`,
             ])
             await execFileAsync("docker", [
@@ -2035,6 +2131,27 @@ describe("OpenSSH interoperability", () => {
             const expectedHostHash = createHash("sha256")
                 .update(expectedHostKey.serialize())
                 .digest("hex")
+            const dsaClient = new Client({
+                hostname: "127.0.0.1",
+                port,
+                username: "interop",
+                privateKey: await readFile(dsaUserKeyPath),
+                authenticationMethodsOrder: [SSHAuthenticationMethods.PublicKey],
+                algorithms: { serverHostKey: ["ssh-dss"] },
+            })
+            dsaClient.hooker.hook("hostKey", (_hook, decision) => {
+                decision.allowHostKey = true
+            })
+            await dsaClient.connect()
+            expect(dsaClient.hostKeyAlgorithm?.alg_name).toBe("ssh-dss")
+            const dsaSession = await dsaClient.exec("printf legacy-dss-ok")
+            const dsaOutput: Buffer[] = []
+            dsaSession.on("data", (data: Buffer) => dsaOutput.push(data))
+            await new Promise<void>((resolve) => dsaSession.once("close", resolve))
+            expect(Buffer.concat(dsaOutput).toString()).toBe("legacy-dss-ok")
+            const dsaClosed = new Promise<void>((resolve) => dsaClient.once("close", resolve))
+            dsaClient.end()
+            await dsaClosed
             const privateKeyClient = new Client({
                 hostname: "127.0.0.1",
                 port,

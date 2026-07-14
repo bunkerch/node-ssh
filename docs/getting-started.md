@@ -162,7 +162,9 @@ injected connected socket after acceptance.
 Generate new Ed25519, RSA, or RFC 5656 ECDSA key pairs with `generateKeyPair()`. RSA defaults to a
 3072-bit modulus; ECDSA defaults to NIST P-256 and accepts 256, 384, or 521 bits. The returned
 `PrivateKey` and `PublicKey` objects are immediately usable for signing, server host keys, agents,
-or OpenSSH serialization.
+or OpenSSH serialization. The API also accepts `"dsa"` solely for explicit RFC 4253 legacy
+interoperability; its fixed DSA-1024/SHA-1 method is not a modern choice and is never offered by
+default.
 
 ```ts
 import { writeFile } from "node:fs/promises"
@@ -221,14 +223,15 @@ passphrase. They read the `openssh-key-v1` format produced by `ssh-keygen`, incl
 and ECDSA keys encrypted with any cipher accepted by current OpenSSH: 3DES-CBC, AES-CBC, AES-CTR,
 AES-GCM, and `chacha20-poly1305@openssh.com`.
 
-`PrivateKey.fromString()` also accepts standard unencrypted PKCS#8 PEM for Ed25519, RSA, and the
-three supported ECDSA curves; PKCS#1 RSA PEM; and SEC1 EC PEM. Encrypted PKCS#8 and traditional PEM
-use the same optional passphrase argument and are decrypted by Node's native key parser before
-conversion into the library's validated SSH representation. Unsupported key families and curves
-are rejected rather than silently coerced.
+`PrivateKey.fromString()` also accepts standard unencrypted PKCS#8 PEM for Ed25519, RSA, DSA, and
+the three supported ECDSA curves; traditional RSA and DSA PEM; and SEC1 EC PEM. Encrypted PKCS#8
+and traditional PEM use the same optional passphrase argument and are decrypted by Node's native
+key parser before conversion into the library's validated SSH representation. Unsupported key
+families and curves are rejected rather than silently coerced.
 
 Call `PublicKey.fromPEM()` directly when the input is known to be a public PEM. It accepts Ed25519,
-RSA, and the three supported ECDSA curves and converts them to the canonical SSH public-key form.
+RSA, legacy DSA, and the three supported ECDSA curves and converts them to the canonical SSH
+public-key form.
 
 `DiskAgent` can receive a fixed passphrase or resolve one for each key path. A resolver is useful
 when the secret comes from an application credential store and should only be fetched when a

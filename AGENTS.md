@@ -61,6 +61,11 @@ meaningful wire-level behavior.
   P-256 defaults, restricts ECDSA to the three RFC 5656 curves, and propagates a line-safe comment to
   both returned key objects. Validate every family with signing plus real `ssh-keygen` derivation
   and fingerprinting, including the documented RSA default.
+- RFC 4253 DSS is legacy opt-in only: enforce 1024-bit `p`, 160-bit `q`, canonical positive mpints,
+  prime and subgroup checks, matching private/public values, SHA-1, and fixed 20-byte `r` plus
+  20-byte `s`. Validate the RFC 6979 vector and both signing roles with OpenSSH. Keep DSS, SHA-1 key
+  exchange/signatures, CBC/3DES, and MD5/SHA-1 MACs out of every default offer while retaining
+  explicit configuration paths.
 - Direct client private-key authentication parses key objects or encoded containers during
   construction, rejects ambiguous agent configuration, and removes encoded keys and passphrases
   from retained client options. Keep multi-key in-memory signing in `PrivateKeyAgent`, and validate

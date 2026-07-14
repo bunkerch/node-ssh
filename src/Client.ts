@@ -31,6 +31,7 @@ import {
     mac_algorithms,
     type HostKeyAlgorithm,
     type CompressionAlgorithm,
+    default_algorithm_names,
 } from "./algorithms.js"
 import KexDHInit from "./packets/KexDHInit.js"
 import KexDHReply from "./packets/KexDHReply.js"
@@ -425,13 +426,17 @@ export default class Client extends EventEmitter<ClientEvents> {
                 )
             }
         }
-        this.algorithmOffer = resolveClientAlgorithmOptions(this.options.algorithms, {
-            kex: [...kex_algorithms.keys()],
-            serverHostKey: [...host_key_algorithms.keys()],
-            cipher: [...encryption_algorithms.keys()],
-            hmac: [...mac_algorithms.keys()],
-            compress: [...compression_algorithms.keys()],
-        })
+        this.algorithmOffer = resolveClientAlgorithmOptions(
+            this.options.algorithms,
+            {
+                kex: [...kex_algorithms.keys()],
+                serverHostKey: [...host_key_algorithms.keys()],
+                cipher: [...encryption_algorithms.keys()],
+                hmac: [...mac_algorithms.keys()],
+                compress: [...compression_algorithms.keys()],
+            },
+            default_algorithm_names,
+        )
 
         setImmediate(() => {
             this.debug("Client created with options:", {

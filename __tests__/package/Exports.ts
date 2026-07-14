@@ -185,6 +185,12 @@ describe("package exports", () => {
                     if (!parseKey(publicKey.toString()).equals(publicKey)) process.exit(4)
                     const configured = new Client({ privateKey: encrypted, passphrase: "packed-secret" })
                     if (!(configured.options.agent instanceof PrivateKeyAgent)) process.exit(5)
+                    const legacy = await generateKeyPair("dsa")
+                    const legacySignature = legacy.privateKey.sign(message)
+                    if (!legacy.publicKey.verifySignature(message, legacySignature)) process.exit(6)
+                    if (new Client({}).algorithmOffer.serverHostKey.includes("ssh-dss")) process.exit(7)
+                    const explicitLegacy = new Client({ algorithms: { serverHostKey: ["ssh-dss"] } })
+                    if (explicitLegacy.algorithmOffer.serverHostKey[0] !== "ssh-dss") process.exit(8)
                     process.stdout.write(publicKey.toString())
                 `,
                 ],

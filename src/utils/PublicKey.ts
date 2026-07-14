@@ -4,6 +4,12 @@ import EncodedSignature from "./Signature.js"
 import asn1js from "asn1js"
 import crypto, { createHash, ECDH, type JsonWebKey } from "crypto"
 import nacl from "tweetnacl"
+import {
+    dsaParametersFromPublicKey,
+    type DSAParameters,
+    validateDSAParameters,
+    verifyDSA,
+} from "./DSA.js"
 
 export interface ECDSACurve {
     readonly algorithm: string
@@ -134,9 +140,17 @@ export default class PublicKey {
     }
 
     static fromPEM(data: string | Buffer): PublicKey {
+        let key: crypto.KeyObject
         let jwk: JsonWebKey
         try {
-            jwk = crypto.createPublicKey(data).export({ format: "jwk" })
+            key = crypto.createPublicKey(data)
+            if (key.asymmetricKeyType === "dsa") {
+                return new PublicKey({
+                    alg: SSHDSSPublicKey.alg_name,
+                    algorithm: new SSHDSSPublicKey(dsaParametersFromPublicKey(key)),
+                })
+            }
+            jwk = key.export({ format: "jwk" })
         } catch (error) {
             throw new Error("Invalid public key PEM", { cause: error })
         }
@@ -289,6 +303,66 @@ export class SSHED25519PublicKey implements PublicKeyAlgoritm {
     }
 }
 PublicKey.algorithms.set(SSHED25519PublicKey.alg_name, SSHED25519PublicKey)
+
+export type SSHDSSPublicKeyData = DSAParameters
+
+export class SSHDSSPublicKey implements PublicKeyAlgoritm {
+    static alg_name = "ssh-dss"
+    static has_encryption = false
+    static has_signature = true
+
+    readonly data: SSHDSSPublicKeyData
+    constructor(data: SSHDSSPublicKeyData) {
+        this.data = {
+            p: Buffer.from(data.p),
+            q: Buffer.from(data.q),
+            g: Buffer.from(data.g),
+            y: Buffer.from(data.y),
+        }
+        validateDSAParameters(this.data)
+    }
+
+    verifySignature(
+        data: Buffer,
+        signature: Buffer,
+        algorithm = SSHDSSPublicKey.alg_name,
+    ): boolean {
+        return algorithm === SSHDSSPublicKey.alg_name && verifyDSA(data, signature, this.data)
+    }
+
+    serialize(): Buffer {
+        return Buffer.concat([
+            serializeBuffer(this.data.p),
+            serializeBuffer(this.data.q),
+            serializeBuffer(this.data.g),
+            serializeBuffer(this.data.y),
+        ])
+    }
+
+    equals(other: PublicKeyAlgoritm): boolean {
+        return (
+            other instanceof SSHDSSPublicKey &&
+            this.data.p.equals(other.data.p) &&
+            this.data.q.equals(other.data.q) &&
+            this.data.g.equals(other.data.g) &&
+            this.data.y.equals(other.data.y)
+        )
+    }
+
+    static parse(raw: Buffer): SSHDSSPublicKey {
+        let p: Buffer
+        let q: Buffer
+        let g: Buffer
+        let y: Buffer
+        ;[p, raw] = readNextBuffer(raw)
+        ;[q, raw] = readNextBuffer(raw)
+        ;[g, raw] = readNextBuffer(raw)
+        ;[y, raw] = readNextBuffer(raw)
+        assert(raw.length === 0)
+        return new SSHDSSPublicKey({ p, q, g, y })
+    }
+}
+PublicKey.algorithms.set(SSHDSSPublicKey.alg_name, SSHDSSPublicKey)
 
 export interface SSHRSAData {
     publicExponent: Buffer

@@ -10,6 +10,7 @@ RUN apt-get update \
     && ssh-keygen -A \
     && ssh-keygen -q -t ecdsa -b 384 -N '' -f /etc/ssh/ssh_host_ecdsa_384_key \
     && ssh-keygen -q -t ecdsa -b 521 -N '' -f /etc/ssh/ssh_host_ecdsa_521_key \
+    && ssh-keygen -q -t dsa -N '' -f /etc/ssh/ssh_host_dsa_key \
     && printf 'modern-client.test ' > /etc/ssh/ssh_known_hosts \
     && cut -d ' ' -f 1,2 /etc/ssh/ssh_host_ed25519_key.pub >> /etc/ssh/ssh_known_hosts \
     && printf '%s\n' 'modern-client.test localuser' > /home/interop/.shosts \
@@ -26,6 +27,8 @@ RUN apt-get update \
         'Ciphers chacha20-poly1305@openssh.com,aes128-gcm@openssh.com,aes256-gcm@openssh.com,aes128-ctr,aes192-ctr,aes256-ctr,aes128-cbc,aes192-cbc,aes256-cbc,3des-cbc' \
         'MACs hmac-sha2-256-etm@openssh.com,hmac-sha2-512-etm@openssh.com,hmac-sha1-etm@openssh.com,hmac-sha1-96-etm@openssh.com,hmac-sha2-256,hmac-sha2-512,hmac-sha1,hmac-sha1-96,hmac-md5-etm@openssh.com,hmac-md5-96-etm@openssh.com,hmac-md5,hmac-md5-96' \
         'KexAlgorithms +diffie-hellman-group-exchange-sha1' \
+        'HostKeyAlgorithms +ssh-dss' \
+        'PubkeyAcceptedAlgorithms +ssh-dss' \
         'HostbasedAuthentication yes' \
         'HostbasedUsesNameFromPacketOnly yes' \
         'IgnoreRhosts no' \
@@ -34,6 +37,7 @@ RUN apt-get update \
         'HostKey /etc/ssh/ssh_host_ecdsa_key' \
         'HostKey /etc/ssh/ssh_host_ecdsa_384_key' \
         'HostKey /etc/ssh/ssh_host_ecdsa_521_key' \
+        'HostKey /etc/ssh/ssh_host_dsa_key' \
         'PermitRootLogin no' \
         'AllowUsers interop' \
         >> /etc/ssh/sshd_config

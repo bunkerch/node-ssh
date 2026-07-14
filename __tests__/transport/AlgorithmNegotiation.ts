@@ -1,7 +1,10 @@
 import { chooseAlgorithms } from "../../src/algorithms.js"
 import Client from "../../src/Client.js"
 import KexInit, { type KexInitData } from "../../src/packets/KexInit.js"
-import { resolveClientAlgorithmOptions } from "../../src/AlgorithmOptions.js"
+import {
+    resolveClientAlgorithmOptions,
+    resolveServerAlgorithmOptions,
+} from "../../src/AlgorithmOptions.js"
 
 function offer(overrides: Partial<KexInitData>): KexInit {
     return new KexInit({
@@ -51,6 +54,73 @@ describe("RFC 4253 algorithm negotiation", () => {
         expect(() =>
             resolveClientAlgorithmOptions({ hmac: { append: "unknown-mac" } }, catalog),
         ).toThrow("Unsupported algorithm: unknown-mac")
+    })
+
+    test("keeps legacy algorithms supported but outside the default offer", () => {
+        const catalog = {
+            kex: ["modern-kex", "legacy-kex"],
+            serverHostKey: ["modern-key", "legacy-key"],
+            cipher: ["modern-cipher", "legacy-cipher"],
+            hmac: ["modern-mac", "legacy-mac"],
+            compress: ["none"],
+        }
+        const defaults = {
+            kex: ["modern-kex"],
+            serverHostKey: ["modern-key"],
+            cipher: ["modern-cipher"],
+            hmac: ["modern-mac"],
+            compress: ["none"],
+        }
+        expect(resolveClientAlgorithmOptions(undefined, catalog, defaults)).toEqual(defaults)
+        expect(resolveServerAlgorithmOptions(undefined, catalog, defaults)).toEqual(defaults)
+        expect(
+            resolveClientAlgorithmOptions(
+                {
+                    kex: { append: "legacy-kex" },
+                    serverHostKey: { append: "legacy-key" },
+                    cipher: { append: "legacy-cipher" },
+                    hmac: { append: "legacy-mac" },
+                },
+                catalog,
+                defaults,
+            ),
+        ).toEqual({
+            kex: ["modern-kex", "legacy-kex"],
+            serverHostKey: ["modern-key", "legacy-key"],
+            cipher: ["modern-cipher", "legacy-cipher"],
+            hmac: ["modern-mac", "legacy-mac"],
+            compress: ["none"],
+        })
+        expect(
+            resolveClientAlgorithmOptions({ serverHostKey: ["legacy-key"] }, catalog, defaults)
+                .serverHostKey,
+        ).toEqual(["legacy-key"])
+        expect(
+            resolveServerAlgorithmOptions({ serverHostKey: ["legacy-key"] }, catalog, defaults)
+                .serverHostKey,
+        ).toEqual(["legacy-key"])
+        expect(() => resolveClientAlgorithmOptions({ cipher: [] }, catalog, defaults)).toThrow(
+            "must not be empty",
+        )
+        expect(() =>
+            resolveClientAlgorithmOptions(
+                { cipher: { unsupported: "legacy-cipher" } } as never,
+                catalog,
+                defaults,
+            ),
+        ).toThrow("Invalid SSH algorithm list operation")
+
+        const standardClient = new Client({ hostname: "unused.invalid" })
+        expect(standardClient.algorithmOffer.serverHostKey).not.toContain("ssh-dss")
+        expect(standardClient.algorithmOffer.serverHostKey).not.toContain("ssh-rsa")
+        expect(standardClient.algorithmOffer.kex).not.toContain("diffie-hellman-group1-sha1")
+        expect(standardClient.algorithmOffer.cipher).not.toContain("aes128-cbc")
+        expect(standardClient.algorithmOffer.hmac).not.toContain("hmac-md5")
+        const legacyClient = new Client({
+            hostname: "unused.invalid",
+            algorithms: { serverHostKey: { append: "ssh-dss" } },
+        })
+        expect(legacyClient.algorithmOffer.serverHostKey.at(-1)).toBe("ssh-dss")
     })
 
     test("selects the first client-preferred mutual algorithm in every direction", () => {

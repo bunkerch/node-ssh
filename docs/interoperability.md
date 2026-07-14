@@ -113,6 +113,13 @@ Public PEM interoperability covers generic SubjectPublicKeyInfo for Ed25519, RSA
 from its independently imported private half, and `ssh-keygen` accepts and fingerprints the
 canonical SSH public-key output. Unsupported X25519 public keys are rejected explicitly.
 
+Legacy DSS coverage uses the RFC 6979 DSA-1024/SHA-1 vector with RFC 4253's literal four-mpint key
+blob and fixed 40-byte signature. OpenSSH-generated private, public, and PEM containers are parsed,
+signed, serialized, and derived again with `ssh-keygen`. With the method explicitly enabled,
+OpenSSH verifies the library server's DSS host signature; the library also verifies OpenSSH's DSS
+host signature while OpenSSH verifies a library DSS user-authentication signature. Default offers
+are separately checked to exclude DSS and the other legacy-only algorithm families.
+
 OpenSSH private-key tests also generate every required ECDSA curve and prove parsing, public-key
 matching, signing, and verification. An RFC 6979 P-256/SHA-256 signature is independently encoded as
 the RFC 5656 pair of SSH mpints and verified as a fixed cryptographic vector.

@@ -11,6 +11,7 @@ import PublicKey, {
     ECDSA_CURVES,
     type ECDSACurve,
     SSHED25519PublicKey,
+    SSHDSSPublicKey,
     SSHECDSAPublicKey,
     SSHRSAPublicKey,
 } from "./PublicKey.js"
@@ -33,6 +34,12 @@ import {
     type OpenSSHPrivateKeyEncryptionOptions,
 } from "./OpenSSHPrivateKeyCipher.js"
 import { serializeMpintBufferToBuffer } from "./mpint.js"
+import {
+    dsaParametersFromPrivateKey,
+    signDSA,
+    type DSAPrivateParameters,
+    validateDSAPrivateParameters,
+} from "./DSA.js"
 
 export interface PrivateKeyData {
     publicKey: PublicKey
@@ -255,6 +262,14 @@ function positiveMpint(value: Buffer): Buffer {
 }
 
 function privateKeyFromKeyObject(key: KeyObject): PrivateKey {
+    if (key.asymmetricKeyType === "dsa") {
+        const algorithm = new SSHDSSPrivateKey(dsaParametersFromPrivateKey(key))
+        return new PrivateKey({
+            alg: SSHDSSPrivateKey.alg_name,
+            publicKey: algorithm.getPublicKey(),
+            algorithm,
+        })
+    }
     const jwk = key.export({ format: "jwk" })
     if (jwk.kty === "OKP" && jwk.crv === "Ed25519") {
         const publicKey = jwkBuffer(jwk, "x")
@@ -415,6 +430,77 @@ export class SSHED25519PrivateKey implements PrivateKeyAlgorithm {
     }
 }
 PrivateKey.algorithms.set(SSHED25519PrivateKey.alg_name, SSHED25519PrivateKey)
+
+export type SSHDSSPrivateKeyData = DSAPrivateParameters
+
+export class SSHDSSPrivateKey implements PrivateKeyAlgorithm {
+    static alg_name = "ssh-dss"
+
+    readonly data: SSHDSSPrivateKeyData
+    constructor(data: SSHDSSPrivateKeyData) {
+        this.data = {
+            p: Buffer.from(data.p),
+            q: Buffer.from(data.q),
+            g: Buffer.from(data.g),
+            y: Buffer.from(data.y),
+            x: Buffer.from(data.x),
+        }
+        validateDSAPrivateParameters(this.data)
+    }
+
+    sign(data: Buffer, algorithm = SSHDSSPrivateKey.alg_name): EncodedSignature {
+        assert(
+            algorithm === SSHDSSPrivateKey.alg_name,
+            `Unsupported DSA signature algorithm: ${algorithm}`,
+        )
+        const signature = signDSA(data, this.data)
+        assert(signature.length === 40, "Invalid DSA signature length")
+        return new EncodedSignature({ alg: algorithm, data: signature })
+    }
+
+    getPublicKey(): PublicKey {
+        return new PublicKey({
+            alg: SSHDSSPrivateKey.alg_name,
+            algorithm: new SSHDSSPublicKey(this.data),
+        })
+    }
+
+    serialize(): Buffer {
+        return Buffer.concat([
+            serializeBuffer(this.data.p),
+            serializeBuffer(this.data.q),
+            serializeBuffer(this.data.g),
+            serializeBuffer(this.data.y),
+            serializeBuffer(this.data.x),
+        ])
+    }
+
+    static parse(raw: Buffer): [PrivateKeyAlgorithm, Buffer] {
+        let p: Buffer
+        let q: Buffer
+        let g: Buffer
+        let y: Buffer
+        let x: Buffer
+        ;[p, raw] = readNextBuffer(raw)
+        ;[q, raw] = readNextBuffer(raw)
+        ;[g, raw] = readNextBuffer(raw)
+        ;[y, raw] = readNextBuffer(raw)
+        ;[x, raw] = readNextBuffer(raw)
+        return [new SSHDSSPrivateKey({ p, q, g, y, x }), raw]
+    }
+
+    static async generate(): Promise<PrivateKey> {
+        const key = await new Promise<KeyObject>((resolve, reject) => {
+            generateKeyPair(
+                "dsa",
+                { modulusLength: 1024, divisorLength: 160 },
+                (error, _publicKey, privateKey) => (error ? reject(error) : resolve(privateKey)),
+            )
+        })
+        return privateKeyFromKeyObject(key)
+    }
+}
+PrivateKey.algorithms.set(SSHDSSPrivateKey.alg_name, SSHDSSPrivateKey)
 
 // BTW ssh-rsa is a disabled host key algorithm?
 export interface SSHRSAPrivateKeyData {
