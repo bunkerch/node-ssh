@@ -268,6 +268,8 @@ describe("client/server integration", () => {
         try {
             await client.connect()
 
+            expect(client.clientKexInit?.data.kex_algorithms).toContain("ext-info-c")
+            expect(serverPeer!.serverKexInit?.data.kex_algorithms).toContain("ext-info-s")
             expect(receivedClientExtensions).toEqual([["ext-info-in-auth@openssh.com"]])
             expect(serverPeer!.clientExtensions).toEqual([
                 { name: "ext-info-in-auth@openssh.com", value: Buffer.alloc(0) },
