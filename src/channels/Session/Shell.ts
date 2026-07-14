@@ -73,6 +73,11 @@ export default class Shell extends Duplex {
         return this
     }
 
+    /** Ask an OpenSSH peer to stop writing to this session without closing the channel. */
+    sendEndOfWrite(force = false): boolean {
+        return this.channel.sendEndOfWrite(force)
+    }
+
     close(): this {
         this.channel.close()
         return this

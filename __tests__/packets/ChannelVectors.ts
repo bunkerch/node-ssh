@@ -76,6 +76,7 @@ describe("RFC 4254 channel packet vectors", () => {
         ],
         ["signal", `62 00000003 00000006 7369676e616c 00 00000004 5445524d`],
         ["xon-xoff", `62 00000003 00000008 786f6e2d786f6666 00 01`],
+        ["eow@openssh.com", `62 00000003 0000000f 656f77406f70656e7373682e636f6d 00`],
         ["break", `62 00000003 00000005 627265616b 01 000002ee`],
         ["subsystem", `62 00000003 00000009 73756273797374656d 01 00000004 73667470`],
     ])("round-trips the fixed %s request vector", (requestType, hex) => {

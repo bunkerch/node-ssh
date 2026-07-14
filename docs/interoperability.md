@@ -218,6 +218,11 @@ UMAC coverage checks the RFC 4418 messages from empty through 32 MiB, including 
 system SSH client then forces each deployed 64-/128-bit ordinary and encrypt-then-MAC variant and
 exchanges channel traffic in both directions across an explicit rekey.
 
+End-of-write coverage uses the literal one-way channel-request frame, verifies awaited half-close
+state in both channel roles, and rejects replies, arguments, duplicates, and non-session use. The
+system client accepts a capability-gated server request, stops its input side, and still receives
+the server's remaining output before normal exit.
+
 Delayed-compression interoperability runs in both peer roles. OpenSSH and the modern client each
 force `zlib@openssh.com`, transfer repeated multi-packet data in both directions, and rekey while the
 compression streams are active. Handshake details confirm the selected method before traffic is

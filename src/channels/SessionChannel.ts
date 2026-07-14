@@ -97,6 +97,7 @@ export type SessionChannelHooker = {
         envRequestContext: Readonly<SessionChannelHookerEnvRequestContext>,
         envRequestController: SessionChannelHookerEnvRequestController,
     ]
+    endOfWrite: []
     shellRequest: [shellRequestController: SessionChannelHookerShellRequestController]
     signal: [signalContext: Readonly<SessionSignalContext>]
     ptyRequest: [
@@ -118,6 +119,7 @@ export interface SessionChannelEvents {
     agentForward: []
     break: [duration: number]
     env: [name: string, value: string]
+    endOfWrite: []
     exec: [command: string, shell: Shell]
     pty: [pty: Readonly<SessionPtyInfo>]
     shell: [Shell]
@@ -166,6 +168,18 @@ export default class SessionChannel extends Channel {
             this.remoteId !== undefined,
             "handleChannelRequest was demanded, but remoteId was not set.",
         )
+
+        if (request.data.request_type === "eow@openssh.com") {
+            if (request.data.want_reply || request.data.args.length !== 0) {
+                throw new Error("Invalid end-of-write channel request")
+            }
+            if (!this.hasReceivedEndOfWrite) {
+                await this.hooker.triggerHook("endOfWrite")
+                this.events.emit("endOfWrite")
+                this.receiveEndOfWrite()
+            }
+            return
+        }
 
         switch (request.data.request_type) {
             case "auth-agent-req@openssh.com": {

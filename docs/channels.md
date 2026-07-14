@@ -93,6 +93,14 @@ through 3,000 milliseconds as recommended by the RFC.
 Calling `channel.end()` finishes standard input by sending channel EOF. Calling `channel.close()`
 sends EOF followed by CLOSE. A peer CLOSE is always acknowledged before the stream is destroyed.
 
+OpenSSH's `eow@openssh.com` request is a different half-close: it asks the peer to stop sending
+channel data while leaving the reverse direction and the channel itself open. Call
+`channel.sendEndOfWrite()` on a client session or `shell.sendEndOfWrite()` on a server session. The
+method returns `false` when the peer is not identified as OpenSSH; pass `true` only when the
+application has separately established support. Incoming requests are validated, deduplicated,
+and exposed through the awaited `endOfWrite` hook before the writable half is stopped. Client
+channels also emit `endOfWrite` as a passive notification.
+
 ## Disabling additional sessions
 
 After opening every session it needs, a client can ask an OpenSSH-compatible server to reject any
@@ -149,8 +157,8 @@ The implementation follows RFC 4254 channel rules:
   channels are treated as protocol errors.
 
 The interoperability suite exercises session opening, `exec`, stdin, stdout, stderr, exit status,
-EOF, CLOSE, and OpenSSH's `no-more-sessions@openssh.com` extension against OpenSSH. Fixed RFC and
-OpenSSH protocol byte vectors cover the exact request encodings.
+EOF, CLOSE, end-of-write, and OpenSSH's `no-more-sessions@openssh.com` extension against OpenSSH.
+Fixed RFC and OpenSSH protocol byte vectors cover the exact request encodings.
 
 ## Serving exec and shell requests
 

@@ -3,6 +3,7 @@ import ClientChannel from "../../src/channels/ClientChannel.js"
 import ClientSessionChannel from "../../src/channels/ClientSessionChannel.js"
 import ChannelClose from "../../src/packets/ChannelClose.js"
 import ChannelData from "../../src/packets/ChannelData.js"
+import ChannelEOF from "../../src/packets/ChannelEOF.js"
 import ChannelOpenConfirmation from "../../src/packets/ChannelOpenConfirmation.js"
 import ChannelRequest from "../../src/packets/ChannelRequest.js"
 import ChannelWindowAdjust from "../../src/packets/ChannelWindowAdjust.js"
@@ -143,6 +144,93 @@ describe("ClientChannel", () => {
                 }),
             ),
         ).toThrow("trailing data")
+        channel.destroy()
+    })
+
+    test("handles awaited end-of-write as a one-way writable half-close", async () => {
+        const client = new Client({ hostname: "unused" })
+        const sent: Packet[] = []
+        client.sendPacket = (packet: Packet) => {
+            sent.push(packet)
+            return sent.length - 1
+        }
+        const channel = new ClientSessionChannel(client)
+        channel.confirmOpen(
+            new ChannelOpenConfirmation({
+                recipient_channel_id: channel.localId,
+                sender_channel_id: 42,
+                initial_window_size: 5,
+                maximum_packet_size: 3,
+                args: Buffer.alloc(0),
+            }),
+        )
+        let release!: () => void
+        const wait = new Promise<void>((resolve) => {
+            release = resolve
+        })
+        let hooks = 0
+        let events = 0
+        channel.hooker.hook("endOfWrite", async () => {
+            hooks++
+            await wait
+        })
+        channel.on("endOfWrite", () => events++)
+        const request = new ChannelRequest({
+            recipient_channel_id: channel.localId,
+            request_type: "eow@openssh.com",
+            want_reply: false,
+            args: Buffer.alloc(0),
+        })
+
+        const handling = channel.receiveRequest(request)
+        await new Promise<void>((resolve) => setImmediate(resolve))
+        expect(channel.writableEnded).toBe(false)
+        release()
+        await handling
+        await new Promise<void>((resolve) => setImmediate(resolve))
+        expect(channel.hasReceivedEndOfWrite).toBe(true)
+        expect(channel.writableEnded).toBe(true)
+        expect(hooks).toBe(1)
+        expect(events).toBe(1)
+        expect(sent.some((packet) => packet instanceof ChannelEOF)).toBe(true)
+
+        await channel.receiveRequest(request)
+        expect(hooks).toBe(1)
+        expect(channel.sendEndOfWrite()).toBe(false)
+        expect(channel.sendEndOfWrite(true)).toBe(true)
+        expect(channel.sendEndOfWrite(true)).toBe(false)
+        expect(
+            sent.filter(
+                (packet): packet is ChannelRequest =>
+                    packet instanceof ChannelRequest &&
+                    packet.data.request_type === "eow@openssh.com",
+            ),
+        ).toHaveLength(1)
+        channel.destroy()
+    })
+
+    test("rejects malformed end-of-write requests", async () => {
+        const { channel } = createChannel()
+        await expect(
+            channel.receiveRequest(
+                new ChannelRequest({
+                    recipient_channel_id: channel.localId,
+                    request_type: "eow@openssh.com",
+                    want_reply: true,
+                    args: Buffer.alloc(0),
+                }),
+            ),
+        ).rejects.toThrow("Invalid end-of-write")
+        await expect(
+            channel.receiveRequest(
+                new ChannelRequest({
+                    recipient_channel_id: channel.localId,
+                    request_type: "eow@openssh.com",
+                    want_reply: false,
+                    args: Buffer.from([0]),
+                }),
+            ),
+        ).rejects.toThrow("Invalid end-of-write")
         channel.destroy()
     })
 })

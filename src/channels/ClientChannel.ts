@@ -47,6 +47,7 @@ export interface ClientChannelRequestController {
 }
 // eslint-disable-next-line @typescript-eslint/consistent-type-definitions
 export type ClientChannelHooker = {
+    endOfWrite: []
     request: [context: ClientChannelRequestContext, controller: ClientChannelRequestController]
 }
 
@@ -96,6 +97,8 @@ export default class ClientChannel extends Duplex {
     private stderrBlocked = false
     private sentEOF = false
     private receivedEOF = false
+    private sentEndOfWrite = false
+    private receivedEndOfWrite = false
     private sentClose = false
     private receivedClose = false
     private transportClosed = false
@@ -135,6 +138,14 @@ export default class ClientChannel extends Duplex {
 
     get isFullyClosed(): boolean {
         return this.sentClose && this.receivedClose
+    }
+
+    get hasSentEndOfWrite(): boolean {
+        return this.sentEndOfWrite
+    }
+
+    get hasReceivedEndOfWrite(): boolean {
+        return this.receivedEndOfWrite
     }
 
     getOpenPacket(args: Buffer = Buffer.alloc(0)): ChannelOpen {
@@ -288,6 +299,21 @@ export default class ClientChannel extends Duplex {
     }
 
     async receiveRequest(packet: ChannelRequest): Promise<void> {
+        if (packet.data.request_type === "eow@openssh.com") {
+            if (packet.data.want_reply || packet.data.args.length !== 0) {
+                throw new Error("Invalid end-of-write channel request")
+            }
+            if (this.type !== "session") {
+                throw new Error("End-of-write is only valid on session channels")
+            }
+            if (this.receivedEndOfWrite) return
+            this.receivedEndOfWrite = true
+            await this.hooker.triggerHook("endOfWrite")
+            this.emit("endOfWrite")
+            if (!this.writableEnded) this.end()
+            return
+        }
+
         if (packet.data.request_type === "exit-status") {
             const [exitCode, remaining] = readNextUint32(packet.data.args)
             if (remaining.length !== 0) throw new Error("Invalid exit-status channel request")
@@ -336,6 +362,16 @@ export default class ClientChannel extends Duplex {
             this.client.sendPacket(new ChannelEOF({ recipient_channel_id: this.remoteId }))
         }
         return this
+    }
+
+    /** Ask the peer to stop sending channel data while keeping this channel open. */
+    sendEndOfWrite(force = false): boolean {
+        if (this.sentEndOfWrite || !this.isOpen || this.type !== "session") return false
+        const software = this.client.serverProtocolVersion?.protocol_software ?? ""
+        if (!force && !software.startsWith("OpenSSH_")) return false
+        this.sentEndOfWrite = true
+        void this.request("eow@openssh.com", Buffer.alloc(0), false)
+        return true
     }
 
     close(): this {

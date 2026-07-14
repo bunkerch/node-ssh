@@ -146,6 +146,10 @@ meaningful wire-level behavior.
 - Treat OpenSSH's `no-more-sessions@openssh.com` request as irreversible. Existing sessions remain
   usable, later session opens bypass application policy and fail, and an incoming SSH disconnect
   must close the transport so pending channel and global-request promises settle.
+- Treat `eow@openssh.com` as a one-way session writable-half close, not EOF or CLOSE. Validate its
+  empty arguments and false reply flag, await the dedicated hook before changing state, stop
+  outbound writes while retaining the readable half, deduplicate it, and capability-gate sends to
+  identified OpenSSH peers unless callers explicitly override detection.
 - SSH keepalives use reply-requesting `keepalive@openssh.com` global requests. Count both success
   and failure as liveness, bound consecutive unanswered requests, unref timers, and clear them on
   every connection shutdown path.

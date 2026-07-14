@@ -54,6 +54,9 @@ export default class Channel {
     private inputBlocked = false
     private sentEOF = false
     private receivedEOF = false
+    private sentEndOfWrite = false
+    private receivedEndOfWrite = false
+    private outboundStopped = false
     private sentClose = false
     private receivedClose = false
     private openSettled = false
@@ -82,6 +85,14 @@ export default class Channel {
 
     get isFullyClosed(): boolean {
         return this.sentClose && this.receivedClose
+    }
+
+    get hasSentEndOfWrite(): boolean {
+        return this.sentEndOfWrite
+    }
+
+    get hasReceivedEndOfWrite(): boolean {
+        return this.receivedEndOfWrite
     }
 
     debug(...msg: unknown[]): void {
@@ -305,6 +316,25 @@ export default class Channel {
         this.client.sendPacket(new ChannelEOF({ recipient_channel_id: this.remoteId }))
     }
 
+    /** Ask the peer to stop sending channel data while keeping this channel open. */
+    sendEndOfWrite(force = false): boolean {
+        if (this.sentEndOfWrite || !this.isOpen || this.channel_type !== "session") return false
+        const peer = this.client as Partial<ServerClient>
+        const software = peer.clientProtocolVersion?.protocol_software ?? ""
+        if (!force && !software.startsWith("OpenSSH_")) return false
+        this.sentEndOfWrite = true
+        this.sendRequest("eow@openssh.com")
+        return true
+    }
+
+    receiveEndOfWrite(): void {
+        if (this.receivedEndOfWrite) return
+        this.receivedEndOfWrite = true
+        this.outboundStopped = true
+        this.failPendingWrites(new Error(`SSH channel ${this.localId} received end-of-write`))
+        this.sendEOF()
+    }
+
     close(): void {
         this.sendEOF()
         this.sendClose()
@@ -350,6 +380,10 @@ export default class Channel {
     ): void {
         if (!this.isOpen) {
             callback(new Error(`SSH channel ${this.localId} is not open for writing`))
+            return
+        }
+        if (this.outboundStopped) {
+            callback(new Error(`SSH channel ${this.localId} received end-of-write`))
             return
         }
         if (data.length === 0) {
