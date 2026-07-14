@@ -69,6 +69,11 @@ export {
     DEFAULT_CHANNEL_PACKET_SIZE,
     DEFAULT_CHANNEL_WINDOW_SIZE,
 } from "./channels/ClientChannel.js"
+export type {
+    ClientChannelHooker,
+    ClientChannelRequestContext,
+    ClientChannelRequestController,
+} from "./channels/ClientChannel.js"
 export { default as ClientSessionChannel } from "./channels/ClientSessionChannel.js"
 export type {
     ClientPtyOptions,

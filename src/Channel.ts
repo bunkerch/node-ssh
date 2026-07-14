@@ -6,6 +6,7 @@ import ChannelData from "./packets/ChannelData.js"
 import ChannelEOF from "./packets/ChannelEOF.js"
 import ChannelExtendedData from "./packets/ChannelExtendedData.js"
 import ChannelFailure from "./packets/ChannelFailure.js"
+import ChannelSuccess from "./packets/ChannelSuccess.js"
 import ChannelOpen from "./packets/ChannelOpen.js"
 import ChannelOpenConfirmation from "./packets/ChannelOpenConfirmation.js"
 import ChannelOpenFailure, { ChannelOpenError } from "./packets/ChannelOpenFailure.js"
@@ -24,6 +25,11 @@ interface PendingChannelWrite {
     offset: number
     extendedDataType?: number
     callback: WriteCallback
+}
+interface PendingChannelRequest {
+    type: string
+    resolve: () => void
+    reject: (error: Error) => void
 }
 
 export default class Channel {
@@ -44,6 +50,7 @@ export default class Channel {
     clientArgs: Buffer
 
     private readonly pendingWrites: PendingChannelWrite[] = []
+    private readonly pendingRequests: PendingChannelRequest[] = []
     private inputBlocked = false
     private sentEOF = false
     private receivedEOF = false
@@ -164,9 +171,21 @@ export default class Channel {
             this,
             controller,
             serverClient,
+            request,
         )
-        if (controller.deny) await Channel.prototype.handleChannelRequest.call(this, request)
-        return controller.deny
+        if (controller.deny) {
+            await Channel.prototype.handleChannelRequest.call(this, request)
+            return true
+        }
+        if (!controller.handled) return false
+        if (request.data.want_reply && this.isOpen && this.remoteId !== undefined) {
+            this.client.sendPacket(
+                controller.success
+                    ? new ChannelSuccess({ recipient_channel_id: this.remoteId })
+                    : new ChannelFailure({ recipient_channel_id: this.remoteId }),
+            )
+        }
+        return true
     }
 
     async handleChannelRequest(request: ChannelRequest): Promise<void> {
@@ -201,6 +220,44 @@ export default class Channel {
         )
     }
 
+    request(type: string, args: Buffer = Buffer.alloc(0), wantReply = true): Promise<void> {
+        if (!this.isOpen || this.remoteId === undefined) {
+            return Promise.reject(new Error(`SSH channel ${this.localId} is not open`))
+        }
+        if (!/^[\x21-\x7e]+$/u.test(type)) {
+            return Promise.reject(
+                new TypeError("SSH channel request type must be non-empty printable ASCII"),
+            )
+        }
+        if (!Buffer.isBuffer(args)) {
+            return Promise.reject(new TypeError("SSH channel request arguments must be a buffer"))
+        }
+        const response = wantReply
+            ? new Promise<void>((resolve, reject) => {
+                  this.pendingRequests.push({ type, resolve, reject })
+              })
+            : Promise.resolve()
+        try {
+            this.sendRequest(type, Buffer.from(args), wantReply)
+        } catch (error) {
+            if (wantReply) this.pendingRequests.pop()
+            return Promise.reject(error)
+        }
+        return response
+    }
+
+    receiveRequestSuccess(): void {
+        const request = this.pendingRequests.shift()
+        if (!request) throw new Error(`Unexpected success response for SSH channel ${this.localId}`)
+        request.resolve()
+    }
+
+    receiveRequestFailure(): void {
+        const request = this.pendingRequests.shift()
+        if (!request) throw new Error(`Unexpected failure response for SSH channel ${this.localId}`)
+        request.reject(new Error(`SSH channel ${this.localId} request failed (${request.type})`))
+    }
+
     receiveWindowAdjust(bytesToAdd: number): void {
         if (bytesToAdd > MAXIMUM_CHANNEL_WINDOW_SIZE - this.remote_window_size) {
             throw new Error(`SSH channel ${this.localId} window adjustment exceeds uint32`)
@@ -233,6 +290,7 @@ export default class Channel {
         this.receiveEOF()
         if (!this.sentClose) this.sendClose()
         this.failPendingWrites(new Error(`SSH channel ${this.localId} closed during write`))
+        this.failPendingRequests(new Error(`SSH channel ${this.localId} closed during request`))
         this.handleClose()
     }
 
@@ -262,6 +320,7 @@ export default class Channel {
             this.openReject(error)
         }
         this.failPendingWrites(error)
+        this.failPendingRequests(error)
         this.handleClose()
     }
 
@@ -380,5 +439,9 @@ export default class Channel {
 
     private failPendingWrites(error: Error): void {
         while (this.pendingWrites.length > 0) this.pendingWrites.shift()!.callback(error)
+    }
+
+    private failPendingRequests(error: Error): void {
+        while (this.pendingRequests.length > 0) this.pendingRequests.shift()!.reject(error)
     }
 }

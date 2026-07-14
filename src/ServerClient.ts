@@ -93,6 +93,8 @@ import ChannelWindowAdjust from "./packets/ChannelWindowAdjust.js"
 import ChannelEOF from "./packets/ChannelEOF.js"
 import ChannelClose from "./packets/ChannelClose.js"
 import ChannelOpenConfirmation from "./packets/ChannelOpenConfirmation.js"
+import ChannelSuccess from "./packets/ChannelSuccess.js"
+import ChannelFailure from "./packets/ChannelFailure.js"
 import IdentificationParser from "./IdentificationParser.js"
 import { BinaryPacketDecoder, BinaryPacketEncoder } from "./BinaryPacket.js"
 import {
@@ -793,7 +795,9 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             }
 
             // make sure pty request is handled before exec/shell, etc
-            const lock = await this.queue.obtainLock(`channel:${packet.data.recipient_channel_id}`)
+            const lock = await this.queue.obtainLock(
+                `channelRequest:${packet.data.recipient_channel_id}`,
+            )
             try {
                 const deny = await channel.preHandleChannelRequest(packet)
                 if (deny) return
@@ -1841,6 +1845,20 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 }
                 channel.failOpen(failure)
                 this.channels.delete(channel.localId)
+                break
+            }
+            case PacketNameToType.SSH_MSG_CHANNEL_SUCCESS: {
+                const success = p as ChannelSuccess
+                this.queueChannelAction(success.data.recipient_channel_id, (channel) => {
+                    channel.receiveRequestSuccess()
+                })
+                break
+            }
+            case PacketNameToType.SSH_MSG_CHANNEL_FAILURE: {
+                const failure = p as ChannelFailure
+                this.queueChannelAction(failure.data.recipient_channel_id, (channel) => {
+                    channel.receiveRequestFailure()
+                })
                 break
             }
             case PacketNameToType.SSH_MSG_CHANNEL_REQUEST:

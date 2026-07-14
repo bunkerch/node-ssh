@@ -8,6 +8,7 @@ import ChannelOpen from "../packets/ChannelOpen.js"
 import ChannelOpenConfirmation from "../packets/ChannelOpenConfirmation.js"
 import ChannelOpenFailure, { ChannelOpenError } from "../packets/ChannelOpenFailure.js"
 import ChannelRequest from "../packets/ChannelRequest.js"
+import ChannelSuccess from "../packets/ChannelSuccess.js"
 import ChannelWindowAdjust from "../packets/ChannelWindowAdjust.js"
 import { MAXIMUM_CHANNEL_WINDOW_SIZE, SSHExtendedDataTypes } from "../constants.js"
 import {
@@ -16,6 +17,7 @@ import {
     readNextUint32,
     serializeBuffer,
 } from "../utils/Buffer.js"
+import { Hooker } from "../utils/Hooker.js"
 
 export const DEFAULT_CHANNEL_WINDOW_SIZE = 2 ** 21
 export const DEFAULT_CHANNEL_PACKET_SIZE = 2 ** 15
@@ -30,8 +32,22 @@ interface PendingWrite {
 }
 
 interface PendingRequest {
+    type: string
     resolve: () => void
     reject: (error: Error) => void
+}
+
+export type ClientChannelRequestContext = Readonly<{
+    type: string
+    args: Buffer
+    wantReply: boolean
+}>
+export interface ClientChannelRequestController {
+    success: boolean
+}
+// eslint-disable-next-line @typescript-eslint/consistent-type-definitions
+export type ClientChannelHooker = {
+    request: [context: ClientChannelRequestContext, controller: ClientChannelRequestController]
 }
 
 export class ClientChannelStderr extends Readable {
@@ -53,6 +69,7 @@ export class ClientChannelStderr extends Readable {
 }
 
 export default class ClientChannel extends Duplex {
+    readonly hooker = new Hooker<ClientChannelHooker>()
     readonly client: Client
     readonly type: string
     readonly localId: number
@@ -189,10 +206,18 @@ export default class ClientChannel extends Duplex {
         if (!this.isOpen || this.remoteId === undefined) {
             return Promise.reject(new Error(`SSH channel ${this.localId} is not open`))
         }
+        if (!/^[\x21-\x7e]+$/u.test(type)) {
+            return Promise.reject(
+                new TypeError("SSH channel request type must be non-empty printable ASCII"),
+            )
+        }
+        if (!Buffer.isBuffer(args)) {
+            return Promise.reject(new TypeError("SSH channel request arguments must be a buffer"))
+        }
 
         const response = wantReply
             ? new Promise<void>((resolve, reject) => {
-                  this.pendingRequests.push({ resolve, reject })
+                  this.pendingRequests.push({ type, resolve, reject })
               })
             : Promise.resolve()
 
@@ -202,7 +227,7 @@ export default class ClientChannel extends Duplex {
                     recipient_channel_id: this.remoteId,
                     request_type: type,
                     want_reply: wantReply,
-                    args,
+                    args: Buffer.from(args),
                 }),
             )
         } catch (error) {
@@ -222,7 +247,7 @@ export default class ClientChannel extends Duplex {
     receiveRequestFailure(): void {
         const request = this.pendingRequests.shift()
         if (!request) throw new Error(`Unexpected failure response for SSH channel ${this.localId}`)
-        request.reject(new Error(`SSH channel ${this.localId} request failed`))
+        request.reject(new Error(`SSH channel ${this.localId} request failed (${request.type})`))
     }
 
     receiveWindowAdjust(bytesToAdd: number): void {
@@ -262,12 +287,13 @@ export default class ClientChannel extends Duplex {
         this.destroy()
     }
 
-    receiveRequest(packet: ChannelRequest): void {
+    async receiveRequest(packet: ChannelRequest): Promise<void> {
         if (packet.data.request_type === "exit-status") {
             const [exitCode, remaining] = readNextUint32(packet.data.args)
             if (remaining.length !== 0) throw new Error("Invalid exit-status channel request")
             this.exitCode = exitCode
             this.emit("exit", exitCode)
+            this.replyToRequest(packet, true)
             return
         }
 
@@ -290,12 +316,18 @@ export default class ClientChannel extends Duplex {
                 this.exitErrorMessage,
                 languageTag.toString("ascii"),
             )
+            this.replyToRequest(packet, true)
             return
         }
 
-        if (packet.data.want_reply && this.remoteId !== undefined) {
-            this.client.sendPacket(new ChannelFailure({ recipient_channel_id: this.remoteId }))
-        }
+        const context: ClientChannelRequestContext = Object.freeze({
+            type: packet.data.request_type,
+            args: Buffer.from(packet.data.args),
+            wantReply: packet.data.want_reply,
+        })
+        const controller: ClientChannelRequestController = { success: false }
+        await this.hooker.triggerHook("request", context, controller)
+        this.replyToRequest(packet, controller.success)
     }
 
     eof(): this {
@@ -356,6 +388,15 @@ export default class ClientChannel extends Duplex {
 
     protected serializeString(value: string): Buffer {
         return serializeBuffer(Buffer.from(value, "utf8"))
+    }
+
+    private replyToRequest(packet: ChannelRequest, success: boolean): void {
+        if (!packet.data.want_reply || !this.isOpen || this.remoteId === undefined) return
+        this.client.sendPacket(
+            success
+                ? new ChannelSuccess({ recipient_channel_id: this.remoteId })
+                : new ChannelFailure({ recipient_channel_id: this.remoteId }),
+        )
     }
 
     private consumeLocalWindow(data: Buffer): void {

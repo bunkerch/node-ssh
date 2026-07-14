@@ -1889,7 +1889,9 @@ export default class Client extends EventEmitter<ClientEvents> {
             channel.receiveClose()
             if (channel.isFullyClosed) this.channels.delete(channel.localId)
         } else if (packet instanceof ChannelRequest) {
-            channel.receiveRequest(packet)
+            void this.actionQueue
+                .queueAction(`channelRequest:${recipient}`, () => channel.receiveRequest(packet))
+                .catch((error: Error) => this.socket?.destroy(error))
         } else if (packet instanceof ChannelSuccess) {
             channel.receiveRequestSuccess()
         } else if (packet instanceof ChannelFailure) {

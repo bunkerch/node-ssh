@@ -189,7 +189,7 @@ export default class ClientSessionChannel extends ClientChannel {
         return this.sendBreak(duration)
     }
 
-    override receiveRequest(packet: ChannelRequest): void {
+    override async receiveRequest(packet: ChannelRequest): Promise<void> {
         if (packet.data.request_type === "xon-xoff") {
             if (packet.data.want_reply) {
                 throw new Error("SSH xon-xoff notification must not request a reply")
@@ -201,7 +201,7 @@ export default class ClientSessionChannel extends ClientChannel {
             this.emit("xonXoff", clientCanDo)
             return
         }
-        super.receiveRequest(packet)
+        await super.receiveRequest(packet)
     }
 
     private reserveProgram(): void {

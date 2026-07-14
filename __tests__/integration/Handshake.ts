@@ -91,6 +91,29 @@ describe("client/server integration", () => {
         let configuredSession: SessionChannel | undefined
         let configuredShell: Shell | undefined
         const breakDurations: number[] = []
+        const serverChannelRequests: string[] = []
+        let resolveServerChannelNotification: (() => void) | undefined
+        const serverChannelNotification = new Promise<void>((resolve) => {
+            resolveServerChannelNotification = resolve
+        })
+        server.hooker.hook(
+            "channelRequest",
+            async (_hook, _channel, controller, _client, request) => {
+                if (!request.data.request_type.startsWith("custom-")) return
+                serverChannelRequests.push(request.data.request_type)
+                controller.handled = true
+                if (request.data.request_type === "custom-one@example.test") {
+                    await new Promise<void>((resolve) => setTimeout(resolve, 10))
+                    controller.success = true
+                } else if (request.data.request_type === "custom-two@example.test") {
+                    controller.success = true
+                } else if (request.data.request_type === "custom-notify@example.test") {
+                    resolveServerChannelNotification?.()
+                } else if (request.data.request_type === "custom-never@example.test") {
+                    await new Promise<never>(() => undefined)
+                }
+            },
+        )
         const serverGlobalRequests: string[] = []
         let resolveOneWayGlobalRequest: (() => void) | undefined
         const oneWayGlobalRequest = new Promise<void>((resolve) => {
@@ -390,6 +413,64 @@ describe("client/server integration", () => {
             await clientRekey
             expect(await pingDuringRekey).toEqual(Buffer.from("queued-during-rekey"))
             const existingSession = await sessionDuringRekey
+            expect(
+                await Promise.all([
+                    existingSession.request("custom-one@example.test", Buffer.from("first")),
+                    existingSession.request("custom-two@example.test", Buffer.from("second")),
+                ]),
+            ).toEqual([undefined, undefined])
+            await expect(existingSession.request("custom-denied@example.test")).rejects.toThrow(
+                "request failed (custom-denied@example.test)",
+            )
+            await existingSession.request(
+                "custom-notify@example.test",
+                Buffer.from("notice"),
+                false,
+            )
+            await serverChannelNotification
+            expect(serverChannelRequests).toEqual([
+                "custom-one@example.test",
+                "custom-two@example.test",
+                "custom-denied@example.test",
+                "custom-notify@example.test",
+            ])
+
+            const clientChannelRequests: string[] = []
+            let resolveClientChannelNotification: (() => void) | undefined
+            const clientChannelNotification = new Promise<void>((resolve) => {
+                resolveClientChannelNotification = resolve
+            })
+            existingSession.hooker.hook("request", async (_hook, context, controller) => {
+                clientChannelRequests.push(context.type)
+                if (context.type === "client-one@example.test") {
+                    await new Promise<void>((resolve) => setTimeout(resolve, 10))
+                    controller.success = true
+                } else if (context.type === "client-two@example.test") {
+                    controller.success = true
+                } else if (context.type === "client-notify@example.test") {
+                    resolveClientChannelNotification?.()
+                } else if (context.type === "client-never@example.test") {
+                    await new Promise<never>(() => undefined)
+                }
+            })
+            const serverChannel = serverPeer!.channels.get(existingSession.remoteId!)!
+            expect(
+                await Promise.all([
+                    serverChannel.request("client-one@example.test", Buffer.from("first")),
+                    serverChannel.request("client-two@example.test", Buffer.from("second")),
+                ]),
+            ).toEqual([undefined, undefined])
+            await expect(serverChannel.request("client-denied@example.test")).rejects.toThrow(
+                "request failed (client-denied@example.test)",
+            )
+            await serverChannel.request("client-notify@example.test", Buffer.from("notice"), false)
+            await clientChannelNotification
+            expect(clientChannelRequests).toEqual([
+                "client-one@example.test",
+                "client-two@example.test",
+                "client-denied@example.test",
+                "client-notify@example.test",
+            ])
             expect(clientRekeys).toBe(1)
             expect(serverRekeys).toBe(1)
             expect(clientExchangeEvents).toEqual(["handshake", "handshake", "rekey"])
@@ -569,8 +650,26 @@ describe("client/server integration", () => {
             const sessionClosed = new Promise<void>((resolve) =>
                 existingSession.once("close", resolve),
             )
+            const pendingServerChannelRequest = serverChannel
+                .request("client-never@example.test")
+                .then(
+                    () => "unexpected success",
+                    (error: Error) => error.message,
+                )
+            const pendingClientChannelRequest = existingSession
+                .request("custom-never@example.test")
+                .then(
+                    () => "unexpected success",
+                    (error: Error) => error.message,
+                )
             existingSession.close()
             await sessionClosed
+            expect(await pendingServerChannelRequest).toBe(
+                `SSH channel ${serverChannel.localId} closed during request`,
+            )
+            expect(await pendingClientChannelRequest).toBe(
+                `SSH channel ${existingSession.localId} closed during request`,
+            )
             expect(serverErrors).toEqual([])
             expect(clientErrors).toEqual([])
         } finally {

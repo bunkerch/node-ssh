@@ -180,6 +180,10 @@ meaningful wire-level behavior.
 - Use `Hooker` for application request and policy surfaces whose handlers may need asynchronous
   work. Await hooks before sending protocol success or failure; reserve `EventEmitter` for
   observation and stream-style notifications that do not control a reply.
+- Generic channel requests use awaited, deny-by-default hooks and FIFO reply matching. Copy opaque
+  request arguments before exposing them, invoke one-way notifications without replying, reject
+  pending outbound requests when a channel closes, and suppress replies from handlers that finish
+  after close. Validate both peer roles with OpenSSH.
 - Bound server authentication with an absolute post-service deadline and a rejected-request
   ceiling. Do not count `none`, intermediate challenge messages, or `partialSuccess`; after expiry,
   an awaited policy hook must not admit the client. Clear and unref deadline timers, and flush the

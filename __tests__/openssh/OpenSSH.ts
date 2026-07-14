@@ -530,6 +530,7 @@ describe("OpenSSH interoperability", () => {
         let rekeys = 0
         let xonXoffNotifications = 0
         let globalRequestFailure: Promise<void> | undefined
+        let channelRequestFailure: Promise<void> | undefined
         let unimplementedResponse: Promise<void> | undefined
         server.hooker.hook("noneAuthentication", (_hook, context, decision) => {
             decision.allowLogin = context.username === "interop"
@@ -575,6 +576,18 @@ describe("OpenSSH interoperability", () => {
                     decision.success = true
                 })
                 channel.events.on("exec", (_command, stream) => {
+                    channelRequestFailure = channel
+                        .request("unknown-channel-request@example.test")
+                        .then(
+                            () => {
+                                throw new Error("OpenSSH accepted an unknown channel request")
+                            },
+                            (error: Error) => {
+                                expect(error.message).toBe(
+                                    `SSH channel ${channel.localId} request failed (unknown-channel-request@example.test)`,
+                                )
+                            },
+                        )
                     expect(stream.setXonXoff(true)).toBe(stream)
                     xonXoffNotifications++
                     stream.on("data", (data: Buffer) => input.push(data))
@@ -635,6 +648,8 @@ describe("OpenSSH interoperability", () => {
             expect(xonXoffNotifications).toBe(1)
             expect(globalRequestFailure).toBeDefined()
             await globalRequestFailure
+            expect(channelRequestFailure).toBeDefined()
+            await channelRequestFailure
             expect(unimplementedResponse).toBeDefined()
             await unimplementedResponse
             expect(errors).toEqual([])
@@ -2314,6 +2329,9 @@ describe("OpenSSH interoperability", () => {
             expect(Buffer.concat(ptyOutput).toString().trim()).toBe("37 101")
 
             const breakSession = await client.exec("sleep 1", { pty: true })
+            await expect(
+                breakSession.request("unknown-channel-request@example.test"),
+            ).rejects.toThrow("request failed (unknown-channel-request@example.test)")
             await breakSession.sendBreak(750)
             await new Promise<void>((resolve) => breakSession.once("close", resolve))
 

@@ -11,6 +11,7 @@ import EncodedSignature from "./utils/Signature.js"
 import Channel from "./Channel.js"
 import { SSHAuthenticationMethods } from "./constants.js"
 import { DisconnectError } from "./packets/Disconnect.js"
+import type ChannelRequest from "./packets/ChannelRequest.js"
 import { MAX_PREAMBLE_LINE_LENGTH, MAX_PREAMBLE_LINES } from "./IdentificationParser.js"
 import {
     resolveServerAlgorithmOptions,
@@ -161,6 +162,10 @@ export interface ServerHookerChannelOpenRequestController {
 }
 export interface ServerHookerChannelRequestController {
     deny: boolean
+    /** Marks an otherwise unknown request as handled by this hook. */
+    handled?: boolean
+    /** Success reply used when `handled` is true. */
+    success?: boolean
 }
 export type ServerHookerTCPIPForwardContext = Readonly<{
     bindAddress: string
@@ -221,6 +226,7 @@ export type ServerHooker = {
         channel: Channel,
         channelRequestController: ServerHookerChannelRequestController,
         client: ServerClient,
+        request: ChannelRequest,
     ]
     tcpipForward: [
         context: ServerHookerTCPIPForwardContext,

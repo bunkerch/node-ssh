@@ -64,6 +64,27 @@ await channel.signal("SIGTERM")
 request can succeed on a session. PTY terminal modes can be supplied as numeric RFC 4254 opcode to
 uint32-value mappings; the encoder adds the required `TTY_OP_END` terminator.
 
+Applications can also exchange private channel requests without bypassing channel state. Outbound
+requests are matched to success or failure replies in wire order; pass `false` as the third argument
+for a one-way notification:
+
+```ts
+await channel.request("refresh@example.com", Buffer.from("full"))
+await channel.request("changed@example.com", Buffer.from("users"), false)
+
+channel.hooker.hook("request", async (_hook, context, decision) => {
+    if (context.type !== "refresh@example.com") return
+    await refresh(context.args)
+    decision.success = true
+})
+```
+
+Server channels provide the same `request(type, args, wantReply)` operation. Incoming requests
+that do not have a channel-specific built-in handler reach the server's awaited `channelRequest`
+hook. Its request packet is the fifth argument; set `handled = true` and set `success` only after the
+application work has completed. Unknown requests fail by default. One-way requests still invoke the
+hook but never receive a protocol reply.
+
 `sendBreak(duration)` implements RFC 4335 and waits for the server to confirm that it performed a
 terminal BREAK. The duration is an unsigned millisecond value; zero requests the device default.
 `break(duration)` is an equivalent short form. Servers commonly clamp nonzero requests to 500
