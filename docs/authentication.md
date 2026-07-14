@@ -29,7 +29,10 @@ When no order is supplied, registering an awaited `keyboardInteractive` hook add
 `keyboard-interactive` to the default strategy immediately before password authentication. This
 happens when `connect()` begins, so handlers may be installed after constructing the client. An
 explicit `authenticationMethodsOrder` is a strict allow-list and is never broadened by hooks. The
-resolved per-connection strategy does not mutate `client.options.authenticationMethodsOrder`.
+constructor accepts mutable or readonly arrays and snapshots the configured order; later mutation
+of the caller's array cannot change authentication behavior. Empty orders, duplicate entries, and
+unsupported methods are rejected during construction. The resolved per-connection strategy does
+not mutate `client.options.authenticationMethodsOrder`.
 
 ```ts
 import { Client, SSHAuthenticationMethods } from "@bunkerch/modernssh"

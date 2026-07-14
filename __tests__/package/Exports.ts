@@ -341,6 +341,7 @@ describe("package exports", () => {
         expect(client).not.toContain("ClientSessionCallback")
         expect(client).not.toContain("ClientGlobalRequestCallback")
         expect(client).toContain("globalRequest(name: string, args?: Buffer): Promise<Buffer>")
+        expect(client).toContain("authenticationMethodsOrder?: readonly SSHAuthenticationMethods[]")
         expect(client).toContain("get elevated(): boolean | undefined")
         expect(client).toContain("delayCompression?: DelayCompressionConfiguration")
         expect(client).toContain("exec(command: string, options?: ClientSessionOptions)")

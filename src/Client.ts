@@ -283,7 +283,7 @@ export interface ClientOptions {
     gssapiKeyExchangeAuthentication?: boolean
     protocolVersionExchange?: ProtocolVersionExchange
     serverClient?: boolean
-    authenticationMethodsOrder?: SSHAuthenticationMethods[]
+    authenticationMethodsOrder?: readonly SSHAuthenticationMethods[]
     keepaliveInterval?: number
     keepaliveCountMax?: number
     /** Protected wire bytes allowed per key in either direction. Zero disables this limit. */
@@ -595,6 +595,24 @@ export default class Client extends EventEmitter<ClientEvents> {
             SSHAuthenticationMethods.Password,
             SSHAuthenticationMethods.Hostbased,
         ]
+        this.options.authenticationMethodsOrder = [...this.options.authenticationMethodsOrder]
+        if (this.options.authenticationMethodsOrder.length === 0) {
+            throw new TypeError("SSH authentication method order must contain at least one method")
+        }
+        const configuredAuthenticationMethods = new Set<SSHAuthenticationMethods>()
+        for (const method of this.options.authenticationMethodsOrder) {
+            if (!UserAuthRequest.auth_methods.has(method)) {
+                throw new TypeError(
+                    `SSH authentication method order contains an unsupported method: ${method}`,
+                )
+            }
+            if (configuredAuthenticationMethods.has(method)) {
+                throw new TypeError(
+                    `SSH authentication method order contains duplicate method: ${method}`,
+                )
+            }
+            configuredAuthenticationMethods.add(method)
+        }
         if (
             this.options.authenticationMethodsOrder.includes(
                 SSHAuthenticationMethods.GSSAPIKeyExchange,

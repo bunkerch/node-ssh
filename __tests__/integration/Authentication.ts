@@ -15,6 +15,63 @@ import { HostboundPublicKeyAuthMethod } from "../../src/auth/publickey.js"
 import ExtInfo from "../../src/packets/ExtInfo.js"
 
 describe("RFC 4252 multi-method authentication", () => {
+    test("rejects malformed authentication method orders during construction", () => {
+        expect(() => new Client({ authenticationMethodsOrder: [] })).toThrow(
+            "SSH authentication method order must contain at least one method",
+        )
+        expect(
+            () =>
+                new Client({
+                    authenticationMethodsOrder: [
+                        SSHAuthenticationMethods.None,
+                        SSHAuthenticationMethods.None,
+                    ],
+                }),
+        ).toThrow("SSH authentication method order contains duplicate method: none")
+        expect(
+            () =>
+                new Client({
+                    authenticationMethodsOrder: ["future-auth" as SSHAuthenticationMethods],
+                }),
+        ).toThrow("SSH authentication method order contains an unsupported method: future-auth")
+    })
+
+    test("owns the configured authentication method order before connecting", async () => {
+        const server = new Server({
+            hostKeys: [await PrivateKey.generate("ssh-ed25519")],
+            sendAllHostKeys: false,
+        })
+        let noneAttempts = 0
+        server.hooker.hook("noneAuthentication", (_hook, _context, decision) => {
+            noneAttempts++
+            decision.allowLogin = true
+        })
+        server.listen({ host: "127.0.0.1", port: 0 })
+        await once(server, "listening")
+
+        const authenticationMethodsOrder = [SSHAuthenticationMethods.None]
+        const client = new Client({
+            hostname: "127.0.0.1",
+            port: (server.address() as AddressInfo).port,
+            username: "owned-method-order",
+            authenticationMethodsOrder,
+        })
+        client.hooker.hook("hostKey", (_hook, decision) => {
+            decision.allowHostKey = true
+        })
+        authenticationMethodsOrder[0] = SSHAuthenticationMethods.Password
+
+        try {
+            await client.connect()
+            expect(client.isConnected).toBe(true)
+            expect(noneAttempts).toBe(1)
+        } finally {
+            client.destroy()
+            for (const connection of server.clients) connection.terminate()
+            await server.close()
+        }
+    }, 15_000)
+
     test("completes rekeys initiated by both roles during authentication", async () => {
         const hostKey = await PrivateKey.generate("ssh-ed25519")
         const server = new Server({ hostKeys: [hostKey], sendAllHostKeys: false })
