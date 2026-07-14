@@ -14,6 +14,58 @@ import { HostboundPublicKeyAuthMethod } from "../../src/auth/publickey.js"
 import ExtInfo from "../../src/packets/ExtInfo.js"
 
 describe("RFC 4252 multi-method authentication", () => {
+    test("completes rekeys initiated by both roles during authentication", async () => {
+        const hostKey = await PrivateKey.generate("ssh-ed25519")
+        const server = new Server({ hostKeys: [hostKey], sendAllHostKeys: false })
+        const errors: Error[] = []
+        let serverRekeys = 0
+        server.hooker.hook(
+            "passwordAuthentication",
+            async (_hook, context, decision, connection) => {
+                await connection.rekey()
+                decision.allowLogin = context.password === "secret"
+            },
+        )
+        server.on("connection", (connection) => {
+            connection.on("error", (error) => errors.push(error))
+            connection.on("rekey", () => serverRekeys++)
+        })
+        server.listen({ host: "127.0.0.1", port: 0 })
+        await new Promise<void>((resolve) => server.server!.once("listening", resolve))
+
+        const client = new Client({
+            hostname: "127.0.0.1",
+            port: (server.server!.address() as AddressInfo).port,
+            username: "rekey-user",
+            password: "secret",
+            authenticationMethodsOrder: [SSHAuthenticationMethods.Password],
+        })
+        let clientInitiated = false
+        let clientRekeys = 0
+        client.on("error", (error) => errors.push(error))
+        client.on("rekey", () => clientRekeys++)
+        client.hooker.hook("hostKey", (_hook, decision) => {
+            decision.allowHostKey = true
+        })
+        client.hooker.hook("authenticationMethod", async () => {
+            if (clientInitiated) return
+            clientInitiated = true
+            await client.rekey()
+        })
+
+        try {
+            await client.connect()
+            expect(client.isConnected).toBe(true)
+            expect(clientRekeys).toBe(2)
+            expect(serverRekeys).toBe(2)
+            expect(errors).toEqual([])
+        } finally {
+            client.destroy()
+            for (const connection of server.clients) connection.terminate()
+            await server.close()
+        }
+    }, 15_000)
+
     test.each(["client", "server"] as const)(
         "rejects %s EXT_INFO outside the negotiated message position",
         async (sender) => {

@@ -418,6 +418,11 @@ await client.rekey()
 await serverConnection.rekey()
 ```
 
+RFC 4253 permits either peer to initiate rekeying as soon as the initial key exchange has
+completed, including during service negotiation or user authentication. `rekey()` follows that
+rule and resolves after the replacement keys are active; a concurrent exchange is rejected rather
+than starting a second state machine.
+
 Both methods emit `rekey` after the new inbound and outbound protection is active. A re-exchange
 generates a fresh ephemeral key pair,
 exchange hash, IVs, encryption keys, and any separately required MAC keys. The session identifier

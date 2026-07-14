@@ -290,7 +290,8 @@ meaningful wire-level behavior.
 - RFC 4253 rekeying preserves the first exchange hash as the session identifier while deriving all
   new transport keys from the current exchange hash. Queue application output after sending
   `KEXINIT`, switch each direction exactly at its own `NEWKEYS`, preserve sequence numbers and open
-  channels, and test both initiator roles against OpenSSH.
+  channels, and test both initiator roles against OpenSSH. Honor rekey initiation after the initial
+  exchange during service negotiation and authentication as well as after login.
 - Accept `NEWKEYS` and method-specific key-exchange messages only while an exchange is active.
   Reject late or unsolicited exchange packets with an RFC protocol-error disconnect before parsing
   their method-specific payload or changing packet protection.

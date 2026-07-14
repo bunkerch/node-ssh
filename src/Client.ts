@@ -742,8 +742,10 @@ export default class Client extends EventEmitter<ClientEvents> {
     }
 
     rekey(): Promise<void> {
-        if (!this.isConnected) {
-            return Promise.reject(new Error("Cannot rekey before the SSH connection is ready"))
+        if (this.sessionID === undefined || !this.socket || this.socket.destroyed) {
+            return Promise.reject(
+                new Error("Cannot rekey before the initial SSH key exchange is complete"),
+            )
         }
         if (this.keyExchangeInProgress) {
             return Promise.reject(new Error("SSH key exchange is already in progress"))
@@ -2056,7 +2058,7 @@ export default class Client extends EventEmitter<ClientEvents> {
             }
 
             case PacketNameToType.SSH_MSG_KEXINIT:
-                if (this.state === SocketState.Connected && !this.keyExchangeInProgress) {
+                if (this.sessionID !== undefined && !this.keyExchangeInProgress) {
                     void this.performKeyExchange(true).catch((error: Error) => {
                         this.socket?.destroy(error)
                     })
