@@ -153,6 +153,7 @@ describe("RFC 4253 algorithm negotiation", () => {
         expect(standardClient.algorithmOffer.kex).not.toContain("mlkem512-sha256")
         expect(standardClient.algorithmOffer.cipher).not.toContain("aes128-cbc")
         expect(standardClient.algorithmOffer.cipher).not.toContain("blowfish-cbc")
+        expect(standardClient.algorithmOffer.cipher).not.toContain("cast128-cbc")
         expect(standardClient.algorithmOffer.hmac).not.toContain("hmac-md5")
         expect(standardClient.algorithmOffer.hmac).not.toContain("hmac-ripemd160")
         expect(standardClient.algorithmOffer.hmac.slice(0, 2)).toEqual([
@@ -163,12 +164,15 @@ describe("RFC 4253 algorithm negotiation", () => {
             hostname: "unused.invalid",
             algorithms: {
                 serverHostKey: { append: "ssh-dss" },
-                cipher: { append: "blowfish-cbc" },
+                cipher: { append: ["blowfish-cbc", "cast128-cbc"] },
                 hmac: { append: "hmac-ripemd160" },
             },
         })
         expect(legacyClient.algorithmOffer.serverHostKey.at(-1)).toBe("ssh-dss")
-        expect(legacyClient.algorithmOffer.cipher.at(-1)).toBe("blowfish-cbc")
+        expect(legacyClient.algorithmOffer.cipher.slice(-2)).toEqual([
+            "blowfish-cbc",
+            "cast128-cbc",
+        ])
         expect(legacyClient.algorithmOffer.hmac.at(-1)).toBe("hmac-ripemd160")
 
         const standaloneMLKEM = new Client({

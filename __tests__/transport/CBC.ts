@@ -3,6 +3,7 @@ import AES128CBC from "../../src/algorithms/encryption/aes128-cbc.js"
 import AES192CBC from "../../src/algorithms/encryption/aes192-cbc.js"
 import AES256CBC from "../../src/algorithms/encryption/aes256-cbc.js"
 import BlowfishCBC from "../../src/algorithms/encryption/blowfish-cbc.js"
+import Cast128CBC from "../../src/algorithms/encryption/cast128-cbc.js"
 import TripleDESCBC from "../../src/algorithms/encryption/triple-des-cbc.js"
 import HMACSHA2256 from "../../src/algorithms/mac/hmac-sha2-256.js"
 
@@ -13,6 +14,34 @@ const aesPlaintext = [
 ]
 
 describe("RFC 4253 CBC ciphers", () => {
+    test("cast128-cbc matches the RFC 2144 128-bit-key vector", () => {
+        const key = Buffer.from("0123456712345678234567893456789a", "hex")
+        const iv = Buffer.alloc(8)
+        const plaintext = Buffer.from("0123456789abcdef", "hex")
+        const ciphertext = Buffer.from("238b4fe5847e44b2", "hex")
+        const encryptor = new Cast128CBC(key, iv)
+        key.fill(0)
+        iv.fill(0xff)
+
+        expect(encryptor.encrypt(plaintext)).toEqual(ciphertext)
+        expect(
+            new Cast128CBC(
+                Buffer.from("0123456712345678234567893456789a", "hex"),
+                Buffer.alloc(8),
+            ).decrypt(ciphertext),
+        ).toEqual(plaintext)
+    })
+
+    test("cast128-cbc matches an independent multi-block CBC vector", () => {
+        const key = Buffer.from("0123456712345678234567893456789a", "hex")
+        const iv = Buffer.from("fedcba9876543210", "hex")
+        const plaintext = Buffer.from("00112233445566778899aabbccddeeff", "hex")
+        const ciphertext = Buffer.from("ce09aca5613861388c37e87e48d15546", "hex")
+
+        expect(new Cast128CBC(key, iv).encrypt(plaintext)).toEqual(ciphertext)
+        expect(new Cast128CBC(key, iv).decrypt(ciphertext)).toEqual(plaintext)
+    })
+
     test("blowfish-cbc matches the published 128-bit-key chaining vector", () => {
         const key = Buffer.from("0123456789abcdeff0e1d2c3b4a59687", "hex")
         const iv = Buffer.from("fedcba9876543210", "hex")
@@ -120,6 +149,15 @@ describe("RFC 4253 CBC ciphers", () => {
         )
         expect(() =>
             new BlowfishCBC(Buffer.alloc(16), Buffer.alloc(8)).encrypt(Buffer.alloc(9)),
+        ).toThrow("multiple of 8 bytes")
+        expect(() => new Cast128CBC(Buffer.alloc(15), Buffer.alloc(8))).toThrow(
+            "key must be 16 bytes",
+        )
+        expect(() => new Cast128CBC(Buffer.alloc(16), Buffer.alloc(7))).toThrow(
+            "IV must be 8 bytes",
+        )
+        expect(() =>
+            new Cast128CBC(Buffer.alloc(16), Buffer.alloc(8)).decrypt(Buffer.alloc(7)),
         ).toThrow("multiple of 8 bytes")
     })
 })
