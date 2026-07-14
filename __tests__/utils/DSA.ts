@@ -39,10 +39,16 @@ const parameters = {
 }
 
 describe("RFC 4253 DSS keys", () => {
-    test("verifies the RFC 6979 DSA-1024/SHA-1 vector in fixed SSH encoding", () => {
+    test("signs the RFC 6979 DSA-1024/SHA-1 vector in fixed SSH encoding", () => {
         const publicKey = new PublicKey({
             alg: "ssh-dss",
             algorithm: new SSHDSSPublicKey(parameters),
+        })
+        const privateAlgorithm = new SSHDSSPrivateKey(parameters)
+        const privateKey = new PrivateKey({
+            alg: "ssh-dss",
+            algorithm: privateAlgorithm,
+            publicKey: privateAlgorithm.getPublicKey(),
         })
         const signature = new EncodedSignature({
             alg: "ssh-dss",
@@ -51,6 +57,8 @@ describe("RFC 4253 DSS keys", () => {
                 "hex",
             ),
         })
+        expect(privateKey.sign(Buffer.from("sample"))).toEqual(signature)
+        expect(privateKey.sign(Buffer.from("sample"))).toEqual(signature)
         expect(publicKey.verifySignature(Buffer.from("sample"), signature)).toBe(true)
         expect(publicKey.verifySignature(Buffer.from("tampered"), signature)).toBe(false)
         expect(

@@ -168,16 +168,17 @@ Ed448 coverage uses RFC 8032's empty-message key and signature vector, wrapped i
 Ed448 PKCS#8 and SubjectPublicKeyInfo pair, imports both, and verifies a signature; generated
 library keys also round-trip through the private-key container.
 
-Legacy DSS coverage uses the RFC 6979 DSA-1024/SHA-1 vector with RFC 4253's literal four-mpint key
-blob and fixed 40-byte signature. OpenSSH-generated private, public, and PEM containers are parsed,
-signed, serialized, and derived again with `ssh-keygen`. With the method explicitly enabled,
-OpenSSH verifies the library server's DSS host signature; the library also verifies OpenSSH's DSS
-host signature while OpenSSH verifies a library DSS user-authentication signature. Default offers
-are separately checked to exclude DSS and the other legacy-only algorithm families.
+Legacy DSS coverage makes the signer reproduce the RFC 6979 DSA-1024/SHA-1 vector with RFC 4253's
+literal four-mpint key blob and fixed 40-byte signature. OpenSSH-generated private, public, and PEM
+containers are parsed, signed, serialized, and derived again with `ssh-keygen`. With the method
+explicitly enabled, OpenSSH verifies the library server's DSS host signature; the library also
+verifies OpenSSH's DSS host signature while OpenSSH verifies a library DSS user-authentication
+signature. Default offers are separately checked to exclude DSS and the other legacy-only algorithm
+families.
 
 OpenSSH private-key tests also generate every required ECDSA curve and prove parsing, public-key
-matching, signing, and verification. An RFC 6979 P-256/SHA-256 signature is independently encoded as
-the RFC 5656 pair of SSH mpints and verified as a fixed cryptographic vector.
+matching, signing, and verification. The signer reproduces RFC 6979's P-256/SHA-256,
+P-384/SHA-384, and P-521/SHA-512 signatures, independently encoded as RFC 5656 pairs of SSH mpints.
 
 Generated-key interoperability creates Ed25519, 2048-bit RSA, and every required ECDSA curve through
 the public `generateKeyPair()` API. OpenSSH `ssh-keygen` derives and fingerprints each generated

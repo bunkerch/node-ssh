@@ -46,6 +46,7 @@ import {
     validateDSAPrivateParameters,
 } from "./DSA.js"
 import { ed448 } from "@noble/curves/ed448.js"
+import { p256, p384, p521 } from "@noble/curves/nist.js"
 import { decodeSSHName, encodeSSHName } from "./SSHName.js"
 import { decodeSSHUTF8 } from "./SSHText.js"
 import {
@@ -1202,21 +1203,19 @@ export class SSHECDSAPrivateKey implements PrivateKeyAlgorithm {
 
     sign(data: Buffer, algorithm = this.curve.algorithm): EncodedSignature {
         assert(algorithm === this.curve.algorithm, `Unsupported ECDSA signature: ${algorithm}`)
-        const publicKey = new SSHECDSAPublicKey(this.curve, {
-            publicKey: this.data.publicKey,
-        })
-        const key = createPrivateKey({
-            key: {
-                ...publicKey.toJWK(),
-                d: fixedWidthInteger(this.data.privateKey, this.curve.coordinateLength).toString(
-                    "base64url",
-                ),
-            },
-            format: "jwk",
-        })
-        const signer = createSign(this.curve.hash)
-        signer.update(data)
-        const p1363 = signer.sign({ key, dsaEncoding: "ieee-p1363" })
+        const signer =
+            this.curve.identifier === "nistp256"
+                ? p256
+                : this.curve.identifier === "nistp384"
+                  ? p384
+                  : p521
+        const p1363 = Buffer.from(
+            signer.sign(
+                data,
+                fixedWidthInteger(this.data.privateKey, this.curve.coordinateLength),
+                { extraEntropy: false, format: "compact", lowS: false },
+            ),
+        )
         const width = this.curve.coordinateLength
         return new EncodedSignature({
             alg: algorithm,

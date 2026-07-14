@@ -316,7 +316,9 @@ blob contains the canonical positive `p`, `q`, `g`, and `y` mpints; private cont
 The implementation enforces the historical 1024-bit `p` and 160-bit `q`, validates primes,
 subgroup membership, and the private/public relationship, and encodes signatures as the required
 fixed 20-byte `r` followed by 20-byte `s`. DSS always uses SHA-1 and is excluded from defaults; use
-Ed25519, ECDSA, or RSA SHA-2 for every new deployment.
+Ed25519, ECDSA, or RSA SHA-2 for every new deployment. DSS signing derives its nonce
+deterministically according to RFC 6979 instead of depending on fresh random input for every
+signature.
 
 RFC 8308 extension messages are position-checked. A client message is accepted only immediately
 after its first `NEWKEYS`; the client sends an empty message at that point when the server offered
@@ -355,7 +357,8 @@ ECDSA host keys support all three curves required by RFC 5656: `ecdsa-sha2-nistp
 `ecdsa-sha2-nistp384`, and `ecdsa-sha2-nistp521`. Received SEC1 points are validated before use,
 their original encoding remains part of the serialized key and fingerprint, and ECDSA `r` and `s`
 values use canonical positive SSH mpints. Signatures select SHA-256, SHA-384, or SHA-512 according
-to the curve size.
+to the curve size. Signing uses RFC 6979 deterministic nonces, so the same key, message, and
+algorithm produce the same standard ECDSA signature.
 
 ### Certificate host keys
 

@@ -1,7 +1,8 @@
 import assert from "node:assert"
-import { checkPrimeSync, createHash, randomBytes, type KeyObject } from "node:crypto"
+import { checkPrimeSync, createHash, type KeyObject } from "node:crypto"
 import asn1js from "asn1js"
 import { decodeBigIntBE, encodeBigIntBE } from "./BigInt.js"
+import { modularInverse, withRFC6979Nonce } from "./RFC6979.js"
 
 export interface DSAParameters {
     p: Buffer
@@ -48,15 +49,15 @@ export function signDSA(data: Buffer, parameters: DSAPrivateParameters): Buffer 
     const q = decodeBigIntBE(parameters.q)
     const g = decodeBigIntBE(parameters.g)
     const x = decodeBigIntBE(parameters.x)
-    const digest = decodeBigIntBE(createHash("sha1").update(data).digest())
-    while (true) {
-        const k = randomScalar(q)
+    const digestBytes = createHash("sha1").update(data).digest()
+    const digest = decodeBigIntBE(digestBytes)
+    return withRFC6979Nonce("sha1", x, q, digestBytes, (k) => {
         const r = modPow(g, k, p) % q
-        if (r === 0n) continue
+        if (r === 0n) return undefined
         const s = (modInverse(k, q) * (digest + x * r)) % q
-        if (s === 0n) continue
+        if (s === 0n) return undefined
         return Buffer.concat([fixedWidth(r, 20), fixedWidth(s, 20)])
-    }
+    })
 }
 
 export function verifyDSA(data: Buffer, signature: Buffer, parameters: DSAParameters): boolean {
@@ -193,24 +194,7 @@ function modPow(base: bigint, exponent: bigint, modulus: bigint): bigint {
 }
 
 function modInverse(value: bigint, modulus: bigint): bigint {
-    let oldR = value
-    let r = modulus
-    let oldS = 1n
-    let s = 0n
-    while (r !== 0n) {
-        const quotient = oldR / r
-        ;[oldR, r] = [r, oldR - quotient * r]
-        ;[oldS, s] = [s, oldS - quotient * s]
-    }
-    assert(oldR === 1n, "DSA value has no modular inverse")
-    return ((oldS % modulus) + modulus) % modulus
-}
-
-function randomScalar(q: bigint): bigint {
-    while (true) {
-        const value = decodeBigIntBE(randomBytes(20))
-        if (value > 0n && value < q) return value
-    }
+    return modularInverse(value, modulus)
 }
 
 function fixedWidth(value: bigint, width: number): Buffer {
