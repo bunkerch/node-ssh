@@ -233,6 +233,13 @@ Call `PublicKey.fromPEM()` directly when the input is known to be a public PEM. 
 RSA, legacy DSA, and the three supported ECDSA curves and converts them to the canonical SSH
 public-key form.
 
+Certificate public-key lines and wire blobs are parsed into `PublicKey` objects whose algorithm is
+an exported `SSHCertificatePublicKey`. Its `data` exposes the certified plain key, CA key, serial,
+role, identifier, principals, validity interval, critical options, and extensions without losing
+64-bit values. Call `verifyCertificateSignature()` before using that metadata for authentication.
+The caller must also enforce the expected role, current time, accepted principal, trusted CA, and
+every critical option; parsing a valid CA signature alone is not an authorization decision.
+
 `DiskAgent` can receive a fixed passphrase or resolve one for each key path. A resolver is useful
 when the secret comes from an application credential store and should only be fetched when a
 signature is requested:

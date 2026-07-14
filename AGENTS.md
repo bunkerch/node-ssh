@@ -77,6 +77,10 @@ meaningful wire-level behavior.
 - Unified key parsing must route by explicit container framing rather than exception-driven parser
   fallback. Public PEM import accepts only Ed25519, RSA, and the three RFC 5656 ECDSA curves;
   validate converted keys through signing and real `ssh-keygen` fingerprinting.
+- Certificate public keys preserve the exact signed wire prefix, expose serials and validity times
+  as `bigint`, reject certificate CA keys and malformed option ordering, and verify the CA signature
+  separately from application authorization. Callers must still enforce role, time, principals,
+  trusted CA policy, and every critical option before accepting a certificate.
 - User authentication follows RFC 4252 and RFC 4256. Decode method-specific opcode 60 from the
   active authentication context, never as a globally fixed packet. Honor advertised continuation
   lists and partial success, keep at most one keyboard-interactive request outstanding, and test

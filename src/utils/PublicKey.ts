@@ -1,5 +1,5 @@
 import assert from "assert"
-import { readNextBuffer, serializeBuffer } from "./Buffer.js"
+import { readNextBuffer, readNextUint32, readNextUint64, serializeBuffer } from "./Buffer.js"
 import EncodedSignature from "./Signature.js"
 import asn1js from "asn1js"
 import crypto, { createHash, ECDH, type JsonWebKey } from "crypto"
@@ -108,7 +108,20 @@ export default class PublicKey {
         let alg: Buffer
         ;[alg, raw] = readNextBuffer(raw)
 
-        const algorithm = PublicKey.algorithms.get(alg.toString("utf8"))
+        const algorithmName = alg.toString("utf8")
+        const certificateKeyAlgorithm = CERTIFICATE_KEY_ALGORITHMS.get(algorithmName)
+        if (certificateKeyAlgorithm) {
+            return new PublicKey({
+                alg: algorithmName,
+                algorithm: SSHCertificatePublicKey.parse(
+                    algorithmName,
+                    certificateKeyAlgorithm,
+                    raw,
+                ),
+            })
+        }
+
+        const algorithm = PublicKey.algorithms.get(algorithmName)
         assert(algorithm, `Unsupported algorithm: ${alg.toString("utf8")}`)
 
         return new PublicKey({
@@ -211,6 +224,207 @@ export default class PublicKey {
 
         return keys
     }
+}
+
+export type SSHCertificateRole = "user" | "host"
+
+export interface SSHCertificateOption {
+    readonly name: string
+    readonly data: Buffer
+}
+
+export interface SSHCertificateData {
+    readonly nonce: Buffer
+    readonly publicKey: PublicKey
+    readonly serial: bigint
+    readonly role: SSHCertificateRole
+    readonly identifier: string
+    readonly principals: readonly string[]
+    readonly validAfter: bigint
+    readonly validBefore: bigint
+    readonly criticalOptions: readonly SSHCertificateOption[]
+    readonly extensions: readonly SSHCertificateOption[]
+    readonly reserved: Buffer
+    readonly signatureKey: PublicKey
+    readonly signature: EncodedSignature
+}
+
+const CERTIFICATE_SUFFIX = "-cert-v01@openssh.com"
+const CERTIFICATE_KEY_ALGORITHMS = new Map<string, string>([
+    [`ssh-ed25519${CERTIFICATE_SUFFIX}`, "ssh-ed25519"],
+    [`ssh-rsa${CERTIFICATE_SUFFIX}`, "ssh-rsa"],
+    [`ssh-dss${CERTIFICATE_SUFFIX}`, "ssh-dss"],
+    ...ECDSA_CURVES.map(
+        ({ algorithm }) => [`${algorithm}${CERTIFICATE_SUFFIX}`, algorithm] as const,
+    ),
+])
+
+export class SSHCertificatePublicKey implements PublicKeyAlgoritm {
+    static has_encryption = false
+    static has_signature = true
+
+    readonly algorithmName: string
+    readonly data: SSHCertificateData
+    private readonly payload: Buffer
+    private readonly signedData: Buffer
+
+    private constructor(
+        algorithmName: string,
+        data: SSHCertificateData,
+        payload: Buffer,
+        signedData: Buffer,
+    ) {
+        this.algorithmName = algorithmName
+        this.data = data
+        this.payload = Buffer.from(payload)
+        this.signedData = Buffer.from(signedData)
+    }
+
+    get publicKey(): PublicKey {
+        return this.data.publicKey
+    }
+
+    verifyCertificateSignature(): boolean {
+        return this.data.signatureKey.verifySignature(this.signedData, this.data.signature)
+    }
+
+    verifySignature(data: Buffer, signature: Buffer, algorithm?: string): boolean {
+        return this.publicKey.data.algorithm.verifySignature(data, signature, algorithm)
+    }
+
+    serialize(): Buffer {
+        return Buffer.from(this.payload)
+    }
+
+    equals(other: PublicKeyAlgoritm): boolean {
+        return other instanceof SSHCertificatePublicKey && this.payload.equals(other.payload)
+    }
+
+    static parse(
+        algorithmName: string,
+        keyAlgorithm: string,
+        payload: Buffer,
+    ): SSHCertificatePublicKey {
+        const originalPayload = payload
+        let nonce: Buffer
+        ;[nonce, payload] = readNextBuffer(payload)
+        assert(nonce.length >= 16, "Certificate nonce must be at least 16 bytes")
+
+        const [publicKey, remaining] = parseCertifiedPublicKey(keyAlgorithm, payload)
+        payload = remaining
+        let serial: bigint
+        let roleNumber: number
+        let identifier: Buffer
+        let principalsRaw: Buffer
+        let validAfter: bigint
+        let validBefore: bigint
+        let criticalOptionsRaw: Buffer
+        let extensionsRaw: Buffer
+        let reserved: Buffer
+        let signatureKeyRaw: Buffer
+        ;[serial, payload] = readNextUint64(payload)
+        ;[roleNumber, payload] = readNextUint32(payload)
+        assert(roleNumber === 1 || roleNumber === 2, "Invalid certificate role")
+        ;[identifier, payload] = readNextBuffer(payload)
+        ;[principalsRaw, payload] = readNextBuffer(payload)
+        ;[validAfter, payload] = readNextUint64(payload)
+        ;[validBefore, payload] = readNextUint64(payload)
+        ;[criticalOptionsRaw, payload] = readNextBuffer(payload)
+        ;[extensionsRaw, payload] = readNextBuffer(payload)
+        ;[reserved, payload] = readNextBuffer(payload)
+        ;[signatureKeyRaw, payload] = readNextBuffer(payload)
+        const signedPayloadLength = originalPayload.length - payload.length
+        let signatureRaw: Buffer
+        ;[signatureRaw, payload] = readNextBuffer(payload)
+        assert(payload.length === 0, "Unexpected certificate data")
+
+        const signatureKey = PublicKey.parse(signatureKeyRaw)
+        assert(
+            !(signatureKey.data.algorithm instanceof SSHCertificatePublicKey),
+            "Certificate authority key must not be a certificate",
+        )
+        const outerAlgorithm = serializeBuffer(Buffer.from(algorithmName, "utf8"))
+        return new SSHCertificatePublicKey(
+            algorithmName,
+            {
+                nonce: Buffer.from(nonce),
+                publicKey,
+                serial,
+                role: roleNumber === 1 ? "user" : "host",
+                identifier: decodeUTF8(identifier, "certificate identifier"),
+                principals: parseCertificatePrincipals(principalsRaw),
+                validAfter,
+                validBefore,
+                criticalOptions: parseCertificateOptions(criticalOptionsRaw),
+                extensions: parseCertificateOptions(extensionsRaw),
+                reserved: Buffer.from(reserved),
+                signatureKey,
+                signature: EncodedSignature.parse(signatureRaw),
+            },
+            originalPayload,
+            Buffer.concat([outerAlgorithm, originalPayload.subarray(0, signedPayloadLength)]),
+        )
+    }
+}
+
+function parseCertifiedPublicKey(keyAlgorithm: string, raw: Buffer): [PublicKey, Buffer] {
+    const fields =
+        keyAlgorithm === "ssh-ed25519"
+            ? 1
+            : keyAlgorithm === "ssh-rsa" || keyAlgorithm.startsWith("ecdsa-")
+              ? 2
+              : 4
+    const fieldBuffers: Buffer[] = []
+    let remaining = raw
+    for (let index = 0; index < fields; index++) {
+        let field: Buffer
+        ;[field, remaining] = readNextBuffer(remaining)
+        fieldBuffers.push(serializeBuffer(field))
+    }
+    const algorithm = PublicKey.algorithms.get(keyAlgorithm)
+    assert(algorithm, `Unsupported certified key algorithm: ${keyAlgorithm}`)
+    return [
+        new PublicKey({
+            alg: keyAlgorithm,
+            algorithm: algorithm.parse(Buffer.concat(fieldBuffers)),
+        }),
+        remaining,
+    ]
+}
+
+function parseCertificatePrincipals(raw: Buffer): string[] {
+    const principals: string[] = []
+    while (raw.length > 0) {
+        let principal: Buffer
+        ;[principal, raw] = readNextBuffer(raw)
+        principals.push(decodeUTF8(principal, "certificate principal"))
+    }
+    return principals
+}
+
+function parseCertificateOptions(raw: Buffer): SSHCertificateOption[] {
+    const options: SSHCertificateOption[] = []
+    let previousName: string | undefined
+    while (raw.length > 0) {
+        let nameRaw: Buffer
+        let data: Buffer
+        ;[nameRaw, raw] = readNextBuffer(raw)
+        ;[data, raw] = readNextBuffer(raw)
+        const name = decodeUTF8(nameRaw, "certificate option name")
+        assert(
+            previousName === undefined || previousName < name,
+            "Certificate options are not sorted",
+        )
+        previousName = name
+        options.push(Object.freeze({ name, data: Buffer.from(data) }))
+    }
+    return options
+}
+
+function decodeUTF8(raw: Buffer, name: string): string {
+    const value = raw.toString("utf8")
+    assert(Buffer.from(value, "utf8").equals(raw), `Invalid UTF-8 ${name}`)
+    return value
 }
 
 function decodeJWKField(value: string, name: string): Buffer {

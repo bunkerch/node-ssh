@@ -185,8 +185,14 @@ export {
     default as PublicKey,
     PublicKeyAlgoritm,
     PublicKeyAlgoritm as PublicKeyAlgorithm,
+    SSHCertificatePublicKey,
 } from "./utils/PublicKey.js"
-export type { PublicKeyData } from "./utils/PublicKey.js"
+export type {
+    PublicKeyData,
+    SSHCertificateData,
+    SSHCertificateOption,
+    SSHCertificateRole,
+} from "./utils/PublicKey.js"
 export { default as PrivateKey, PrivateKeyAlgorithm } from "./utils/PrivateKey.js"
 export type { PrivateKeyData } from "./utils/PrivateKey.js"
 export { parseKey } from "./KeyParsing.js"

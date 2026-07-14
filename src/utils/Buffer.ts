@@ -21,6 +21,11 @@ export function readNextUint32(buffer: Buffer): [number, Buffer] {
     return [data, buffer.subarray(4)]
 }
 
+export function readNextUint64(buffer: Buffer): [bigint, Buffer] {
+    assert(buffer.length >= 8)
+    return [buffer.readBigUInt64BE(0), buffer.subarray(8)]
+}
+
 export function readNextBinaryBoolean(buffer: Buffer): [boolean, Buffer] {
     assert(buffer.length >= 1)
     const data = parseBinaryBoolean(buffer.subarray(0, 1))
@@ -47,6 +52,13 @@ export function serializeUint32(data: number): Buffer {
     assert(Number.isInteger(data))
     const buffer = Buffer.alloc(4)
     buffer.writeUint32BE(data)
+    return buffer
+}
+
+export function serializeUint64(data: bigint): Buffer {
+    assert(data >= 0n && data <= 0xffffffffffffffffn)
+    const buffer = Buffer.alloc(8)
+    buffer.writeBigUInt64BE(data)
     return buffer
 }
 
