@@ -40,6 +40,7 @@ import { SSHZlibCompressor, SSHZlibDecompressor } from "./algorithms/compression
 import AES128CBC from "./algorithms/encryption/aes128-cbc.js"
 import AES192CBC from "./algorithms/encryption/aes192-cbc.js"
 import AES256CBC from "./algorithms/encryption/aes256-cbc.js"
+import BlowfishCBC from "./algorithms/encryption/blowfish-cbc.js"
 import TripleDESCBC from "./algorithms/encryption/triple-des-cbc.js"
 
 import HMACSHA2256 from "./algorithms/mac/hmac-sha2-256.js"
@@ -328,6 +329,7 @@ export const encryption_algorithms = new Map<string, typeof EncryptionAlgorithm>
     ["aes256-cbc", AES256CBC],
     ["aes192-cbc", AES192CBC],
     ["aes128-cbc", AES128CBC],
+    ["blowfish-cbc", BlowfishCBC],
     ["3des-cbc", TripleDESCBC],
 ])
 

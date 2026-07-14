@@ -357,6 +357,12 @@ that every CBC direction uses a separate MAC. NIST SP 800-38A AES vectors and an
 generated OpenSSL 3DES vector verify the block primitives, while fragmented fixed packets verify
 that cipher chaining continues when the decoder receives the first block separately.
 
+The optional RFC 4253 `blowfish-cbc` method has separate in-process evidence because current
+OpenSSH builds no longer offer it. The original published 128-bit-key CBC vector verifies four
+chained blocks exactly; a forced client/server exchange then verifies protected traffic and rekey
+in both library roles. This is compatibility evidence, not a recommendation to deploy a 64-bit
+block cipher.
+
 Truncated HMAC-SHA1 interoperability forces both RFC 4253 `hmac-sha1-96` and the deployed
 `hmac-sha1-96-etm@openssh.com` method in both peer roles with AES-128-CTR. Each direction explicitly
 rekeys and executes a command, while fixed RFC 2202 bytes independently verify that the tag is the

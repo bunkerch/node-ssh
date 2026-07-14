@@ -363,13 +363,17 @@ other encrypts the body and derives a one-time Poly1305 key for the full encrypt
 the full 16-byte tag is verified before the body is decrypted. A separate MAC is not negotiated.
 Sequence-number reuse or wrap under one transport key is rejected and requires rekeying.
 
-The RFC 4253 `aes128-cbc`, `aes192-cbc`, `aes256-cbc`, and three-key `3des-cbc` ciphers are
-supported as explicit compatibility choices but excluded from defaults. CBC chaining state
+The RFC 4253 `aes128-cbc`, `aes192-cbc`, `aes256-cbc`, `blowfish-cbc`, and three-key
+`3des-cbc` ciphers are supported as explicit compatibility choices but excluded from defaults.
+`blowfish-cbc` uses the RFC-required 128-bit key and has a 64-bit block size. CBC chaining state
 continues across packet boundaries; SSH packet padding supplies the required block alignment, so
 the cipher applies no additional padding. Each direction starts with newly derived key and IV
-material after `NEWKEYS` and always uses a separately negotiated MAC. Prefer the default AEAD and
-CTR choices for new deployments; configure CBC explicitly only when interoperability with an older
-peer requires it.
+material after `NEWKEYS` and always uses a separately negotiated MAC.
+
+Prefer the default AEAD and CTR choices for new deployments. Blowfish's designer recommends newer
+algorithms because its 64-bit block size is too small for modern high-volume use. Configure any CBC
+cipher explicitly only when interoperability with an older peer requires it, and retain the default
+automatic rekey limits.
 
 ## Compression
 

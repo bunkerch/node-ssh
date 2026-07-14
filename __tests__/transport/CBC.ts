@@ -2,6 +2,7 @@ import { BinaryPacketDecoder, BinaryPacketEncoder } from "../../src/BinaryPacket
 import AES128CBC from "../../src/algorithms/encryption/aes128-cbc.js"
 import AES192CBC from "../../src/algorithms/encryption/aes192-cbc.js"
 import AES256CBC from "../../src/algorithms/encryption/aes256-cbc.js"
+import BlowfishCBC from "../../src/algorithms/encryption/blowfish-cbc.js"
 import TripleDESCBC from "../../src/algorithms/encryption/triple-des-cbc.js"
 import HMACSHA2256 from "../../src/algorithms/mac/hmac-sha2-256.js"
 
@@ -12,6 +13,30 @@ const aesPlaintext = [
 ]
 
 describe("RFC 4253 CBC ciphers", () => {
+    test("blowfish-cbc matches the published 128-bit-key chaining vector", () => {
+        const key = Buffer.from("0123456789abcdeff0e1d2c3b4a59687", "hex")
+        const iv = Buffer.from("fedcba9876543210", "hex")
+        const plaintext = Buffer.from(
+            "37363534333231204e6f77206973207468652074696d6520666f722000000000",
+            "hex",
+        )
+        const ciphertext = Buffer.from(
+            "6b77b4d63006dee605b156e27403979358deb9e7154616d959f1652bd5ff92cc",
+            "hex",
+        )
+        const encryptor = new BlowfishCBC(key, iv)
+        key.fill(0)
+        iv.fill(0)
+
+        expect(encryptor.encrypt(plaintext)).toEqual(ciphertext)
+        expect(
+            new BlowfishCBC(
+                Buffer.from("0123456789abcdeff0e1d2c3b4a59687", "hex"),
+                Buffer.from("fedcba9876543210", "hex"),
+            ).decrypt(ciphertext),
+        ).toEqual(plaintext)
+    })
+
     test.each([
         [
             AES128CBC,
@@ -87,5 +112,14 @@ describe("RFC 4253 CBC ciphers", () => {
         const cipher = new TripleDESCBC(Buffer.alloc(24), Buffer.alloc(8))
         expect(() => cipher.encrypt(Buffer.alloc(7))).toThrow("multiple of 8 bytes")
         expect(() => cipher.decrypt(Buffer.alloc(9))).toThrow("multiple of 8 bytes")
+        expect(() => new BlowfishCBC(Buffer.alloc(15), Buffer.alloc(8))).toThrow(
+            "key must be 16 bytes",
+        )
+        expect(() => new BlowfishCBC(Buffer.alloc(16), Buffer.alloc(7))).toThrow(
+            "IV must be 8 bytes",
+        )
+        expect(() =>
+            new BlowfishCBC(Buffer.alloc(16), Buffer.alloc(8)).encrypt(Buffer.alloc(9)),
+        ).toThrow("multiple of 8 bytes")
     })
 })
