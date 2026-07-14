@@ -3,7 +3,7 @@ import Agent, { AgentError, AgentType } from "./Agent.js"
 import { homedir } from "os"
 import { readFile, readdir } from "fs/promises"
 import { existsSync } from "fs"
-import PublicKey from "../utils/PublicKey.js"
+import PublicKey, { SSHCertificatePublicKey } from "../utils/PublicKey.js"
 import assert from "assert"
 import PrivateKey from "../utils/PrivateKey.js"
 import EncodedSignature from "../utils/Signature.js"
@@ -41,11 +41,14 @@ export default class DiskAgent implements Agent<string> {
 
         // ensure public keys match before signing
         assert(
-            pub.equals(privateKey.data.publicKey),
+            (pub.data.algorithm instanceof SSHCertificatePublicKey
+                ? pub.data.algorithm.publicKey
+                : pub
+            ).equals(privateKey.data.publicKey),
             new DiskAgentError("Stored public key does not match the private key's public key."),
         )
 
-        return privateKey.sign(data, algorithm)
+        return privateKey.sign(data, pub.signatureAlgorithmFor(algorithm ?? pub.data.alg))
     }
 
     async getPublicKeys(): Promise<[string, PublicKey][]> {
@@ -59,7 +62,10 @@ export default class DiskAgent implements Agent<string> {
             if (!file.isFile()) continue
 
             const privateKeyPath = join(this.directory, file.name)
-            const publicKeyPath = `${privateKeyPath}.pub`
+            const certificatePath = `${privateKeyPath}-cert.pub`
+            const publicKeyPath = existsSync(certificatePath)
+                ? certificatePath
+                : `${privateKeyPath}.pub`
             if (!existsSync(publicKeyPath)) continue
 
             // this is a private key
@@ -90,7 +96,8 @@ export default class DiskAgent implements Agent<string> {
             throw new DiskAgentError("Key not found")
         }
 
-        const pubpath = `${path}.pub`
+        const certificatePath = `${path}-cert.pub`
+        const pubpath = existsSync(certificatePath) ? certificatePath : `${path}.pub`
         if (!existsSync(pubpath)) {
             throw new DiskAgentError("Public key not found")
         }

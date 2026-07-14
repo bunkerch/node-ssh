@@ -45,10 +45,11 @@ export default class SSHAgent implements Agent<string> {
                 `Signature algorithm ${requestedAlgorithm} is incompatible with ${publicKey.data.alg}`,
             )
         }
+        const signatureAlgorithm = publicKey.signatureAlgorithmFor(requestedAlgorithm)
         const flags =
-            requestedAlgorithm === "rsa-sha2-512"
+            signatureAlgorithm === "rsa-sha2-512"
                 ? SSH_AGENT_RSA_SHA2_512
-                : requestedAlgorithm === "rsa-sha2-256"
+                : signatureAlgorithm === "rsa-sha2-256"
                   ? SSH_AGENT_RSA_SHA2_256
                   : 0
         const response = await this.request(
@@ -65,9 +66,9 @@ export default class SSHAgent implements Agent<string> {
             const [signature, remaining] = readNextBuffer(response.subarray(1))
             if (remaining.length !== 0) throw new Error("signature response has trailing data")
             const encoded = EncodedSignature.parse(signature)
-            if (encoded.data.alg !== requestedAlgorithm) {
+            if (encoded.data.alg !== signatureAlgorithm) {
                 throw new Error(
-                    `agent returned ${encoded.data.alg} instead of ${requestedAlgorithm}`,
+                    `agent returned ${encoded.data.alg} instead of ${signatureAlgorithm}`,
                 )
             }
             return encoded
@@ -92,9 +93,12 @@ export default class SSHAgent implements Agent<string> {
                 let comment: Buffer
                 ;[keyBlob, raw] = readNextBuffer(raw)
                 ;[comment, raw] = readNextBuffer(raw)
-                const [algorithmName] = readNextBuffer(keyBlob)
-                if (!PublicKey.algorithms.has(algorithmName.toString("utf8"))) continue
-                const publicKey = PublicKey.parse(keyBlob)
+                let publicKey: PublicKey
+                try {
+                    publicKey = PublicKey.parse(keyBlob)
+                } catch {
+                    continue
+                }
                 publicKey.data.comment = comment.toString("utf8") || undefined
                 keys.push([keyBlob.toString("base64"), publicKey])
             }

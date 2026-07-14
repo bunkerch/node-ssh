@@ -62,6 +62,15 @@ export default class PublicKey {
     }
 
     get signatureAlgorithms(): readonly string[] {
+        if (this.data.algorithm instanceof SSHCertificatePublicKey) {
+            return this.data.algorithm.publicKey.data.alg === SSHRSAPublicKey.alg_name
+                ? [
+                      `rsa-sha2-512${CERTIFICATE_SUFFIX}`,
+                      `rsa-sha2-256${CERTIFICATE_SUFFIX}`,
+                      this.data.alg,
+                  ]
+                : [this.data.alg]
+        }
         return this.data.alg === SSHRSAPublicKey.alg_name
             ? ["rsa-sha2-512", "rsa-sha2-256", SSHRSAPublicKey.alg_name]
             : [this.data.alg]
@@ -69,6 +78,17 @@ export default class PublicKey {
 
     supportsSignatureAlgorithm(algorithm: string): boolean {
         return this.signatureAlgorithms.includes(algorithm)
+    }
+
+    signatureAlgorithmFor(algorithm: string): string {
+        assert(
+            this.supportsSignatureAlgorithm(algorithm),
+            `Signature algorithm ${algorithm} is incompatible with ${this.data.alg}`,
+        )
+        if (!(this.data.algorithm instanceof SSHCertificatePublicKey)) return algorithm
+        if (algorithm === this.data.alg) return this.data.algorithm.publicKey.data.alg
+        assert(algorithm.endsWith(CERTIFICATE_SUFFIX))
+        return algorithm.slice(0, -CERTIFICATE_SUFFIX.length)
     }
 
     verifySignature(data: Buffer, signature: EncodedSignature): boolean {

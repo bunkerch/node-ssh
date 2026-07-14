@@ -2078,12 +2078,46 @@ describe("OpenSSH interoperability", () => {
                 "-f",
                 dsaUserKeyPath,
             ])
+            const certificateCAPath = join(agentFixture.directory, "certificate_ca")
+            const certificateIdentityPath = join(agentFixture.directory, "certificate_identity")
+            await execFileAsync("ssh-keygen", [
+                "-q",
+                "-t",
+                "ed25519",
+                "-N",
+                "",
+                "-f",
+                certificateCAPath,
+            ])
+            await execFileAsync("ssh-keygen", [
+                "-q",
+                "-t",
+                "ed25519",
+                "-N",
+                "",
+                "-f",
+                certificateIdentityPath,
+            ])
+            await execFileAsync("ssh-keygen", [
+                "-q",
+                "-s",
+                certificateCAPath,
+                "-I",
+                "modernssh-client",
+                "-n",
+                "interop",
+                "-V",
+                "-1m:+1h",
+                certificateIdentityPath + ".pub",
+            ])
             const authorizedKeysPath = join(agentFixture.directory, "authorized_keys")
             await writeFile(
                 authorizedKeysPath,
                 Buffer.concat([
                     await readFile(join(agentFixture.directory, "id_rsa.pub")),
                     await readFile(`${dsaUserKeyPath}.pub`),
+                    Buffer.from("cert-authority "),
+                    await readFile(certificateCAPath + ".pub"),
                 ]),
             )
             await execFileAsync("docker", [
@@ -2173,6 +2207,28 @@ describe("OpenSSH interoperability", () => {
             )
             privateKeyClient.end()
             await privateKeyClosed
+            const certificateClient = new Client({
+                hostname: "127.0.0.1",
+                port,
+                username: "interop",
+                privateKey: await readFile(certificateIdentityPath),
+                certificate: await readFile(certificateIdentityPath + "-cert.pub"),
+                authenticationMethodsOrder: [SSHAuthenticationMethods.PublicKey],
+            })
+            certificateClient.hooker.hook("hostKey", (_hook, decision) => {
+                decision.allowHostKey = true
+            })
+            await certificateClient.connect()
+            const certificateSession = await certificateClient.exec("printf certificate-key-ok")
+            const certificateOutput: Buffer[] = []
+            certificateSession.on("data", (data: Buffer) => certificateOutput.push(data))
+            await new Promise<void>((resolve) => certificateSession.once("close", resolve))
+            expect(Buffer.concat(certificateOutput).toString()).toBe("certificate-key-ok")
+            const certificateClosed = new Promise<void>((resolve) =>
+                certificateClient.once("close", resolve),
+            )
+            certificateClient.end()
+            await certificateClosed
             const { stdout: clientHostPrivateKeyText } = await execFileAsync("docker", [
                 "exec",
                 containerId,

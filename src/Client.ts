@@ -144,6 +144,8 @@ export interface ClientOptions {
     agent?: Agent
     /** Private key object or encoded private-key container used for public-key authentication. */
     privateKey?: PrivateKey | string | Buffer
+    /** Certificate public key paired with `privateKey` for certificate authentication. */
+    certificate?: PublicKey | string | Buffer
     /** Passphrase for an encoded `privateKey`. */
     passphrase?: string | Buffer
     /** RFC 4252 host-based authentication identity. */
@@ -172,6 +174,7 @@ export interface ClientOptionsRequired
             | "ident"
             | "algorithms"
             | "privateKey"
+            | "certificate"
             | "passphrase"
         >
     > {
@@ -184,6 +187,7 @@ export interface ClientOptionsRequired
     ident?: string | Buffer
     algorithms?: ClientAlgorithmOptions
     privateKey?: PrivateKey | string | Buffer
+    certificate?: PublicKey | string | Buffer
     passphrase?: string | Buffer
 }
 
@@ -352,6 +356,9 @@ export default class Client extends EventEmitter<ClientEvents> {
         if (this.options.agent !== undefined && this.options.privateKey !== undefined) {
             throw new TypeError("SSH agent and privateKey options are mutually exclusive")
         }
+        if (this.options.certificate !== undefined && this.options.privateKey === undefined) {
+            throw new TypeError("SSH certificate option requires privateKey")
+        }
         if (this.options.privateKey !== undefined) {
             if (
                 this.options.privateKey instanceof PrivateKey &&
@@ -366,8 +373,20 @@ export default class Client extends EventEmitter<ClientEvents> {
             if (!(key instanceof PrivateKey)) {
                 throw new TypeError("SSH privateKey option must contain a private key")
             }
-            this.options.agent = new PrivateKeyAgent(key)
+            let authenticationKey = key
+            if (this.options.certificate !== undefined) {
+                const certificate =
+                    this.options.certificate instanceof PublicKey
+                        ? this.options.certificate
+                        : parseKey(this.options.certificate)
+                if (!(certificate instanceof PublicKey)) {
+                    throw new TypeError("SSH certificate option must contain a public key")
+                }
+                authenticationKey = key.withCertificate(certificate)
+            }
+            this.options.agent = new PrivateKeyAgent(authenticationKey)
             this.options.privateKey = undefined
+            this.options.certificate = undefined
             this.options.passphrase = undefined
         } else if (this.options.passphrase !== undefined) {
             throw new TypeError("SSH passphrase option requires privateKey")
@@ -443,6 +462,7 @@ export default class Client extends EventEmitter<ClientEvents> {
                 ...this.options,
                 password: this.options.password ? "<redacted>" : "",
                 privateKey: undefined,
+                certificate: undefined,
                 passphrase: undefined,
                 agent: this.options.agent.constructor.name,
             })

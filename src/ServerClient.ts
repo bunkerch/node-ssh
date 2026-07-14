@@ -45,7 +45,7 @@ import {
     type HostKeyAlgorithm,
 } from "./algorithms.js"
 import type { NegotiatedAlgorithms } from "./AlgorithmOptions.js"
-import PublicKey from "./utils/PublicKey.js"
+import PublicKey, { SSHCertificatePublicKey } from "./utils/PublicKey.js"
 import KexDHReply from "./packets/KexDHReply.js"
 import assert from "node:assert"
 import Packet, { packets } from "./packet.js"
@@ -1371,12 +1371,41 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                             }
                             boundServerHostKey = PublicKey.parse(method.data.serverHostKey)
                         }
+                        const signatureMessage = authRequest.serializeForSignature(this)
+                        if (
+                            method.data.signature &&
+                            !method.data.publicKey.verifySignature(
+                                signatureMessage,
+                                method.data.signature,
+                            )
+                        ) {
+                            sendAuthenticationFailure({}, SSHAuthenticationMethods.PublicKey)
+                            break
+                        }
+                        const certificateAlgorithm = method.data.publicKey.data.algorithm
+                        const certificate =
+                            certificateAlgorithm instanceof SSHCertificatePublicKey
+                                ? certificateAlgorithm
+                                : undefined
+                        if (certificate) {
+                            const now = BigInt(Math.floor(Date.now() / 1000))
+                            if (
+                                certificate.data.role !== "user" ||
+                                now < certificate.data.validAfter ||
+                                now >= certificate.data.validBefore ||
+                                !certificate.verifyCertificateSignature()
+                            ) {
+                                sendAuthenticationFailure({}, SSHAuthenticationMethods.PublicKey)
+                                break
+                            }
+                        }
                         const context: ServerHookerPublicKeyAuthenticationContext = {
                             username: authRequest.data.username,
                             publicKey: method.data.publicKey,
+                            certificate,
                             algorithm: method.data.algorithm!,
                             signature: method.data.signature,
-                            signatureMessage: authRequest.serializeForSignature(this),
+                            signatureMessage,
                             hostbound,
                             serverHostKey: boundServerHostKey,
                         }
@@ -1400,6 +1429,10 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                             } else {
                                 controller.allowLogin = false
                             }
+                        }
+                        if (controller.allowLogin && !method.data.signature) {
+                            controller.allowLogin = false
+                            controller.requestSignature = true
                         }
                         if (controller.allowLogin) {
                             allowLogin = true

@@ -87,6 +87,7 @@ describe("SSHAgent", () => {
         const directory = await mkdtemp(join(tmpdir(), "modernssh-openssh-agent-"))
         const socketPath = join(directory, "agent.sock")
         const keyPath = join(directory, "id_rsa")
+        const caPath = join(directory, "ca")
         const process = spawn("ssh-agent", ["-D", "-a", socketPath], { stdio: "ignore" })
 
         try {
@@ -112,20 +113,44 @@ describe("SSHAgent", () => {
                 "-f",
                 keyPath,
             ])
+            await execFileAsync("ssh-keygen", ["-q", "-t", "ed25519", "-N", "", "-f", caPath])
+            await execFileAsync("ssh-keygen", [
+                "-q",
+                "-s",
+                caPath,
+                "-I",
+                "agent-certificate",
+                "-n",
+                "agent-user",
+                "-V",
+                "-1m:+1h",
+                keyPath + ".pub",
+            ])
             await execFileAsync("ssh-add", [keyPath], {
                 env: { ...globalThis.process.env, SSH_AUTH_SOCK: socketPath },
             })
 
             const agent = new SSHAgent(socketPath)
             const identities = await agent.getPublicKeys()
-            expect(identities).toHaveLength(1)
-            expect(identities[0][1].data.comment).toBe("modernssh-agent-test")
+            const plainIdentity = identities.find(([, key]) => key.data.alg === "ssh-rsa")
+            const certificateIdentity = identities.find(([, key]) =>
+                key.data.alg.endsWith("-cert-v01@openssh.com"),
+            )
+            expect(plainIdentity?.[1].data.comment).toBe("modernssh-agent-test")
+            expect(certificateIdentity?.[1].data.comment).toBe("modernssh-agent-test")
             const data = Buffer.from("signed through the OpenSSH agent")
             for (const algorithm of ["rsa-sha2-256", "rsa-sha2-512"] as const) {
-                const signature = await agent.sign(identities[0][0], data, algorithm)
+                const signature = await agent.sign(plainIdentity![0], data, algorithm)
                 expect(signature.data.alg).toBe(algorithm)
-                expect(identities[0][1].verifySignature(data, signature)).toBe(true)
+                expect(plainIdentity![1].verifySignature(data, signature)).toBe(true)
             }
+            const certificateSignature = await agent.sign(
+                certificateIdentity![0],
+                data,
+                "rsa-sha2-512-cert-v01@openssh.com",
+            )
+            expect(certificateSignature.data.alg).toBe("rsa-sha2-512")
+            expect(certificateIdentity![1].verifySignature(data, certificateSignature)).toBe(true)
         } finally {
             process.kill("SIGTERM")
             await new Promise<void>((resolve) => {

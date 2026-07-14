@@ -81,6 +81,11 @@ meaningful wire-level behavior.
   as `bigint`, reject certificate CA keys and malformed option ordering, and verify the CA signature
   separately from application authorization. Callers must still enforce role, time, principals,
   trusted CA policy, and every critical option before accepting a certificate.
+- Certificate user authentication pairs the issued public certificate with its underlying private
+  key, negotiates certificate key names while encoding the underlying signature name, and verifies
+  possession before awaited policy. Reject invalid CA signatures, non-user roles, and expired or
+  not-yet-valid certificates before policy; leave CA trust, principals, critical options, and
+  restriction composition to the hook. Validate both peer roles with OpenSSH.
 - User authentication follows RFC 4252 and RFC 4256. Decode method-specific opcode 60 from the
   active authentication context, never as a globally fixed packet. Honor advertised continuation
   lists and partial success, keep at most one keyboard-interactive request outstanding, and test

@@ -87,7 +87,10 @@ export default class PublicKeyAuthMethod implements AuthMethod {
         assert(raw.length === 0)
 
         const encodedSignature = signature ? EncodedSignature.parse(signature) : undefined
-        assert(!encodedSignature || encodedSignature.data.alg === algorithm)
+        assert(
+            !encodedSignature ||
+                encodedSignature.data.alg === publicKey.signatureAlgorithmFor(algorithm),
+        )
         return new PublicKeyAuthMethod({
             publicKey: publicKey,
             algorithm,
@@ -101,7 +104,9 @@ export default class PublicKeyAuthMethod implements AuthMethod {
             const algorithms = key[1].signatureAlgorithms.filter(
                 (algorithm) =>
                     !client.serverSignatureAlgorithms ||
-                    client.serverSignatureAlgorithms.includes(algorithm),
+                    client.serverSignatureAlgorithms.includes(
+                        key[1].signatureAlgorithmFor(algorithm),
+                    ),
             )
             for (const algorithm of algorithms) {
                 try {
@@ -254,7 +259,10 @@ export class HostboundPublicKeyAuthMethod extends PublicKeyAuthMethod {
         if (hasSignature) [signature, raw] = readNextBuffer(raw)
         assert(raw.length === 0)
         const encodedSignature = signature ? EncodedSignature.parse(signature) : undefined
-        assert(!encodedSignature || encodedSignature.data.alg === algorithm)
+        assert(
+            !encodedSignature ||
+                encodedSignature.data.alg === publicKey.signatureAlgorithmFor(algorithm),
+        )
         return new HostboundPublicKeyAuthMethod({
             publicKey,
             algorithm,

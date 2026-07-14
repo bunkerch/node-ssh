@@ -107,7 +107,32 @@ Servers with a `publicKeyAuthentication` hook advertise host-bound authenticatio
 The same awaited hook handles both forms: `context.hostbound` identifies the bound form and
 `context.serverHostKey` is its parsed host key. The implementation rejects a request whose embedded
 key differs from the key used for this connection before invoking policy. Applications must still
-verify `context.signature` over `context.signatureMessage` before setting `allowLogin`.
+Signed requests are cryptographically verified before the hook runs. Applications authorize the
+already-verified key and may use `context.signatureMessage` for auditing.
+
+### Certificate identities
+
+Pair a private key with its issued public certificate by passing both options. Encoded values and
+parsed key objects are accepted:
+
+```ts
+const client = new Client({
+    hostname: "ssh.example.com",
+    username: "deploy",
+    privateKey: await readFile("./id_ed25519"),
+    certificate: await readFile("./id_ed25519-cert.pub"),
+})
+```
+
+`PrivateKey.withCertificate(certificate)` provides the same pairing for `PrivateKeyAgent`.
+`DiskAgent` automatically prefers `name-cert.pub` over `name.pub`, and delegated agents may return
+certificate identities directly. The certificate stays separate from private-key serialization.
+
+On the server, `context.certificate` contains the verified certificate when present. Before the
+awaited policy hook runs, the library checks its CA signature, user role, validity interval, and
+the request's possession signature. The hook must still trust the CA explicitly, authorize at
+least one principal for `context.username`, reject or implement every critical option, and compose
+certificate restrictions with application policy. Extensions grant nothing by themselves.
 
 Host-based authentication proves possession of a client machine's private host key and sends the
 claimed client hostname and local username for authorization. Configure all three explicitly and

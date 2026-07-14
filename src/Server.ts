@@ -6,7 +6,7 @@ import net from "net"
 import ServerClient from "./ServerClient.js"
 import { Hooker } from "./utils/Hooker.js"
 import PrivateKey from "./utils/PrivateKey.js"
-import PublicKey from "./utils/PublicKey.js"
+import PublicKey, { type SSHCertificatePublicKey } from "./utils/PublicKey.js"
 import EncodedSignature from "./utils/Signature.js"
 import Channel from "./Channel.js"
 import { SSHAuthenticationMethods } from "./constants.js"
@@ -102,6 +102,8 @@ export interface ServerAuthenticationContinuation {
 export type ServerHookerPublicKeyAuthenticationContext = Readonly<{
     username: string
     publicKey: PublicKey
+    /** Parsed certificate metadata when `publicKey` is a certificate. */
+    certificate?: SSHCertificatePublicKey
     algorithm: string
     signature?: EncodedSignature
     signatureMessage: Buffer

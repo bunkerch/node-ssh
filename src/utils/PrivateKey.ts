@@ -14,6 +14,7 @@ import PublicKey, {
     SSHDSSPublicKey,
     SSHECDSAPublicKey,
     SSHRSAPublicKey,
+    SSHCertificatePublicKey,
 } from "./PublicKey.js"
 import nacl from "tweetnacl"
 import {
@@ -56,11 +57,36 @@ export default class PrivateKey {
         this.data = data
     }
 
-    sign(data: Buffer, algorithm = this.data.alg): EncodedSignature {
-        return this.data.algorithm.sign(data, algorithm)
+    sign(
+        data: Buffer,
+        algorithm = this.data.publicKey.data.algorithm instanceof SSHCertificatePublicKey
+            ? this.data.publicKey.data.alg
+            : this.data.alg,
+    ): EncodedSignature {
+        const signatureAlgorithm =
+            this.data.publicKey.data.algorithm instanceof SSHCertificatePublicKey
+                ? this.data.publicKey.signatureAlgorithmFor(algorithm)
+                : algorithm
+        return this.data.algorithm.sign(data, signatureAlgorithm)
+    }
+
+    withCertificate(certificate: PublicKey): PrivateKey {
+        assert(
+            certificate.data.algorithm instanceof SSHCertificatePublicKey,
+            "A certificate public key is required",
+        )
+        assert(
+            certificate.data.algorithm.publicKey.equals(this.data.publicKey),
+            "Certificate does not match the private key",
+        )
+        return new PrivateKey({ ...this.data, publicKey: certificate })
     }
 
     serialize(options?: OpenSSHPrivateKeyEncryptionOptions): Buffer {
+        assert(
+            !(this.data.publicKey.data.algorithm instanceof SSHCertificatePublicKey),
+            "Serialize the underlying private key separately from its certificate",
+        )
         const cipherName = options?.cipher ?? "aes256-ctr"
         const blockLength = options ? getOpenSSHPrivateKeyCipherBlockLength(cipherName) : 8
         const algorithmPayload = this.data.algorithm.serialize()
