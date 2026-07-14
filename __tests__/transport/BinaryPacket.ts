@@ -193,6 +193,31 @@ describe("BinaryPacket", () => {
         decoder.push(firstAfterNewKeys.data)
         expect(firstAfterNewKeys.sequenceNumber).toBe(0)
         expect(decoder.read()?.sequenceNumber).toBe(0)
+        expect(encoder.hasSequenceNumberWrapped).toBe(false)
+        expect(decoder.hasSequenceNumberWrapped).toBe(false)
+    })
+
+    test("retains sequence wrap evidence until NEWKEYS resets each direction", () => {
+        const encoder = new BinaryPacketEncoder({ randomBytes: deterministicPadding })
+        const encoderState = encoder as unknown as { sequenceNumber: number }
+        encoderState.sequenceNumber = 0xffff_ffff
+        const wrappedPacket = encoder.encode(Buffer.from([2]))
+
+        expect(wrappedPacket.sequenceNumber).toBe(0xffff_ffff)
+        expect(encoder.hasSequenceNumberWrapped).toBe(true)
+        expect(encoder.encode(Buffer.from([2])).sequenceNumber).toBe(0)
+
+        const decoder = new BinaryPacketDecoder()
+        const decoderState = decoder as unknown as { sequenceNumber: number }
+        decoderState.sequenceNumber = 0xffff_ffff
+        decoder.push(wrappedPacket.data)
+        expect(decoder.read()?.sequenceNumber).toBe(0xffff_ffff)
+        expect(decoder.hasSequenceNumberWrapped).toBe(true)
+
+        encoder.resetSequenceNumber()
+        decoder.resetSequenceNumber()
+        expect(encoder.hasSequenceNumberWrapped).toBe(false)
+        expect(decoder.hasSequenceNumberWrapped).toBe(false)
     })
 
     test("encodes RFC 4253 framing with deterministic minimum padding", () => {

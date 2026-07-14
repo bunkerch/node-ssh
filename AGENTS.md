@@ -349,9 +349,9 @@ meaningful wire-level behavior.
   and are revalidated at serialization because key metadata remains intentionally mutable.
 - Strict key exchange advertises both the standard and deployed marker pairs only in the initial
   KEXINIT. Enable it only for a matching pair, require the peer's initial KEXINIT at sequence zero,
-  reject non-KEX and duplicate KEX messages during that exchange, and reset each direction's
-  implicit sequence number immediately after every NEWKEYS. Validate with fixed negotiation and
-  counter tests plus OpenSSH in both roles.
+  reject any pre-completion sequence wrap, reject non-KEX and duplicate KEX messages during that
+  exchange, and reset each direction's implicit sequence number immediately after every NEWKEYS.
+  Validate with fixed negotiation and counter tests plus OpenSSH in both roles.
 - RFC 4253 algorithm negotiation follows the client's name-list order independently for every
   category and direction. Clear all prior selections before each exchange, reject missing overlap
   instead of retaining rekey state, and validate supported compression explicitly.

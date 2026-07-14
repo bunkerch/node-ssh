@@ -331,9 +331,10 @@ implements their specification.
 Initial key exchange also offers strict key-exchange markers under both the standardized names and
 the widely deployed vendor-qualified names. Strict mode is enabled only when client and server
 offer a matching pair. It requires each peer's KEXINIT to be binary packet zero, rejects non-KEX
-and duplicate KEX messages during the initial exchange, and resets each direction's implicit
-packet sequence immediately after every NEWKEYS. These checks prevent unauthenticated transport
-messages from changing sequence state that survives into the protected connection.
+and duplicate KEX messages during the initial exchange, rejects a 32-bit sequence counter that
+wrapped before the exchange completed, and resets each direction's implicit packet sequence
+immediately after every NEWKEYS. These checks prevent unauthenticated transport messages from
+changing sequence state that survives into the protected connection.
 
 The server advertises version `0` of `ping@openssh.com` in its initial RFC 8308 extension message.
 Transport PING and PONG use opcodes 192 and 193 and carry one opaque SSH string; the response must

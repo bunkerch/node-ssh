@@ -131,6 +131,7 @@ export class BinaryPacketEncoder {
     private protection?: OutboundPacketProtection
     private compressor?: PacketCompressor
     private sequenceNumber = 0
+    private sequenceNumberWrapped = false
 
     constructor(options: BinaryPacketEncoderOptions = {}) {
         this.maximumPacketSize = options.maximumPacketSize ?? MAXIMUM_BINARY_PACKET_SIZE
@@ -149,6 +150,11 @@ export class BinaryPacketEncoder {
 
     resetSequenceNumber(): void {
         this.sequenceNumber = 0
+        this.sequenceNumberWrapped = false
+    }
+
+    get hasSequenceNumberWrapped(): boolean {
+        return this.sequenceNumberWrapped
     }
 
     encode(payload: Buffer): EncodedBinaryPacket {
@@ -233,6 +239,7 @@ export class BinaryPacketEncoder {
             )
         }
 
+        if (this.sequenceNumber === SEQUENCE_NUMBER_MODULO - 1) this.sequenceNumberWrapped = true
         this.sequenceNumber = (this.sequenceNumber + 1) % SEQUENCE_NUMBER_MODULO
         return { sequenceNumber, data: Buffer.concat([packet, authentication]) }
     }
@@ -245,6 +252,7 @@ export class BinaryPacketDecoder {
     private buffered = Buffer.alloc(0)
     private decryptedFirstBlock?: Buffer
     private sequenceNumber = 0
+    private sequenceNumberWrapped = false
 
     constructor(options: BinaryPacketOptions = {}) {
         this.maximumPacketSize = options.maximumPacketSize ?? MAXIMUM_BINARY_PACKET_SIZE
@@ -257,6 +265,11 @@ export class BinaryPacketDecoder {
 
     resetSequenceNumber(): void {
         this.sequenceNumber = 0
+        this.sequenceNumberWrapped = false
+    }
+
+    get hasSequenceNumberWrapped(): boolean {
+        return this.sequenceNumberWrapped
     }
 
     push(chunk: Buffer): void {
@@ -414,6 +427,7 @@ export class BinaryPacketDecoder {
 
         this.buffered = this.buffered.subarray(totalLength)
         this.decryptedFirstBlock = undefined
+        if (this.sequenceNumber === SEQUENCE_NUMBER_MODULO - 1) this.sequenceNumberWrapped = true
         this.sequenceNumber = (this.sequenceNumber + 1) % SEQUENCE_NUMBER_MODULO
 
         return { sequenceNumber, payload, padding, data }

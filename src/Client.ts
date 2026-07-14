@@ -1958,8 +1958,15 @@ export default class Client extends EventEmitter<ClientEvents> {
                 serverAlgorithms,
             )
             this.strictKeyExchange ||= negotiated
-            if (negotiated && decoded.sequenceNumber !== 0) {
-                throw new KeyExchangeError("Strict key exchange requires KEXINIT to be packet zero")
+            if (
+                negotiated &&
+                (decoded.sequenceNumber !== 0 ||
+                    this.packetDecoder.hasSequenceNumberWrapped ||
+                    this.packetEncoder.hasSequenceNumberWrapped)
+            ) {
+                throw new KeyExchangeError(
+                    "Strict key exchange requires unwrapped sequence numbers and KEXINIT at packet zero",
+                )
             }
         }
         if (this.strictKeyExchange && this.strictInitialExchange) {
