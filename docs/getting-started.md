@@ -221,14 +221,27 @@ private-key objects in `server.options`; it does not retain encoded containers o
 `hostKeys` is empty, the server generates a temporary Ed25519 key, which changes identity after
 every restart.
 
-`Server` mirrors useful Node TCP-server controls without exposing callback completion flows:
+`Server` mirrors useful Node TCP-server controls without exposing callback completion flows.
 `getConnections()` and `close()` return Promises, `listen()` reports readiness through the
-`listening` event, and `address()`, `ref()`, and `unref()` remain synchronous. Call `listen()` only
-once until the server has closed; a duplicate request made while host-key preparation or native
-listener startup is pending throws synchronously instead of creating an unhandled deferred error.
-Calling `close()` during that pending phase cancels startup, emits `close`, and resolves without
-opening a listener later. Other deferred startup failures are reported through the server's `error`
-event.
+`listening` event, and `address()`, `ref()`, and `unref()` remain synchronous. Set
+`server.maxConnections` before listening to bound the transports owned concurrently by the server:
+
+```ts
+server.maxConnections = 200
+server.listen(22, "127.0.0.1")
+```
+
+The limit defaults to `Infinity` and accepts `Infinity` or a non-negative integer; zero denies every
+new transport. A connection consumes a slot before the awaited `preconnect` policy runs, so slow
+admission checks cannot bypass the bound. `getConnections()` includes these pending transports as
+well as admitted SSH clients, and a slot is released when its underlying transport closes. A peer
+rejected because the limit is full is closed before SSH parsing or application policy begins.
+
+Call `listen()` only once until the server has closed; a duplicate request made while host-key
+preparation or native listener startup is pending throws synchronously instead of creating an
+unhandled deferred error. Calling `close()` during that pending phase cancels startup, emits
+`close`, and resolves without opening a listener later. Other deferred startup failures are
+reported through the server's `error` event.
 The `connection` event's immutable endpoint snapshot retains the remote and local address, family,
 and port after the socket closes. Fields may be undefined for an injected or non-IP transport that
 does not expose them.
@@ -241,15 +254,17 @@ caller-selected protocol reason.
 An application that already owns an accepted `net.Socket`, SSH channel, or custom connected
 `Duplex` can pass it through the same admission and handshake path with
 `server.injectSocket(transport)`. The exported `ServerTransport` interface requires duplex stream
-behavior and makes TCP endpoint metadata and `setNoDelay()` optional. Injected transports still
-run the `preconnect` policy hook, appear in `server.clients` and `getConnections()`, and are removed
-on close. The injecting application retains responsibility for the outer listener; the SSH server
-owns the injected transport after acceptance. When `preconnect` hooks are present, they must
-complete without rejection and explicitly set `allowConnection = true`; denial happens before the
-public `connection` event. `injectSocket()` rejects a transport synchronously if it has already
-closed or is no longer both readable and writable; attach it before transferring or closing either
-side of the stream. The server rechecks the transport after deferred host-key preparation and
-discards it without emitting `connection` if it closed during that interval.
+behavior and makes TCP endpoint metadata and `setNoDelay()` optional. Injection synchronously
+reserves a `maxConnections` slot and transfers ownership to the SSH server. The transport appears
+in `getConnections()` immediately, runs the `preconnect` policy hook, and appears in
+`server.clients` only after admission; it is removed from both applicable collections on close.
+The injecting application retains responsibility for the outer listener. When `preconnect` hooks
+are present, they must complete without rejection and explicitly set `allowConnection = true`;
+denial happens before the public `connection` event. `injectSocket()` rejects a transport
+synchronously if it has already closed or is no longer both readable and writable; attach it before
+transferring or closing either side of the stream. The server rechecks the transport after deferred
+host-key preparation and discards it without emitting `connection` if it closed during that
+interval.
 
 ## Passphrase-protected private keys
 

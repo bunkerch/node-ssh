@@ -359,6 +359,8 @@ describe("package exports", () => {
             "get clientElevationPreference(): ElevationRequest | undefined",
         )
         expect(server).toContain("getConnections(): Promise<number>")
+        expect(server).toContain("get maxConnections(): number")
+        expect(server).toContain("set maxConnections(value: number)")
         expect(server).toContain("delayCompression?: DelayCompressionConfiguration")
         expect(server).toContain("injectSocket(socket: ServerTransport): this")
         expect(server).toContain("export interface ServerTransport extends Duplex")

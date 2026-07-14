@@ -504,8 +504,23 @@ export default class Server extends EventEmitter<ServerEvents> {
     readonly algorithmOffer: ResolvedAlgorithmOptions
     readonly kexAlgorithms: ReadonlyMap<string, KexAlgorithmFactory>
     private readonly hostKeysReady: Promise<void>
+    private maximumConnections = Infinity
+    private readonly transports = new Set<ServerTransport>()
     private listenRequested = false
     private listenRequestId = 0
+
+    get maxConnections(): number {
+        return this.maximumConnections
+    }
+
+    set maxConnections(value: number) {
+        if (value !== Infinity && (!Number.isInteger(value) || value < 0)) {
+            throw new RangeError(
+                "SSH server maximum connections must be a non-negative integer or Infinity",
+            )
+        }
+        this.maximumConnections = value
+    }
 
     listen(port?: number, hostname?: string, backlog?: number): this
     listen(port?: number, backlog?: number): this
@@ -543,13 +558,14 @@ export default class Server extends EventEmitter<ServerEvents> {
         if (!isReadable(socket) || !socket.writable || socket.destroyed) {
             throw new TypeError("SSH server transport must be open, readable, and writable")
         }
+        if (!this.reserveTransport(socket)) return this
         void this.hostKeysReady
             .then(() => {
                 if (!isReadable(socket) || !socket.writable || socket.destroyed) {
                     if (!socket.destroyed) socket.destroy()
                     return
                 }
-                return this.acceptSocket(socket)
+                return this.acceptSocket(socket, true)
             })
             .catch((error: unknown) => {
                 const failure = error instanceof Error ? error : new Error(String(error))
@@ -564,7 +580,7 @@ export default class Server extends EventEmitter<ServerEvents> {
     }
 
     async getConnections(): Promise<number> {
-        return this.clients.size
+        return this.transports.size
     }
 
     close(): Promise<void> {
@@ -590,7 +606,20 @@ export default class Server extends EventEmitter<ServerEvents> {
         return this
     }
 
-    private async acceptSocket(socket: ServerTransport): Promise<void> {
+    private reserveTransport(socket: ServerTransport): boolean {
+        if (this.transports.has(socket)) return false
+        if (this.transports.size >= this.maxConnections) {
+            this.debug(`Connection limit of ${this.maxConnections} reached`)
+            socket.destroy()
+            return false
+        }
+        this.transports.add(socket)
+        socket.once("close", () => this.transports.delete(socket))
+        return true
+    }
+
+    private async acceptSocket(socket: ServerTransport, reserved = false): Promise<void> {
+        if (!reserved && !this.reserveTransport(socket)) return
         this.debug(`Connection from ${socket.remoteAddress?.toString() ?? "unknown"}`)
         const connectionInfo: Readonly<ServerConnectionInfo> = Object.freeze({
             remoteAddress: socket.remoteAddress,
