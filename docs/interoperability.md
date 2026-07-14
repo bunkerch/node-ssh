@@ -198,8 +198,10 @@ triggers.
 
 Transport ping coverage uses fixed opcode 192/193 packet vectors and exercises concurrent ordered
 echoes plus a ping queued across rekey against the in-process server. The pinned OpenSSH fixture
-predates `ping@openssh.com`; the client verifies that absence of its RFC 8308 advertisement rejects
-the API call before any extension packet is sent.
+used for legacy coverage predates `ping@openssh.com`; the client verifies that absence of its RFC
+8308 advertisement rejects the API call before any extension packet is sent. The separate pinned
+OpenSSH 10 server advertises version `0` and echoes an opaque ping whose caller-owned input is
+mutated while the reply is pending.
 
 The agent suite sends fixed RFC 9987 identity-list and signing frames through fragmented UNIX-socket
 reads. A separate integration test starts the system OpenSSH `ssh-agent`, loads an independently

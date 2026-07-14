@@ -159,7 +159,7 @@ describe("ML-KEM OpenSSH interoperability", () => {
         }
     }, 90_000)
 
-    test("modernssh exchanges traffic and rekeys with an OpenSSH server", async () => {
+    test("modernssh exchanges ping, traffic, and rekeys with an OpenSSH server", async () => {
         await buildImage()
         const started = await collectProcess("docker", [
             "run",
@@ -194,6 +194,11 @@ describe("ML-KEM OpenSSH interoperability", () => {
             })
             try {
                 await client.connect()
+                const pingData = Buffer.from("mlkem-transport-ping")
+                const pingPromise = client.ping(pingData)
+                pingData.fill(0)
+                const pingReply = await pingPromise
+
                 const first = await client.exec("printf mlkem-client-first")
                 const firstOutput: Buffer[] = []
                 first.on("data", (data: Buffer) => firstOutput.push(data))
@@ -213,6 +218,7 @@ describe("ML-KEM OpenSSH interoperability", () => {
                     firstExchangeHashChanged: !client.H!.equals(firstExchangeHash),
                     firstOutput: Buffer.concat(firstOutput).toString(),
                     handshakes,
+                    pingReply,
                     secondOutput: Buffer.concat(secondOutput).toString(),
                     sessionIdStable: client.sessionID!.equals(sessionId),
                 }).toEqual({
@@ -220,6 +226,7 @@ describe("ML-KEM OpenSSH interoperability", () => {
                     firstExchangeHashChanged: true,
                     firstOutput: "mlkem-client-first",
                     handshakes: [keyExchange, keyExchange],
+                    pingReply: Buffer.from("mlkem-transport-ping"),
                     secondOutput: "mlkem-client-second",
                     sessionIdStable: true,
                 })
