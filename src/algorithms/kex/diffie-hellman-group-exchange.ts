@@ -190,7 +190,7 @@ export class DiffieHellmanGroupExchange extends KeyExchange {
         return this.computeGroupExchangeHash(
             client.options.protocolVersionExchange.toString().slice(0, -2),
             client.serverProtocolVersion!.toString().slice(0, -2),
-            client.clientKexInit!.serialize(),
+            client.clientKexInitPayload!,
             serverKexInit,
             this.serverHostKey,
             this.getPublicKey(),
@@ -203,7 +203,7 @@ export class DiffieHellmanGroupExchange extends KeyExchange {
             client.clientProtocolVersion!.toString().slice(0, -2),
             client.server.options.protocolVersionExchange!.toString().slice(0, -2),
             clientKexInit,
-            client.serverKexInit!.serialize(),
+            client.serverKexInitPayload!,
             hostKey,
             this.requirePeerPublicKey(),
             this.getPublicKey(),

@@ -45,7 +45,7 @@ export default class DiffieHellmanGroupN extends KeyExchange {
             client.serverProtocolVersion!.toString().slice(0, -2),
 
             // I_C
-            client.clientKexInit!.serialize(),
+            client.clientKexInitPayload!,
             // I_S
             I_S,
 
@@ -71,7 +71,7 @@ export default class DiffieHellmanGroupN extends KeyExchange {
             // I_C
             I_C,
             // I_S
-            client.serverKexInit!.serialize(),
+            client.serverKexInitPayload!,
 
             // K_S
             K_S,

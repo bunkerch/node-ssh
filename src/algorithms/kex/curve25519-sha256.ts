@@ -65,7 +65,7 @@ export default class Curve25519SHA256 extends KeyExchange {
         return this.computeExchangeHash([
             client.options.protocolVersionExchange.toString().slice(0, -2),
             client.serverProtocolVersion!.toString().slice(0, -2),
-            client.clientKexInit!.serialize(),
+            client.clientKexInitPayload!,
             serverKexInit,
             client.serverKexDHReply!.data.K_S,
             this.getPublicKey(),
@@ -79,7 +79,7 @@ export default class Curve25519SHA256 extends KeyExchange {
             client.clientProtocolVersion!.toString().slice(0, -2),
             client.server.options.protocolVersionExchange!.toString().slice(0, -2),
             clientKexInit,
-            client.serverKexInit!.serialize(),
+            client.serverKexInitPayload!,
             hostKey,
             client.clientKexDHInit!.data.e,
             this.getPublicKey(),

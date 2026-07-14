@@ -169,6 +169,10 @@ first default preference.
 eight mandatory algorithm lists are non-empty, the reserved uint32 is zero, and trailing bytes are
 rejected before negotiation begins.
 
+Each peer snapshots its exact serialized local KEXINIT at the transport write boundary. Exchange
+hashes use that immutable wire payload, so later mutation of an inspected packet object cannot
+change the session transcript.
+
 The two optional language preference name-lists use RFC 3066 syntax rather than algorithm-name
 rules. Their order and repeated tags are preserved; malformed tags are rejected in both directions.
 

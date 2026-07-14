@@ -561,6 +561,7 @@ export default class Client extends EventEmitter<ClientEvents> {
     serverKexDHReply?: KexDHReply
     // TODO: Assess if these should be private properties
     clientKexInit?: KexInit
+    clientKexInitPayload?: Buffer
     serverKexInit?: KexInit
     kexAlgorithm?: KexAlgorithm
     hostKeyAlgorithm?: HostKeyAlgorithm
@@ -2020,7 +2021,9 @@ export default class Client extends EventEmitter<ClientEvents> {
 
     private writePacket(packet: Packet): number {
         this.debug("Sending packet:", this.packetForDebug(packet))
-        const encoded = this.packetEncoder.encode(packet.serialize())
+        const payload = packet.serialize()
+        if (packet instanceof KexInit) this.clientKexInitPayload = Buffer.from(payload)
+        const encoded = this.packetEncoder.encode(payload)
         this.socket!.write(encoded.data)
         return encoded.sequenceNumber
     }

@@ -21,6 +21,7 @@ import Unimplemented from "../../src/packets/Unimplemented.js"
 import { serializeBuffer, serializeUint32 } from "../../src/utils/Buffer.js"
 import { SFTPPacketType } from "../../src/sftp/constants.js"
 import { SSHAuthenticationMethods } from "../../src/constants.js"
+import KexInit from "../../src/packets/KexInit.js"
 
 class UnsupportedPacket {
     static type = 200
@@ -467,6 +468,12 @@ describe("client/server integration", () => {
             const initialClientExchangeHash = Buffer.from(client.H!)
             const initialServerExchangeHash = Buffer.from(serverPeer!.H!)
 
+            const clientSendPacket = client.sendPacket.bind(client)
+            client.sendPacket = (packet: Packet) => {
+                const sequence = clientSendPacket(packet)
+                if (packet instanceof KexInit) packet.data.cookie.fill(0xa5)
+                return sequence
+            }
             const clientRekey = client.rekey()
             const pingDuringRekey = client.ping(Buffer.from("queued-during-rekey"))
             const sessionDuringRekey = client.openSession()
@@ -540,7 +547,16 @@ describe("client/server integration", () => {
             expect(client.H).not.toEqual(initialClientExchangeHash)
             expect(serverPeer!.H).not.toEqual(initialServerExchangeHash)
             expect(client.H).toEqual(serverPeer!.H)
+            expect(client.clientKexInitPayload?.subarray(1, 17)).not.toEqual(
+                client.clientKexInit?.data.cookie,
+            )
 
+            const serverSendPacket = serverPeer!.sendPacket.bind(serverPeer!)
+            serverPeer!.sendPacket = (packet: Packet) => {
+                const sequence = serverSendPacket(packet)
+                if (packet instanceof KexInit) packet.data.cookie.fill(0x5a)
+                return sequence
+            }
             const clientAcceptedServerRekey = new Promise<void>((resolve) =>
                 client.once("rekey", resolve),
             )
@@ -558,6 +574,9 @@ describe("client/server integration", () => {
             expect(await serverRequestDuringRekey).toEqual(Buffer.from("reply:during-rekey"))
             expect(clientRekeys).toBe(2)
             expect(serverRekeys).toBe(2)
+            expect(serverPeer!.serverKexInitPayload?.subarray(1, 17)).not.toEqual(
+                serverPeer!.serverKexInit?.data.cookie,
+            )
             expect(clientHandshakes).toEqual([
                 expectedNegotiated,
                 expectedNegotiated,
