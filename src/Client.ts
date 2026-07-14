@@ -1119,9 +1119,10 @@ export default class Client extends EventEmitter<ClientEvents> {
     }
 
     shell(options: ClientSessionOptions = {}): Promise<ClientSessionChannel> {
+        const sessionOptions = snapshotSessionOptions(options)
         return this.openSessionChannel().then(async (channel) => {
             try {
-                await this.configureSession(channel, options, true)
+                await this.configureSession(channel, sessionOptions, true)
                 await channel.shell()
                 return channel
             } catch (error) {
