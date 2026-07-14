@@ -226,6 +226,9 @@ export default class SFTPClient {
 
     private readonly parser = new SFTPPacketParser()
     private readonly pending = new Map<number, PendingRequest>()
+    private readonly activeHandles = new Map<string, number>()
+    private activeHandleCount = 0
+    private pendingHandleRequests = 0
     private nextRequestId = 0
     private initialized = false
     private closed = false
@@ -498,26 +501,23 @@ export default class SFTPClient {
         flags: string | number,
         attributes: SFTPAttributes = {},
     ): Promise<Buffer> {
-        const response = await this.request(
-            {
-                type: SFTPPacketType.Open,
-                requestId: this.allocateRequestId(),
-                filename: pathBuffer(path),
-                flags: sftpOpenFlags(flags),
-                attributes,
-            },
-            SFTPPacketType.Handle,
-        )
-        if (response.type !== SFTPPacketType.Handle) throw new SFTPProtocolError("Expected HANDLE")
-        return response.handle
+        return this.createHandle({
+            type: SFTPPacketType.Open,
+            requestId: this.allocateRequestId(),
+            filename: pathBuffer(path),
+            flags: sftpOpenFlags(flags),
+            attributes,
+        })
     }
 
     async close(handle: Buffer): Promise<void> {
+        const ownedHandle = Buffer.from(handle)
         await this.statusRequest({
             type: SFTPPacketType.Close,
             requestId: this.allocateRequestId(),
-            handle,
+            handle: ownedHandle,
         })
+        this.releaseHandle(ownedHandle)
     }
 
     async read(handle: Buffer, length: number, position: SFTPPosition): Promise<Buffer> {
@@ -617,16 +617,11 @@ export default class SFTPClient {
     }
 
     async opendir(path: SFTPPath): Promise<Buffer> {
-        const response = await this.request(
-            {
-                type: SFTPPacketType.OpenDir,
-                requestId: this.allocateRequestId(),
-                path: pathBuffer(path),
-            },
-            SFTPPacketType.Handle,
-        )
-        if (response.type !== SFTPPacketType.Handle) throw new SFTPProtocolError("Expected HANDLE")
-        return response.handle
+        return this.createHandle({
+            type: SFTPPacketType.OpenDir,
+            requestId: this.allocateRequestId(),
+            path: pathBuffer(path),
+        })
     }
 
     async readdir(handle: Buffer): Promise<readonly SFTPClientNameEntry[] | null> {
@@ -1103,6 +1098,51 @@ export default class SFTPClient {
         await this.request(packet, SFTPPacketType.Status)
     }
 
+    private async createHandle(packet: SFTPPacket & SFTPRequestPacketBase): Promise<Buffer> {
+        this.reserveHandle()
+        try {
+            const response = await this.request(packet, SFTPPacketType.Handle)
+            if (response.type !== SFTPPacketType.Handle) {
+                throw new SFTPProtocolError("Expected HANDLE")
+            }
+            this.trackHandle(response.handle)
+            return response.handle
+        } finally {
+            this.pendingHandleRequests--
+        }
+    }
+
+    private reserveHandle(): void {
+        const maximum = this.maxOpenHandles
+        if (maximum !== undefined && maximum !== Number.POSITIVE_INFINITY) {
+            if (!Number.isSafeInteger(maximum) || maximum < 1) {
+                throw new RangeError(
+                    "SFTP maximum open handles must be a positive safe integer or Infinity",
+                )
+            }
+            if (this.activeHandleCount + this.pendingHandleRequests >= maximum) {
+                const noun = maximum === 1 ? "handle" : "handles"
+                throw new Error(`SFTP server permits at most ${maximum} active ${noun}`)
+            }
+        }
+        this.pendingHandleRequests++
+    }
+
+    private trackHandle(handle: Buffer): void {
+        const key = handle.toString("base64")
+        this.activeHandles.set(key, (this.activeHandles.get(key) ?? 0) + 1)
+        this.activeHandleCount++
+    }
+
+    private releaseHandle(handle: Buffer): void {
+        const key = handle.toString("base64")
+        const count = this.activeHandles.get(key)
+        if (count === undefined) return
+        if (count === 1) this.activeHandles.delete(key)
+        else this.activeHandles.set(key, count - 1)
+        this.activeHandleCount--
+    }
+
     private request(
         packet: SFTPPacket & SFTPRequestPacketBase,
         ...expectedTypes: SFTPPacketType[]
@@ -1234,6 +1274,8 @@ export default class SFTPClient {
         if (!this.initialized) this.readyReject(error)
         for (const request of this.pending.values()) request.reject(error)
         this.pending.clear()
+        this.activeHandles.clear()
+        this.activeHandleCount = 0
     }
 }
 

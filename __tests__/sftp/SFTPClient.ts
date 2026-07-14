@@ -432,6 +432,83 @@ describe("SFTP client request engine", () => {
         fixture.destroy()
     })
 
+    test("does not exceed the advertised active-handle limit", async () => {
+        const openedPaths: string[] = []
+        let firstRequestId: number | undefined
+        const fixture = new SFTPServerFixture((packet) => {
+            if (packet.type === SFTPPacketType.Init) {
+                fixture.send({
+                    type: SFTPPacketType.Version,
+                    version: 3,
+                    extensions: [{ name: "limits@openssh.com", data: Buffer.from("1") }],
+                })
+            } else if (packet.type === SFTPPacketType.Extended) {
+                fixture.send({
+                    type: SFTPPacketType.ExtendedReply,
+                    requestId: packet.requestId,
+                    data: Buffer.from(
+                        "0000000000000000000000000000000000000000000000000000000000000001",
+                        "hex",
+                    ),
+                })
+            } else if (packet.type === SFTPPacketType.Open) {
+                const path = packet.filename.toString()
+                openedPaths.push(path)
+                if (path === "one") {
+                    firstRequestId = packet.requestId
+                } else {
+                    fixture.send({
+                        type: SFTPPacketType.Handle,
+                        requestId: packet.requestId,
+                        handle: Buffer.from(path),
+                    })
+                }
+            } else if (packet.type === SFTPPacketType.Close) {
+                fixture.send({
+                    type: SFTPPacketType.Status,
+                    requestId: packet.requestId,
+                    code: SFTPStatusCode.Ok,
+                    message: "",
+                    languageTag: "",
+                })
+            }
+        })
+
+        const client = await SFTPClient.connect(asClientChannel(fixture))
+        const firstPromise = client.open("one", "r")
+        let secondError: unknown
+        try {
+            await client.open("two", "r")
+        } catch (error) {
+            secondError = error
+        }
+        if (firstRequestId === undefined) throw new Error("First OPEN was not sent")
+        fixture.send({
+            type: SFTPPacketType.Handle,
+            requestId: firstRequestId,
+            handle: Buffer.from("one"),
+        })
+        const firstHandle = await firstPromise
+        await client.close(firstHandle)
+        const thirdHandle = await client.open("three", "r")
+
+        expect({
+            firstHandle,
+            openedPaths,
+            secondError:
+                secondError instanceof Error
+                    ? `${secondError.name}: ${secondError.message}`
+                    : secondError,
+            thirdHandle,
+        }).toEqual({
+            firstHandle: Buffer.from("one"),
+            openedPaths: ["one", "three"],
+            secondError: "Error: SFTP server permits at most 1 active handle",
+            thirdHandle: Buffer.from("three"),
+        })
+        fixture.destroy()
+    })
+
     test("gates OpenSSH requests by exact advertised version and preserves wire paths", async () => {
         const requests: string[] = []
         const fixture = new SFTPServerFixture((packet) => {
