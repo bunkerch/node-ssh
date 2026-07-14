@@ -69,3 +69,17 @@ export async function generateKeyPair(
             : await PrivateKey.generate(name!)
     return attachComment(privateKey, options.comment)
 }
+
+/** Generate a supported SSH key pair synchronously using Node's cryptographic random source. */
+export function generateKeyPairSync(
+    type: KeyPairType,
+    options: GenerateKeyPairOptions = {},
+): GeneratedKeyPair {
+    validateComment(options.comment)
+    const name = algorithm(type, options.bits)
+    const privateKey =
+        type === "rsa"
+            ? SSHRSAPrivateKey.generateSync(options.bits ?? 3072)
+            : PrivateKey.generateSync(name!)
+    return attachComment(privateKey, options.comment)
+}

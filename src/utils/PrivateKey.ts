@@ -24,7 +24,8 @@ import {
     createECDH,
     createPrivateKey,
     createSign,
-    generateKeyPair,
+    generateKeyPair as generateNodeKeyPair,
+    generateKeyPairSync as generateNodeKeyPairSync,
     KeyObject,
     randomBytes,
 } from "crypto"
@@ -348,6 +349,13 @@ export default class PrivateKey {
 
         return algo.generate()
     }
+
+    static generateSync(alg: string): PrivateKey {
+        const algo = PrivateKey.algorithms.get(alg)
+        assert(algo, `Unsupported algorithm: ${alg}`)
+
+        return algo.generateSync()
+    }
 }
 
 function jwkBuffer(jwk: JsonWebKey, name: keyof JsonWebKey): Buffer {
@@ -472,6 +480,10 @@ export abstract class PrivateKeyAlgorithm {
     static generate(): Promise<PrivateKey> {
         throw new Error("Not implemented")
     }
+
+    static generateSync(): PrivateKey {
+        throw new Error("Not implemented")
+    }
 }
 
 export interface SSHED25519PrivateKeyData {
@@ -533,7 +545,7 @@ export class SSHED25519PrivateKey implements PrivateKeyAlgorithm {
         return [new SSHED25519PrivateKey({ publicKey, privateKey }), raw]
     }
 
-    static async generate(): Promise<PrivateKey> {
+    static generateSync(): PrivateKey {
         const keyPair = nacl.sign.keyPair()
 
         const publicKey = Buffer.from(keyPair.publicKey)
@@ -552,6 +564,10 @@ export class SSHED25519PrivateKey implements PrivateKeyAlgorithm {
                 publicKey: publicKey,
             }),
         })
+    }
+
+    static async generate(): Promise<PrivateKey> {
+        return SSHED25519PrivateKey.generateSync()
     }
 }
 PrivateKey.algorithms.set(SSHED25519PrivateKey.alg_name, SSHED25519PrivateKey)
@@ -613,7 +629,7 @@ export class SSHED448PrivateKey implements PrivateKeyAlgorithm {
         return [new SSHED448PrivateKey({ publicKey, privateKey }), raw]
     }
 
-    static async generate(): Promise<PrivateKey> {
+    static generateSync(): PrivateKey {
         const key = ed448.keygen()
         const publicKey = Buffer.from(key.publicKey)
         const algorithm = new SSHED448PrivateKey({
@@ -626,6 +642,10 @@ export class SSHED448PrivateKey implements PrivateKeyAlgorithm {
             publicKey: algorithm.getPublicKey(),
             algorithm,
         })
+    }
+
+    static async generate(): Promise<PrivateKey> {
+        return SSHED448PrivateKey.generateSync()
     }
 }
 PrivateKey.algorithms.set(SSHED448PrivateKey.alg_name, SSHED448PrivateKey)
@@ -690,13 +710,21 @@ export class SSHDSSPrivateKey implements PrivateKeyAlgorithm {
 
     static async generate(): Promise<PrivateKey> {
         const key = await new Promise<KeyObject>((resolve, reject) => {
-            generateKeyPair(
+            generateNodeKeyPair(
                 "dsa",
                 { modulusLength: 1024, divisorLength: 160 },
                 (error, _publicKey, privateKey) => (error ? reject(error) : resolve(privateKey)),
             )
         })
         return privateKeyFromKeyObject(key)
+    }
+
+    static generateSync(): PrivateKey {
+        const { privateKey } = generateNodeKeyPairSync("dsa", {
+            modulusLength: 1024,
+            divisorLength: 160,
+        })
+        return privateKeyFromKeyObject(privateKey)
     }
 }
 PrivateKey.algorithms.set(SSHDSSPrivateKey.alg_name, SSHDSSPrivateKey)
@@ -994,7 +1022,7 @@ export class SSHRSAPrivateKey implements PrivateKeyAlgorithm {
     // in case you need more security, you can increase that value
     static async generate(bitsize = 3072): Promise<PrivateKey> {
         const privateKey = await new Promise<KeyObject>((res, rej) => {
-            generateKeyPair(
+            generateNodeKeyPair(
                 "rsa",
                 {
                     modulusLength: bitsize,
@@ -1011,6 +1039,13 @@ export class SSHRSAPrivateKey implements PrivateKeyAlgorithm {
                 format: "pem",
                 type: "pkcs1",
             }) as string,
+        )
+    }
+
+    static generateSync(bitsize = 3072): PrivateKey {
+        const { privateKey } = generateNodeKeyPairSync("rsa", { modulusLength: bitsize })
+        return SSHRSAPrivateKey.fromPEM(
+            privateKey.export({ format: "pem", type: "pkcs1" }) as string,
         )
     }
 }
@@ -1145,7 +1180,7 @@ function registerECDSAPrivateKey(curve: ECDSACurve): void {
             ]
         }
 
-        static async generate(): Promise<PrivateKey> {
+        static generateSync(): PrivateKey {
             const ecdh = createECDH(curve.nodeName)
             const publicKey = ecdh.generateKeys()
             const algorithm = new CurvePrivateKey({
@@ -1157,6 +1192,10 @@ function registerECDSAPrivateKey(curve: ECDSACurve): void {
                 publicKey: algorithm.getPublicKey(),
                 algorithm,
             })
+        }
+
+        static async generate(): Promise<PrivateKey> {
+            return CurvePrivateKey.generateSync()
         }
     }
     PrivateKey.algorithms.set(curve.algorithm, CurvePrivateKey)

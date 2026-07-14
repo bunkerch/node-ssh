@@ -25,6 +25,7 @@ import {
     ForwardedStreamLocalChannel,
     ForwardedX11Channel,
     generateKeyPair,
+    generateKeyPairSync,
     HTTPAgent,
     HTTPSAgent,
     OnePasswordAgent,
@@ -90,6 +91,7 @@ describe("package exports", () => {
             ForwardedStreamLocalChannel,
             ForwardedX11Channel,
             generateKeyPair,
+            generateKeyPairSync,
             HTTPAgent,
             HTTPSAgent,
             OnePasswordAgent,
@@ -107,7 +109,7 @@ describe("package exports", () => {
             SSHAgent,
             SSHHTTPAgent,
             SSHHTTPSAgent,
-        ]).toHaveLength(35)
+        ]).toHaveLength(36)
         expect(SSHAuthenticationMethods.PublicKey).toBe("publickey")
         expect(SSHAuthenticationMethods.KeyboardInteractive).toBe("keyboard-interactive")
         expect(TerminalMode.ECHO).toBe(53)
@@ -141,6 +143,7 @@ describe("package exports", () => {
         expect(entry.HTTPAgent).toBe(entry.SSHHTTPAgent)
         expect(entry.HTTPSAgent).toBe(entry.SSHHTTPSAgent)
         expect(entry.generateKeyPair).toBeFunction()
+        expect(entry.generateKeyPairSync).toBeFunction()
         expect(entry.parseKeys).toBeFunction()
         expect(entry.DirectTCPIPChannel).toBeDefined()
         expect(entry.DirectStreamLocalChannel).toBeDefined()
@@ -207,7 +210,7 @@ describe("package exports", () => {
                     "--input-type=module",
                     "--eval",
                     `
-                    const { Client, generateKeyPair, parseKey, PrivateKey, PrivateKeyAgent } = await import("modernssh")
+                    const { Client, generateKeyPair, generateKeyPairSync, parseKey, PrivateKey, PrivateKeyAgent } = await import("modernssh")
                     const { privateKey, publicKey } = await generateKeyPair("ed25519", {
                         comment: "packed@example.test",
                     })
@@ -219,12 +222,14 @@ describe("package exports", () => {
                     if (!parseKey(publicKey.toString()).equals(publicKey)) process.exit(4)
                     const configured = new Client({ privateKey: encrypted, passphrase: "packed-secret" })
                     if (!(configured.options.agent instanceof PrivateKeyAgent)) process.exit(5)
-                    const legacy = await generateKeyPair("dsa")
+                    const legacy = generateKeyPairSync("dsa")
                     const legacySignature = legacy.privateKey.sign(message)
                     if (!legacy.publicKey.verifySignature(message, legacySignature)) process.exit(6)
                     if (new Client({}).algorithmOffer.serverHostKey.includes("ssh-dss")) process.exit(7)
                     const explicitLegacy = new Client({ algorithms: { serverHostKey: ["ssh-dss"] } })
                     if (explicitLegacy.algorithmOffer.serverHostKey[0] !== "ssh-dss") process.exit(8)
+                    const synchronous = generateKeyPairSync("ecdsa", { bits: 256 })
+                    if (!synchronous.publicKey.verifySignature(message, synchronous.privateKey.sign(message))) process.exit(9)
                     process.stdout.write(publicKey.toString())
                 `,
                 ],

@@ -226,6 +226,23 @@ await writeFile("./id_ed25519", `${privateKey.toString()}\n`, { mode: 0o600 })
 await writeFile("./id_ed25519.pub", `${publicKey.toString()}\n`)
 ```
 
+`generateKeyPairSync()` accepts the same key types and options when generation must finish before
+ordinary control flow continues:
+
+```ts
+import { generateKeyPairSync } from "modernssh"
+
+const hostIdentity = generateKeyPairSync("ecdsa", {
+    bits: 384,
+    comment: "host@example.test",
+})
+```
+
+Synchronous RSA and DSA parameter generation can block the Node.js event loop for a noticeable
+amount of time. Prefer `generateKeyPair()` in servers and other latency-sensitive processes; use
+the synchronous form for startup tooling or short-lived command-line programs where blocking is
+intentional.
+
 RSA accepts `bits` from 1024 through 16384, though new deployments should retain the 3072-bit
 default or choose a larger policy-approved size. Ed25519 and Ed448 have fixed sizes and reject `bits`.
 Ed448 is available for explicit deployments that need its higher security level; it is not in the
@@ -345,7 +362,8 @@ The package root currently exports:
 - `ClientChannel`, `ClientSessionChannel`, `Channel`, `SessionChannel`, and `Shell`.
 - `Agent`, `PrivateKeyAgent`, `DiskAgent`, `SSHAgent`, `OnePasswordAgent`, and their option, error,
   and agent-type definitions.
-- `PublicKey`, `PrivateKey`, `EncodedSignature`, and `ProtocolVersionExchange`.
+- `PublicKey`, `PrivateKey`, `EncodedSignature`, `ProtocolVersionExchange`, `generateKeyPair()`,
+  `generateKeyPairSync()`, `parseKey()`, and `parseKeys()`.
 - Public service, authentication, connection-state, and extended-data enums.
 
 Deep imports into `dist/` are not part of the supported API. New public functionality will be added

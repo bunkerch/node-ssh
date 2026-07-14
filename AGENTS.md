@@ -81,10 +81,11 @@ meaningful wire-level behavior.
   explicit about rejecting them; use the `parseAll`/`fromStringAll`/`parseKeys` surfaces when a
   collection is expected, validate every public envelope against its private entry, and apply one
   integrity check plus one final padding sequence to the complete private section.
-- Public key generation accepts semantic Ed25519, Ed448, RSA, and ECDSA family names, uses 3072-bit RSA and
-  P-256 defaults, restricts ECDSA to the three RFC 5656 curves, and propagates a line-safe comment to
-  both returned key objects. Validate every family with signing plus real `ssh-keygen` derivation
-  and fingerprinting, including the documented RSA default.
+- Public key generation accepts semantic Ed25519, Ed448, RSA, ECDSA, and explicit legacy DSA family
+  names, uses 3072-bit RSA and P-256 defaults, restricts ECDSA to the three RFC 5656 curves, and
+  propagates a line-safe comment to both returned key objects. Keep async and synchronous generation
+  on the same validation and construction paths; validate every family with signing plus real
+  `ssh-keygen` derivation and fingerprinting, including the documented RSA default.
 - RFC 5656 ECDSA constructors normalize and validate public points, derive each public point from
   its private scalar, and copy caller-owned point and scalar buffers before retaining them.
 - RSA constructors require canonical positive mpints, validate the public exponent, modulus/factor

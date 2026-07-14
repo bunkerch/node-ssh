@@ -3,13 +3,36 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
-import { generateKeyPair } from "../../src/KeyGeneration.js"
+import { generateKeyPair, generateKeyPairSync } from "../../src/KeyGeneration.js"
 import PrivateKey from "../../src/utils/PrivateKey.js"
 import PublicKey from "../../src/utils/PublicKey.js"
 
 const execFileAsync = promisify(execFile)
 
 describe("SSH key-pair generation", () => {
+    test.each([
+        ["ed25519", undefined, "ssh-ed25519"],
+        ["ed448", undefined, "ssh-ed448"],
+        ["rsa", 1024, "ssh-rsa"],
+        ["ecdsa", 256, "ecdsa-sha2-nistp256"],
+        ["ecdsa", 384, "ecdsa-sha2-nistp384"],
+        ["ecdsa", 521, "ecdsa-sha2-nistp521"],
+    ] as const)("generates a synchronous %s key pair", (type, bits, algorithm) => {
+        const pair = generateKeyPairSync(type, {
+            bits,
+            comment: "synchronous@example.test",
+        })
+        const message = Buffer.from(`synchronous-${type}`)
+
+        expect(pair).not.toBeInstanceOf(Promise)
+        expect(pair.publicKey.data.alg).toBe(algorithm)
+        expect(pair.publicKey.data.comment).toBe("synchronous@example.test")
+        expect(pair.publicKey.verifySignature(message, pair.privateKey.sign(message))).toBe(true)
+        expect(
+            PrivateKey.fromString(pair.privateKey.toString()).data.publicKey.equals(pair.publicKey),
+        ).toBe(true)
+    })
+
     test("generates fixed-size Ed448 keys", async () => {
         const pair = await generateKeyPair("ed448", { comment: "ed448@example.test" })
         const message = Buffer.from("generated-ed448")
@@ -100,5 +123,7 @@ describe("SSH key-pair generation", () => {
         await expect(generateKeyPair("ed25519", { comment: "\ud800" })).rejects.toThrow(
             "SSH key comment is not valid UTF-8 text",
         )
+        expect(() => generateKeyPairSync("rsa", { bits: 1023 })).toThrow("between 1024 and 16384")
+        expect(() => generateKeyPairSync("ed448", { bits: 448 })).toThrow("does not accept bits")
     })
 })
