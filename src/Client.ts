@@ -1830,8 +1830,14 @@ export default class Client extends EventEmitter<ClientEvents> {
 
                 if (this.hooker.hasHooks("hostKey")) {
                     const controller: ClientHookerHostKeyController = { allowHostKey: false }
-                    await this.hooker.triggerHook("hostKey", controller, hostKey)
-                    if (!controller.allowHostKey) throw new Error("Host key not allowed by hook")
+                    const policyCompleted = await this.hooker.triggerHookChecked(
+                        "hostKey",
+                        controller,
+                        hostKey,
+                    )
+                    if (!policyCompleted || !controller.allowHostKey) {
+                        throw new Error("Host key not allowed by hook")
+                    }
                 }
             }
 

@@ -1803,7 +1803,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                             allowLogin: false,
                         }
 
-                        await this.server.hooker.triggerHook(
+                        const policyCompleted = await this.server.hooker.triggerHookChecked(
                             "noneAuthentication",
                             Object.freeze(context),
                             controller,
@@ -1811,7 +1811,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                         )
                         this.assertAuthenticationActive()
 
-                        if (controller.allowLogin) {
+                        if (policyCompleted && controller.allowLogin) {
                             allowLogin = true
                             break authentication
                         }
@@ -1883,13 +1883,17 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                             requestSignature: false,
                             allowLogin: false,
                         }
-                        await this.server.hooker.triggerHook(
+                        const policyCompleted = await this.server.hooker.triggerHookChecked(
                             "publicKeyAuthentication",
                             Object.freeze(context),
                             controller,
                             this,
                         )
                         this.assertAuthenticationActive()
+                        if (!policyCompleted) {
+                            sendAuthenticationFailure({}, SSHAuthenticationMethods.PublicKey)
+                            break
+                        }
                         if (controller.allowLogin && controller.requestSignature) {
                             console.warn(
                                 `[node-ssh] Hook "publicKeyAuthentication" returned "allowLogin" and "requestSignature" to true at the same time. You should not set both to true, but rather the correct one, depending if the request is signed.`,
@@ -1945,13 +1949,17 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                         const controller: ServerHookerHostbasedAuthenticationController = {
                             allowLogin: false,
                         }
-                        await this.server.hooker.triggerHook(
+                        const policyCompleted = await this.server.hooker.triggerHookChecked(
                             "hostbasedAuthentication",
                             Object.freeze(context),
                             controller,
                             this,
                         )
                         this.assertAuthenticationActive()
+                        if (!policyCompleted) {
+                            sendAuthenticationFailure({}, SSHAuthenticationMethods.Hostbased)
+                            break
+                        }
                         if (controller.allowLogin) {
                             allowLogin = true
                             break authentication
@@ -1971,13 +1979,18 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                             allowLogin: false,
                         }
 
-                        await this.server.hooker.triggerHook(
+                        const policyCompleted = await this.server.hooker.triggerHookChecked(
                             "passwordAuthentication",
                             Object.freeze(context),
                             controller,
                             this,
                         )
                         this.assertAuthenticationActive()
+
+                        if (!policyCompleted) {
+                            sendAuthenticationFailure({}, SSHAuthenticationMethods.Password)
+                            break
+                        }
 
                         if (controller.allowLogin) {
                             allowLogin = true
@@ -2019,13 +2032,21 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                                 {
                                     allowLogin: false,
                                 }
-                            await this.server.hooker.triggerHook(
+                            const policyCompleted = await this.server.hooker.triggerHookChecked(
                                 "keyboardInteractiveAuthentication",
                                 Object.freeze(context),
                                 controller,
                                 this,
                             )
                             this.assertAuthenticationActive()
+
+                            if (!policyCompleted) {
+                                sendAuthenticationFailure(
+                                    {},
+                                    SSHAuthenticationMethods.KeyboardInteractive,
+                                )
+                                break keyboardInteractive
+                            }
 
                             if (controller.allowLogin) {
                                 allowLogin = true
@@ -2266,13 +2287,15 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 const controller: ServerHookerGSSAPIAuthenticationController = {
                     allowLogin: false,
                 }
-                await this.server.hooker.triggerHook(
+                const policyCompleted = await this.server.hooker.triggerHookChecked(
                     "gssapiAuthentication",
                     policyContext,
                     controller,
                     this,
                 )
-                return { allowLogin: controller.allowLogin, continuation: controller }
+                return policyCompleted
+                    ? { allowLogin: controller.allowLogin, continuation: controller }
+                    : { allowLogin: false }
             }
         } catch (error) {
             if (error instanceof ProtocolError) throw error
@@ -2331,13 +2354,13 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 peerIdentity: step.peerIdentity,
                 delegatedCredentials: step.delegatedCredentials,
             })
-            await this.server.hooker.triggerHook(
+            const policyCompleted = await this.server.hooker.triggerHookChecked(
                 "gssapiAuthentication",
                 policyContext,
                 controller,
                 this,
             )
-            return controller
+            return policyCompleted ? controller : { allowLogin: false }
         } finally {
             await closeGSSAPIContext(context)
         }

@@ -420,6 +420,12 @@ deadline while a hook is pending: a decision completed after expiry is ignored a
 client. Choose a shorter application-specific timeout when authentication depends on bounded local
 services, and use cancellation inside policy code if abandoning its external work matters.
 
+Every server authentication policy chain must also complete without a rejected handler before the
+library honors login, partial-success, signature-challenge, password-change, or interactive-prompt
+decisions. Hooker contains and reports the rejection as usual, then authentication fails closed;
+an earlier handler's decision cannot survive a later handler failure. This applies equally to
+`none`, public-key, host-based, password, keyboard-interactive, and GSS-API authentication.
+
 The keyboard-interactive hook controls every round. Set `prompts` to continue, `allowLogin` to
 finish authentication, or neither to reject the method. Empty prompt arrays are valid and require
 an empty response message; individual prompt strings must not be empty.

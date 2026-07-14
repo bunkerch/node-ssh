@@ -62,6 +62,10 @@ over every trust entry.
 These certificate checks also run in the client before a custom `hostVerifier` or `hostKey` hook,
 so custom policy cannot accidentally accept a certificate for another hostname.
 
+When several `hostKey` hooks are registered, trust is granted only if every handler completes
+without rejection and the final decision allows the key. Hooker still reports a contained async
+failure through `uncaughtException`, but an allow decision made by an earlier handler is discarded.
+
 ## Updating a file
 
 `replaceHostKeys()` replaces literal or hashed entries for one host and leaves comments, wildcard

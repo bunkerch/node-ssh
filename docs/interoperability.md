@@ -148,7 +148,9 @@ a readiness or handshake deadline.
 Server admission integration verifies that the public connection event receives an immutable
 snapshot of both TCP endpoints and retains it after the peer closes. A separate real SSH handshake
 proves that a rejected async `preconnect` chain fails closed even when an earlier handler allowed
-the connection.
+the connection. Encrypted client/server tests apply the same multi-handler failure to host-key trust
+and user authentication, proving that a contained later rejection cannot retain an earlier allow
+decision.
 
 Server shell integration verifies RFC 4254 directional half-close semantics: ending stdout sends
 EOF without CLOSE, the client sends additional stdin afterward, and explicit close then completes
