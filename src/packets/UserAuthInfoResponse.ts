@@ -9,6 +9,7 @@ import {
     serializeUint8,
     serializeUint32,
 } from "../utils/Buffer.js"
+import { decodeSSHUTF8, encodeSSHUTF8 } from "../utils/SSHText.js"
 
 export interface UserAuthInfoResponseData {
     responses: string[]
@@ -26,7 +27,7 @@ export default class UserAuthInfoResponse implements Packet {
             serializeUint8(UserAuthInfoResponse.type),
             serializeUint32(this.data.responses.length),
             ...this.data.responses.map((response) =>
-                serializeBuffer(Buffer.from(response, "utf8")),
+                serializeBuffer(encodeSSHUTF8(response, "SSH interactive response")),
             ),
         ])
     }
@@ -41,7 +42,7 @@ export default class UserAuthInfoResponse implements Packet {
         for (let index = 0; index < responseCount; index++) {
             let response: Buffer
             ;[response, raw] = readNextBuffer(raw)
-            responses.push(response.toString("utf8"))
+            responses.push(decodeSSHUTF8(response, "SSH interactive response"))
         }
         assert(raw.length === 0)
         return new UserAuthInfoResponse({ responses })

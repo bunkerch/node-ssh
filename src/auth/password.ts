@@ -9,6 +9,7 @@ import { SSHAuthenticationMethods, SSHServiceNames } from "../constants.js"
 import UserAuthSuccess from "../packets/UserAuthSuccess.js"
 import UserAuthFailure from "../packets/UserAuthFailure.js"
 import UserAuthPasswordChangeRequest from "../packets/UserAuthPasswordChangeRequest.js"
+import { decodeSSHUTF8, encodeSSHUTF8 } from "../utils/SSHText.js"
 
 export interface PasswordAuthMethodData {
     change_password: boolean
@@ -32,10 +33,10 @@ export default class PasswordAuthMethod implements AuthMethod {
         buffers.push(serializeBuffer(Buffer.from(PasswordAuthMethod.method_name, "utf-8")))
 
         buffers.push(serializeBinaryBoolean(this.data.change_password))
-        buffers.push(serializeBuffer(Buffer.from(this.data.password, "utf-8")))
+        buffers.push(serializeBuffer(encodeSSHUTF8(this.data.password, "SSH password")))
         if (this.data.change_password) {
             assert(this.data.newPassword !== undefined, "Password change requires a new password")
-            buffers.push(serializeBuffer(Buffer.from(this.data.newPassword, "utf-8")))
+            buffers.push(serializeBuffer(encodeSSHUTF8(this.data.newPassword, "SSH new password")))
         }
 
         return Buffer.concat(buffers)
@@ -57,8 +58,11 @@ export default class PasswordAuthMethod implements AuthMethod {
 
         return new PasswordAuthMethod({
             change_password: change_password,
-            password: password.toString("utf-8"),
-            newPassword: newPassword?.toString("utf-8"),
+            password: decodeSSHUTF8(password, "SSH password"),
+            newPassword:
+                newPassword === undefined
+                    ? undefined
+                    : decodeSSHUTF8(newPassword, "SSH new password"),
         })
     }
 

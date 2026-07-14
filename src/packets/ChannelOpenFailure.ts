@@ -8,6 +8,12 @@ import {
     serializeBuffer,
     serializeUint32,
 } from "../utils/Buffer.js"
+import {
+    decodeSSHLanguageTag,
+    decodeSSHUTF8,
+    encodeSSHLanguageTag,
+    encodeSSHUTF8,
+} from "../utils/SSHText.js"
 
 export enum ChannelOpenFailureReasonCodes {
     SSH_OPEN_ADMINISTRATIVELY_PROHIBITED = 1,
@@ -37,8 +43,10 @@ export default class ChannelOpenFailure implements Packet {
 
         buffers.push(serializeUint32(this.data.recipient_channel_id))
         buffers.push(serializeUint32(this.data.reason_code))
-        buffers.push(serializeBuffer(Buffer.from(this.data.description, "utf8")))
-        buffers.push(serializeBuffer(Buffer.from(this.data.language_tag, "utf8")))
+        buffers.push(
+            serializeBuffer(encodeSSHUTF8(this.data.description, "SSH channel-open description")),
+        )
+        buffers.push(serializeBuffer(encodeSSHLanguageTag(this.data.language_tag)))
 
         return Buffer.concat(buffers)
     }
@@ -65,8 +73,8 @@ export default class ChannelOpenFailure implements Packet {
         return new ChannelOpenFailure({
             recipient_channel_id: recipientChannelId,
             reason_code: reasonCode,
-            description: description.toString("utf8"),
-            language_tag: languageTag.toString("utf8"),
+            description: decodeSSHUTF8(description, "SSH channel-open description"),
+            language_tag: decodeSSHLanguageTag(languageTag),
         })
     }
 }

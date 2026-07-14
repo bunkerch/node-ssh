@@ -194,6 +194,9 @@ meaningful wire-level behavior.
   sequence and must not stop later buffered processing. Keep malformed known packets fatal, and
   classify strict initial-KEX non-KEX traffic before this recovery path so it still disconnects.
   Cover the literal response frame, both encrypted peer directions, and a real OpenSSH peer.
+- Human-readable SSH fields use fatal UTF-8 decoding and RFC 3066 ASCII language tags; never allow
+  replacement decoding before authentication or policy. Preserve unknown uint32 disconnect reasons
+  so future and private-use assignments still produce a clean terminal disconnect.
 - Strict key exchange advertises both the standard and deployed marker pairs only in the initial
   KEXINIT. Enable it only for a matching pair, require the peer's initial KEXINIT at sequence zero,
   reject non-KEX and duplicate KEX messages during that exchange, and reset each direction's

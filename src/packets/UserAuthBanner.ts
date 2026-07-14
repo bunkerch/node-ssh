@@ -2,6 +2,12 @@ import assert from "node:assert"
 import { PacketNameToType } from "../constants.js"
 import Packet from "../packet.js"
 import { readNextBuffer, readNextUint8, serializeBuffer, serializeUint8 } from "../utils/Buffer.js"
+import {
+    decodeSSHLanguageTag,
+    decodeSSHUTF8,
+    encodeSSHLanguageTag,
+    encodeSSHUTF8,
+} from "../utils/SSHText.js"
 
 export interface UserAuthBannerData {
     message: string
@@ -16,8 +22,8 @@ export default class UserAuthBanner implements Packet {
     serialize(): Buffer {
         return Buffer.concat([
             serializeUint8(UserAuthBanner.type),
-            serializeBuffer(Buffer.from(this.data.message, "utf8")),
-            serializeBuffer(Buffer.from(this.data.languageTag, "ascii")),
+            serializeBuffer(encodeSSHUTF8(this.data.message, "SSH authentication banner")),
+            serializeBuffer(encodeSSHLanguageTag(this.data.languageTag)),
         ])
     }
 
@@ -31,8 +37,8 @@ export default class UserAuthBanner implements Packet {
         ;[languageTag, raw] = readNextBuffer(raw)
         assert(raw.length === 0)
         return new UserAuthBanner({
-            message: message.toString("utf8"),
-            languageTag: languageTag.toString("ascii"),
+            message: decodeSSHUTF8(message, "SSH authentication banner"),
+            languageTag: decodeSSHLanguageTag(languageTag),
         })
     }
 }

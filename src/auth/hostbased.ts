@@ -8,6 +8,7 @@ import { readNextBuffer, serializeBuffer } from "../utils/Buffer.js"
 import PublicKey from "../utils/PublicKey.js"
 import EncodedSignature from "../utils/Signature.js"
 import AuthMethod from "./AuthMethod.js"
+import { decodeSSHUTF8, encodeSSHUTF8 } from "../utils/SSHText.js"
 
 export interface HostbasedAuthMethodData {
     publicKey: PublicKey
@@ -47,7 +48,7 @@ export default class HostbasedAuthMethod implements AuthMethod {
             serializeBuffer(Buffer.from(this.data.algorithm, "ascii")),
             serializeBuffer(this.data.publicKey.serialize()),
             serializeBuffer(Buffer.from(this.data.clientHostname, "ascii")),
-            serializeBuffer(Buffer.from(this.data.clientUsername, "utf8")),
+            serializeBuffer(encodeSSHUTF8(this.data.clientUsername, "SSH hostbased client user")),
         ])
     }
 
@@ -72,7 +73,7 @@ export default class HostbasedAuthMethod implements AuthMethod {
             publicKey,
             algorithm: algorithmName,
             clientHostname: clientHostname.toString("ascii"),
-            clientUsername: clientUsername.toString("utf8"),
+            clientUsername: decodeSSHUTF8(clientUsername, "SSH hostbased client user"),
             signature: encodedSignature,
         })
     }

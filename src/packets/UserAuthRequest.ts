@@ -11,6 +11,7 @@ import KeyboardInteractiveAuthMethod from "../auth/keyboard-interactive.js"
 import AuthMethod from "../auth/AuthMethod.js"
 import HostbasedAuthMethod from "../auth/hostbased.js"
 import type { AuthMethodClass } from "../auth/AuthMethod.js"
+import { decodeSSHUTF8, encodeSSHUTF8 } from "../utils/SSHText.js"
 
 export { default as AuthMethod } from "../auth/AuthMethod.js"
 
@@ -72,7 +73,7 @@ export default class UserAuthRequest implements Packet {
 
         buffers.push(serializeUint8(UserAuthRequest.type))
 
-        buffers.push(serializeBuffer(Buffer.from(this.data.username, "utf-8")))
+        buffers.push(serializeBuffer(encodeSSHUTF8(this.data.username, "SSH username")))
         buffers.push(serializeBuffer(Buffer.from(this.data.service_name, "utf-8")))
 
         buffers.push(this.data.method.serialize())
@@ -93,7 +94,7 @@ export default class UserAuthRequest implements Packet {
 
         buffers.push(serializeUint8(UserAuthRequest.type))
 
-        buffers.push(serializeBuffer(Buffer.from(this.data.username, "utf-8")))
+        buffers.push(serializeBuffer(encodeSSHUTF8(this.data.username, "SSH username")))
         buffers.push(serializeBuffer(Buffer.from(this.data.service_name, "utf-8")))
         buffers.push(this.data.method.serializeForSignature())
 
@@ -117,7 +118,7 @@ export default class UserAuthRequest implements Packet {
         const methodName = method_name.toString("ascii")
         const method = UserAuthRequest.auth_methods.get(methodName)
         return new UserAuthRequest({
-            username: username.toString("utf-8"),
+            username: decodeSSHUTF8(username, "SSH username"),
             service_name: service_name.toString("utf-8"),
             method: method ? method.parse(raw) : new UnknownAuthMethod(methodName, raw),
         })

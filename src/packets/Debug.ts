@@ -8,6 +8,12 @@ import {
     serializeBuffer,
 } from "../utils/Buffer.js"
 import { serializeBinaryBoolean } from "../utils/BinaryBoolean.js"
+import {
+    decodeSSHLanguageTag,
+    decodeSSHUTF8,
+    encodeSSHLanguageTag,
+    encodeSSHUTF8,
+} from "../utils/SSHText.js"
 
 export interface DebugData {
     always_display: boolean
@@ -28,8 +34,8 @@ export default class Debug implements Packet {
         buffers.push(Buffer.from([Debug.type]))
 
         buffers.push(serializeBinaryBoolean(this.data.always_display))
-        buffers.push(serializeBuffer(Buffer.from(this.data.message, "utf8")))
-        buffers.push(serializeBuffer(Buffer.from(this.data.language_tag, "utf8")))
+        buffers.push(serializeBuffer(encodeSSHUTF8(this.data.message, "SSH debug message")))
+        buffers.push(serializeBuffer(encodeSSHLanguageTag(this.data.language_tag)))
 
         return Buffer.concat(buffers)
     }
@@ -52,8 +58,8 @@ export default class Debug implements Packet {
 
         return new Debug({
             always_display: always_display,
-            message: message.toString("utf8"),
-            language_tag: language_tag.toString("utf8"),
+            message: decodeSSHUTF8(message, "SSH debug message"),
+            language_tag: decodeSSHLanguageTag(language_tag),
         })
     }
 }

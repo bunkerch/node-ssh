@@ -39,6 +39,17 @@ preamble lines, so `ServerClient` rejects them.
 
 Malformed identification input terminates processing through the connection's normal error path.
 
+## Human-readable protocol fields
+
+RFC 4253 debug and disconnect text is decoded as strict UTF-8. Malformed byte sequences are
+protocol errors rather than being replaced with the Unicode replacement character. Language tags
+are empty or valid RFC 3066 ASCII tags. The same codec is used for channel-open failure text and
+other protocol messages that carry these field types.
+
+Disconnect reason codes are retained as their exact uint32 value. Named RFC 4253 values use the
+`DisconnectReason` enum, while future assignments and the private-use range remain parseable so an
+otherwise valid disconnect can always terminate the connection cleanly.
+
 ## Binary packet framing
 
 After identification, both sides use the binary packet format from RFC 4253 section 6. The shared

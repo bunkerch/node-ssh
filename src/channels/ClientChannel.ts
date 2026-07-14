@@ -19,6 +19,7 @@ import {
 } from "../utils/Buffer.js"
 import { Hooker } from "../utils/Hooker.js"
 import { normalizeSSHSignal } from "../utils/Signal.js"
+import { decodeSSHLanguageTag, decodeSSHUTF8 } from "../utils/SSHText.js"
 
 export const DEFAULT_CHANNEL_WINDOW_SIZE = 2 ** 21
 export const DEFAULT_CHANNEL_PACKET_SIZE = 2 ** 15
@@ -343,17 +344,11 @@ export default class ClientChannel extends Duplex {
             if (normalizedSignal !== signalName) {
                 throw new Error('SSH exit-signal names must omit the "SIG" prefix')
             }
-            const decodedErrorMessage = new TextDecoder("utf-8", { fatal: true }).decode(
-                errorMessage,
+            const decodedErrorMessage = decodeSSHUTF8(errorMessage, "SSH exit-signal message")
+            const decodedLanguageTag = decodeSSHLanguageTag(
+                languageTag,
+                "SSH exit-signal language tag",
             )
-            const decodedLanguageTag = languageTag.toString("ascii")
-            if (
-                languageTag.some((byte) => byte > 0x7f) ||
-                (decodedLanguageTag.length > 0 &&
-                    !/^[A-Za-z]{1,8}(?:-[A-Za-z0-9]{1,8})*$/u.test(decodedLanguageTag))
-            ) {
-                throw new Error("Invalid exit-signal language tag")
-            }
 
             this.exitCode = null
             this.exitSignal = `SIG${normalizedSignal}`

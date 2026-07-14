@@ -11,6 +11,12 @@ import {
     serializeUint32,
 } from "../utils/Buffer.js"
 import { serializeBinaryBoolean } from "../utils/BinaryBoolean.js"
+import {
+    decodeSSHLanguageTag,
+    decodeSSHUTF8,
+    encodeSSHLanguageTag,
+    encodeSSHUTF8,
+} from "../utils/SSHText.js"
 
 export interface UserAuthPrompt {
     prompt: string
@@ -37,12 +43,12 @@ export default class UserAuthInfoRequest implements Packet {
     serialize(): Buffer {
         return Buffer.concat([
             serializeUint8(UserAuthInfoRequest.type),
-            serializeBuffer(Buffer.from(this.data.name, "utf8")),
-            serializeBuffer(Buffer.from(this.data.instruction, "utf8")),
-            serializeBuffer(Buffer.from(this.data.languageTag, "ascii")),
+            serializeBuffer(encodeSSHUTF8(this.data.name, "SSH interactive name")),
+            serializeBuffer(encodeSSHUTF8(this.data.instruction, "SSH interactive instruction")),
+            serializeBuffer(encodeSSHLanguageTag(this.data.languageTag)),
             serializeUint32(this.data.prompts.length),
             ...this.data.prompts.flatMap(({ prompt, echo }) => [
-                serializeBuffer(Buffer.from(prompt, "utf8")),
+                serializeBuffer(encodeSSHUTF8(prompt, "SSH interactive prompt")),
                 serializeBinaryBoolean(echo),
             ]),
         ])
@@ -66,13 +72,13 @@ export default class UserAuthInfoRequest implements Packet {
             ;[prompt, raw] = readNextBuffer(raw)
             let echo: boolean
             ;[echo, raw] = readNextBinaryBoolean(raw)
-            prompts.push({ prompt: prompt.toString("utf8"), echo })
+            prompts.push({ prompt: decodeSSHUTF8(prompt, "SSH interactive prompt"), echo })
         }
         assert(raw.length === 0)
         return new UserAuthInfoRequest({
-            name: name.toString("utf8"),
-            instruction: instruction.toString("utf8"),
-            languageTag: languageTag.toString("ascii"),
+            name: decodeSSHUTF8(name, "SSH interactive name"),
+            instruction: decodeSSHUTF8(instruction, "SSH interactive instruction"),
+            languageTag: decodeSSHLanguageTag(languageTag),
             prompts,
         })
     }

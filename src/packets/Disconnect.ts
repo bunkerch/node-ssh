@@ -8,6 +8,12 @@ import {
     serializeBuffer,
     serializeUint32,
 } from "../utils/Buffer.js"
+import {
+    decodeSSHLanguageTag,
+    decodeSSHUTF8,
+    encodeSSHLanguageTag,
+    encodeSSHUTF8,
+} from "../utils/SSHText.js"
 
 export enum DisconnectReason {
     SSH_DISCONNECT_HOST_NOT_ALLOWED_TO_CONNECT = 1,
@@ -28,7 +34,7 @@ export enum DisconnectReason {
 }
 
 export interface DisconnectData {
-    reason_code: DisconnectReason
+    reason_code: number
     description: string
     language_tag: string
 }
@@ -45,11 +51,20 @@ export default class Disconnect implements Packet {
 
         buffers.push(Buffer.from([Disconnect.type]))
 
+        if (
+            !Number.isInteger(this.data.reason_code) ||
+            this.data.reason_code < 0 ||
+            this.data.reason_code > 0xffff_ffff
+        ) {
+            throw new RangeError("SSH disconnect reason must be a uint32")
+        }
         buffers.push(serializeUint32(this.data.reason_code))
 
-        buffers.push(serializeBuffer(Buffer.from(this.data.description, "utf-8")))
+        buffers.push(
+            serializeBuffer(encodeSSHUTF8(this.data.description, "SSH disconnect description")),
+        )
 
-        buffers.push(serializeBuffer(Buffer.from(this.data.language_tag, "utf-8")))
+        buffers.push(serializeBuffer(encodeSSHLanguageTag(this.data.language_tag)))
 
         return Buffer.concat(buffers)
     }
@@ -61,7 +76,6 @@ export default class Disconnect implements Packet {
 
         let reason_code: number
         ;[reason_code, raw] = readNextUint32(raw)
-        assert(reason_code in DisconnectReason)
 
         let description: Buffer
         ;[description, raw] = readNextBuffer(raw)
@@ -72,9 +86,9 @@ export default class Disconnect implements Packet {
         assert(raw.length === 0)
 
         return new Disconnect({
-            reason_code: reason_code as DisconnectReason,
-            description: description.toString("utf-8"),
-            language_tag: language_tag.toString("utf-8"),
+            reason_code,
+            description: decodeSSHUTF8(description, "SSH disconnect description"),
+            language_tag: decodeSSHLanguageTag(language_tag),
         })
     }
 }
