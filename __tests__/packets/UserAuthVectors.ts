@@ -159,6 +159,66 @@ describe("RFC 4252 and RFC 4256 authentication vectors", () => {
         expect(response.serialize()).toEqual(infoResponse)
     })
 
+    test("does not retain authentication text or interactive array metadata", () => {
+        const bannerInput = { message: "Notice", languageTag: "en-US" }
+        const bannerPacket = new UserAuthBanner(bannerInput)
+        bannerInput.message = "Changed"
+        bannerInput.languageTag = "fr"
+        expect(bannerPacket.data).toEqual({ message: "Notice", languageTag: "en-US" })
+
+        const promptInput = {
+            name: "Login",
+            instruction: "Authenticate",
+            languageTag: "",
+            prompts: [{ prompt: "Password: ", echo: false }],
+        }
+        const promptPacket = new UserAuthInfoRequest(promptInput)
+        promptInput.name = "Changed"
+        promptInput.prompts[0].prompt = "Changed: "
+        promptInput.prompts.push({ prompt: "OTP: ", echo: true })
+        expect(promptPacket.data).toEqual({
+            name: "Login",
+            instruction: "Authenticate",
+            languageTag: "",
+            prompts: [{ prompt: "Password: ", echo: false }],
+        })
+
+        const responseInput = { responses: ["secret"] }
+        const responsePacket = new UserAuthInfoResponse(responseInput)
+        responseInput.responses[0] = "changed"
+        responseInput.responses.push("another")
+        expect(responsePacket.data.responses).toEqual(["secret"])
+
+        const changeInput = { prompt: "Expired", languageTag: "" }
+        const changePacket = new UserAuthPasswordChangeRequest(changeInput)
+        changeInput.prompt = "Changed"
+        expect(changePacket.data).toEqual({ prompt: "Expired", languageTag: "" })
+    })
+
+    test("revalidates mutable authentication reply text at serialization", () => {
+        const bannerPacket = UserAuthBanner.parse(banner)
+        bannerPacket.data.message = "\ud800"
+        expect(() => bannerPacket.serialize()).toThrow(
+            "SSH authentication banner is not valid UTF-8 text",
+        )
+
+        const promptPacket = UserAuthInfoRequest.parse(infoRequest)
+        promptPacket.data.prompts[0].prompt = "\ud800"
+        expect(() => promptPacket.serialize()).toThrow(
+            "SSH interactive prompt is not valid UTF-8 text",
+        )
+
+        const responsePacket = UserAuthInfoResponse.parse(infoResponse)
+        responsePacket.data.responses[0] = "\ud800"
+        expect(() => responsePacket.serialize()).toThrow(
+            "SSH interactive response is not valid UTF-8 text",
+        )
+
+        const changePacket = UserAuthPasswordChangeRequest.parse(passwordChange)
+        changePacket.data.languageTag = "not_a_tag"
+        expect(() => changePacket.serialize()).toThrow("SSH language tag is not valid RFC 3066")
+    })
+
     test("parses fixed keyboard-interactive and changed-password authentication requests", () => {
         const keyboard = UserAuthRequest.parse(keyboardRequest)
         expect(keyboard.data.method.method_name).toBe("keyboard-interactive")

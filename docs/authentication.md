@@ -77,7 +77,8 @@ client.on("banner", (message, languageTag) => {
 Usernames, passwords, banners, password-change prompts, and every keyboard-interactive text field
 use strict RFC UTF-8 decoding. Invalid UTF-8 is rejected before a value reaches an authentication
 policy hook. Language tags are validated as RFC 3066 ASCII tags, including the permitted empty
-tag.
+tag. Packet constructors snapshot authentication envelopes, prompt objects, and response arrays;
+later mutation of an input object cannot alter an in-flight authentication exchange.
 
 For a single identity, pass a loaded `PrivateKey`, encoded private-key string, or `Buffer` directly.
 Encrypted input uses `passphrase`; the client parses it during construction and does not retain the

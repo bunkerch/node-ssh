@@ -33,10 +33,18 @@ export interface UserAuthInfoRequestData {
 export default class UserAuthInfoRequest implements Packet {
     static type = PacketNameToType.SSH_MSG_USERAUTH_PK_OK
 
-    constructor(public data: UserAuthInfoRequestData) {
+    data: UserAuthInfoRequestData
+
+    constructor(data: UserAuthInfoRequestData) {
         assert(data.prompts.length <= 0xffffffff, "Too many keyboard-interactive prompts")
         for (const prompt of data.prompts) {
             assert(prompt.prompt.length > 0, "Keyboard-interactive prompts must not be empty")
+        }
+        this.data = {
+            name: data.name,
+            instruction: data.instruction,
+            languageTag: data.languageTag,
+            prompts: data.prompts.map(({ prompt, echo }) => ({ prompt, echo })),
         }
     }
 

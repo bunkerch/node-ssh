@@ -17,7 +17,11 @@ export interface UserAuthPasswordChangeRequestData {
 export default class UserAuthPasswordChangeRequest implements Packet {
     static type = PacketNameToType.SSH_MSG_USERAUTH_PK_OK
 
-    constructor(public data: UserAuthPasswordChangeRequestData) {}
+    data: UserAuthPasswordChangeRequestData
+
+    constructor(data: UserAuthPasswordChangeRequestData) {
+        this.data = { prompt: data.prompt, languageTag: data.languageTag }
+    }
 
     serialize(): Buffer {
         return Buffer.concat([

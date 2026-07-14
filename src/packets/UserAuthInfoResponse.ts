@@ -18,8 +18,11 @@ export interface UserAuthInfoResponseData {
 export default class UserAuthInfoResponse implements Packet {
     static type = PacketNameToType.SSH_MSG_USERAUTH_INFO_RESPONSE
 
-    constructor(public data: UserAuthInfoResponseData) {
+    data: UserAuthInfoResponseData
+
+    constructor(data: UserAuthInfoResponseData) {
         assert(data.responses.length <= 0xffffffff, "Too many keyboard-interactive responses")
+        this.data = { responses: [...data.responses] }
     }
 
     serialize(): Buffer {

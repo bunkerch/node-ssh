@@ -17,7 +17,11 @@ export interface UserAuthBannerData {
 export default class UserAuthBanner implements Packet {
     static type = PacketNameToType.SSH_MSG_USERAUTH_BANNER
 
-    constructor(public data: UserAuthBannerData) {}
+    data: UserAuthBannerData
+
+    constructor(data: UserAuthBannerData) {
+        this.data = { message: data.message, languageTag: data.languageTag }
+    }
 
     serialize(): Buffer {
         return Buffer.concat([

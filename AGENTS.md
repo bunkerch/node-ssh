@@ -140,6 +140,8 @@ meaningful wire-level behavior.
 - Authentication reply envelopes validate algorithm fields as SSH names and snapshot caller-owned
   metadata. Preserve advertised failure method order and repetitions exactly so multi-step method
   selection follows the peer's wire message.
+- Snapshot banner, password-change, and keyboard-interactive packet metadata, including nested
+  prompt objects and response arrays. Revalidate mutable public packet fields when serializing.
 - An awaited client keyboard-interactive hook enables that method only when the caller did not
   provide an explicit authentication order. Resolve this at connect time without mutating retained
   options; explicit orders remain strict allow-lists across every partial-success stage.
