@@ -37,6 +37,7 @@ import {
 import { normalizeGSSAPIServerMechanisms, type GSSAPIServerMechanism } from "./GSSAPI.js"
 import { createGSSAPIKeyExchangeAlgorithms } from "./algorithms/kex/gssapi-key-exchange.js"
 import { normalizeNoFlowControlPreference, type NoFlowControlPreference } from "./NoFlowControl.js"
+import type { ElevationRequest } from "./Elevation.js"
 
 export interface ServerOptions {
     protocolVersionExchange?: ProtocolVersionExchange
@@ -245,6 +246,14 @@ export interface ServerHookerGlobalRequestController {
     success: boolean
     response?: Buffer
 }
+export type ServerHookerElevationContext = Readonly<{
+    preference: ElevationRequest
+    username: string
+}>
+export interface ServerHookerElevationController {
+    /** Actual operating-system elevation state after policy completes. */
+    elevated?: boolean
+}
 // eslint-disable-next-line @typescript-eslint/consistent-type-definitions
 export type ServerHooker = {
     preconnect: [preconnectController: ServerHookerPreconnectController, client: ServerClient]
@@ -276,6 +285,11 @@ export type ServerHooker = {
     gssapiAuthentication: [
         gssapiAuthenticationContext: ServerHookerGSSAPIAuthenticationContext,
         gssapiAuthenticationController: ServerHookerGSSAPIAuthenticationController,
+        client: ServerClient,
+    ]
+    elevation: [
+        context: ServerHookerElevationContext,
+        controller: ServerHookerElevationController,
         client: ServerClient,
     ]
     channelOpenRequest: [

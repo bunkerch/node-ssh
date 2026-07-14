@@ -21,6 +21,7 @@ import {
     DirectStreamLocalChannel,
     decodeSFTPLimits,
     DiskAgent,
+    ELEVATION_EXTENSION,
     EncodedSignature,
     encodeSFTPPacket,
     flagsToString,
@@ -80,6 +81,7 @@ import {
     type ClientOptions,
     type ClientSessionOptions,
     type CygwinAgentOptions,
+    type ElevationPreference,
     type GSSAPIKeyExchangeClientContextOptions,
     type NoFlowControlPreference,
     type OpenSSHAgentDestinationConstraint,
@@ -98,7 +100,9 @@ describe("package exports", () => {
         const sessionOptions: ClientSessionOptions = { env: { LANG: "C" }, pty: true }
         const serverOptions: ServerOptions = { sendAllHostKeys: false }
         const noFlowControl: NoFlowControlPreference = "supported"
+        const elevation: ElevationPreference = "unelevated"
         clientOptions.noFlowControl = noFlowControl
+        clientOptions.elevation = elevation
         serverOptions.noFlowControl = noFlowControl
         const keyExchangeOptions: GSSAPIKeyExchangeClientContextOptions = {
             hostname: "example.test",
@@ -219,6 +223,7 @@ describe("package exports", () => {
         expect(CygwinAgentError).toBeFunction()
         expect(createSocketAgent).toBeFunction()
         expect(NO_FLOW_CONTROL_EXTENSION).toBe("no-flow-control")
+        expect(ELEVATION_EXTENSION).toBe("elevation")
     })
 
     test("compiled entry point provides the same side-effect-free API", async () => {
@@ -276,6 +281,7 @@ describe("package exports", () => {
         expect(entry.CygwinAgentError).toBeFunction()
         expect(entry.createSocketAgent).toBeFunction()
         expect(entry.NO_FLOW_CONTROL_EXTENSION).toBe("no-flow-control")
+        expect(entry.ELEVATION_EXTENSION).toBe("elevation")
     })
 
     test("compiled declarations expose Promise-only completion APIs", async () => {
@@ -295,6 +301,7 @@ describe("package exports", () => {
         expect(client).not.toContain("ClientSessionCallback")
         expect(client).not.toContain("ClientGlobalRequestCallback")
         expect(client).toContain("globalRequest(name: string, args?: Buffer): Promise<Buffer>")
+        expect(client).toContain("get elevated(): boolean | undefined")
         expect(client).toContain("exec(command: string, options?: ClientSessionOptions)")
         expect(clientChannel).toContain("sendData(data: Buffer | string")
         expect(clientSession).toContain("forwardAgent(): Promise<void>")
@@ -307,6 +314,9 @@ describe("package exports", () => {
             "sendAuthenticationExtensions(extensions: readonly SSHExtension[]): this",
         )
         expect(serverClient).toContain("get clientSupportsAuthenticationExtensionInfo(): boolean")
+        expect(serverClient).toContain(
+            "get clientElevationPreference(): ElevationRequest | undefined",
+        )
         expect(server).toContain("getConnections(): Promise<number>")
         expect(server).toContain("close(): Promise<void>")
         expect(agentProtocol).toContain("addIdentity(")
@@ -345,7 +355,7 @@ describe("package exports", () => {
                     "--input-type=module",
                     "--eval",
                     `
-                    const { Client, createSocketAgent, CygwinAgent, CygwinAgentError, EncodedSignature, generateKeyPair, generateKeyPairSync, KnownHosts, MAX_OPENSSH_AGENT_SESSION_BINDINGS, MAX_SSH_AGENT_MESSAGE_LENGTH, NO_FLOW_CONTROL_EXTENSION, OnePasswordAgent, OPENSSH_AGENT_SECURITY_KEY_PROVIDER, OPENSSH_AGENT_SESSION_BIND, parseKey, PrivateKey, PrivateKeyAgent, PublicKey, SSH_ED25519_SECURITY_KEY_ALGORITHM, SSHAgentConstraintType, SSHAgentExtensionFailureError, SSHAgentMessageType, SSHAgentProtocolClient, SSHAgentProtocolError, SSHAgentProtocolServer, SSHED25519SecurityKeyPrivateKey, SSHED25519SecurityKeyPublicKey } = await import("modernssh")
+                    const { Client, createSocketAgent, CygwinAgent, CygwinAgentError, ELEVATION_EXTENSION, EncodedSignature, generateKeyPair, generateKeyPairSync, KnownHosts, MAX_OPENSSH_AGENT_SESSION_BINDINGS, MAX_SSH_AGENT_MESSAGE_LENGTH, NO_FLOW_CONTROL_EXTENSION, OnePasswordAgent, OPENSSH_AGENT_SECURITY_KEY_PROVIDER, OPENSSH_AGENT_SESSION_BIND, parseKey, PrivateKey, PrivateKeyAgent, PublicKey, SSH_ED25519_SECURITY_KEY_ALGORITHM, SSHAgentConstraintType, SSHAgentExtensionFailureError, SSHAgentMessageType, SSHAgentProtocolClient, SSHAgentProtocolError, SSHAgentProtocolServer, SSHED25519SecurityKeyPrivateKey, SSHED25519SecurityKeyPublicKey } = await import("modernssh")
                     const { privateKey, publicKey } = await generateKeyPair("ed25519", {
                         comment: "packed@example.test",
                     })
@@ -400,6 +410,7 @@ describe("package exports", () => {
                     if (!(selectedAgent instanceof CygwinAgent) || !(selectedClient.options.agent instanceof CygwinAgent)) process.exit(20)
                     if (onePasswordAgent.socketPath !== ${JSON.stringify(String.raw`\\.\pipe\openssh-ssh-agent`)}) process.exit(30)
                     if (NO_FLOW_CONTROL_EXTENSION !== "no-flow-control" || new Client({ noFlowControl: "preferred" }).options.noFlowControl !== "preferred") process.exit(31)
+                    if (ELEVATION_EXTENSION !== "elevation" || new Client({ elevation: "unelevated" }).options.elevation !== "unelevated") process.exit(32)
                     process.stdout.write(publicKey.toString())
                 `,
                 ],

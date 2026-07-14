@@ -72,6 +72,12 @@ channel, permit another after complete close, and disable the capability when a 
 extension set omits it. Packet-size checks remain active while channel-window accounting is
 disabled.
 
+RFC 8308 elevation coverage fixes the complete extension packets for the registered `y`, `n`, and
+`d` values and the exact post-authentication one-way global request. In-process peers prove that
+authentication waits for asynchronous server policy, both boolean outcomes reach the client, and
+an omitted advertisement uses server-default policy without sending an unsolicited result.
+Malformed result framing is rejected through the encrypted connection.
+
 Session interoperability sends a BREAK from the modern client to a real OpenSSH PTY and delivers
 an `xon-xoff` notification from the modern server to the system OpenSSH client. In-process peers
 also prove that BREAK policy hooks are awaited, success and failure replies match the completed

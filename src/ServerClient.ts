@@ -17,6 +17,8 @@ import Server, {
     ServerHookerGSSAPIAuthenticationController,
     ServerHookerGlobalRequestContext,
     ServerHookerGlobalRequestController,
+    ServerHookerElevationContext,
+    ServerHookerElevationController,
     ServerHookerStreamLocalForwardContext,
     ServerHookerTCPIPForwardContext,
 } from "./Server.js"
@@ -171,6 +173,8 @@ import {
     type AgentForwardingProtocol,
 } from "./AgentForwarding.js"
 import GSSAPIKeyExchange from "./algorithms/kex/gssapi-key-exchange.js"
+import { ELEVATION_EXTENSION, findElevationRequest, type ElevationRequest } from "./Elevation.js"
+import { serializeBinaryBoolean } from "./utils/BinaryBoolean.js"
 import {
     KexGSSAPIComplete,
     KexGSSAPIContinue,
@@ -303,6 +307,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     private initialClientNewKeysReceived = false
     private clientExtInfoAfterNewKeys = false
     private clientAuthenticationExtInfoSupported = false
+    private clientElevationRequest?: ElevationRequest
     private advertisedNoFlowControlValue?: NoFlowControlValue
     private noFlowControlEnabled = false
     private authenticationRequestReceived = false
@@ -402,6 +407,11 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     /** Whether the client permits one EXT_INFO update after authentication starts. */
     get clientSupportsAuthenticationExtensionInfo(): boolean {
         return this.clientAuthenticationExtInfoSupported
+    }
+
+    /** The client's advertised RFC 8308 operating-system elevation preference. */
+    get clientElevationPreference(): ElevationRequest | undefined {
+        return this.clientElevationRequest
     }
 
     /** Whether RFC 8308 no-flow-control is active for this connection. */
@@ -2029,9 +2039,32 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         this.credentials = authRequest
 
         if (allowLogin) {
+            let elevationResult: boolean | undefined
+            if (this.server.hooker.hasHooks("elevation")) {
+                const context: ServerHookerElevationContext = Object.freeze({
+                    preference: this.clientElevationRequest ?? "default",
+                    username: authRequest.data.username,
+                })
+                const controller: ServerHookerElevationController = {}
+                await this.server.hooker.triggerHook("elevation", context, controller, this)
+                this.assertAuthenticationActive()
+                if (controller.elevated !== undefined && typeof controller.elevated !== "boolean") {
+                    throw new TypeError("SSH elevation policy result must be a boolean")
+                }
+                elevationResult = controller.elevated
+            }
             this.sendPacket(new UserAuthSuccess({}))
             this.hasAuthenticated = true
             this.enableDelayedCompression()
+            if (this.clientElevationRequest !== undefined && elevationResult !== undefined) {
+                this.sendPacket(
+                    new GlobalRequest({
+                        request_name: ELEVATION_EXTENSION,
+                        want_reply: false,
+                        args: serializeBinaryBoolean(elevationResult),
+                    }),
+                )
+            }
         } else {
             throw new DisconnectError(
                 DisconnectReason.SSH_DISCONNECT_NO_MORE_AUTH_METHODS_AVAILABLE,
@@ -2548,6 +2581,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 this.clientAuthenticationExtInfoSupported = this.negotiatedClientExtensions.some(
                     ({ name }) => name === AUTHENTICATION_EXT_INFO_EXTENSION,
                 )
+                this.clientElevationRequest = findElevationRequest(this.negotiatedClientExtensions)
                 this.updateNoFlowControl()
                 this.emit("clientExtensions", this.clientExtensions)
                 break

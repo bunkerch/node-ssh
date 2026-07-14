@@ -35,6 +35,8 @@ export type {
 export type { AgentForwardingProtocol } from "./AgentForwarding.js"
 export { NO_FLOW_CONTROL_EXTENSION } from "./NoFlowControl.js"
 export type { NoFlowControlPreference } from "./NoFlowControl.js"
+export { ELEVATION_EXTENSION } from "./Elevation.js"
+export type { ElevationPreference, ElevationRequest } from "./Elevation.js"
 export {
     buildGSSAPIKeyExchangeUserAuthMIC,
     buildGSSAPIUserAuthMIC,
@@ -137,6 +139,8 @@ export type {
     ServerAuthenticationContinuation,
     ServerHookerChannelOpenRequestController,
     ServerHookerChannelRequestController,
+    ServerHookerElevationContext,
+    ServerHookerElevationController,
     ServerHookerGlobalRequestContext,
     ServerHookerGlobalRequestController,
     ServerHookerGSSAPIAuthenticationContext,

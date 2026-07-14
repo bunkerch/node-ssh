@@ -79,7 +79,13 @@ import RequestSuccess from "./packets/RequestSuccess.js"
 import Debug, { protocolDebugMessage, type ProtocolDebugMessage } from "./packets/Debug.js"
 import Ignore from "./packets/Ignore.js"
 import Unimplemented from "./packets/Unimplemented.js"
-import { readNextBuffer, readNextUint32, serializeBuffer, serializeUint32 } from "./utils/Buffer.js"
+import {
+    readNextBinaryBoolean,
+    readNextBuffer,
+    readNextUint32,
+    serializeBuffer,
+    serializeUint32,
+} from "./utils/Buffer.js"
 import IdentificationParser from "./IdentificationParser.js"
 import { BinaryPacketDecoder, BinaryPacketEncoder } from "./BinaryPacket.js"
 import {
@@ -171,6 +177,12 @@ import {
     type NoFlowControlPreference,
 } from "./NoFlowControl.js"
 import {
+    elevationExtension,
+    ELEVATION_EXTENSION,
+    normalizeElevationPreference,
+    type ElevationPreference,
+} from "./Elevation.js"
+import {
     KexGSSAPIComplete,
     KexGSSAPIContinue,
     KexGSSAPIError,
@@ -240,6 +252,8 @@ export interface ClientOptions {
     agentForward?: boolean
     /** RFC 8308 infinite channel windows. Both peers must opt in and one must prefer it. */
     noFlowControl?: NoFlowControlPreference
+    /** RFC 8308 operating-system elevation preference. False disables the extension. */
+    elevation?: ElevationPreference
     /** Private key object or encoded private-key container used for public-key authentication. */
     privateKey?: PrivateKey | string | Buffer
     /** Certificate public key paired with `privateKey` for certificate authentication. */
@@ -342,6 +356,8 @@ export interface ClientEvents {
     gssapiKeyExchangeError: [error: Readonly<KexGSSAPIErrorData>]
     /** Complete replacement set from the latest valid server EXT_INFO message. */
     serverExtensions: [extensions: readonly Readonly<SSHExtension>[]]
+    /** RFC 8308 operating-system elevation result reported after authentication. */
+    elevation: [elevated: boolean]
     "tcp connection": [
         details: Readonly<TCPIPConnectionDetails>,
         accept: () => ClientForwardedTCPIPChannel | undefined,
@@ -490,6 +506,7 @@ export default class Client extends EventEmitter<ClientEvents> {
         }
         this.options.agentForward ??= false
         this.options.noFlowControl = normalizeNoFlowControlPreference(this.options.noFlowControl)
+        this.options.elevation = normalizeElevationPreference(this.options.elevation)
         this.options.gssapi = normalizeGSSAPIClientMechanisms(this.options.gssapi ?? [])
         this.options.gssapiDelegateCredentials ??= false
         this.options.gssapiKeyExchangeAuthentication ??= true
@@ -751,6 +768,7 @@ export default class Client extends EventEmitter<ClientEvents> {
     private transportPingSupported = false
     private rfc9987AgentForwardingSupported = false
     private noFlowControlEnabled = false
+    private elevationResult?: boolean
     private readonly remoteForwardings = new Map<string, RemoteForwarding>()
     private readonly remoteStreamLocalForwardings = new Set<string>()
     private readonly x11Forwardings = new Map<number, { single: boolean }>()
@@ -809,6 +827,11 @@ export default class Client extends EventEmitter<ClientEvents> {
 
     get serverExtensions(): readonly Readonly<SSHExtension>[] {
         return copySSHExtensions(this.negotiatedServerExtensions)
+    }
+
+    /** The server's RFC 8308 elevation result, once reported after authentication. */
+    get elevated(): boolean | undefined {
+        return this.elevationResult
     }
 
     registerX11Forwarding(sessionId: number, single: boolean): void {
@@ -894,6 +917,7 @@ export default class Client extends EventEmitter<ClientEvents> {
         this.transportPingSupported = false
         this.rfc9987AgentForwardingSupported = false
         this.noFlowControlEnabled = false
+        this.elevationResult = undefined
         this.remoteForwardings.clear()
         this.remoteStreamLocalForwardings.clear()
         this.x11Forwardings.clear()
@@ -1206,6 +1230,20 @@ export default class Client extends EventEmitter<ClientEvents> {
 
     private async handleServerGlobalRequest(packet: GlobalRequest): Promise<void> {
         this.debug(`Received global request packet:`, packet)
+
+        if (packet.data.request_name === ELEVATION_EXTENSION && this.options.elevation !== false) {
+            if (packet.data.want_reply || packet.data.args.length !== 1) {
+                throw new ProtocolError(
+                    "SSH elevation result must be a one-way request containing one boolean",
+                )
+            }
+            if (this.elevationResult !== undefined) {
+                throw new ProtocolError("SSH server sent more than one elevation result")
+            }
+            ;[this.elevationResult] = readNextBinaryBoolean(packet.data.args)
+            this.emit("elevation", this.elevationResult)
+            return
+        }
 
         if (packet.data.request_name === "hostkeys-00@openssh.com") {
             if (packet.data.want_reply) {
@@ -1767,6 +1805,7 @@ export default class Client extends EventEmitter<ClientEvents> {
             this.installOutboundCompression()
             if (!isRekey && serverKexInit.data.kex_algorithms.includes("ext-info-s")) {
                 const noFlowControl = noFlowControlExtension(this.options.noFlowControl)
+                const elevation = elevationExtension(this.options.elevation)
                 this.sendPacket(
                     new ExtInfo({
                         extensions: [
@@ -1775,6 +1814,7 @@ export default class Client extends EventEmitter<ClientEvents> {
                                 value: Buffer.alloc(0),
                             },
                             ...(noFlowControl ? [noFlowControl] : []),
+                            ...(elevation ? [elevation] : []),
                         ],
                     }),
                 )

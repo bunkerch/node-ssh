@@ -434,6 +434,50 @@ events fire whenever a valid complete set arrives. Mutating a returned value can
 negotiation state. Unknown names remain observable but have no effect unless the application
 implements their specification.
 
+### Operating-system elevation
+
+RFC 8308 elevation negotiation is opt-in on the client. Set `elevation` to `"elevated"`,
+`"unelevated"`, or `"default"`; these serialize as the exact registered values `y`, `n`, and `d`.
+The default `false` does not advertise the extension.
+
+The server exposes elevation as an awaited policy hook after authentication has been approved but
+before `USERAUTH_SUCCESS` is sent. This is the point where an application can switch the operating
+system security context without allowing sessions to race ahead of that change:
+
+```ts
+server.hooker.hook("elevation", async (_hook, context, decision) => {
+    decision.elevated = await accounts.applyElevation(context.username, context.preference)
+})
+```
+
+`context.preference` is `"elevated"`, `"unelevated"`, or `"default"`. RFC 8308 requires a client
+that omitted the extension to be treated as `"default"`, so the hook still runs in that case. The
+server reports `decision.elevated` only to a client that advertised the extension; leaving it
+undefined means no result is available.
+
+Register the client's synchronous observation handler before connecting. A supporting server sends
+the result as a one-way global request immediately after authentication:
+
+```ts
+const client = new Client({
+    hostname,
+    username,
+    elevation: "unelevated",
+})
+
+client.on("elevation", (elevated) => {
+    auditElevationResult(elevated)
+})
+
+await client.connect()
+```
+
+`client.elevated` retains the reported boolean and remains `undefined` if no result arrived. The
+server-side connection exposes the explicitly advertised preference through
+`clientElevationPreference`; it remains `undefined` when the client omitted the extension. A
+recognized result with a reply request, missing or trailing bytes, or a duplicate result is a
+protocol error.
+
 ### No channel flow control
 
 RFC 8308 `no-flow-control` can be enabled independently on the client and server with
