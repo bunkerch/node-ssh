@@ -269,12 +269,32 @@ full 16-byte HMAC-MD5 result or its first 12 bytes. The deployed
 encrypt-then-MAC layout. All four exist only for explicitly configured interoperability with legacy
 peers; new deployments should not select them.
 
-The `aes128-gcm@openssh.com` and `aes256-gcm@openssh.com` AEAD ciphers use the RFC 5647 AES-GCM
-packet construction. The four-byte packet length is clear authenticated data; the padding length,
+RFC 5647 AES-GCM is available under its registered `AEAD_AES_128_GCM` and
+`AEAD_AES_256_GCM` names. The RFC requires the selected name to appear in both the encryption and
+MAC lists for each direction. Configure both lists when opting in:
+
+```ts
+const client = new Client({
+    hostname: "ssh.example.com",
+    algorithms: {
+        cipher: ["AEAD_AES_256_GCM"],
+        hmac: ["AEAD_AES_256_GCM"],
+    },
+})
+```
+
+Negotiation rejects the combination unless ordinary SSH preference rules select the identical name
+from both lists in that direction. Applications should therefore keep each registered AES-GCM name
+in the same relative position in their cipher and MAC configurations. The registered methods are
+explicit opt-ins because deployed peers rarely advertise them. The `aes128-gcm@openssh.com` and
+`aes256-gcm@openssh.com` variants use the same packet construction but retain their deployed
+implicit-MAC negotiation behavior.
+
+For all four names, the four-byte packet length is clear authenticated data; the padding length,
 payload, and random padding are encrypted; and the complete 16-byte authentication tag terminates
 the packet. Each direction derives a 12-byte IV consisting of a four-byte fixed field and an
-eight-byte invocation counter that advances once per packet and must never wrap. No separate MAC
-algorithm or integrity key is used, and inbound plaintext is not accepted until its tag verifies.
+eight-byte invocation counter that advances once per packet and must never wrap. No integrity key
+is used, and inbound plaintext is not accepted until its tag verifies.
 
 The `chacha20-poly1305@openssh.com` AEAD cipher uses two independent 256-bit ChaCha20 keys. One
 encrypts the four-byte packet length so framing can proceed without exposing the payload cipher; the

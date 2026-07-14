@@ -28,7 +28,7 @@ import {
     encryption_algorithms,
     host_key_algorithms,
     kex_algorithms,
-    mac_algorithms,
+    mac_algorithm_names,
     type HostKeyAlgorithm,
     type KexAlgorithmFactory,
     type CompressionAlgorithm,
@@ -616,7 +616,7 @@ export default class Client extends EventEmitter<ClientEvents> {
                 kex: [...this.kexAlgorithms.keys()],
                 serverHostKey: [...host_key_algorithms.keys()],
                 cipher: [...encryption_algorithms.keys()],
-                hmac: [...mac_algorithms.keys()],
+                hmac: [...mac_algorithm_names],
                 compress: [...compression_algorithms.keys()],
             },
             {

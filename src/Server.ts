@@ -24,7 +24,7 @@ import {
     compression_algorithms,
     host_key_algorithms,
     kex_algorithms,
-    mac_algorithms,
+    mac_algorithm_names,
     default_algorithm_names,
     type KexAlgorithmFactory,
 } from "./algorithms.js"
@@ -408,7 +408,7 @@ export default class Server extends EventEmitter<ServerEvents> {
                 kex: [...this.kexAlgorithms.keys()],
                 serverHostKey: [...host_key_algorithms.keys()],
                 cipher: [...encryption_algorithms.keys()],
-                hmac: [...mac_algorithms.keys()],
+                hmac: [...mac_algorithm_names],
                 compress: [...compression_algorithms.keys()],
             },
             {

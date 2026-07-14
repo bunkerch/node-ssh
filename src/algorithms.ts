@@ -28,6 +28,7 @@ import AES192CTR from "./algorithms/encryption/aes192-ctr.js"
 import AES256CTR from "./algorithms/encryption/aes256-ctr.js"
 import AES128GCMOpenSSH from "./algorithms/encryption/aes128-gcm-openssh.js"
 import AES256GCMOpenSSH from "./algorithms/encryption/aes256-gcm-openssh.js"
+import { AEADAES128GCM, AEADAES256GCM } from "./algorithms/encryption/aead-aes-gcm.js"
 import ChaCha20Poly1305OpenSSH from "./algorithms/encryption/chacha20-poly1305-openssh.js"
 import { SSHZlibCompressor, SSHZlibDecompressor } from "./algorithms/compression/zlib.js"
 import AES128CBC from "./algorithms/encryption/aes128-cbc.js"
@@ -266,6 +267,8 @@ export abstract class EncryptionAlgorithm {
     static block_size: number
     static aead?: boolean
     static auth_tag_length?: number
+    /** RFC AEAD algorithms that occupy both negotiation lists require this exact MAC name. */
+    static required_mac?: string
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     constructor(key: Buffer, iv: Buffer) {
@@ -304,6 +307,8 @@ export const encryption_algorithms = new Map<string, typeof EncryptionAlgorithm>
     ["chacha20-poly1305@openssh.com", ChaCha20Poly1305OpenSSH],
     ["aes256-gcm@openssh.com", AES256GCMOpenSSH],
     ["aes128-gcm@openssh.com", AES128GCMOpenSSH],
+    ["AEAD_AES_256_GCM", AEADAES256GCM],
+    ["AEAD_AES_128_GCM", AEADAES128GCM],
     ["aes256-ctr", AES256CTR],
     ["aes192-ctr", AES192CTR],
     ["aes128-ctr", AES128CTR],
@@ -351,6 +356,12 @@ export const mac_algorithms = new Map<string, typeof MACAlgorithm>([
     ["hmac-md5-96-etm@openssh.com", HMACMD596ETM],
     ["hmac-md5", HMACMD5],
     ["hmac-md5-96", HMACMD596],
+])
+
+export const mac_algorithm_names: readonly string[] = Object.freeze([
+    ...mac_algorithms.keys(),
+    AEADAES256GCM.required_mac,
+    AEADAES128GCM.required_mac,
 ])
 
 export interface CompressionAlgorithm {
@@ -488,22 +499,18 @@ export function chooseAlgorithms(client: Client | ServerClient) {
     )
     assert(client.serverEncryptionAlgorithm, "No server to client encryption algorithm found")
 
-    if (!client.clientEncryptionAlgorithm.aead) {
-        client.clientMacAlgorithm = firstRegisteredMutual(
-            client.clientKexInit.data.mac_algorithms_client_to_server,
-            client.serverKexInit.data.mac_algorithms_client_to_server,
-            mac_algorithms,
-        )
-        assert(client.clientMacAlgorithm, "No client to server mac algorithm found")
-    }
-    if (!client.serverEncryptionAlgorithm.aead) {
-        client.serverMacAlgorithm = firstRegisteredMutual(
-            client.clientKexInit.data.mac_algorithms_server_to_client,
-            client.serverKexInit.data.mac_algorithms_server_to_client,
-            mac_algorithms,
-        )
-        assert(client.serverMacAlgorithm, "No server to client mac algorithm found")
-    }
+    client.clientMacAlgorithm = negotiateMACAlgorithm(
+        "client to server",
+        client.clientEncryptionAlgorithm,
+        client.clientKexInit.data.mac_algorithms_client_to_server,
+        client.serverKexInit.data.mac_algorithms_client_to_server,
+    )
+    client.serverMacAlgorithm = negotiateMACAlgorithm(
+        "server to client",
+        client.serverEncryptionAlgorithm,
+        client.clientKexInit.data.mac_algorithms_server_to_client,
+        client.serverKexInit.data.mac_algorithms_server_to_client,
+    )
 
     client.clientCompressionAlgorithm = firstRegisteredMutual(
         client.clientKexInit.data.compression_algorithms_client_to_server,
@@ -533,11 +540,13 @@ export function chooseAlgorithms(client: Client | ServerClient) {
     )
     client.debug(
         "Client to Server MAC Algorithm chosen:",
-        client.clientMacAlgorithm?.alg_name ?? "<implicit>",
+        negotiatedMACName(client.clientEncryptionAlgorithm, client.clientMacAlgorithm) ||
+            "<implicit>",
     )
     client.debug(
         "Server to Client MAC Algorithm chosen:",
-        client.serverMacAlgorithm?.alg_name ?? "<implicit>",
+        negotiatedMACName(client.serverEncryptionAlgorithm, client.serverMacAlgorithm) ||
+            "<implicit>",
     )
     client.debug(
         "Client to Server Compression Algorithm chosen:",
@@ -563,13 +572,13 @@ export function describeNegotiatedAlgorithms(
         srvHostKey: client.hostKeyAlgorithm.alg_name,
         cs: Object.freeze({
             cipher: client.clientEncryptionAlgorithm.alg_name,
-            mac: client.clientMacAlgorithm?.alg_name ?? "",
+            mac: negotiatedMACName(client.clientEncryptionAlgorithm, client.clientMacAlgorithm),
             compress: client.clientCompressionAlgorithm.alg_name,
             lang: "",
         }),
         sc: Object.freeze({
             cipher: client.serverEncryptionAlgorithm.alg_name,
-            mac: client.serverMacAlgorithm?.alg_name ?? "",
+            mac: negotiatedMACName(client.serverEncryptionAlgorithm, client.serverMacAlgorithm),
             compress: client.serverCompressionAlgorithm.alg_name,
             lang: "",
         }),
@@ -672,4 +681,45 @@ function firstRegisteredMutual<T>(
         if (algorithm) return algorithm
     }
     return undefined
+}
+
+function negotiatedMACName(
+    encryption: typeof EncryptionAlgorithm,
+    mac: typeof MACAlgorithm | undefined,
+): string {
+    return encryption.required_mac ?? mac?.alg_name ?? ""
+}
+
+function negotiateMACAlgorithm(
+    direction: string,
+    encryption: typeof EncryptionAlgorithm,
+    preferred: readonly string[],
+    offered: readonly string[],
+): typeof MACAlgorithm | undefined {
+    if (encryption.aead && encryption.required_mac === undefined) return undefined
+
+    const selectedName = firstMutualName(preferred, offered, mac_algorithm_names)
+    assert(selectedName, `No ${direction} mac algorithm found`)
+    if (encryption.required_mac !== undefined) {
+        assert(
+            selectedName === encryption.required_mac,
+            `${encryption.alg_name} requires ${encryption.required_mac} as the ${direction} MAC algorithm`,
+        )
+        return undefined
+    }
+
+    const algorithm = mac_algorithms.get(selectedName)
+    assert(
+        algorithm,
+        `${selectedName} may only be selected with the same RFC 5647 encryption algorithm`,
+    )
+    return algorithm
+}
+
+function firstMutualName(
+    preferred: readonly string[],
+    offered: readonly string[],
+    supported: readonly string[],
+): string | undefined {
+    return preferred.find((name) => offered.includes(name) && supported.includes(name))
 }

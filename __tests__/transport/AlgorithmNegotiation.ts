@@ -1,4 +1,4 @@
-import { chooseAlgorithms } from "../../src/algorithms.js"
+import { chooseAlgorithms, describeNegotiatedAlgorithms } from "../../src/algorithms.js"
 import Client from "../../src/Client.js"
 import KexInit, { type KexInitData } from "../../src/packets/KexInit.js"
 import {
@@ -219,6 +219,59 @@ describe("RFC 4253 algorithm negotiation", () => {
         expect(client.serverEncryptionAlgorithm?.alg_name).toBe("aes256-gcm@openssh.com")
         expect(client.clientMacAlgorithm).toBeUndefined()
         expect(client.serverMacAlgorithm).toBeUndefined()
+    })
+
+    test("requires the matching RFC 5647 MAC name for standard AES-GCM", () => {
+        const client = new Client({ hostname: "unused.invalid" })
+        client.clientKexInit = offer({
+            encryption_algorithms_client_to_server: ["AEAD_AES_128_GCM", "aes128-ctr"],
+            encryption_algorithms_server_to_client: ["AEAD_AES_256_GCM", "aes128-ctr"],
+            mac_algorithms_client_to_server: ["AEAD_AES_128_GCM", "hmac-sha2-256"],
+            mac_algorithms_server_to_client: ["AEAD_AES_256_GCM", "hmac-sha2-256"],
+        })
+        client.serverKexInit = offer({
+            encryption_algorithms_client_to_server: ["AEAD_AES_128_GCM", "aes128-ctr"],
+            encryption_algorithms_server_to_client: ["AEAD_AES_256_GCM", "aes128-ctr"],
+            mac_algorithms_client_to_server: ["AEAD_AES_128_GCM", "hmac-sha2-256"],
+            mac_algorithms_server_to_client: ["AEAD_AES_256_GCM", "hmac-sha2-256"],
+        })
+
+        chooseAlgorithms(client)
+
+        expect(client.clientEncryptionAlgorithm?.alg_name).toBe("AEAD_AES_128_GCM")
+        expect(client.serverEncryptionAlgorithm?.alg_name).toBe("AEAD_AES_256_GCM")
+        expect(client.clientMacAlgorithm).toBeUndefined()
+        expect(client.serverMacAlgorithm).toBeUndefined()
+        expect(describeNegotiatedAlgorithms(client).cs.mac).toBe("AEAD_AES_128_GCM")
+        expect(describeNegotiatedAlgorithms(client).sc.mac).toBe("AEAD_AES_256_GCM")
+    })
+
+    test("rejects inconsistent RFC 5647 cipher and MAC selections", () => {
+        const client = new Client({ hostname: "unused.invalid" })
+        client.clientKexInit = offer({
+            encryption_algorithms_client_to_server: ["AEAD_AES_128_GCM", "aes128-ctr"],
+            mac_algorithms_client_to_server: ["hmac-sha2-256", "AEAD_AES_128_GCM"],
+        })
+        client.serverKexInit = offer({
+            encryption_algorithms_client_to_server: ["AEAD_AES_128_GCM", "aes128-ctr"],
+            mac_algorithms_client_to_server: ["hmac-sha2-256", "AEAD_AES_128_GCM"],
+        })
+
+        expect(() => chooseAlgorithms(client)).toThrow(
+            "AEAD_AES_128_GCM requires AEAD_AES_128_GCM as the client to server MAC algorithm",
+        )
+
+        client.clientKexInit = offer({
+            encryption_algorithms_client_to_server: ["aes128-ctr"],
+            mac_algorithms_client_to_server: ["AEAD_AES_128_GCM", "hmac-sha2-256"],
+        })
+        client.serverKexInit = offer({
+            encryption_algorithms_client_to_server: ["aes128-ctr"],
+            mac_algorithms_client_to_server: ["AEAD_AES_128_GCM", "hmac-sha2-256"],
+        })
+        expect(() => chooseAlgorithms(client)).toThrow(
+            "AEAD_AES_128_GCM may only be selected with the same RFC 5647 encryption algorithm",
+        )
     })
 
     test("clears a prior selection before rejecting a later exchange with no overlap", () => {

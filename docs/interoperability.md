@@ -82,6 +82,13 @@ layouts have fixed SSH packets generated independently of the TypeScript codec. 
 packet parsing failures local and diagnosable instead of relying on an external implementation to
 reject malformed bytes.
 
+RFC 5647 coverage also fixes the registered `AEAD_AES_128_GCM` packet ciphertext and tag for an
+independently generated key, IV, payload, padding, and authenticated length. Negotiation tests
+require ordinary SSH preference rules to select the same registered name in the cipher and MAC
+lists for each direction and reject either kind of mismatched selection. In-process client and
+server peers force both registered key sizes through authenticated traffic and rekey while checking
+that handshake metadata reports the RFC MAC name.
+
 RFC 8731 Curve448 coverage uses RFC 7748's literal Alice and Bob private keys, public values, and
 shared secret. It also verifies the required reduction of a non-canonical field coordinate, exact
 56-byte SSH-string framing, rejection of wrong-length and low-order peers, and defensive ownership
