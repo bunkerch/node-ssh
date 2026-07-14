@@ -163,6 +163,10 @@ meaningful wire-level behavior.
   valid only during the negotiated authentication phase and only in their assigned peer direction;
   connection packets are valid only after authentication. Reject cross-phase traffic with reason 2
   while continuing to permit transport diagnostics and key exchange.
+- RFC 4253 automatic rekey limits count authenticated wire bytes independently in both directions
+  for the active packet-protection epoch and reset when replacement keys are installed. The time
+  limit restarts only after the full exchange completes; automatic initiation must use the same
+  queueing and state machine as explicit or peer-initiated rekeying.
 - `Client.canConnect` promises reuse after `close`. Preserve configuration, event listeners, and
   hooks across connections, but reset every transport parser, sequence, negotiated algorithm,
   secret, extension, authentication continuation, channel, and forwarding field before opening the

@@ -202,6 +202,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         this.socket.on("close", () => {
             this.clearHandshakeTimeout()
             this.clearKeepalive()
+            this.clearRekeyTimer()
             this.state = SocketState.Disconnected
             const closeError = this.connectionClosedError("SSH connection closed")
             for (const forwarding of this.remoteForwardListeners.values()) forwarding.server.close()
@@ -305,6 +306,8 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     private authenticationInProgress = false
     private readonly pendingGlobalRequests: PendingGlobalRequest[] = []
     private keepaliveTimer?: ReturnType<typeof setTimeout>
+    private rekeyTimer?: ReturnType<typeof setTimeout>
+    private automaticRekeyScheduled = false
     private unansweredKeepalives = 0
     private handshakeTimer?: ReturnType<typeof setTimeout>
 
@@ -400,6 +403,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     }
 
     disconnect(error?: DisconnectError): this {
+        this.clearRekeyTimer()
         if (error && this.socket.writable) {
             this.sendPacket(
                 new Disconnect({
@@ -415,6 +419,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     }
 
     terminate(): this {
+        this.clearRekeyTimer()
         this.socket.destroy()
         this.state = SocketState.Disconnected
         return this
@@ -546,6 +551,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         this.strictInitialExchange = !isRekey
         if (!isRekey) this.strictInitialPackets.clear()
         this.keyExchangeInProgress = true
+        this.clearRekeyTimer()
         this.peerKexInitReceived = peerInitiated
         this.inboundNewKeysReady = false
         this.expectedInboundKeyExchangePackets.clear()
@@ -697,6 +703,8 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             }
             this.keyExchangeInProgress = false
             this.strictInitialExchange = false
+            this.resetRekeyTimer()
+            this.checkRekeyByteLimit()
             this.emit("serverNewKeys")
             this.emit("handshake", describeNegotiatedAlgorithms(this))
             if (isRekey) this.emit("rekey")
@@ -1767,6 +1775,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         if (packet === this.serverKexInit) this.#serverKexInitPayload = Buffer.from(payload)
         const encoded = this.packetEncoder.encode(payload)
         this.socket!.write(encoded.data)
+        this.checkRekeyByteLimit()
         return encoded.sequenceNumber
     }
 
@@ -1849,6 +1858,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             }
             return
         }
+        this.checkRekeyByteLimit()
 
         const { payload } = decoded
         this.emit("message", decoded.data)
@@ -2289,6 +2299,59 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     private clearKeepalive(): void {
         if (this.keepaliveTimer !== undefined) clearTimeout(this.keepaliveTimer)
         this.keepaliveTimer = undefined
+    }
+
+    private resetRekeyTimer(): void {
+        this.clearRekeyTimer()
+        if (
+            this.server.options.rekeyInterval === 0 ||
+            this.sessionID === undefined ||
+            this.socket.destroyed
+        ) {
+            return
+        }
+        this.rekeyTimer = setTimeout(
+            () => this.scheduleAutomaticRekey("time limit"),
+            this.server.options.rekeyInterval,
+        )
+        this.rekeyTimer.unref()
+    }
+
+    private clearRekeyTimer(): void {
+        if (this.rekeyTimer !== undefined) clearTimeout(this.rekeyTimer)
+        this.rekeyTimer = undefined
+    }
+
+    private checkRekeyByteLimit(): void {
+        const limit = this.server.options.rekeyBytes
+        if (
+            limit > 0 &&
+            (this.packetEncoder.bytesProtected >= limit ||
+                this.packetDecoder.bytesProtected >= limit)
+        ) {
+            this.scheduleAutomaticRekey("byte limit")
+        }
+    }
+
+    private scheduleAutomaticRekey(reason: string): void {
+        this.clearRekeyTimer()
+        if (
+            this.automaticRekeyScheduled ||
+            this.keyExchangeInProgress ||
+            this.sessionID === undefined ||
+            this.socket.destroyed
+        ) {
+            return
+        }
+        this.automaticRekeyScheduled = true
+        queueMicrotask(() => {
+            this.automaticRekeyScheduled = false
+            if (this.keyExchangeInProgress || this.socket.destroyed) return
+            this.debug(`Starting automatic SSH rekey after ${reason}`)
+            void this.rekey().catch((error: unknown) => {
+                this.debug("Automatic SSH rekey failed:", error)
+            })
+        })
     }
 
     private sendKeepalive(): void {

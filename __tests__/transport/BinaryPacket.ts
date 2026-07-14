@@ -131,6 +131,32 @@ function createChaChaProtectionPair() {
 }
 
 describe("BinaryPacket", () => {
+    test("counts authenticated wire bytes per packet-protection epoch", () => {
+        const encoder = new BinaryPacketEncoder({ randomBytes: deterministicPadding })
+        const decoder = new BinaryPacketDecoder()
+        const unprotected = encoder.encode(Buffer.from("initial exchange"))
+        decoder.push(unprotected.data)
+        expect(decoder.read()?.payload).toEqual(Buffer.from("initial exchange"))
+        expect(encoder.bytesProtected).toBe(0)
+        expect(decoder.bytesProtected).toBe(0)
+
+        const protection = createProtectionPair()
+        encoder.setProtection(protection.outbound)
+        decoder.setProtection(protection.inbound)
+
+        const encoded = encoder.encode(Buffer.from("protected payload"))
+        expect(encoder.bytesProtected).toBe(encoded.data.length)
+        decoder.push(encoded.data)
+        expect(decoder.read()?.payload).toEqual(Buffer.from("protected payload"))
+        expect(decoder.bytesProtected).toBe(encoded.data.length)
+
+        const replacement = createProtectionPair()
+        encoder.setProtection(replacement.outbound)
+        decoder.setProtection(replacement.inbound)
+        expect(encoder.bytesProtected).toBe(0)
+        expect(decoder.bytesProtected).toBe(0)
+    })
+
     test.each([false, true])(
         "authenticates packets with a 96-bit HMAC-SHA1 tag (etm=%s)",
         (encryptThenMac) => {

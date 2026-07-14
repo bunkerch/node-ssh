@@ -2591,6 +2591,8 @@ describe("OpenSSH interoperability", () => {
                 agent: new SSHAgent(agentFixture.socketPath),
                 keepaliveInterval: 20,
                 keepaliveCountMax: 3,
+                rekeyBytes: 28_000,
+                rekeyInterval: 0,
                 hostHash: "sha256",
                 hostVerifier: async (hash) => {
                     verifiedHostHashes.push(hash)
@@ -2684,7 +2686,11 @@ describe("OpenSSH interoperability", () => {
             expect(keepalives).toBeGreaterThan(0)
             const sessionId = Buffer.from(client.sessionID!)
             const exchangeHash = Buffer.from(client.H!)
-            await client.rekey()
+            const automaticRekey = once(client, "rekey", {
+                signal: AbortSignal.timeout(2_000),
+            })
+            client.sendIgnore(Buffer.alloc(30_000, 0x5a))
+            await automaticRekey
             expect(rekeys).toBe(1)
             expect(handshakes).toEqual([expectedNegotiated, expectedNegotiated])
             expect(verifiedHostHashes).toEqual([expectedHostHash, expectedHostHash])

@@ -421,6 +421,30 @@ await client.rekey()
 await serverConnection.rekey()
 ```
 
+Both roles also rekey automatically using RFC 4253's recommended limits. By default, either one
+gigabyte of authenticated wire data in either direction or one hour under the current keys starts
+a new exchange, whichever occurs first. Configure the client directly and accepted server
+connections through their parent server:
+
+```ts
+const client = new Client({
+    hostname: "ssh.example.com",
+    rekeyBytes: 512 * 1024 * 1024,
+    rekeyInterval: 30 * 60 * 1000,
+})
+
+const server = new Server({
+    rekeyBytes: 512 * 1024 * 1024,
+    rekeyInterval: 30 * 60 * 1000,
+})
+```
+
+Each limit can be set to `0` independently to disable it. The byte limit counts complete protected
+packets, including framing, padding, and authentication data, and resets separately when each
+direction installs replacement keys. The time limit is measured from completion of the exchange.
+Automatic and explicit exchanges share the same state machine, queueing, events, and failure
+handling; a peer-initiated exchange suppresses a simultaneously due local automatic exchange.
+
 RFC 4253 permits either peer to initiate rekeying as soon as the initial key exchange has
 completed, including during service negotiation or user authentication. `rekey()` follows that
 rule and resolves after the replacement keys are active; a concurrent exchange is rejected rather

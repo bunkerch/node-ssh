@@ -132,6 +132,7 @@ export class BinaryPacketEncoder {
     private compressor?: PacketCompressor
     private sequenceNumber = 0
     private sequenceNumberWrapped = false
+    private protectedBytes = 0
 
     constructor(options: BinaryPacketEncoderOptions = {}) {
         this.maximumPacketSize = options.maximumPacketSize ?? MAXIMUM_BINARY_PACKET_SIZE
@@ -142,6 +143,7 @@ export class BinaryPacketEncoder {
     setProtection(protection: OutboundPacketProtection): void {
         validateProtection(protection)
         this.protection = protection
+        this.protectedBytes = 0
     }
 
     setCompression(compressor: PacketCompressor | undefined): void {
@@ -155,6 +157,11 @@ export class BinaryPacketEncoder {
 
     get hasSequenceNumberWrapped(): boolean {
         return this.sequenceNumberWrapped
+    }
+
+    /** Wire bytes emitted under the current packet-protection keys. */
+    get bytesProtected(): number {
+        return this.protectedBytes
     }
 
     encode(payload: Buffer): EncodedBinaryPacket {
@@ -241,7 +248,14 @@ export class BinaryPacketEncoder {
 
         if (this.sequenceNumber === SEQUENCE_NUMBER_MODULO - 1) this.sequenceNumberWrapped = true
         this.sequenceNumber = (this.sequenceNumber + 1) % SEQUENCE_NUMBER_MODULO
-        return { sequenceNumber, data: Buffer.concat([packet, authentication]) }
+        const data = Buffer.concat([packet, authentication])
+        if (this.protection) {
+            this.protectedBytes = Math.min(
+                Number.MAX_SAFE_INTEGER,
+                this.protectedBytes + data.length,
+            )
+        }
+        return { sequenceNumber, data }
     }
 }
 
@@ -253,6 +267,7 @@ export class BinaryPacketDecoder {
     private decryptedFirstBlock?: Buffer
     private sequenceNumber = 0
     private sequenceNumberWrapped = false
+    private protectedBytes = 0
 
     constructor(options: BinaryPacketOptions = {}) {
         this.maximumPacketSize = options.maximumPacketSize ?? MAXIMUM_BINARY_PACKET_SIZE
@@ -272,6 +287,11 @@ export class BinaryPacketDecoder {
         return this.sequenceNumberWrapped
     }
 
+    /** Authenticated wire bytes accepted under the current packet-protection keys. */
+    get bytesProtected(): number {
+        return this.protectedBytes
+    }
+
     push(chunk: Buffer): void {
         if (chunk.length === 0) return
         this.buffered = Buffer.concat([this.buffered, chunk])
@@ -283,6 +303,7 @@ export class BinaryPacketDecoder {
         }
         validateProtection(protection)
         this.protection = protection
+        this.protectedBytes = 0
     }
 
     setCompression(decompressor: PacketDecompressor | undefined): void {
@@ -427,6 +448,12 @@ export class BinaryPacketDecoder {
 
         this.buffered = this.buffered.subarray(totalLength)
         this.decryptedFirstBlock = undefined
+        if (this.protection) {
+            this.protectedBytes = Math.min(
+                Number.MAX_SAFE_INTEGER,
+                this.protectedBytes + totalLength,
+            )
+        }
         if (this.sequenceNumber === SEQUENCE_NUMBER_MODULO - 1) this.sequenceNumberWrapped = true
         this.sequenceNumber = (this.sequenceNumber + 1) % SEQUENCE_NUMBER_MODULO
 

@@ -27,6 +27,12 @@ import {
     mac_algorithms,
     default_algorithm_names,
 } from "./algorithms.js"
+import {
+    DEFAULT_REKEY_BYTES,
+    DEFAULT_REKEY_INTERVAL,
+    validateRekeyBytes,
+    validateRekeyInterval,
+} from "./RekeyLimits.js"
 
 export interface ServerOptions {
     protocolVersionExchange?: ProtocolVersionExchange
@@ -57,6 +63,10 @@ export interface ServerOptions {
     keepaliveInterval?: number
     /** Consecutive unanswered probes allowed before terminating a connection. */
     keepaliveCountMax?: number
+    /** Protected wire bytes allowed per key in either direction. Zero disables this limit. */
+    rekeyBytes?: number
+    /** Milliseconds a transport key may remain active. Zero disables this limit. */
+    rekeyInterval?: number
     /** Receive the same diagnostic arguments as the `debug` event. */
     debug?: (...message: unknown[]) => void
 }
@@ -336,6 +346,8 @@ export default class Server extends EventEmitter<ServerEvents> {
         this.options.maxAuthenticationAttempts ??= 20
         this.options.keepaliveInterval ??= 0
         this.options.keepaliveCountMax ??= 3
+        this.options.rekeyBytes ??= DEFAULT_REKEY_BYTES
+        this.options.rekeyInterval ??= DEFAULT_REKEY_INTERVAL
         if (!Number.isFinite(this.options.handshakeTimeout) || this.options.handshakeTimeout < 0) {
             throw new RangeError("SSH handshake timeout must be a non-negative number")
         }
@@ -363,6 +375,8 @@ export default class Server extends EventEmitter<ServerEvents> {
         ) {
             throw new RangeError("SSH keepalive count maximum must be a non-negative integer")
         }
+        validateRekeyBytes(this.options.rekeyBytes)
+        validateRekeyInterval(this.options.rekeyInterval)
         this.algorithmOffer = resolveServerAlgorithmOptions(
             this.options.algorithms,
             {
