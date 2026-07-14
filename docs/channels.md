@@ -240,8 +240,9 @@ remote EOF only ends stdin so the server can still finish its response.
 
 Session hooks also cover `ptyRequest`, `envRequest`, and `subsystemRequest`. Accepted values are
 available in `channel.pty` and `channel.env`; the corresponding `pty`, `env`, and `subsystem` events
-are emitted after acceptance. Runtime `windowChange` and `signal` notifications first run ordered,
-awaited hooks and are then exposed as observation events:
+are emitted after acceptance. Session command, terminal, and environment text must be valid UTF-8;
+malformed values are rejected before any policy hook runs. Runtime `windowChange` and `signal`
+notifications first run ordered, awaited hooks and are then exposed as observation events:
 
 ```ts
 channel.hooker.hook("windowChange", async (_hook, dimensions) => {

@@ -16,6 +16,7 @@ import Shell from "./Session/Shell.js"
 import { normalizeSSHSignal } from "../utils/Signal.js"
 import SFTPServer, { SFTPServerOptions } from "../sftp/SFTPServer.js"
 import { decodeSSHName } from "../utils/SSHName.js"
+import { decodeSSHUTF8 } from "../utils/SSHText.js"
 
 export interface SessionPtyInfo {
     term: string
@@ -419,7 +420,7 @@ export default class SessionChannel extends Channel {
         assert(raw.length === 0)
 
         return {
-            term: term.toString("utf8"),
+            term: decodeSSHUTF8(term, "SSH PTY terminal type"),
             columns: term_width_chars,
             rows: term_height_rows,
             width: term_width_pixels,
@@ -438,8 +439,8 @@ export default class SessionChannel extends Channel {
         assert(raw.length === 0)
 
         return {
-            key: key.toString("utf8"),
-            value: value.toString("utf8"),
+            key: decodeSSHUTF8(key, "SSH environment variable name"),
+            value: decodeSSHUTF8(value, "SSH environment variable value"),
         }
     }
 
@@ -457,7 +458,7 @@ export default class SessionChannel extends Channel {
         assert(raw.length === 0)
 
         return {
-            command: command.toString("utf8"),
+            command: decodeSSHUTF8(command, "SSH exec command"),
         }
     }
 

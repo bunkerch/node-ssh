@@ -33,6 +33,37 @@ function createChannel(options: { initialWindowSize?: number; maximumPacketSize?
 }
 
 describe("ClientChannel", () => {
+    test("rejects invalid local session text before sending a request", async () => {
+        const client = new Client({ hostname: "unused" })
+        const sent: Packet[] = []
+        client.sendPacket = (packet: Packet) => {
+            sent.push(packet)
+            return sent.length - 1
+        }
+        const channel = new ClientSessionChannel(client)
+        channel.confirmOpen(
+            new ChannelOpenConfirmation({
+                recipient_channel_id: channel.localId,
+                sender_channel_id: 42,
+                initial_window_size: 32,
+                maximum_packet_size: 32,
+                args: Buffer.alloc(0),
+            }),
+        )
+
+        await expect(channel.exec("\ud800")).rejects.toThrow(
+            "SSH exec command is not valid UTF-8 text",
+        )
+        await expect(channel.setEnv("NAME", "\ud800")).rejects.toThrow(
+            "SSH environment variable value is not valid UTF-8 text",
+        )
+        await expect(channel.requestPty({ term: "\ud800" })).rejects.toThrow(
+            "SSH PTY terminal type is not valid UTF-8 text",
+        )
+        expect(sent).toEqual([])
+        channel.destroy()
+    })
+
     test("encodes named RFC terminal modes in a PTY request", async () => {
         const client = new Client({ hostname: "unused" })
         const sent: Packet[] = []

@@ -11,12 +11,7 @@ import ChannelRequest from "../packets/ChannelRequest.js"
 import ChannelSuccess from "../packets/ChannelSuccess.js"
 import ChannelWindowAdjust from "../packets/ChannelWindowAdjust.js"
 import { MAXIMUM_CHANNEL_WINDOW_SIZE, SSHExtendedDataTypes } from "../constants.js"
-import {
-    readNextBinaryBoolean,
-    readNextBuffer,
-    readNextUint32,
-    serializeBuffer,
-} from "../utils/Buffer.js"
+import { readNextBinaryBoolean, readNextBuffer, readNextUint32 } from "../utils/Buffer.js"
 import { Hooker } from "../utils/Hooker.js"
 import { normalizeSSHSignal } from "../utils/Signal.js"
 import { decodeSSHLanguageTag, decodeSSHUTF8 } from "../utils/SSHText.js"
@@ -475,10 +470,6 @@ export default class ClientChannel extends Duplex {
                 )
         }
         callback(error)
-    }
-
-    protected serializeString(value: string): Buffer {
-        return serializeBuffer(Buffer.from(value, "utf8"))
     }
 
     protected writeChannelData(data: Buffer, callback: WriteCallback, atomic = false): void {

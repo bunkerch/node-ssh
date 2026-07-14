@@ -7,6 +7,9 @@ import ChannelWindowAdjust from "../../src/packets/ChannelWindowAdjust.js"
 import ChannelEOF from "../../src/packets/ChannelEOF.js"
 import ChannelRequest from "../../src/packets/ChannelRequest.js"
 import { ProtocolError } from "../../src/packets/Disconnect.js"
+import SessionChannel from "../../src/channels/SessionChannel.js"
+import type ServerClient from "../../src/ServerClient.js"
+import { serializeBuffer, serializeUint32 } from "../../src/utils/Buffer.js"
 
 function createChannel(remoteWindow = 5, remotePacketSize = 3) {
     const client = new Client({ hostname: "unused" })
@@ -31,6 +34,33 @@ function createChannel(remoteWindow = 5, remotePacketSize = 3) {
 }
 
 describe("server Channel", () => {
+    test("rejects malformed UTF-8 session policy text", () => {
+        const peer = { localChannelIndex: 0 } as ServerClient
+        const channel = new SessionChannel(peer, "session")
+        const malformed = Buffer.from([0xff])
+
+        expect(() => channel.parseExecRequest(serializeBuffer(malformed))).toThrow(
+            "SSH exec command is not valid UTF-8 text",
+        )
+        expect(() =>
+            channel.parseEnvRequest(
+                Buffer.concat([serializeBuffer(malformed), serializeBuffer(Buffer.from("value"))]),
+            ),
+        ).toThrow("SSH environment variable name is not valid UTF-8 text")
+        expect(() =>
+            channel.parsePtyRequest(
+                Buffer.concat([
+                    serializeBuffer(malformed),
+                    serializeUint32(80),
+                    serializeUint32(24),
+                    serializeUint32(640),
+                    serializeUint32(480),
+                    serializeBuffer(Buffer.from([0])),
+                ]),
+            ),
+        ).toThrow("SSH PTY terminal type is not valid UTF-8 text")
+    })
+
     test("serializes queued output within the peer packet and window limits", async () => {
         const { channel, sent } = createChannel()
         const finished = new Promise<void>((resolve, reject) => {

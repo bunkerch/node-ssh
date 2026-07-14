@@ -7,6 +7,7 @@ import ClientChannel from "./ClientChannel.js"
 import ChannelRequest from "../packets/ChannelRequest.js"
 import { encodeSSHName } from "../utils/SSHName.js"
 import type { TerminalModeSettings } from "../TerminalModes.js"
+import { encodeSSHUTF8 } from "../utils/SSHText.js"
 
 export interface ClientPtyOptions {
     term?: string
@@ -51,7 +52,7 @@ export default class ClientSessionChannel extends ClientChannel {
     async exec(command: string): Promise<void> {
         this.reserveProgram()
         try {
-            await this.request("exec", this.serializeString(command))
+            await this.request("exec", serializeBuffer(encodeSSHUTF8(command, "SSH exec command")))
         } catch (error) {
             this.started = false
             throw error
@@ -80,7 +81,9 @@ export default class ClientSessionChannel extends ClientChannel {
             await this.request(
                 "pty-req",
                 Buffer.concat([
-                    serializeBuffer(Buffer.from(options.term ?? "vt100", "utf8")),
+                    serializeBuffer(
+                        encodeSSHUTF8(options.term ?? "vt100", "SSH PTY terminal type"),
+                    ),
                     serializeUint32(this.uint32(columns, "PTY columns")),
                     serializeUint32(this.uint32(rows, "PTY rows")),
                     serializeUint32(this.uint32(width, "PTY pixel width")),
@@ -94,13 +97,13 @@ export default class ClientSessionChannel extends ClientChannel {
         }
     }
 
-    setEnv(name: string, value: string, wantReply = true): Promise<void> {
+    async setEnv(name: string, value: string, wantReply = true): Promise<void> {
         this.ensureNotStarted("set environment variables")
-        return this.request(
+        await this.request(
             "env",
             Buffer.concat([
-                serializeBuffer(Buffer.from(name, "utf8")),
-                serializeBuffer(Buffer.from(value, "utf8")),
+                serializeBuffer(encodeSSHUTF8(name, "SSH environment variable name")),
+                serializeBuffer(encodeSSHUTF8(value, "SSH environment variable value")),
             ]),
             wantReply,
         )
