@@ -173,6 +173,7 @@ describe("package exports", () => {
         const serverClient = await readFile("dist/ServerClient.d.ts", "utf8")
         const server = await readFile("dist/Server.d.ts", "utf8")
         const streams = await readFile("dist/sftp/streams.d.ts", "utf8")
+        const shell = await readFile("dist/channels/Session/Shell.d.ts", "utf8")
 
         expect(client).not.toContain("ClientSessionCallback")
         expect(client).not.toContain("ClientGlobalRequestCallback")
@@ -185,6 +186,8 @@ describe("package exports", () => {
         expect(server).toContain("getConnections(): Promise<number>")
         expect(server).toContain("close(): Promise<void>")
         expect(streams.match(/close\(\): Promise<void>/gu)).toHaveLength(2)
+        expect(shell).toContain("writeStdout(data: Buffer | string")
+        expect(shell).toContain("writeStderr(data: Buffer | string")
     })
 
     test("package archive exposes working ESM key generation", async () => {

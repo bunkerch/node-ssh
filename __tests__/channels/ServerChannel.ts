@@ -2,6 +2,7 @@ import Channel from "../../src/Channel.js"
 import Client from "../../src/Client.js"
 import Packet from "../../src/packet.js"
 import ChannelData from "../../src/packets/ChannelData.js"
+import ChannelExtendedData from "../../src/packets/ChannelExtendedData.js"
 import ChannelOpen from "../../src/packets/ChannelOpen.js"
 import ChannelWindowAdjust from "../../src/packets/ChannelWindowAdjust.js"
 import ChannelEOF from "../../src/packets/ChannelEOF.js"
@@ -106,6 +107,31 @@ describe("server Channel", () => {
                 .filter((packet): packet is ChannelData => packet instanceof ChannelData)
                 .map((packet) => packet.data.data.toString()),
         ).toEqual(["abc", "de", "fgh"])
+    })
+
+    test("awaits Promise-based shell output before later protocol messages", async () => {
+        const { channel, sent } = createChannel(0, 3)
+        channel.channel_type = "session"
+        const shell = new Shell(channel as SessionChannel)
+
+        const stdout = shell.writeStdout("out")
+        expect(sent).toEqual([])
+        channel.receiveWindowAdjust(3)
+        await stdout
+
+        const stderr = shell.writeStderr("err")
+        channel.receiveWindowAdjust(3)
+        await stderr
+        shell.exit(0)
+
+        expect(sent.map((packet) => packet.constructor)).toEqual([
+            ChannelData,
+            ChannelExtendedData,
+            ChannelRequest,
+        ])
+        expect((sent[0] as ChannelData).data.data.toString()).toBe("out")
+        expect((sent[1] as ChannelExtendedData).data.data.toString()).toBe("err")
+        shell.destroy()
     })
 
     test("advertises more receive window after inbound data reaches the threshold", () => {

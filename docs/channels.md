@@ -215,21 +215,21 @@ server.on("connection", (connection) => {
             decision.success = context.command === "status"
         })
 
-        channel.events.on("exec", (_command, stream) => {
+        channel.events.on("exec", async (_command, stream) => {
             stream.stdin.pipe(process.stdout)
-            stream.stderr.write("diagnostics\n")
-            stream.stdout.write("ok\n", () => {
-                stream.exit(0)
-                stream.stdout.end()
-            })
+            await stream.writeStderr("diagnostics\n")
+            await stream.writeStdout("ok\n")
+            stream.exit(0)
+            stream.stdout.end()
         })
     })
 })
 ```
 
 The `Shell` passed to `exec` and `shell` events is a Node.js `Duplex`. It is also available through
-the `stdin` and `stdout` aliases, and has a separate writable `stderr`. Output writes obey the
-client's shared channel window and maximum packet size. `exit(number)` sends `exit-status`; passing
+the `stdin` and `stdout` aliases, and has a separate writable `stderr`. Await `writeStdout()` or
+`writeStderr()` when later protocol messages must follow the output; ordinary stream writes remain
+available for piping. Output writes obey the client's shared channel window and maximum packet size. `exit(number)` sends `exit-status`; passing
 a signal name sends `exit-signal`. Its optional diagnostic message must be valid UTF-8 and is
 validated before the one-way result is sent. Ending stdout flushes queued output, sends EOF and CLOSE, and a
 remote EOF only ends stdin so the server can still finish its response.
