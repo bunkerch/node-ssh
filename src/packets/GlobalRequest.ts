@@ -20,7 +20,11 @@ export default class GlobalRequest implements Packet {
 
     data: GlobalRequestData
     constructor(data: GlobalRequestData) {
-        this.data = data
+        this.data = {
+            request_name: data.request_name,
+            want_reply: data.want_reply,
+            args: Buffer.from(data.args),
+        }
     }
 
     serialize(): Buffer {

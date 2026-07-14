@@ -11,7 +11,7 @@ export default class RequestSuccess implements Packet {
 
     data: RequestSuccessData
     constructor(data: RequestSuccessData) {
-        this.data = data
+        this.data = { args: Buffer.from(data.args) }
     }
 
     serialize(): Buffer {

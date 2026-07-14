@@ -72,6 +72,43 @@ describe("RFC 4254 TCP forwarding packet vectors", () => {
         expect(RequestFailure.parse(failure).serialize()).toEqual(failure)
     })
 
+    test("global request packets own opaque constructor payloads", () => {
+        const requestArgs = vector("00000007 302e302e302e30 00009c40")
+        const request = new GlobalRequest({
+            request_name: "tcpip-forward",
+            want_reply: true,
+            args: requestArgs,
+        })
+        requestArgs.fill(0xff)
+        expect(request.serialize()).toEqual(
+            vector(
+                "50 0000000d 74637069702d666f7277617264 01 " + "00000007 302e302e302e30 00009c40",
+            ),
+        )
+
+        const successArgs = vector("0000c000")
+        const success = new RequestSuccess({ args: successArgs })
+        successArgs.fill(0xff)
+        expect(success.serialize()).toEqual(vector("51 0000c000"))
+    })
+
+    test("parsed global request packets do not alias their input frames", () => {
+        const requestFrame = vector(
+            "50 0000000d 74637069702d666f7277617264 01 " + "00000007 302e302e302e30 00009c40",
+        )
+        const successFrame = vector("51 0000c000")
+        const request = GlobalRequest.parse(requestFrame)
+        const success = RequestSuccess.parse(successFrame)
+        const requestCopy = request.serialize()
+        const successCopy = success.serialize()
+
+        requestFrame.fill(0xff)
+        successFrame.fill(0xff)
+
+        expect(request.serialize()).toEqual(requestCopy)
+        expect(success.serialize()).toEqual(successCopy)
+    })
+
     test("parses and serializes a fixed forwarded-tcpip channel open", () => {
         const raw = vector(`
             5a
