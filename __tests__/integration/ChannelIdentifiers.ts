@@ -1,0 +1,146 @@
+import { AddressInfo } from "node:net"
+import Client from "../../src/Client.js"
+import ClientSessionChannel from "../../src/channels/ClientSessionChannel.js"
+import SessionChannel from "../../src/channels/SessionChannel.js"
+import { SSHAuthenticationMethods } from "../../src/constants.js"
+import Server from "../../src/Server.js"
+import type ServerClient from "../../src/ServerClient.js"
+import ChannelOpen from "../../src/packets/ChannelOpen.js"
+import ChannelOpenConfirmation from "../../src/packets/ChannelOpenConfirmation.js"
+import { DisconnectReason, type PeerDisconnectInfo } from "../../src/packets/Disconnect.js"
+import PrivateKey from "../../src/utils/PrivateKey.js"
+
+async function createConnectedPeers(): Promise<{
+    server: Server
+    peer: ServerClient
+    client: Client
+}> {
+    const hostKey = await PrivateKey.generate("ssh-ed25519")
+    const server = new Server({ hostKeys: [hostKey], sendAllHostKeys: false })
+    server.hooker.hook("noneAuthentication", async (_hook, _context, controller) => {
+        controller.allowLogin = true
+    })
+    let peer: ServerClient | undefined
+    server.on("connection", (connection) => {
+        peer = connection
+        connection.on("error", () => undefined)
+    })
+    server.listen({ host: "127.0.0.1", port: 0 })
+    await new Promise<void>((resolve) => server.server!.once("listening", resolve))
+
+    const client = new Client({
+        hostname: "127.0.0.1",
+        port: (server.address() as AddressInfo).port,
+        username: "channel-identifier-test",
+        authenticationMethodsOrder: [SSHAuthenticationMethods.None],
+    })
+    client.hooker.hook("hostKey", async (_hook, controller) => {
+        controller.allowHostKey = true
+    })
+    await client.connect()
+    return { server, peer: peer!, client }
+}
+
+async function closePeers(server: Server, client: Client): Promise<void> {
+    client.destroy()
+    for (const peer of server.clients) peer.terminate()
+    await new Promise<void>((resolve) => server.close(() => resolve()))
+}
+
+function nextDisconnect(peer: Client | ServerClient): Promise<Readonly<PeerDisconnectInfo>> {
+    return new Promise((resolve) => peer.once("disconnect", resolve))
+}
+
+describe("RFC 4254 channel identifiers", () => {
+    test("allows an identifier to be reused after both channel closes", async () => {
+        const { server, peer, client } = await createConnectedPeers()
+        server.hooker.hook("channelOpenRequest", async (_hook, _channel, controller) => {
+            controller.allowOpen = true
+        })
+        peer.on("channel", (channel) => {
+            if (!(channel instanceof SessionChannel)) return
+            channel.hooker.hook("execRequest", async (_hook, _context, controller) => {
+                controller.success = true
+            })
+        })
+
+        try {
+            const first = await client.exec("first")
+            const reusedId = first.localId
+            const firstClosed = new Promise<void>((resolve) => first.once("close", resolve))
+            first.close()
+            await firstClosed
+
+            client.localChannelIndex = reusedId
+            const second = await client.exec("second")
+            expect(second.localId).toBe(reusedId)
+            const secondClosed = new Promise<void>((resolve) => second.once("close", resolve))
+            second.close()
+            await secondClosed
+        } finally {
+            await closePeers(server, client)
+        }
+    }, 15_000)
+
+    test("disconnects a client that reuses an identifier while its first open is pending", async () => {
+        const { server, peer, client } = await createConnectedPeers()
+        let releasePolicy!: () => void
+        const policyBlocked = new Promise<void>((resolve) => {
+            releasePolicy = resolve
+        })
+        server.hooker.hook("channelOpenRequest", async () => policyBlocked)
+        const disconnect = nextDisconnect(client)
+        const open = new ChannelOpen({
+            channel_type: "session",
+            sender_channel_id: 0xf00d,
+            initial_window_size: 1024,
+            maximum_packet_size: 1024,
+            args: Buffer.alloc(0),
+        })
+
+        try {
+            client.sendPacket(open)
+            client.sendPacket(open)
+            await expect(disconnect).resolves.toEqual({
+                reasonCode: DisconnectReason.SSH_DISCONNECT_PROTOCOL_ERROR,
+                description: "SSH peer reused active channel identifier 61453",
+                languageTag: "",
+            })
+        } finally {
+            releasePolicy()
+            await closePeers(server, client)
+            peer.terminate()
+        }
+    }, 15_000)
+
+    test("disconnects a server that duplicates identifiers in open confirmations", async () => {
+        const { server, peer, client } = await createConnectedPeers()
+        const first = new ClientSessionChannel(client)
+        const second = new ClientSessionChannel(client)
+        client.channels.set(first.localId, first)
+        client.channels.set(second.localId, second)
+        void second.waitUntilOpen().catch(() => undefined)
+        const disconnect = nextDisconnect(peer)
+
+        try {
+            for (const channel of [first, second]) {
+                peer.sendPacket(
+                    new ChannelOpenConfirmation({
+                        recipient_channel_id: channel.localId,
+                        sender_channel_id: 77,
+                        initial_window_size: 1024,
+                        maximum_packet_size: 1024,
+                        args: Buffer.alloc(0),
+                    }),
+                )
+            }
+            await expect(disconnect).resolves.toEqual({
+                reasonCode: DisconnectReason.SSH_DISCONNECT_PROTOCOL_ERROR,
+                description: "SSH peer reused active channel identifier 77",
+                languageTag: "",
+            })
+        } finally {
+            await closePeers(server, client)
+        }
+    }, 15_000)
+})

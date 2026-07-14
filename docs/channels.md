@@ -147,7 +147,10 @@ succeeded, and agents without a stream capability such as `DiskAgent` cannot be 
 
 The implementation follows RFC 4254 channel rules:
 
-- Local and remote channel numbers are tracked independently.
+- Local and remote channel numbers are tracked independently. A peer identifier is reserved as soon
+  as its open request arrives, including while asynchronous policy is pending, and remains reserved
+  until both CLOSE messages have been exchanged. Reusing an active identifier is a protocol error;
+  reuse after the channel is fully closed is valid.
 - Outbound data is split to the peer's maximum packet size and paused when its window is empty.
 - Inbound stdout and stderr share the advertised receive window. Window adjustments are sent as
   stream consumers make room.
@@ -156,8 +159,9 @@ The implementation follows RFC 4254 channel rules:
   Exit signals retain `exitSignal`, `exitCoreDumped`, `exitErrorMessage`, and `exitLanguageTag`.
   These one-way results are accepted only once on a session channel; signal names, UTF-8 messages,
   language tags, reply flags, and trailing data are validated before the event is emitted.
-- Data after EOF, oversized data, window overruns, duplicate confirmations, and packets for unknown
-  channels are treated as protocol errors.
+- Data after EOF, oversized data, window overruns, duplicate confirmations or peer identifiers, and
+  packets for unknown channels are treated as protocol errors. Protocol-error disconnects are sent
+  consistently whether the triggering packet arrived alone, fragmented, or in a coalesced read.
 
 The interoperability suite exercises session opening, `exec`, stdin, stdout, stderr, exit status,
 EOF, CLOSE, end-of-write, and OpenSSH's `no-more-sessions@openssh.com` extension against OpenSSH.

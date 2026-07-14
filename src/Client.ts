@@ -57,6 +57,7 @@ import KexRSASecret from "./packets/KexRSASecret.js"
 import KexRSADone from "./packets/KexRSADone.js"
 import UserAuthRequest from "./packets/UserAuthRequest.js"
 import Disconnect, {
+    DisconnectError,
     DisconnectReason,
     PeerDisconnectError,
     peerDisconnectInfo,
@@ -560,6 +561,7 @@ export default class Client extends EventEmitter<ClientEvents> {
 
     localChannelIndex = 0
     channels = new Map<number, ClientChannel>()
+    private readonly remoteChannelIds = new Set<number>()
     private readonly pendingGlobalRequests: PendingGlobalRequest[] = []
     private readonly pendingPings: PendingPing[] = []
     private transportPingSupported = false
@@ -1238,9 +1240,24 @@ export default class Client extends EventEmitter<ClientEvents> {
             try {
                 this.onMessage(message)
             } catch (error) {
-                this.socket?.destroy(error as Error)
+                this.handleMessageError(error as Error)
             }
         })
+    }
+
+    private handleMessageError(error: Error): void {
+        if (error instanceof DisconnectError && this.socket?.writable) {
+            this.sendPacket(
+                new Disconnect({
+                    reason_code: error.reason_code,
+                    description: error.message,
+                    language_tag: "",
+                }),
+            )
+            this.socket.end()
+            return
+        }
+        this.socket?.destroy(error)
     }
 
     private resumePacketProcessing(): void {
@@ -1516,6 +1533,7 @@ export default class Client extends EventEmitter<ClientEvents> {
                 const closeError = this.connectionClosedError("SSH connection closed")
                 for (const channel of this.channels.values()) channel.abort(closeError)
                 this.channels.clear()
+                this.remoteChannelIds.clear()
                 while (this.pendingGlobalRequests.length > 0) {
                     const request = this.pendingGlobalRequests.shift()!
                     request.reject(
@@ -1548,7 +1566,7 @@ export default class Client extends EventEmitter<ClientEvents> {
             try {
                 this.onMessage(data)
             } catch (error) {
-                this.socket?.destroy(error as Error)
+                this.handleMessageError(error as Error)
             }
         })
 
@@ -2141,6 +2159,7 @@ export default class Client extends EventEmitter<ClientEvents> {
         }
 
         if (packet instanceof ChannelOpenConfirmation) {
+            this.reserveRemoteChannelId(packet.data.sender_channel_id)
             this.getChannel(packet.data.recipient_channel_id).confirmOpen(packet)
             return
         }
@@ -2165,7 +2184,10 @@ export default class Client extends EventEmitter<ClientEvents> {
             channel.receiveEOF()
         } else if (packet instanceof ChannelClose) {
             channel.receiveClose()
-            if (channel.isFullyClosed) this.channels.delete(channel.localId)
+            if (channel.isFullyClosed) {
+                this.channels.delete(channel.localId)
+                if (channel.remoteId !== undefined) this.remoteChannelIds.delete(channel.remoteId)
+            }
         } else if (packet instanceof ChannelRequest) {
             void this.actionQueue
                 .queueAction(`channelRequest:${recipient}`, () => channel.receiveRequest(packet))
@@ -2214,6 +2236,16 @@ export default class Client extends EventEmitter<ClientEvents> {
         return this.peerDisconnect
             ? new PeerDisconnectError(this.peerDisconnect)
             : new Error(fallback)
+    }
+
+    private reserveRemoteChannelId(remoteId: number): void {
+        if (this.remoteChannelIds.has(remoteId)) {
+            throw new DisconnectError(
+                DisconnectReason.SSH_DISCONNECT_PROTOCOL_ERROR,
+                `SSH peer reused active channel identifier ${remoteId}`,
+            )
+        }
+        this.remoteChannelIds.add(remoteId)
     }
 
     private async verifyConfiguredHostKey(serializedHostKey: Buffer): Promise<void> {
@@ -2274,6 +2306,7 @@ export default class Client extends EventEmitter<ClientEvents> {
     }
 
     private handleIncomingChannelOpen(packet: ChannelOpen): void {
+        this.reserveRemoteChannelId(packet.data.sender_channel_id)
         if (packet.data.channel_type === ClientX11Channel.channelType) {
             this.handleIncomingX11ChannelOpen(packet)
             return
@@ -2492,6 +2525,7 @@ export default class Client extends EventEmitter<ClientEvents> {
         reasonCode: ChannelOpenFailureReasonCodes,
         description: string,
     ): void {
+        this.remoteChannelIds.delete(packet.data.sender_channel_id)
         this.sendPacket(
             new ChannelOpenFailure({
                 recipient_channel_id: packet.data.sender_channel_id,

@@ -285,6 +285,10 @@ meaningful wire-level behavior.
   request arguments before exposing them, invoke one-way notifications without replying, reject
   pending outbound requests when a channel closes, and suppress replies from handlers that finish
   after close. Validate both peer roles with OpenSSH.
+- Reserve each peer channel identifier before asynchronous open policy and across the full
+  bidirectional CLOSE handshake. Reject active reuse with an RFC protocol-error disconnect, release
+  rejected and fully closed identifiers, and keep fatal behavior independent of TCP fragmentation
+  or coalescing by sharing the direct and deferred packet-processing error path.
 - Bound server authentication with an absolute post-service deadline and a rejected-request
   ceiling. Do not count `none`, intermediate challenge messages, or `partialSuccess`; after expiry,
   an awaited policy hook must not admit the client. Clear and unref deadline timers, and flush the
