@@ -159,6 +159,23 @@ describe("RFC SSH text fields", () => {
         ).toThrow("uint32")
     })
 
+    test("disconnect packets snapshot caller metadata", () => {
+        const input = {
+            reason_code: 11,
+            description: "closed",
+            language_tag: "en",
+        }
+        const packet = new Disconnect(input)
+        input.reason_code = 2
+        input.description = "changed"
+        input.language_tag = "fr"
+        expect(packet.data).toEqual({
+            reason_code: 11,
+            description: "closed",
+            language_tag: "en",
+        })
+    })
+
     test("applies RFC 4250 name validation to protocol packets", () => {
         expect(() => ServiceRequest.parse(vector("05 00000001 ff"))).toThrow("US-ASCII")
         expect(

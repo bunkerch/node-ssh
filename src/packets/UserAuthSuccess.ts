@@ -8,8 +8,9 @@ export default class UserAuthSuccess implements Packet {
     static type = PacketNameToType.SSH_MSG_USERAUTH_SUCCESS
 
     data: UserAuthSuccessData
-    constructor(data: UserAuthSuccessData) {
-        this.data = data
+    constructor(data: UserAuthSuccessData = {}) {
+        assert(Object.keys(data).length === 0, "SSH authentication success does not accept fields")
+        this.data = {}
     }
 
     serialize(): Buffer {

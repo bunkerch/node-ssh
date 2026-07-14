@@ -8,8 +8,9 @@ export default class NewKeys implements Packet {
     static type = PacketNameToType.SSH_MSG_NEWKEYS
 
     data: NewKeysData
-    constructor(data: NewKeysData) {
-        this.data = data
+    constructor(data: NewKeysData = {}) {
+        assert(Object.keys(data).length === 0, "SSH NEWKEYS does not accept fields")
+        this.data = {}
     }
 
     serialize(): Buffer {

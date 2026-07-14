@@ -91,4 +91,18 @@ describe("RFC 4419 group-exchange packets", () => {
 
         expect(parsed.map((packet) => packet.serialize())).toEqual(serialized)
     })
+
+    test("group-exchange requests snapshot caller metadata", () => {
+        const requestInput = { min: 2048, preferred: 3072, max: 8192 }
+        const request = new KexDHGexRequest(requestInput)
+        requestInput.min = 1024
+        requestInput.preferred = 1024
+        requestInput.max = 1024
+        expect(request.serialize()).toEqual(Buffer.from("220000080000000c0000002000", "hex"))
+
+        const legacyInput = { preferred: 3072 }
+        const legacy = new KexDHGexRequestOld(legacyInput)
+        legacyInput.preferred = 1024
+        expect(legacy.serialize()).toEqual(Buffer.from("1e00000c00", "hex"))
+    })
 })

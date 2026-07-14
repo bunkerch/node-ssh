@@ -57,7 +57,11 @@ export default class Disconnect implements Packet {
 
     data: DisconnectData
     constructor(data: DisconnectData) {
-        this.data = data
+        this.data = {
+            reason_code: data.reason_code,
+            description: data.description,
+            language_tag: data.language_tag,
+        }
     }
 
     serialize(): Buffer {

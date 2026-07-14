@@ -11,7 +11,7 @@ export default class Unimplemented implements Packet {
 
     data: UnimplementedData
     constructor(data: UnimplementedData) {
-        this.data = data
+        this.data = { sequence_number: data.sequence_number }
     }
 
     serialize(): Buffer {

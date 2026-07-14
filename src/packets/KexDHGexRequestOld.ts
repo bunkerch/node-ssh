@@ -7,7 +7,11 @@ export default class KexDHGexRequestOld implements Packet {
     // RFC 4419 assigns 30 in a KEX-specific namespace. It overlaps KEXDH_INIT.
     static type = PacketNameToType.SSH_MSG_KEXDH_INIT
 
-    constructor(readonly data: { preferred: number }) {}
+    readonly data: { preferred: number }
+
+    constructor(data: { preferred: number }) {
+        this.data = { preferred: data.preferred }
+    }
 
     serialize(): Buffer {
         return Buffer.concat([

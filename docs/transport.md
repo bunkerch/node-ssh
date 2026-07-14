@@ -70,6 +70,8 @@ client.sendIgnore(Buffer.from("opaque padding"))
 Disconnect reason codes are retained as their exact uint32 value. Named RFC 4253 values use the
 `DisconnectReason` enum, while future assignments and the private-use range remain parseable so an
 otherwise valid disconnect can always terminate the connection cleanly.
+Transport and service packet constructors snapshot scalar metadata before queuing. Protocol marker
+packets with no fields reject stray metadata instead of silently accepting an invalid shape.
 
 Both `Client` and `ServerClient` emit `disconnect` with an immutable `PeerDisconnectInfo` before
 their subsequent `close` event. It contains `reasonCode`, `description`, and `languageTag` exactly

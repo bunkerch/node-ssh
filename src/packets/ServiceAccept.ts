@@ -12,7 +12,7 @@ export default class ServiceAccept implements Packet {
 
     data: ServiceAcceptData
     constructor(data: ServiceAcceptData) {
-        this.data = data
+        this.data = { service_name: data.service_name }
     }
 
     serialize(): Buffer {

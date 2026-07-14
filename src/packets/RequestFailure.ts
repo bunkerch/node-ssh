@@ -8,8 +8,9 @@ export default class RequestFailure implements Packet {
     static type = PacketNameToType.SSH_MSG_REQUEST_FAILURE
 
     data: RequestFailureData
-    constructor(data: RequestFailureData) {
-        this.data = data
+    constructor(data: RequestFailureData = {}) {
+        assert(Object.keys(data).length === 0, "SSH request failure does not accept fields")
+        this.data = {}
     }
 
     serialize(): Buffer {

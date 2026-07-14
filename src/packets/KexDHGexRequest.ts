@@ -12,7 +12,11 @@ export interface KexDHGexRequestData {
 export default class KexDHGexRequest implements Packet {
     static type = PacketNameToType.SSH_MSG_KEX_DH_GEX_REQUEST
 
-    constructor(readonly data: KexDHGexRequestData) {}
+    readonly data: KexDHGexRequestData
+
+    constructor(data: KexDHGexRequestData) {
+        this.data = { min: data.min, preferred: data.preferred, max: data.max }
+    }
 
     serialize(): Buffer {
         return Buffer.concat([

@@ -225,6 +225,8 @@ meaningful wire-level behavior.
   lists, zero reserved field, and no trailing data before publishing an offer.
 - KEXINIT owns its cookie and copies every algorithm and language list during construction and
   parsing. Configuration arrays and transport frames must not alias a queued or published offer.
+- Scalar transport, service, and group-exchange request packets snapshot constructor metadata.
+  Zero-field protocol markers reject stray fields instead of silently retaining or ignoring them.
 - Snapshot outbound KEXINIT payloads where they are written and hash those exact immutable bytes in
   every key-exchange method; never reconstruct a transcript from a mutable packet object. Keep the
   stored snapshot runtime-private, return copies to observers, and bind capture to the active offer.
