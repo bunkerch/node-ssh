@@ -56,7 +56,12 @@ import KexRSAPublicKey from "./packets/KexRSAPublicKey.js"
 import KexRSASecret from "./packets/KexRSASecret.js"
 import KexRSADone from "./packets/KexRSADone.js"
 import UserAuthRequest from "./packets/UserAuthRequest.js"
-import Disconnect, { DisconnectReason } from "./packets/Disconnect.js"
+import Disconnect, {
+    DisconnectReason,
+    PeerDisconnectError,
+    peerDisconnectInfo,
+    type PeerDisconnectInfo,
+} from "./packets/Disconnect.js"
 import ServiceRequest from "./packets/ServiceRequest.js"
 import Agent from "./publickey/Agent.js"
 import NoneAgent from "./publickey/NoneAgent.js"
@@ -206,6 +211,8 @@ export interface ClientEvents {
     debug: [...message: unknown[]]
     error: [error: Error]
     close: []
+    /** Authenticated or unauthenticated terminal disconnect received from the peer. */
+    disconnect: [info: Readonly<PeerDisconnectInfo>]
     connect: []
     message: [message: Buffer]
     packet: [packet: Packet]
@@ -349,6 +356,7 @@ interface RemoteForwarding {
 
 export default class Client extends EventEmitter<ClientEvents> {
     options: ClientOptionsRequired
+    peerDisconnect?: Readonly<PeerDisconnectInfo>
 
     constructor(options: ClientOptions) {
         super()
@@ -1426,6 +1434,7 @@ export default class Client extends EventEmitter<ClientEvents> {
             throw new Error("Cannot initiate connection; client is not in a state to connect")
         }
         this.state = SocketState.Connecting
+        this.peerDisconnect = undefined
         const suppliedSocket = this.options.sock
         if (suppliedSocket?.destroyed) {
             this.state = SocketState.Closed
@@ -1477,24 +1486,32 @@ export default class Client extends EventEmitter<ClientEvents> {
                 this.state = SocketState.Closed
                 this.debug("Socket closed")
                 this.socket = undefined
-                for (const channel of this.channels.values()) channel.abort()
+                const closeError = this.connectionClosedError("SSH connection closed")
+                for (const channel of this.channels.values()) channel.abort(closeError)
                 this.channels.clear()
                 while (this.pendingGlobalRequests.length > 0) {
                     const request = this.pendingGlobalRequests.shift()!
                     request.reject(
-                        new Error(`SSH connection closed during global request ${request.name}`),
+                        this.connectionClosedError(
+                            `SSH connection closed during global request ${request.name}`,
+                        ),
                     )
                 }
                 while (this.pendingPings.length > 0) {
                     this.pendingPings
                         .shift()!
-                        .reject(new Error("SSH connection closed during transport ping"))
+                        .reject(
+                            this.connectionClosedError(
+                                "SSH connection closed during transport ping",
+                            ),
+                        )
                 }
                 this.remoteForwardings.clear()
                 this.remoteStreamLocalForwardings.clear()
                 this.x11Forwardings.clear()
                 this.agentForwardingEnabled = false
                 this.emit("close")
+                if (!connected) reject(closeError)
             }
             this.socket!.on("close", closeListener)
             if (suppliedSocket !== undefined) resolve()
@@ -1627,6 +1644,12 @@ export default class Client extends EventEmitter<ClientEvents> {
                 cleanup()
                 reject(error)
             }
+            const onClose = () => {
+                cleanup()
+                reject(
+                    this.connectionClosedError(`SSH connection closed while waiting for ${event}`),
+                )
+            }
             const handler = (...values: ClientEvents[event]) => {
                 resolve(values)
                 cleanup()
@@ -1635,10 +1658,12 @@ export default class Client extends EventEmitter<ClientEvents> {
                 // @ts-expect-error the function definition makes sure this is respected
                 this.off(event, handler)
                 this.off("error", onError)
+                this.off("close", onClose)
             }
             // @ts-expect-error the function definition makes sure this is respected
             this.once(event, handler)
             this.once("error", onError)
+            this.once("close", onClose)
         })
     }
     waitForPacket<Name extends keyof typeof packets>(name: Name): Promise<(typeof packets)[Name]> {
@@ -1647,6 +1672,12 @@ export default class Client extends EventEmitter<ClientEvents> {
             const onError = (error: Error) => {
                 cleanup()
                 reject(error)
+            }
+            const onClose = () => {
+                cleanup()
+                reject(
+                    this.connectionClosedError(`SSH connection closed while waiting for ${name}`),
+                )
             }
             const handler = (p: Packet) => {
                 if (p instanceof classType) {
@@ -1658,9 +1689,11 @@ export default class Client extends EventEmitter<ClientEvents> {
             const cleanup = () => {
                 this.off("packet", handler)
                 this.off("error", onError)
+                this.off("close", onClose)
             }
             this.on("packet", handler)
             this.once("error", onError)
+            this.once("close", onClose)
         })
     }
 
@@ -1679,6 +1712,7 @@ export default class Client extends EventEmitter<ClientEvents> {
             const cleanup = () => {
                 this.off("packet", onPacket)
                 this.off("error", onError)
+                this.off("close", onClose)
                 clearTimeout(timer)
             }
             const onPacket = (packet: Packet) => {
@@ -1704,12 +1738,19 @@ export default class Client extends EventEmitter<ClientEvents> {
                 cleanup()
                 reject(error)
             }
+            const onClose = () => {
+                cleanup()
+                reject(
+                    this.connectionClosedError("SSH connection closed while waiting for message"),
+                )
+            }
             const timer = setTimeout(() => {
                 cleanup()
                 reject(new Error("Timed out waiting for message"))
             }, timeout)
             this.on("packet", onPacket)
             this.once("error", onError)
+            this.once("close", onClose)
         })
     }
 
@@ -1877,6 +1918,8 @@ export default class Client extends EventEmitter<ClientEvents> {
         switch (packet.type) {
             case PacketNameToType.SSH_MSG_DISCONNECT: {
                 const disconnect = p as Disconnect
+                this.peerDisconnect = peerDisconnectInfo(disconnect.data)
+                this.emit("disconnect", this.peerDisconnect)
                 this.debug(
                     "Server disconnected:",
                     DisconnectReason[disconnect.data.reason_code],
@@ -2135,6 +2178,12 @@ export default class Client extends EventEmitter<ClientEvents> {
     private clearReadyTimeout(): void {
         if (this.readyTimer !== undefined) clearTimeout(this.readyTimer)
         this.readyTimer = undefined
+    }
+
+    private connectionClosedError(fallback: string): Error {
+        return this.peerDisconnect
+            ? new PeerDisconnectError(this.peerDisconnect)
+            : new Error(fallback)
     }
 
     private async verifyConfiguredHostKey(serializedHostKey: Buffer): Promise<void> {

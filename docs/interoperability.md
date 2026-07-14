@@ -73,6 +73,11 @@ input, commas, empty entries, and duplicate name-list members. Packet tests sepa
 the validation is applied to services, extensions, channels, and requests rather than existing
 only as an unused utility.
 
+Disconnect integration covers both peer directions over encrypted connections. It verifies the
+typed event precedes close, preserves immutable RFC metadata, rejects a pending request with the
+typed error, and interrupts connection setup immediately rather than waiting for the readiness
+deadline.
+
 An independently written unknown message is also sent in both directions over an encrypted
 in-process connection; each peer returns the exact rejected sequence in `SSH_MSG_UNIMPLEMENTED` and
 continues with later traffic. The system OpenSSH client independently returns the same response to

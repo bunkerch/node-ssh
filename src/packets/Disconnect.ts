@@ -38,6 +38,20 @@ export interface DisconnectData {
     description: string
     language_tag: string
 }
+
+export interface PeerDisconnectInfo {
+    readonly reasonCode: number
+    readonly description: string
+    readonly languageTag: string
+}
+
+export function peerDisconnectInfo(data: DisconnectData): Readonly<PeerDisconnectInfo> {
+    return Object.freeze({
+        reasonCode: data.reason_code,
+        description: data.description,
+        languageTag: data.language_tag,
+    })
+}
 export default class Disconnect implements Packet {
     static type = PacketNameToType.SSH_MSG_DISCONNECT
 
@@ -100,5 +114,17 @@ export class DisconnectError extends Error {
     constructor(reason_code: DisconnectReason, message: string) {
         super(message)
         this.reason_code = reason_code
+    }
+}
+
+export class PeerDisconnectError extends Error {
+    readonly name = "PeerDisconnectError"
+    readonly reasonCode: number
+    readonly languageTag: string
+
+    constructor(readonly disconnect: Readonly<PeerDisconnectInfo>) {
+        super(disconnect.description || `SSH peer disconnected (reason ${disconnect.reasonCode})`)
+        this.reasonCode = disconnect.reasonCode
+        this.languageTag = disconnect.languageTag
     }
 }

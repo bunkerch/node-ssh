@@ -50,6 +50,31 @@ Disconnect reason codes are retained as their exact uint32 value. Named RFC 4253
 `DisconnectReason` enum, while future assignments and the private-use range remain parseable so an
 otherwise valid disconnect can always terminate the connection cleanly.
 
+Both `Client` and `ServerClient` emit `disconnect` with an immutable `PeerDisconnectInfo` before
+their subsequent `close` event. It contains `reasonCode`, `description`, and `languageTag` exactly
+as validated from the peer. `peerDisconnect` retains that snapshot after closure.
+
+An inbound disconnect immediately rejects connection setup, packet waits, pending global requests,
+transport pings, and channel operations with `PeerDisconnectError`. The error exposes the same
+metadata through `disconnect`, `reasonCode`, and `languageTag`; its message is the peer description
+or a numeric fallback when that description is empty. Local socket closure without an SSH
+disconnect continues to use an ordinary contextual `Error`.
+
+```ts
+import { PeerDisconnectError } from "modernssh"
+
+client.on("disconnect", ({ reasonCode, description, languageTag }) => {
+    auditPeerShutdown({ reasonCode, description, languageTag })
+})
+
+try {
+    await client.connect()
+} catch (error) {
+    if (error instanceof PeerDisconnectError) reportPeerReason(error.disconnect)
+    else throw error
+}
+```
+
 Protocol names follow RFC 4250: they contain 1 through 64 printable US-ASCII characters, never a
 comma, and locally defined names contain one at-sign followed by a valid domain name. This is
 enforced for algorithm name-lists, services, authentication methods, extension names, channel

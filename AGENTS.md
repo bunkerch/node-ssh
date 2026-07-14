@@ -197,6 +197,9 @@ meaningful wire-level behavior.
 - Human-readable SSH fields use fatal UTF-8 decoding and RFC 3066 ASCII language tags; never allow
   replacement decoding before authentication or policy. Preserve unknown uint32 disconnect reasons
   so future and private-use assignments still produce a clean terminal disconnect.
+- Publish inbound RFC 4253 disconnect metadata immutably before close in both roles. Reject every
+  active packet wait and pending operation with the typed peer-disconnect error; clean socket closes
+  without a protocol message retain contextual ordinary errors and must never leave setup hanging.
 - RFC 4250 names are 1-to-64-byte printable US-ASCII values without commas. Validate the single
   at-sign plus domain form for local extensions, reject empty and duplicate name-list entries, and
   apply the shared codec to services, methods, algorithms, extensions, channels, requests, and

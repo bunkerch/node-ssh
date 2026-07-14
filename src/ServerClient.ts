@@ -49,7 +49,13 @@ import PublicKey, { SSHCertificatePublicKey } from "./utils/PublicKey.js"
 import KexDHReply from "./packets/KexDHReply.js"
 import assert from "node:assert"
 import Packet, { packets } from "./packet.js"
-import Disconnect, { DisconnectError, DisconnectReason } from "./packets/Disconnect.js"
+import Disconnect, {
+    DisconnectError,
+    DisconnectReason,
+    PeerDisconnectError,
+    peerDisconnectInfo,
+    type PeerDisconnectInfo,
+} from "./packets/Disconnect.js"
 import KexDHInit from "./packets/KexDHInit.js"
 import KexDHGexGroup from "./packets/KexDHGexGroup.js"
 import KexDHGexInit from "./packets/KexDHGexInit.js"
@@ -142,6 +148,8 @@ interface PendingGlobalRequest {
 export interface ServerClientEvents {
     error: [error: Error]
     close: []
+    /** Terminal disconnect received from the peer. */
+    disconnect: [info: Readonly<PeerDisconnectInfo>]
     connect: []
     debug: [...message: unknown[]]
     message: [message: Buffer]
@@ -169,6 +177,7 @@ export interface ServerClientEvents {
 export default class ServerClient extends EventEmitter<ServerClientEvents> {
     private socket: Socket
     connectionId: string
+    peerDisconnect?: Readonly<PeerDisconnectInfo>
     server: Server
 
     queue = new ActionQueue<string>()
@@ -194,6 +203,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
 
         this.socket.on("close", () => {
             this.state = SocketState.Disconnected
+            const closeError = this.connectionClosedError("SSH connection closed")
             for (const forwarding of this.remoteForwardListeners.values()) forwarding.server.close()
             this.remoteForwardListeners.clear()
             for (const forwarding of this.remoteStreamLocalListeners.values()) {
@@ -202,12 +212,14 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             this.remoteStreamLocalListeners.clear()
             this.x11Forwardings.clear()
             this.agentForwardingEnabled = false
-            for (const channel of this.channels.values()) channel.abort()
+            for (const channel of this.channels.values()) channel.abort(closeError)
             this.channels.clear()
             while (this.pendingGlobalRequests.length > 0) {
                 const request = this.pendingGlobalRequests.shift()!
                 request.reject(
-                    new Error(`SSH connection closed during global request ${request.name}`),
+                    this.connectionClosedError(
+                        `SSH connection closed during global request ${request.name}`,
+                    ),
                 )
             }
             this.emit("close")
@@ -1655,6 +1667,12 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 cleanup()
                 reject(error)
             }
+            const onClose = () => {
+                cleanup()
+                reject(
+                    this.connectionClosedError(`SSH connection closed while waiting for ${event}`),
+                )
+            }
             const handler = (...values: ServerClientEvents[event]) => {
                 resolve(values)
                 cleanup()
@@ -1663,10 +1681,12 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 // @ts-expect-error the function definition makes sure this is respected
                 this.off(event, handler)
                 this.off("error", onError)
+                this.off("close", onClose)
             }
             // @ts-expect-error the function definition makes sure this is respected
             this.once(event, handler)
             this.once("error", onError)
+            this.once("close", onClose)
         })
     }
 
@@ -1834,6 +1854,8 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         switch (packet.type) {
             case PacketNameToType.SSH_MSG_DISCONNECT: {
                 const disconnect = p as Disconnect
+                this.peerDisconnect = peerDisconnectInfo(disconnect.data)
+                this.emit("disconnect", this.peerDisconnect)
                 this.debug(
                     "Client disconnected:",
                     DisconnectReason[disconnect.data.reason_code],
@@ -2028,6 +2050,12 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             return
         }
         this.clientExtInfoAfterNewKeys = false
+    }
+
+    private connectionClosedError(fallback: string): Error {
+        return this.peerDisconnect
+            ? new PeerDisconnectError(this.peerDisconnect)
+            : new Error(fallback)
     }
 
     private packetForDebug(packet: Packet): unknown {

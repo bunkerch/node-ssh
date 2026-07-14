@@ -780,9 +780,7 @@ describe("client/server integration", () => {
             expect(client.end()).toBe(client)
             await closed
             if (pendingServerRequest) {
-                expect(await pendingServerRequest).toBe(
-                    "SSH connection closed during global request never-reply@example.test",
-                )
+                expect(await pendingServerRequest).toBe("SSH peer disconnected (reason 11)")
             }
             expect(client.isConnected).toBe(false)
             await new Promise<void>((resolve, reject) => {
@@ -1019,7 +1017,7 @@ describe("client/server integration", () => {
                 readyTimeout: 1_000,
             })
             client.on("error", () => undefined)
-            void client.connect()
+            void client.connect().catch(() => undefined)
             const remote = await accepted
             const closed = new Promise((resolve) => client.once("close", resolve))
             client.destroy()
