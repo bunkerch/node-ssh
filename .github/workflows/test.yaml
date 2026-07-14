@@ -36,3 +36,42 @@ jobs:
 
             - name: Test
               run: pnpm test
+
+    pageant:
+        runs-on: windows-latest
+        timeout-minutes: 20
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+              with:
+                  persist-credentials: false
+
+            - name: Install pnpm
+              uses: pnpm/action-setup@v4
+              with:
+                  version: 10.19.0
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 22
+                  cache: pnpm
+
+            - name: Download verified Pageant 0.84
+              shell: pwsh
+              run: |
+                  $path = Join-Path $env:RUNNER_TEMP "pageant.exe"
+                  Invoke-WebRequest "https://the.earth.li/~sgtatham/putty/0.84/w64/pageant.exe" -OutFile $path
+                  $expected = "fa7f58a7dd496f1ae078a67d742a0f4919b39efbe0590a90a1a11e537f1e4d45"
+                  $actual = (Get-FileHash -Algorithm SHA256 $path).Hash.ToLowerInvariant()
+                  if ($actual -ne $expected) { throw "Pageant checksum mismatch" }
+                  "PAGEANT_EXECUTABLE=$path" >> $env:GITHUB_ENV
+
+            - name: Install dependencies
+              run: pnpm install --frozen-lockfile
+
+            - name: Build
+              run: pnpm build
+
+            - name: Test Pageant discovery and protocol
+              run: pnpm exec bun test ./__tests__/publickey/PageantAgent.ts

@@ -44,6 +44,7 @@ import {
     MAX_SSH_AGENT_MESSAGE_LENGTH,
     NO_FLOW_CONTROL_EXTENSION,
     OnePasswordAgent,
+    PageantAgent,
     OPENSSH_AGENT_ASSOCIATED_CERTIFICATES,
     OPENSSH_AGENT_RESTRICT_DESTINATION,
     OPENSSH_AGENT_SESSION_BIND,
@@ -176,6 +177,7 @@ describe("package exports", () => {
             KERBEROS_V5_GSSAPI_OID,
             KnownHosts,
             OnePasswordAgent,
+            PageantAgent,
             parseKey,
             parseKeys,
             PrivateKey,
@@ -190,7 +192,7 @@ describe("package exports", () => {
             SSHAgent,
             SSHHTTPAgent,
             SSHHTTPSAgent,
-        ]).toHaveLength(39)
+        ]).toHaveLength(40)
         expect(SSHAuthenticationMethods.PublicKey).toBe("publickey")
         expect(SSHAuthenticationMethods.KeyboardInteractive).toBe("keyboard-interactive")
         expect(SSHAuthenticationMethods.GSSAPIWithMIC).toBe("gssapi-with-mic")
@@ -269,6 +271,7 @@ describe("package exports", () => {
         expect(entry.ProtocolVersionExchange).toBeDefined()
         expect(entry.SSHAgent).toBeDefined()
         expect(entry.OnePasswordAgent).toBeDefined()
+        expect(entry.PageantAgent).toBeDefined()
         expect(entry.SFTPPacketParser).toBeDefined()
         expect(entry.SFTPPacketType.Status).toBe(101)
         expect(entry.SFTPClient).toBeDefined()
@@ -309,6 +312,7 @@ describe("package exports", () => {
         const knownHosts = await readFile("dist/KnownHosts.d.ts", "utf8")
         const agentProtocol = await readFile("dist/publickey/SSHAgentProtocol.d.ts", "utf8")
         const cygwinAgent = await readFile("dist/publickey/CygwinAgent.d.ts", "utf8")
+        const pageantAgent = await readFile("dist/publickey/PageantAgent.d.ts", "utf8")
 
         expect(client).not.toContain("ClientSessionCallback")
         expect(client).not.toContain("ClientGlobalRequestCallback")
@@ -352,6 +356,8 @@ describe("package exports", () => {
         expect(agentProtocol).not.toContain("callback")
         expect(cygwinAgent).toContain("getStream(): Promise<Socket>")
         expect(cygwinAgent).not.toContain("callback")
+        expect(pageantAgent).toContain("constructor(socketPath?: string)")
+        expect(pageantAgent).not.toContain("callback")
     })
 
     test("package archive exposes a working ESM API", async () => {
@@ -369,7 +375,7 @@ describe("package exports", () => {
                     "--input-type=module",
                     "--eval",
                     `
-                    const { Client, createSocketAgent, CygwinAgent, CygwinAgentError, DELAY_COMPRESSION_EXTENSION, delayCompressionExtension, ELEVATION_EXTENSION, EncodedSignature, generateKeyPair, generateKeyPairSync, KnownHosts, MAX_OPENSSH_AGENT_SESSION_BINDINGS, MAX_SSH_AGENT_MESSAGE_LENGTH, NO_FLOW_CONTROL_EXTENSION, OnePasswordAgent, OPENSSH_AGENT_SECURITY_KEY_PROVIDER, OPENSSH_AGENT_SESSION_BIND, parseKey, PrivateKey, PrivateKeyAgent, PublicKey, SSH_ED25519_SECURITY_KEY_ALGORITHM, SSHAgentConstraintType, SSHAgentExtensionFailureError, SSHAgentMessageType, SSHAgentProtocolClient, SSHAgentProtocolError, SSHAgentProtocolServer, SSHED25519SecurityKeyPrivateKey, SSHED25519SecurityKeyPublicKey } = await import("modernssh")
+                    const { Client, createSocketAgent, CygwinAgent, CygwinAgentError, DELAY_COMPRESSION_EXTENSION, delayCompressionExtension, discoverPageantAgentSocket, ELEVATION_EXTENSION, EncodedSignature, generateKeyPair, generateKeyPairSync, KnownHosts, MAX_OPENSSH_AGENT_SESSION_BINDINGS, MAX_SSH_AGENT_MESSAGE_LENGTH, NO_FLOW_CONTROL_EXTENSION, OnePasswordAgent, OPENSSH_AGENT_SECURITY_KEY_PROVIDER, OPENSSH_AGENT_SESSION_BIND, PageantAgent, PageantAgentError, parseKey, PrivateKey, PrivateKeyAgent, PublicKey, SSH_ED25519_SECURITY_KEY_ALGORITHM, SSHAgentConstraintType, SSHAgentExtensionFailureError, SSHAgentMessageType, SSHAgentProtocolClient, SSHAgentProtocolError, SSHAgentProtocolServer, SSHED25519SecurityKeyPrivateKey, SSHED25519SecurityKeyPublicKey } = await import("modernssh")
                     const { privateKey, publicKey } = await generateKeyPair("ed25519", {
                         comment: "packed@example.test",
                     })
@@ -427,6 +433,9 @@ describe("package exports", () => {
                     if (ELEVATION_EXTENSION !== "elevation" || new Client({ elevation: "unelevated" }).options.elevation !== "unelevated") process.exit(32)
                     if (DELAY_COMPRESSION_EXTENSION !== "delay-compression" || new Client({ delayCompression: true }).options.delayCompression.clientToServer[0] !== "zlib") process.exit(33)
                     if (delayCompressionExtension({ clientToServer: ["none"], serverToClient: ["none"] }).name !== "delay-compression") process.exit(34)
+                    if (typeof PageantAgent !== "function" || typeof PageantAgentError !== "function" || typeof discoverPageantAgentSocket !== "function") process.exit(35)
+                    const explicitPageant = new PageantAgent("explicit-pageant.sock")
+                    if (explicitPageant.socketPath !== "explicit-pageant.sock") process.exit(36)
                     process.stdout.write(publicKey.toString())
                 `,
                 ],

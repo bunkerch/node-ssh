@@ -223,6 +223,11 @@ export type { DiskAgentOptions, DiskAgentPassphrase } from "./publickey/DiskAgen
 export { default as SSHAgent, SSHAgentError } from "./publickey/SSHAgent.js"
 export { default as CygwinAgent, CygwinAgentError } from "./publickey/CygwinAgent.js"
 export type { CygwinAgentOptions } from "./publickey/CygwinAgent.js"
+export {
+    default as PageantAgent,
+    discoverPageantAgentSocket,
+    PageantAgentError,
+} from "./publickey/PageantAgent.js"
 export { createSocketAgent } from "./publickey/SocketAgent.js"
 export {
     MAX_OPENSSH_AGENT_ASSOCIATED_CERTIFICATES,

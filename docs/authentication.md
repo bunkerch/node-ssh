@@ -104,7 +104,10 @@ in memory; unlike a socket-backed agent, it cannot be forwarded to the remote ho
 
 `agent` may also be a Unix-domain socket, Windows named pipe, or legacy Cygwin socket-descriptor
 path for an RFC 9987 agent. The client normalizes a string through `createSocketAgent()` during
-construction; omitting or passing an empty path does not implicitly enable `$SSH_AUTH_SOCK`.
+construction; omitting or passing an empty path does not implicitly enable `$SSH_AUTH_SOCK`. On
+Windows, `agent: "pageant"` discovers Pageant 0.75 or newer through its protected per-user named
+pipe. See [Socket agent authentication](getting-started.md#socket-agent-authentication) for explicit
+pipe paths and discovery errors.
 
 Keyboard-interactive may contain zero, one, or several prompts and may use several rounds. Supply
 exactly one response per prompt. The `echo` flag tells a user interface whether an answer may be

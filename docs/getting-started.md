@@ -385,9 +385,9 @@ The package root currently exports:
 
 - `Client`, `Server`, and `ServerClient` plus their option, event, and hook types.
 - `ClientChannel`, `ClientSessionChannel`, `Channel`, `SessionChannel`, and `Shell`.
-- `Agent`, `PrivateKeyAgent`, `DiskAgent`, `SSHAgent`, `CygwinAgent`, `createSocketAgent`,
-  `SSHAgentProtocolClient`, `SSHAgentProtocolServer`, `OnePasswordAgent`, and their option, hook,
-  constraint, management, extension, error, and agent-type definitions. See
+- `Agent`, `PrivateKeyAgent`, `DiskAgent`, `SSHAgent`, `CygwinAgent`, `PageantAgent`,
+  `createSocketAgent`, `SSHAgentProtocolClient`, `SSHAgentProtocolServer`, `OnePasswordAgent`, and
+  their option, hook, constraint, management, extension, error, and agent-type definitions. See
   [SSH agent protocol](agent-protocol.md) for the complete Promise API and awaited hook surface.
 - `PublicKey`, `PrivateKey`, `EncodedSignature`, `ProtocolVersionExchange`, `generateKeyPair()`,
   `generateKeyPairSync()`, `parseKey()`, and `parseKeys()`.
@@ -420,6 +420,24 @@ for Cygwin's legacy socket-file transport. Construct a specific class directly t
 selection or configure Cygwin handshake limits. Path availability is checked when a Promise opens
 the connection rather than during construction, so a later-created socket works and connection
 failures remain asynchronous.
+
+On Windows, the special value `"pageant"` constructs `PageantAgent`. Pageant 0.75 and newer speaks
+the standard agent protocol over a per-user named pipe whose protected name is derived through the
+Windows cryptography API. Discovery happens during construction; importing the package or using a
+different agent does not load the Windows FFI binding. Pageant may prompt before allowing a
+signature, so the agent is marked interactive.
+
+```ts
+const client = new Client({
+    hostname: "ssh.example.com",
+    username: "deploy",
+    agent: "pageant",
+})
+```
+
+`new PageantAgent(pipePath)` bypasses discovery when an application already has the `IdentityAgent`
+path emitted by Pageant's `--openssh-config` option. Automatic discovery is Windows-only and throws
+`PageantAgentError` on unsupported platforms or when the native pipe name cannot be derived.
 
 The agent messages follow [RFC 9987](https://www.rfc-editor.org/rfc/rfc9987.html), are bounded to
 256 KiB, handle fragmented socket reads, and treat identity IDs as opaque values. Identity comments
