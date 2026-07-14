@@ -256,11 +256,16 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     clientKexDHInit?: KexDHInit
     // TODO: Assess if these should be private properties
     clientKexInit?: KexInit
+    #clientKexInitPayload?: Buffer
     serverKexInit?: KexInit
     #serverKexInitPayload?: Buffer
 
     get serverKexInitPayload(): Buffer | undefined {
         return this.#serverKexInitPayload && Buffer.from(this.#serverKexInitPayload)
+    }
+
+    get clientKexInitPayload(): Buffer | undefined {
+        return this.#clientKexInitPayload && Buffer.from(this.#clientKexInitPayload)
     }
     kexAlgorithm?: KexAlgorithm
     hostKeyAlgorithm?: HostKeyAlgorithm
@@ -591,9 +596,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         })
     }
 
-    private async performKeyExchange(
-        received?: readonly [packet: KexInit, payload: Buffer],
-    ): Promise<void> {
+    private async performKeyExchange(peerInitiated = false): Promise<void> {
         if (this.keyExchangeInProgress) {
             throw new Error("SSH key exchange is already in progress")
         }
@@ -604,7 +607,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         this.inboundNewKeysReady = false
         this.expectedInboundKeyExchangePackets.clear()
         this.discardNextGuessedKeyExchangePacket = false
-        if (!received) {
+        if (!peerInitiated) {
             this.expectedInboundKeyExchangePackets.add(PacketNameToType.SSH_MSG_KEXINIT)
         }
         this.hasReceivedNewKeys = false
@@ -613,8 +616,10 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         try {
             this.serverKexInit = this.createKexInit()
             this.sendPacket(this.serverKexInit)
-            const [clientKexInit, clientKexInitBuffer] =
-                received ?? (await this.waitEvent("clientKexInit"))
+            if (!peerInitiated) await this.waitEvent("clientKexInit")
+            const clientKexInitBuffer = this.clientKexInitPayload
+            assert(clientKexInitBuffer, "Missing exact client KEXINIT payload")
+            const clientKexInit = KexInit.parse(clientKexInitBuffer)
             this.clientKexInit = clientKexInit
             this.strictKeyExchange ||= negotiatesStrictKeyExchange(
                 clientKexInit.data.kex_algorithms,
@@ -1966,6 +1971,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                   : packets[packetName as keyof typeof packets]
 
         const p = packet.parse(payload)
+        if (p instanceof KexInit) this.#clientKexInitPayload = Buffer.from(payload)
         if (packetType === PacketNameToType.SSH_MSG_KEXINIT && this.strictInitialExchange) {
             const clientAlgorithms = (p as KexInit).data.kex_algorithms
             const negotiated = negotiatesStrictKeyExchange(
@@ -2045,12 +2051,12 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
 
             case PacketNameToType.SSH_MSG_KEXINIT:
                 if (this.state === SocketState.Connected && !this.keyExchangeInProgress) {
-                    void this.performKeyExchange([p as KexInit, payload]).catch((error: Error) => {
+                    void this.performKeyExchange(true).catch((error: Error) => {
                         this.emit("error", error)
                         this.terminate()
                     })
                 }
-                this.emit("clientKexInit", p as KexInit, payload)
+                this.emit("clientKexInit", p as KexInit, this.clientKexInitPayload!)
                 break
 
             case PacketNameToType.SSH_MSG_KEXDH_INIT:

@@ -195,6 +195,8 @@ meaningful wire-level behavior.
 - Snapshot outbound KEXINIT payloads where they are written and hash those exact immutable bytes in
   every key-exchange method; never reconstruct a transcript from a mutable packet object. Keep the
   stored snapshot runtime-private, return copies to observers, and bind capture to the active offer.
+- Copy inbound KEXINIT payloads before publishing packet events and reparse the private snapshot for
+  negotiation. Event-visible packet objects and payload copies must never alias transcript state.
 - Validate KEXINIT language preference entries as RFC 3066 tags, not algorithm identifiers. Preserve
   list order and repeats without imposing the 64-byte algorithm-name limit.
 - Packet tunnel channels use the `tun@openssh.com` layout from upstream `PROTOCOL`. Preserve each

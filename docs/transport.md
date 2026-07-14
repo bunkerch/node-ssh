@@ -174,6 +174,10 @@ hashes use that immutable wire payload, so later mutation of an inspected packet
 change the session transcript. Snapshot access returns a copy, and unrelated low-level KEXINIT
 objects cannot replace the active exchange transcript.
 
+Inbound KEXINIT bytes are likewise copied before any packet event is published. Negotiation reparses
+the private snapshot, so observers may inspect or mutate their packet objects without changing the
+algorithm offer or exchange hash used by the connection.
+
 The two optional language preference name-lists use RFC 3066 syntax rather than algorithm-name
 rules. Their order and repeated tags are preserved; malformed tags are rejected in both directions.
 

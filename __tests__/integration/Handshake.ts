@@ -468,6 +468,18 @@ describe("client/server integration", () => {
             const initialClientExchangeHash = Buffer.from(client.H!)
             const initialServerExchangeHash = Buffer.from(serverPeer!.H!)
 
+            let clientObservedServerKexInit: KexInit | undefined
+            let serverObservedClientKexInit: KexInit | undefined
+            client.on("packet", (packet) => {
+                if (!(packet instanceof KexInit)) return
+                clientObservedServerKexInit = packet
+                packet.data.cookie.fill(0x11)
+            })
+            serverPeer!.on("packet", (packet) => {
+                if (!(packet instanceof KexInit)) return
+                serverObservedClientKexInit = packet
+                packet.data.cookie.fill(0x22)
+            })
             const clientSendPacket = client.sendPacket.bind(client)
             client.sendPacket = (packet: Packet) => {
                 const sequence = clientSendPacket(packet)
@@ -550,6 +562,12 @@ describe("client/server integration", () => {
             expect(client.clientKexInitPayload?.subarray(1, 17)).not.toEqual(
                 client.clientKexInit?.data.cookie,
             )
+            expect(client.serverKexInitPayload?.subarray(1, 17)).not.toEqual(
+                clientObservedServerKexInit?.data.cookie,
+            )
+            expect(serverPeer!.clientKexInitPayload?.subarray(1, 17)).not.toEqual(
+                serverObservedClientKexInit?.data.cookie,
+            )
             const exposedClientTranscript = client.clientKexInitPayload!
             exposedClientTranscript.fill(0)
             expect(client.clientKexInitPayload).not.toEqual(exposedClientTranscript)
@@ -583,6 +601,12 @@ describe("client/server integration", () => {
             const exposedServerTranscript = serverPeer!.serverKexInitPayload!
             exposedServerTranscript.fill(0)
             expect(serverPeer!.serverKexInitPayload).not.toEqual(exposedServerTranscript)
+            const exposedClientPeerTranscript = client.serverKexInitPayload!
+            exposedClientPeerTranscript.fill(0)
+            expect(client.serverKexInitPayload).not.toEqual(exposedClientPeerTranscript)
+            const exposedServerPeerTranscript = serverPeer!.clientKexInitPayload!
+            exposedServerPeerTranscript.fill(0)
+            expect(serverPeer!.clientKexInitPayload).not.toEqual(exposedServerPeerTranscript)
             expect(clientHandshakes).toEqual([
                 expectedNegotiated,
                 expectedNegotiated,
