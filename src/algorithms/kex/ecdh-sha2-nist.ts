@@ -32,7 +32,7 @@ export default abstract class ECDHSHA2NIST extends KeyExchange {
 
     getPublicKey(): Buffer {
         assert(this.keyPair, "ECDH key pair has not been generated")
-        return this.keyPair.getPublicKey(undefined, "uncompressed")
+        return Buffer.from(this.keyPair.getPublicKey(undefined, "uncompressed"))
     }
 
     computeSharedSecret(peerPublicKey: Buffer): Buffer {
@@ -42,7 +42,7 @@ export default abstract class ECDHSHA2NIST extends KeyExchange {
         } catch {
             throw new KeyExchangeError(`Invalid ${this.curveName} ECDH public key`)
         }
-        return this.sharedSecret
+        return Buffer.from(this.sharedSecret)
     }
 
     computeHClient(client: Client, serverKexInit: Buffer): Buffer {

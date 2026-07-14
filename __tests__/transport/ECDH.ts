@@ -4,6 +4,12 @@ import {
     ECDHSHA2NISTP521,
 } from "../../src/algorithms/kex/ecdh-sha2-nist.js"
 
+class InspectableP256 extends ECDHSHA2NISTP256 {
+    get secret(): Buffer | undefined {
+        return this.sharedSecret
+    }
+}
+
 function hex(value: string): Buffer {
     return Buffer.from(value.replaceAll(/\s/gu, ""), "hex")
 }
@@ -88,5 +94,30 @@ describe("RFC 5656 ECDH key exchange", () => {
         expect(() => algorithm.computeSharedSecret(Buffer.alloc(65, 0x04))).toThrow(
             "Invalid prime256v1 ECDH public key",
         )
+    })
+
+    test("does not expose mutable NIST ECDH state through returned buffers", () => {
+        const privateKey = hex(
+            "C88F01F5 10D9AC3F 70A292DA A2316DE5 44E9AAB8 AFE84049 C62A9C57 862D1433",
+        )
+        const expectedPublicKey = hex(`04
+            DAD0B653 94221CF9 B051E1FE CA5787D0 98DFE637 FC90B9EF 945D0C37 72581180
+            5271A046 1CDB8252 D61F1C45 6FA3E59A B1F45B33 ACCF5F58 389E0577 B8990BB3`)
+        const peerPublicKey = hex(`04
+            D12DFB52 89C8D4F8 1208B702 70398C34 2296970A 0BCCB74C 736FC755 4494BF63
+            56FBF3CA 366CC23E 8157854C 13C58D6A AC23F046 ADA30F83 53E74F33 039872AB`)
+        const expectedSecret = hex(
+            "D6840F6B 42F6EDAF D13116E0 E1256520 2FEF8E9E CE7DCE03 812464D0 4B9442DE",
+        )
+        const algorithm = new InspectableP256(privateKey)
+        algorithm.generateKeyPair()
+
+        const publicKey = algorithm.getPublicKey()
+        publicKey.fill(0xff)
+        expect(algorithm.getPublicKey()).toEqual(expectedPublicKey)
+
+        const result = algorithm.computeSharedSecret(peerPublicKey)
+        result.fill(0xff)
+        expect(algorithm.secret).toEqual(expectedSecret)
     })
 })

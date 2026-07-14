@@ -352,6 +352,8 @@ meaningful wire-level behavior.
 - RFC 8731 Curve25519 messages use raw 32-byte SSH strings for ephemeral public keys, not mpints.
   Method-specific KEX packets own ephemeral public values, host-key blobs, and signatures on both
   construction and parsing paths; exchange verification must not alias external frame storage.
+  DH and ECDH public-key getters and shared-secret results return defensive buffers; never expose
+  mutable internal state that will later feed the exchange hash or key derivation.
   Interpret the X25519 output as a network-order unsigned integer only when encoding the shared
   secret mpint, reject incorrect point lengths and all-zero secrets, and validate with RFC 7748
   vectors plus OpenSSH in both peer roles.

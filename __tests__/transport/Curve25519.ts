@@ -2,6 +2,12 @@ import Curve25519SHA256 from "../../src/algorithms/kex/curve25519-sha256.js"
 import KexDHInit from "../../src/packets/KexDHInit.js"
 import KexDHReply from "../../src/packets/KexDHReply.js"
 
+class InspectableCurve25519 extends Curve25519SHA256 {
+    get secret(): Buffer | undefined {
+        return this.sharedSecret
+    }
+}
+
 const alicePrivate = Buffer.from(
     "77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a",
     "hex",
@@ -34,6 +40,18 @@ describe("RFC 8731 Curve25519 key exchange", () => {
         bob.generateKeyPair()
         expect(bob.getPublicKey()).toEqual(bobPublic)
         expect(bob.computeSharedSecret(alicePublic)).toEqual(sharedSecret)
+    })
+
+    test("does not expose mutable key-exchange state through returned buffers", () => {
+        const algorithm = new InspectableCurve25519(alicePrivate)
+        algorithm.generateKeyPair()
+        const publicKey = algorithm.getPublicKey()
+        publicKey.fill(0xff)
+        expect(algorithm.getPublicKey()).toEqual(alicePublic)
+
+        const result = algorithm.computeSharedSecret(bobPublic)
+        result.fill(0xff)
+        expect(algorithm.secret).toEqual(sharedSecret)
     })
 
     test("rejects incorrectly sized points and all-zero shared secrets", () => {

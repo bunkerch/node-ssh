@@ -158,7 +158,7 @@ export class DiffieHellmanGroupExchange extends KeyExchange {
 
     getPublicKey(): Buffer {
         if (!this.keyPair) throw new KeyExchangeError("Diffie-Hellman key pair was not generated")
-        return this.keyPair.getPublicKey()
+        return Buffer.from(this.keyPair.getPublicKey())
     }
 
     computeSharedSecret(peerPublicKey: Buffer): void {

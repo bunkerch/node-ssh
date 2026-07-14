@@ -38,7 +38,7 @@ export default class Curve25519SHA256 extends KeyExchange {
 
     getPublicKey(): Buffer {
         assert(this.publicKey, "Curve25519 key pair has not been generated")
-        return this.publicKey
+        return Buffer.from(this.publicKey)
     }
 
     computeSharedSecret(peerPublicKey: Buffer): Buffer {
@@ -58,7 +58,7 @@ export default class Curve25519SHA256 extends KeyExchange {
         }
 
         this.sharedSecret = sharedSecret
-        return sharedSecret
+        return Buffer.from(sharedSecret)
     }
 
     computeHClient(client: Client, serverKexInit: Buffer): Buffer {

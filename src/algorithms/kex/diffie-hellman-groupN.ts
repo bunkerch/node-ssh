@@ -26,7 +26,7 @@ export default class DiffieHellmanGroupN extends KeyExchange {
     }
 
     getPublicKey(): Buffer {
-        return this.keyPair!.getPublicKey()
+        return Buffer.from(this.keyPair!.getPublicKey())
     }
 
     computeSharedSecret(peerPublicKey: Buffer): void {

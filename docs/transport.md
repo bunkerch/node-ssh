@@ -187,6 +187,8 @@ signature envelopes. Constructor inputs and parsed transport frames cannot be mu
 change values used for shared-secret computation or exchange-hash verification.
 RFC 4419 group exchange additionally copies the host key and peer public value retained across its
 multi-message state machine before constructing the final exchange hash.
+DH and ECDH public-key getters and shared-secret return values are defensive copies. Mutating a
+returned buffer cannot alter the internal values later used for hashing or transport-key derivation.
 
 The two optional language preference name-lists use RFC 3066 syntax rather than algorithm-name
 rules. Their order and repeated tags are preserved; malformed tags are rejected in both directions.
