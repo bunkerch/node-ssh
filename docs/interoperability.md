@@ -143,6 +143,9 @@ typed error, and interrupts connection setup immediately rather than waiting for
 deadline. Graceful shutdown tests independently verify that both public connection roles report
 transport EOF through `end` before terminal `close` cleanup.
 
+Server admission integration verifies that the public connection event receives an immutable
+snapshot of both TCP endpoints and retains it after the peer closes.
+
 An independently written unknown message is also sent in both directions over an encrypted
 in-process connection; each peer returns the exact rejected sequence in `SSH_MSG_UNIMPLEMENTED` and
 continues with later traffic. The system OpenSSH client independently returns the same response to

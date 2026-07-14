@@ -183,7 +183,8 @@ server.hooker.hook("passwordAuthentication", (_hook, context, decision) => {
         context.username === "deploy" && context.password === process.env.SSH_PASSWORD
 })
 
-server.on("connection", (connection) => {
+server.on("connection", (connection, endpoint) => {
+    console.log("SSH peer", endpoint.remoteAddress, endpoint.remotePort)
     connection.on("error", (error) => {
         console.error("SSH peer error", error)
     })
@@ -202,6 +203,9 @@ every restart.
 `Server` mirrors useful Node TCP-server controls without exposing callback completion flows:
 `getConnections()` and `close()` return Promises, `listen()` reports readiness through the
 `listening` event, and `address()`, `ref()`, and `unref()` remain synchronous.
+The `connection` event's immutable endpoint snapshot retains the remote and local address, family,
+and port after the socket closes. Fields may be undefined for an injected or non-IP transport that
+does not expose them.
 `ServerClient.setNoDelay()` controls Nagle's algorithm per accepted
 connection. Call `ServerClient.end()` for a graceful application shutdown: it sends an RFC 4253
 `BY_APPLICATION` disconnect before ending the socket. `terminate()` destroys the socket

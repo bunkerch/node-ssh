@@ -96,6 +96,7 @@ import {
     type SSHAgentProtocolOptions,
     type SSHAgentProtocolServerOptions,
     type SSHAgentConstraint,
+    type ServerConnectionInfo,
     type ServerOptions,
     type PublicKeySubsystemAddOptions,
     type PublicKeySubsystemServerOptions,
@@ -108,6 +109,7 @@ describe("package exports", () => {
         const clientOptions: ClientOptions = { hostname: "example.test" }
         const sessionOptions: ClientSessionOptions = { env: { LANG: "C" }, pty: true }
         const serverOptions: ServerOptions = { sendAllHostKeys: false }
+        const connectionInfo: ServerConnectionInfo = { remoteAddress: "127.0.0.1" }
         const noFlowControl: NoFlowControlPreference = "supported"
         const elevation: ElevationPreference = "unelevated"
         const delayCompression: DelayCompressionOptions = {
@@ -153,6 +155,7 @@ describe("package exports", () => {
         expect(clientOptions.hostname).toBe("example.test")
         expect(sessionOptions.pty).toBe(true)
         expect(serverOptions.sendAllHostKeys).toBe(false)
+        expect(connectionInfo.remoteAddress).toBe("127.0.0.1")
         expect(keyExchangeOptions.service).toBe("host")
         expect(agentProtocolOptions.requestTimeout).toBe(250)
         expect(agentProtocolServerOptions.maxMessageLength).toBe(2048)

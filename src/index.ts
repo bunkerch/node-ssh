@@ -140,6 +140,7 @@ export type { TCPIPConnectionDetails } from "./channels/ClientTCPIPChannel.js"
 
 export { default as Server } from "./Server.js"
 export type {
+    ServerConnectionInfo,
     ServerEvents,
     ServerHooker,
     ServerAuthenticationContinuation,

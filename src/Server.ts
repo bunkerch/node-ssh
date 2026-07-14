@@ -90,6 +90,17 @@ export interface ServerHostKeyInput {
     key: PrivateKey | string | Buffer
     passphrase?: string | Buffer
 }
+
+/** TCP endpoint metadata captured when a connection is admitted. */
+export interface ServerConnectionInfo {
+    readonly remoteAddress?: string
+    readonly remoteFamily?: string
+    readonly remotePort?: number
+    readonly localAddress?: string
+    readonly localFamily?: string
+    readonly localPort?: number
+}
+
 export interface ServerOptionsRequired
     extends Required<
         Omit<ServerOptions, "ident" | "algorithms" | "hostKeys" | "hostCertificates" | "debug">
@@ -130,7 +141,7 @@ export interface ServerEvents {
     close: []
     error: [error: Error]
     listening: []
-    connection: [client: ServerClient]
+    connection: [client: ServerClient, info: Readonly<ServerConnectionInfo>]
 }
 
 export interface ServerHookerPreconnectController {
@@ -529,6 +540,14 @@ export default class Server extends EventEmitter<ServerEvents> {
 
     private async acceptSocket(socket: net.Socket): Promise<void> {
         this.debug(`Connection from ${socket.remoteAddress?.toString() ?? "unknown"}`)
+        const connectionInfo: Readonly<ServerConnectionInfo> = Object.freeze({
+            remoteAddress: socket.remoteAddress,
+            remoteFamily: socket.remoteFamily,
+            remotePort: socket.remotePort,
+            localAddress: socket.localAddress,
+            localFamily: socket.localFamily,
+            localPort: socket.localPort,
+        })
         const client = new ServerClient(socket, this)
         try {
             if (this.hooker.hasHooks("preconnect")) {
@@ -541,7 +560,7 @@ export default class Server extends EventEmitter<ServerEvents> {
             }
             this.clients.add(client)
             client.once("close", () => this.clients.delete(client))
-            this.emit("connection", client)
+            this.emit("connection", client, connectionInfo)
             await client.connect()
         } catch (error) {
             client.debug("Error in client connection:", error)
