@@ -7,6 +7,7 @@ export {
 } from "./HTTPAgents.js"
 export type { SSHAgentOptions, SSHHTTPAgentOptions, SSHHTTPSAgentOptions } from "./HTTPAgents.js"
 export { default as KnownHosts, KnownHostsError } from "./KnownHosts.js"
+export { default as KeyRevocationList } from "./KeyRevocationList.js"
 export type {
     KnownHostCheckResult,
     KnownHostMarker,

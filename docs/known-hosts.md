@@ -25,6 +25,9 @@ await client.connect()
 Do not set `hostHash` when using this verifier. `KnownHosts` needs the raw serialized key to compare
 the complete SSH identity, determine its algorithm, and validate host certificates.
 
+For revocation policy that applies across hosts and users, combine this database with a binary
+`KeyRevocationList` as shown in [key revocation lists](key-revocation-lists.md).
+
 ## Matching and failures
 
 The parser supports comma-separated hostname patterns, `*` and `?` wildcards, negated patterns,

@@ -334,6 +334,12 @@ salted hashed entry written by the library. Certificate-authority coverage gener
 host certificate with `ssh-keygen`, then exercises hostname principals, validity, authority trust,
 and authority revocation through the public `KnownHosts` API.
 
+Key-revocation-list interoperability generates explicit-key, authority-scoped certificate serial,
+serial-range, serial-bitmap, and key-identifier records with `ssh-keygen`. The public
+`KeyRevocationList` API checks revoked and non-revoked keys and certificates, including embedded
+plain keys and revoked signing authorities. A fixed SHA-256 section and malformed serial-zero case
+provide independent byte-level and failure evidence.
+
 Public-key authentication also exercises the version-0 host-bound extension in both roles. Fixed
 wire bytes prove that the exact negotiated server host key is part of the signature preimage; live
 tests prove the unsigned key probe followed by a bound signed request and reject a mismatched host

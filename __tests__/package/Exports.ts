@@ -38,6 +38,7 @@ import {
     HTTPAgent,
     HTTPSAgent,
     KERBEROS_V5_GSSAPI_OID,
+    KeyRevocationList,
     KnownHosts,
     MAX_OPENSSH_AGENT_SESSION_BINDINGS,
     MAX_OPENSSH_AGENT_SESSION_IDENTIFIER_LENGTH,
@@ -189,6 +190,7 @@ describe("package exports", () => {
             HTTPAgent,
             HTTPSAgent,
             KERBEROS_V5_GSSAPI_OID,
+            KeyRevocationList,
             KnownHosts,
             OnePasswordAgent,
             PageantAgent,
@@ -206,7 +208,7 @@ describe("package exports", () => {
             SSHAgent,
             SSHHTTPAgent,
             SSHHTTPSAgent,
-        ]).toHaveLength(40)
+        ]).toHaveLength(41)
         expect(SSHAuthenticationMethods.PublicKey).toBe("publickey")
         expect(SSHAuthenticationMethods.KeyboardInteractive).toBe("keyboard-interactive")
         expect(SSHAuthenticationMethods.GSSAPIWithMIC).toBe("gssapi-with-mic")
@@ -278,6 +280,7 @@ describe("package exports", () => {
         expect(entry.PublicKeySubsystemClient).toBeFunction()
         expect(entry.PublicKeySubsystemServer).toBeFunction()
         expect(entry.PublicKeySubsystemStatusCode.Success).toBe(0)
+        expect(entry.KeyRevocationList).toBeFunction()
         expect(entry.KnownHosts).toBeFunction()
         expect(entry.parseKeys).toBeFunction()
         expect(entry.DirectTCPIPChannel).toBeDefined()
@@ -330,6 +333,7 @@ describe("package exports", () => {
         const shell = await readFile("dist/channels/Session/Shell.d.ts", "utf8")
         const privateKey = await readFile("dist/utils/PrivateKey.d.ts", "utf8")
         const knownHosts = await readFile("dist/KnownHosts.d.ts", "utf8")
+        const keyRevocationList = await readFile("dist/KeyRevocationList.d.ts", "utf8")
         const agentProtocol = await readFile("dist/publickey/SSHAgentProtocol.d.ts", "utf8")
         const cygwinAgent = await readFile("dist/publickey/CygwinAgent.d.ts", "utf8")
         const pageantAgent = await readFile("dist/publickey/PageantAgent.d.ts", "utf8")
@@ -381,6 +385,8 @@ describe("package exports", () => {
         expect(knownHosts).toContain("static load(path: string): Promise<KnownHosts>")
         expect(knownHosts).toContain("replaceHostKeys(")
         expect(knownHosts).toContain("): Promise<void>")
+        expect(keyRevocationList).toContain("static load(path: string): Promise<KeyRevocationList>")
+        expect(keyRevocationList).toContain("isRevoked(key: PublicKey | Buffer): boolean")
         expect(agentProtocol).toContain("getPublicKeys(): Promise<[string, PublicKey][]>")
         expect(agentProtocol).toContain("serve(stream: Duplex): Promise<void>")
         expect(agentProtocol).not.toContain("callback")
@@ -411,7 +417,7 @@ describe("package exports", () => {
                     "--input-type=module",
                     "--eval",
                     `
-                    const { Client, createSocketAgent, CygwinAgent, CygwinAgentError, DELAY_COMPRESSION_EXTENSION, delayCompressionExtension, discoverPageantAgentSocket, ELEVATION_EXTENSION, EncodedSignature, generateKeyPair, generateKeyPairSync, KnownHosts, MAX_OPENSSH_AGENT_SESSION_BINDINGS, MAX_SSH_AGENT_MESSAGE_LENGTH, NO_FLOW_CONTROL_EXTENSION, OnePasswordAgent, OPENSSH_AGENT_SECURITY_KEY_PROVIDER, OPENSSH_AGENT_SESSION_BIND, PageantAgent, PageantAgentError, parseKey, PrivateKey, PrivateKeyAgent, PublicKey, PublicKeySubsystemClient, PublicKeySubsystemServer, PublicKeySubsystemStatusCode, SSH_ED25519_SECURITY_KEY_ALGORITHM, SSHAgentConstraintType, SSHAgentExtensionFailureError, SSHAgentMessageType, SSHAgentProtocolClient, SSHAgentProtocolError, SSHAgentProtocolServer, SSHED25519SecurityKeyPrivateKey, SSHED25519SecurityKeyPublicKey } = await import("@bunkerch/modernssh")
+                    const { Client, createSocketAgent, CygwinAgent, CygwinAgentError, DELAY_COMPRESSION_EXTENSION, delayCompressionExtension, discoverPageantAgentSocket, ELEVATION_EXTENSION, EncodedSignature, generateKeyPair, generateKeyPairSync, KeyRevocationList, KnownHosts, MAX_OPENSSH_AGENT_SESSION_BINDINGS, MAX_SSH_AGENT_MESSAGE_LENGTH, NO_FLOW_CONTROL_EXTENSION, OnePasswordAgent, OPENSSH_AGENT_SECURITY_KEY_PROVIDER, OPENSSH_AGENT_SESSION_BIND, PageantAgent, PageantAgentError, parseKey, PrivateKey, PrivateKeyAgent, PublicKey, PublicKeySubsystemClient, PublicKeySubsystemServer, PublicKeySubsystemStatusCode, SSH_ED25519_SECURITY_KEY_ALGORITHM, SSHAgentConstraintType, SSHAgentExtensionFailureError, SSHAgentMessageType, SSHAgentProtocolClient, SSHAgentProtocolError, SSHAgentProtocolServer, SSHED25519SecurityKeyPrivateKey, SSHED25519SecurityKeyPublicKey } = await import("@bunkerch/modernssh")
                     const { privateKey, publicKey } = await generateKeyPair("ed25519", {
                         comment: "packed@example.test",
                     })
@@ -442,6 +448,9 @@ describe("package exports", () => {
                     if (curve448Client.algorithmOffer.kex[0] !== "curve448-sha512") process.exit(14)
                     const knownHosts = KnownHosts.parse("packed.example.test " + publicKey.toString())
                     if (knownHosts.check("packed.example.test", publicKey).status !== "trusted") process.exit(15)
+                    const packedKRL = KeyRevocationList.parse(Buffer.from("5353484b524c0a0000000001000000000000000000000000000000000000000000000000000000000000000d6669786564205348412d3235360500000024000000206db5e9b8a1bace1cdd9a7c6adb9e9396acc5073465d9fe8e3a0ef6d9c60d6d4f", "hex"))
+                    const packedRevokedKey = PublicKey.parseString("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINdamAGCsQq31Uv+08lkBzoO4XLz2qYjJa8CGmj3B1Ea")
+                    if (!packedKRL.isRevoked(packedRevokedKey)) process.exit(39)
                     if (new Client({}).algorithmOffer.kex[0] !== "mlkem768x25519-sha256") process.exit(16)
                     if (typeof SSHAgentProtocolClient !== "function" || typeof SSHAgentProtocolServer !== "function" || typeof SSHAgentProtocolError !== "function") process.exit(17)
                     if (SSHAgentMessageType.SignResponse !== 14 || MAX_SSH_AGENT_MESSAGE_LENGTH !== 262144) process.exit(18)
