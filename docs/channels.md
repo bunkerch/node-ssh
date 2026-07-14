@@ -262,6 +262,8 @@ The implementation follows RFC 4254 channel rules:
 - Request success and failure replies are matched in request order.
 - A peer CLOSE promptly tears down the channel and settles pending operations. Late results from
   request hooks cannot create session resources, emit request events, or send request replies.
+- Transport termination immediately makes every owned channel report `isOpen === false`, even when
+  the connection ended before the channel-level CLOSE exchange completed.
 - `exit-status` and `exit-signal` requests are exposed through the `exit` event and channel fields.
   Exit signals retain `exitSignal`, `exitCoreDumped`, `exitErrorMessage`, and `exitLanguageTag`.
   These one-way results are accepted only once on a session channel; signal names, UTF-8 messages,

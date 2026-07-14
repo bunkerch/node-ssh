@@ -136,7 +136,12 @@ export default class ClientChannel extends Duplex {
     }
 
     get isOpen(): boolean {
-        return this.remoteId !== undefined && !this.sentClose && !this.receivedClose
+        return (
+            this.remoteId !== undefined &&
+            !this.sentClose &&
+            !this.receivedClose &&
+            !this.transportClosed
+        )
     }
 
     get isFullyClosed(): boolean {

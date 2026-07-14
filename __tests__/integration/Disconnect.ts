@@ -1,8 +1,10 @@
 import { AddressInfo } from "node:net"
+import { once } from "node:events"
 import Client from "../../src/Client.js"
 import { SSHAuthenticationMethods } from "../../src/constants.js"
 import Server from "../../src/Server.js"
 import type ServerClient from "../../src/ServerClient.js"
+import SessionChannel from "../../src/channels/SessionChannel.js"
 import {
     DisconnectError,
     DisconnectReason,
@@ -48,6 +50,33 @@ async function closePeers(server: Server, client: Client): Promise<void> {
 }
 
 describe("RFC 4253 peer disconnects", () => {
+    test("marks channels closed when their transport terminates", async () => {
+        const { server, peer, client } = await createConnectedPeers()
+        let serverChannel: SessionChannel | undefined
+        server.hooker.hook("channelOpenRequest", (_hook, channel, controller) => {
+            controller.allowOpen = channel instanceof SessionChannel
+        })
+        peer.on("channel", (channel) => {
+            if (channel instanceof SessionChannel) serverChannel = channel
+        })
+
+        try {
+            const clientChannel = await client.openSession()
+            expect(clientChannel.isOpen).toBe(true)
+            expect(serverChannel?.isOpen).toBe(true)
+            const clientChannelClosed = once(clientChannel, "close")
+            const serverConnectionClosed = once(peer, "close")
+
+            peer.terminate()
+            await Promise.all([clientChannelClosed, serverConnectionClosed])
+
+            expect(clientChannel.isOpen).toBe(false)
+            expect(serverChannel?.isOpen).toBe(false)
+        } finally {
+            await closePeers(server, client)
+        }
+    }, 15_000)
+
     test("rejects connection setup immediately when the peer disconnects", async () => {
         const hostKey = await PrivateKey.generate("ssh-ed25519")
         const server = new Server({ hostKeys: [hostKey], sendAllHostKeys: false })

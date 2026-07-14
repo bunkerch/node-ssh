@@ -60,6 +60,7 @@ export default class Channel {
     private outboundStopped = false
     private sentClose = false
     private receivedClose = false
+    private aborted = false
     private openSettled = false
     private openResolve!: () => void
     private openReject!: (error: Error) => void
@@ -81,7 +82,9 @@ export default class Channel {
     }
 
     get isOpen(): boolean {
-        return this.remoteId !== undefined && !this.sentClose && !this.receivedClose
+        return (
+            this.remoteId !== undefined && !this.sentClose && !this.receivedClose && !this.aborted
+        )
     }
 
     get isFullyClosed(): boolean {
@@ -358,6 +361,7 @@ export default class Channel {
     }
 
     abort(error = new Error(`SSH channel ${this.localId} connection closed`)): void {
+        this.aborted = true
         if (!this.openSettled) {
             this.openSettled = true
             this.openReject(error)
