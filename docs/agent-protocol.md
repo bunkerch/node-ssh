@@ -11,6 +11,9 @@ client serializes requests and requires each reply before sending the next reque
 reply deadline is 10 seconds. A timeout destroys the stream because a late, untagged reply could
 otherwise be mistaken for the reply to a later request.
 
+`sign()` snapshots its message when called, before queued identity lookup or earlier agent requests
+can delay the signing frame. Later mutation of a caller-owned buffer cannot change what is signed.
+
 ```ts
 import { createConnection } from "node:net"
 import { once } from "node:events"

@@ -757,6 +757,7 @@ export class SSHAgentProtocolClient extends Agent<string> {
 
     async sign(id: string, data: Buffer, algorithm?: string): Promise<EncodedSignature> {
         if (!Buffer.isBuffer(data)) throw new TypeError("SSH agent signing data must be a buffer")
+        const message = Buffer.from(data)
         const publicKey = await this.getPublicKey(id)
         const requestedAlgorithm = algorithm ?? publicKey.data.alg
         if (!publicKey.supportsSignatureAlgorithm(requestedAlgorithm)) {
@@ -775,7 +776,7 @@ export class SSHAgentProtocolClient extends Agent<string> {
             Buffer.concat([
                 Buffer.from([SSHAgentMessageType.SignRequest]),
                 serializeBuffer(publicKey.serialize()),
-                serializeBuffer(Buffer.from(data)),
+                serializeBuffer(message),
                 serializeUint32(flags),
             ]),
         )

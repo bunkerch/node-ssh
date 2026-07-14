@@ -37,6 +37,10 @@ const signRequest = Buffer.from(
     "000000400d00000033" + keyBlob.toString("hex") + "0000000000000000",
     "hex",
 )
+const signABCRequest = Buffer.from(
+    "000000430d00000033" + keyBlob.toString("hex") + "0000000361626300000000",
+    "hex",
+)
 const signAnswer = Buffer.from(
     "000000580e000000530000000b7373682d6564323535313900000040" + signatureBytes.toString("hex"),
     "hex",
@@ -133,6 +137,44 @@ describe("SSH agent protocol", () => {
         } finally {
             client.destroy()
             await fixture
+            fixtureStream.destroy()
+        }
+    })
+
+    test("client owns signing data before the asynchronous identity request", async () => {
+        const [clientStream, fixtureStream] = streamPair()
+        let releaseIdentity!: () => void
+        const identityReleased = new Promise<void>((resolve) => {
+            releaseIdentity = resolve
+        })
+        let reportIdentity!: () => void
+        const identityReceived = new Promise<void>((resolve) => {
+            reportIdentity = resolve
+        })
+        let receivedSignRequest: Buffer | undefined
+        const fixture = (async () => {
+            expect(await readFrames(fixtureStream, 1)).toEqual([requestIdentities])
+            reportIdentity()
+            await identityReleased
+            fixtureStream.write(identitiesAnswer)
+            ;[receivedSignRequest] = await readFrames(fixtureStream, 1)
+            fixtureStream.write(signAnswer)
+        })()
+        const client = new SSHAgentProtocolClient(clientStream)
+
+        try {
+            const data = Buffer.from("abc")
+            const signing = client.sign(keyBlob.toString("base64"), data)
+            await identityReceived
+            data.fill(0x7a)
+            releaseIdentity()
+            await signing
+            await fixture
+
+            expect(receivedSignRequest).toEqual(signABCRequest)
+        } finally {
+            releaseIdentity()
+            client.destroy()
             fixtureStream.destroy()
         }
     })
