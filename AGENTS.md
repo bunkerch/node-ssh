@@ -197,6 +197,10 @@ meaningful wire-level behavior.
 - Human-readable SSH fields use fatal UTF-8 decoding and RFC 3066 ASCII language tags; never allow
   replacement decoding before authentication or policy. Preserve unknown uint32 disconnect reasons
   so future and private-use assignments still produce a clean terminal disconnect.
+- RFC 4250 names are 1-to-64-byte printable US-ASCII values without commas. Validate the single
+  at-sign plus domain form for local extensions, reject empty and duplicate name-list entries, and
+  apply the shared codec to services, methods, algorithms, extensions, channels, requests, and
+  subsystems on both parse and serialization paths.
 - Strict key exchange advertises both the standard and deployed marker pairs only in the initial
   KEXINIT. Enable it only for a matching pair, require the peer's initial KEXINIT at sequence zero,
   reject non-KEX and duplicate KEX messages during that exchange, and reset each direction's

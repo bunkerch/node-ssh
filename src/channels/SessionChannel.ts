@@ -15,6 +15,7 @@ import EventEmitter from "events"
 import Shell from "./Session/Shell.js"
 import { normalizeSSHSignal } from "../utils/Signal.js"
 import SFTPServer, { SFTPServerOptions } from "../sftp/SFTPServer.js"
+import { decodeSSHName } from "../utils/SSHName.js"
 
 export interface SessionPtyInfo {
     term: string
@@ -472,7 +473,7 @@ export default class SessionChannel extends Channel {
         assert(raw.length === 0)
 
         return {
-            subsystem: subsystem.toString("ascii"),
+            subsystem: decodeSSHName(subsystem, "SSH subsystem name"),
         }
     }
 

@@ -5,6 +5,7 @@ import { readNextBinaryBoolean, serializeBuffer, serializeUint32 } from "../util
 import { normalizeSSHSignal } from "../utils/Signal.js"
 import ClientChannel from "./ClientChannel.js"
 import ChannelRequest from "../packets/ChannelRequest.js"
+import { encodeSSHName } from "../utils/SSHName.js"
 
 export interface ClientPtyOptions {
     term?: string
@@ -150,7 +151,10 @@ export default class ClientSessionChannel extends ClientChannel {
     async subsystem(name: string): Promise<void> {
         this.reserveProgram()
         try {
-            await this.request("subsystem", serializeBuffer(Buffer.from(name, "ascii")))
+            await this.request(
+                "subsystem",
+                serializeBuffer(encodeSSHName(name, "SSH subsystem name")),
+            )
         } catch (error) {
             this.started = false
             throw error

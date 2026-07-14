@@ -9,6 +9,7 @@ import {
     serializeUint32,
     serializeUint8,
 } from "../utils/Buffer.js"
+import { decodeSSHName, encodeSSHName, validateSSHName } from "../utils/SSHName.js"
 
 export interface SSHExtension {
     readonly name: string
@@ -37,7 +38,7 @@ export default class ExtInfo implements Packet {
     constructor(data: ExtInfoData) {
         const names = new Set<string>()
         for (const extension of data.extensions) {
-            assert(extension.name.length > 0, "SSH extension name must not be empty")
+            validateSSHName(extension.name, "SSH extension name")
             assert(!names.has(extension.name), `Duplicate SSH extension: ${extension.name}`)
             names.add(extension.name)
         }
@@ -49,7 +50,7 @@ export default class ExtInfo implements Packet {
             serializeUint8(ExtInfo.type),
             serializeUint32(this.data.extensions.length),
             ...this.data.extensions.flatMap((extension) => [
-                serializeBuffer(Buffer.from(extension.name, "utf8")),
+                serializeBuffer(encodeSSHName(extension.name, "SSH extension name")),
                 serializeBuffer(extension.value),
             ]),
         ])
@@ -68,7 +69,7 @@ export default class ExtInfo implements Packet {
             let value: Buffer
             ;[name, raw] = readNextBuffer(raw)
             ;[value, raw] = readNextBuffer(raw)
-            extensions.push({ name: name.toString("utf8"), value })
+            extensions.push({ name: decodeSSHName(name, "SSH extension name"), value })
         }
         assert(raw.length === 0, "Unexpected data after SSH extension information")
         return new ExtInfo({ extensions })

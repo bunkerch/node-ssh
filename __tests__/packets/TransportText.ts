@@ -7,6 +7,9 @@ import UserAuthInfoResponse from "../../src/packets/UserAuthInfoResponse.js"
 import UserAuthPasswordChangeRequest from "../../src/packets/UserAuthPasswordChangeRequest.js"
 import UserAuthRequest from "../../src/packets/UserAuthRequest.js"
 import NoneAuthMethod from "../../src/auth/none.js"
+import ExtInfo from "../../src/packets/ExtInfo.js"
+import ServiceRequest from "../../src/packets/ServiceRequest.js"
+import ChannelRequest from "../../src/packets/ChannelRequest.js"
 
 function vector(hex: string): Buffer {
     return Buffer.from(hex.replace(/\s/gu, ""), "hex")
@@ -124,5 +127,20 @@ describe("RFC SSH text fields", () => {
                 language_tag: "",
             }).serialize(),
         ).toThrow("uint32")
+    })
+
+    test("applies RFC 4250 name validation to protocol packets", () => {
+        expect(() => ServiceRequest.parse(vector("05 00000001 ff"))).toThrow("US-ASCII")
+        expect(
+            () => new ExtInfo({ extensions: [{ name: "bad extension", value: Buffer.alloc(0) }] }),
+        ).toThrow("printable")
+        expect(() =>
+            new ChannelRequest({
+                recipient_channel_id: 1,
+                request_type: "bad,request",
+                want_reply: false,
+                args: Buffer.alloc(0),
+            }).serialize(),
+        ).toThrow("comma")
     })
 })

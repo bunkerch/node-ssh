@@ -50,6 +50,12 @@ Disconnect reason codes are retained as their exact uint32 value. Named RFC 4253
 `DisconnectReason` enum, while future assignments and the private-use range remain parseable so an
 otherwise valid disconnect can always terminate the connection cleanly.
 
+Protocol names follow RFC 4250: they contain 1 through 64 printable US-ASCII characters, never a
+comma, and locally defined names contain one at-sign followed by a valid domain name. This is
+enforced for algorithm name-lists, services, authentication methods, extension names, channel
+types, global and channel requests, and subsystem names. Name-lists reject empty and duplicate
+entries before negotiation.
+
 ## Binary packet framing
 
 After identification, both sides use the binary packet format from RFC 4253 section 6. The shared

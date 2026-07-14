@@ -12,6 +12,7 @@ import AuthMethod from "../auth/AuthMethod.js"
 import HostbasedAuthMethod from "../auth/hostbased.js"
 import type { AuthMethodClass } from "../auth/AuthMethod.js"
 import { decodeSSHUTF8, encodeSSHUTF8 } from "../utils/SSHText.js"
+import { decodeSSHName, encodeSSHName } from "../utils/SSHName.js"
 
 export { default as AuthMethod } from "../auth/AuthMethod.js"
 
@@ -28,7 +29,10 @@ export class UnknownAuthMethod implements AuthMethod {
     ) {}
 
     serialize(): Buffer {
-        return Buffer.concat([serializeBuffer(Buffer.from(this.method_name, "ascii")), this.data])
+        return Buffer.concat([
+            serializeBuffer(encodeSSHName(this.method_name, "SSH authentication method name")),
+            this.data,
+        ])
     }
 }
 
@@ -74,7 +78,7 @@ export default class UserAuthRequest implements Packet {
         buffers.push(serializeUint8(UserAuthRequest.type))
 
         buffers.push(serializeBuffer(encodeSSHUTF8(this.data.username, "SSH username")))
-        buffers.push(serializeBuffer(Buffer.from(this.data.service_name, "utf-8")))
+        buffers.push(serializeBuffer(encodeSSHName(this.data.service_name, "SSH service name")))
 
         buffers.push(this.data.method.serialize())
 
@@ -95,7 +99,7 @@ export default class UserAuthRequest implements Packet {
         buffers.push(serializeUint8(UserAuthRequest.type))
 
         buffers.push(serializeBuffer(encodeSSHUTF8(this.data.username, "SSH username")))
-        buffers.push(serializeBuffer(Buffer.from(this.data.service_name, "utf-8")))
+        buffers.push(serializeBuffer(encodeSSHName(this.data.service_name, "SSH service name")))
         buffers.push(this.data.method.serializeForSignature())
 
         return Buffer.concat(buffers)
@@ -115,11 +119,11 @@ export default class UserAuthRequest implements Packet {
         let method_name: Buffer
         ;[method_name, raw] = readNextBuffer(raw)
 
-        const methodName = method_name.toString("ascii")
+        const methodName = decodeSSHName(method_name, "SSH authentication method name")
         const method = UserAuthRequest.auth_methods.get(methodName)
         return new UserAuthRequest({
             username: decodeSSHUTF8(username, "SSH username"),
-            service_name: service_name.toString("utf-8"),
+            service_name: decodeSSHName(service_name, "SSH service name"),
             method: method ? method.parse(raw) : new UnknownAuthMethod(methodName, raw),
         })
     }

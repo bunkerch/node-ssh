@@ -10,6 +10,7 @@ import {
     serializeUint32,
 } from "../utils/Buffer.js"
 import { serializeBinaryBoolean } from "../utils/BinaryBoolean.js"
+import { decodeSSHName, encodeSSHName } from "../utils/SSHName.js"
 
 // https://datatracker.ietf.org/doc/html/rfc4254#section-5.2
 export interface ChannelRequestData {
@@ -32,7 +33,9 @@ export default class ChannelRequest implements Packet {
         buffers.push(Buffer.from([ChannelRequest.type]))
 
         buffers.push(serializeUint32(this.data.recipient_channel_id))
-        buffers.push(serializeBuffer(Buffer.from(this.data.request_type, "ascii")))
+        buffers.push(
+            serializeBuffer(encodeSSHName(this.data.request_type, "SSH channel request name")),
+        )
         buffers.push(serializeBinaryBoolean(this.data.want_reply))
         buffers.push(this.data.args)
 
@@ -55,7 +58,7 @@ export default class ChannelRequest implements Packet {
 
         return new ChannelRequest({
             recipient_channel_id: recipient_channel_id,
-            request_type: request_type.toString("ascii"),
+            request_type: decodeSSHName(request_type, "SSH channel request name"),
             want_reply: want_reply,
             args: raw,
         })

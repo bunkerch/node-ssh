@@ -68,6 +68,11 @@ layouts have fixed SSH packets generated independently of the TypeScript codec. 
 packet parsing failures local and diagnosable instead of relying on an external implementation to
 reject malformed bytes.
 
+RFC 4250 name tests cover the 64-character boundary, extension-domain form, non-ASCII and control
+input, commas, empty entries, and duplicate name-list members. Packet tests separately prove that
+the validation is applied to services, extensions, channels, and requests rather than existing
+only as an unused utility.
+
 An independently written unknown message is also sent in both directions over an encrypted
 in-process connection; each peer returns the exact rejected sequence in `SSH_MSG_UNIMPLEMENTED` and
 continues with later traffic. The system OpenSSH client independently returns the same response to

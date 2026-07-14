@@ -8,6 +8,7 @@ import {
     serializeBuffer,
 } from "../utils/Buffer.js"
 import { serializeBinaryBoolean } from "../utils/BinaryBoolean.js"
+import { decodeSSHName, encodeSSHName } from "../utils/SSHName.js"
 
 export interface GlobalRequestData {
     request_name: string
@@ -27,7 +28,9 @@ export default class GlobalRequest implements Packet {
 
         buffers.push(Buffer.from([GlobalRequest.type]))
 
-        buffers.push(serializeBuffer(Buffer.from(this.data.request_name, "ascii")))
+        buffers.push(
+            serializeBuffer(encodeSSHName(this.data.request_name, "SSH global request name")),
+        )
         buffers.push(serializeBinaryBoolean(this.data.want_reply))
 
         buffers.push(this.data.args)
@@ -47,7 +50,7 @@ export default class GlobalRequest implements Packet {
         ;[want_reply, raw] = readNextBinaryBoolean(raw)
 
         return new GlobalRequest({
-            request_name: request_name.toString("ascii"),
+            request_name: decodeSSHName(request_name, "SSH global request name"),
             want_reply: want_reply,
             args: raw,
         })

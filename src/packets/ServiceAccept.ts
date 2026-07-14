@@ -2,6 +2,7 @@ import assert from "assert"
 import { PacketNameToType } from "../constants.js"
 import Packet from "../packet.js"
 import { readNextBuffer, readNextUint8, serializeBuffer } from "../utils/Buffer.js"
+import { decodeSSHName, encodeSSHName } from "../utils/SSHName.js"
 
 export interface ServiceAcceptData {
     service_name: string
@@ -19,7 +20,7 @@ export default class ServiceAccept implements Packet {
 
         buffers.push(Buffer.from([ServiceAccept.type]))
 
-        buffers.push(serializeBuffer(Buffer.from(this.data.service_name, "utf-8")))
+        buffers.push(serializeBuffer(encodeSSHName(this.data.service_name, "SSH service name")))
 
         return Buffer.concat(buffers)
     }
@@ -35,7 +36,7 @@ export default class ServiceAccept implements Packet {
         assert(raw.length === 0)
 
         return new ServiceAccept({
-            service_name: service_name.toString("utf-8"),
+            service_name: decodeSSHName(service_name, "SSH service name"),
         })
     }
 }

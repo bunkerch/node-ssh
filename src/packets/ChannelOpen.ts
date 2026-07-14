@@ -8,6 +8,7 @@ import {
     serializeBuffer,
     serializeUint32,
 } from "../utils/Buffer.js"
+import { decodeSSHName, encodeSSHName } from "../utils/SSHName.js"
 
 export interface ChannelOpenData {
     channel_type: string
@@ -29,7 +30,7 @@ export default class ChannelOpen implements Packet {
 
         buffers.push(Buffer.from([ChannelOpen.type]))
 
-        buffers.push(serializeBuffer(Buffer.from(this.data.channel_type, "ascii")))
+        buffers.push(serializeBuffer(encodeSSHName(this.data.channel_type, "SSH channel type")))
         buffers.push(serializeUint32(this.data.sender_channel_id))
         buffers.push(serializeUint32(this.data.initial_window_size))
         buffers.push(serializeUint32(this.data.maximum_packet_size))
@@ -56,7 +57,7 @@ export default class ChannelOpen implements Packet {
         ;[maximum_packet_size, raw] = readNextUint32(raw)
 
         return new ChannelOpen({
-            channel_type: channel_type.toString("ascii"),
+            channel_type: decodeSSHName(channel_type, "SSH channel type"),
             sender_channel_id: sender_channel_id,
             initial_window_size: initial_window_size,
             maximum_packet_size: maximum_packet_size,

@@ -9,6 +9,9 @@ import UserAuthInfoRequest from "../packets/UserAuthInfoRequest.js"
 import UserAuthInfoResponse from "../packets/UserAuthInfoResponse.js"
 import UserAuthSuccess from "../packets/UserAuthSuccess.js"
 import { readNextBuffer, serializeBuffer } from "../utils/Buffer.js"
+import { decodeSSHLanguageTag, encodeSSHLanguageTag } from "../utils/SSHText.js"
+import { decodeSSHNameList, encodeSSHNameList } from "../utils/NameList.js"
+import { encodeSSHName } from "../utils/SSHName.js"
 
 export interface KeyboardInteractiveAuthMethodData {
     languageTag: string
@@ -25,9 +28,18 @@ export default class KeyboardInteractiveAuthMethod implements AuthMethod {
 
     serialize(): Buffer {
         return Buffer.concat([
-            serializeBuffer(Buffer.from(KeyboardInteractiveAuthMethod.method_name, "ascii")),
-            serializeBuffer(Buffer.from(this.data.languageTag, "ascii")),
-            serializeBuffer(Buffer.from(this.data.submethods, "utf8")),
+            serializeBuffer(
+                encodeSSHName(
+                    KeyboardInteractiveAuthMethod.method_name,
+                    "SSH authentication method name",
+                ),
+            ),
+            serializeBuffer(encodeSSHLanguageTag(this.data.languageTag)),
+            serializeBuffer(
+                encodeSSHNameList(
+                    this.data.submethods.length === 0 ? [] : this.data.submethods.split(","),
+                ),
+            ),
         ])
     }
 
@@ -38,8 +50,8 @@ export default class KeyboardInteractiveAuthMethod implements AuthMethod {
         ;[submethods, raw] = readNextBuffer(raw)
         assert(raw.length === 0)
         return new KeyboardInteractiveAuthMethod({
-            languageTag: languageTag.toString("ascii"),
-            submethods: submethods.toString("utf8"),
+            languageTag: decodeSSHLanguageTag(languageTag),
+            submethods: decodeSSHNameList(submethods).join(","),
         })
     }
 
