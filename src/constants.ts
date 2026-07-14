@@ -80,6 +80,7 @@ export enum SSHAuthenticationMethods {
     Password = "password",
     KeyboardInteractive = "keyboard-interactive",
     GSSAPIWithMIC = "gssapi-with-mic",
+    GSSAPIKeyExchange = "gssapi-keyex",
     HostboundPublicKey = "publickey-hostbound-v00@openssh.com",
 }
 

@@ -11,6 +11,7 @@ import KeyboardInteractiveAuthMethod from "../auth/keyboard-interactive.js"
 import AuthMethod from "../auth/AuthMethod.js"
 import HostbasedAuthMethod from "../auth/hostbased.js"
 import GSSAPIWithMICAuthMethod from "../auth/gssapi-with-mic.js"
+import GSSAPIKeyExchangeAuthMethod from "../auth/gssapi-keyex.js"
 import type { AuthMethodClass } from "../auth/AuthMethod.js"
 import { decodeSSHUTF8, encodeSSHUTF8 } from "../utils/SSHText.js"
 import { decodeSSHName, encodeSSHName } from "../utils/SSHName.js"
@@ -51,6 +52,7 @@ export default class UserAuthRequest implements Packet {
             PasswordAuthMethod,
             KeyboardInteractiveAuthMethod,
             GSSAPIWithMICAuthMethod,
+            GSSAPIKeyExchangeAuthMethod,
         ].map((method) => [method.method_name, method]),
     )
 

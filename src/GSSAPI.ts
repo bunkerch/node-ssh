@@ -3,6 +3,7 @@ import { encodeSSHName } from "./utils/SSHName.js"
 import { encodeSSHLanguageTag, encodeSSHUTF8 } from "./utils/SSHText.js"
 
 export const GSSAPI_WITH_MIC = "gssapi-with-mic"
+export const GSSAPI_KEYEX = "gssapi-keyex"
 export const KERBEROS_V5_GSSAPI_OID = Buffer.from("06092a864886f712010202", "hex")
 
 export interface GSSAPIContextStep {
@@ -10,6 +11,8 @@ export interface GSSAPIContextStep {
     complete: boolean
     /** Required on completion; whether per-message integrity is available. */
     integrity?: boolean
+    /** Required by key-exchange contexts on completion; whether the peer was mutually authenticated. */
+    mutualAuthentication?: boolean
     /** Non-empty token to send to the peer before the next step or final acknowledgement. */
     token?: Buffer
     /** Mechanism-defined authenticated peer identity, available to server authorization policy. */
@@ -30,6 +33,20 @@ export interface GSSAPIServerContext {
     close?(): void | Promise<void>
 }
 
+export interface GSSAPIKeyExchangeClientContext {
+    step(inputToken?: Buffer): GSSAPIContextStep | Promise<GSSAPIContextStep>
+    verifyMIC(message: Buffer, mic: Buffer): boolean | Promise<boolean>
+    getMIC?(message: Buffer): Buffer | Promise<Buffer>
+    close?(): void | Promise<void>
+}
+
+export interface GSSAPIKeyExchangeServerContext {
+    step(inputToken: Buffer): GSSAPIContextStep | Promise<GSSAPIContextStep>
+    getMIC(message: Buffer): Buffer | Promise<Buffer>
+    verifyMIC?(message: Buffer, mic: Buffer): boolean | Promise<boolean>
+    close?(): void | Promise<void>
+}
+
 export interface GSSAPIClientContextOptions {
     hostname: string
     username: string
@@ -44,20 +61,44 @@ export interface GSSAPIServerContextOptions {
     remotePort?: number
 }
 
+export interface GSSAPIKeyExchangeClientContextOptions {
+    hostname: string
+    service: "host"
+    delegateCredentials: boolean
+    /** Whether this context will not be retained for gssapi-keyex user authentication. */
+    anonymous: boolean
+    mutualAuthentication: true
+    integrity: true
+    replayDetection: false
+    sequenceDetection: false
+}
+
+export interface GSSAPIKeyExchangeServerContextOptions {
+    service: "host"
+    remoteAddress?: string
+    remotePort?: number
+}
+
 export interface GSSAPIClientMechanism {
     /** Complete ASN.1 DER encoding of the GSS-API mechanism object identifier. */
     oid: Buffer
-    createContext(
+    createContext?(
         options: Readonly<GSSAPIClientContextOptions>,
     ): GSSAPIClientContext | Promise<GSSAPIClientContext>
+    createKeyExchangeContext?(
+        options: Readonly<GSSAPIKeyExchangeClientContextOptions>,
+    ): GSSAPIKeyExchangeClientContext | Promise<GSSAPIKeyExchangeClientContext>
 }
 
 export interface GSSAPIServerMechanism {
     /** Complete ASN.1 DER encoding of the GSS-API mechanism object identifier. */
     oid: Buffer
-    createContext(
+    createContext?(
         options: Readonly<GSSAPIServerContextOptions>,
     ): GSSAPIServerContext | Promise<GSSAPIServerContext>
+    createKeyExchangeContext?(
+        options: Readonly<GSSAPIKeyExchangeServerContextOptions>,
+    ): GSSAPIKeyExchangeServerContext | Promise<GSSAPIKeyExchangeServerContext>
 }
 
 export interface GSSAPIErrorOptions {
@@ -153,6 +194,18 @@ export function normalizeGSSAPIContextStep(step: GSSAPIContextStep): Readonly<GS
     if (!step.complete && step.integrity !== undefined) {
         throw new TypeError("An incomplete GSS-API context step must not declare integrity")
     }
+    if (!step.complete && step.mutualAuthentication !== undefined) {
+        throw new TypeError(
+            "An incomplete GSS-API context step must not declare mutual authentication",
+        )
+    }
+    if (
+        step.complete &&
+        step.mutualAuthentication !== undefined &&
+        typeof step.mutualAuthentication !== "boolean"
+    ) {
+        throw new TypeError("GSS-API mutual authentication availability must be a boolean")
+    }
     const token =
         step.token === undefined || step.token.length === 0
             ? undefined
@@ -160,10 +213,23 @@ export function normalizeGSSAPIContextStep(step: GSSAPIContextStep): Readonly<GS
     return Object.freeze({
         complete: step.complete,
         integrity: step.integrity,
+        mutualAuthentication: step.mutualAuthentication,
         token,
         peerIdentity: step.peerIdentity,
         delegatedCredentials: step.delegatedCredentials,
     })
+}
+
+export function normalizeGSSAPIKeyExchangeContextStep(
+    step: GSSAPIContextStep,
+): Readonly<GSSAPIContextStep> {
+    const normalized = normalizeGSSAPIContextStep(step)
+    if (normalized.complete && typeof normalized.mutualAuthentication !== "boolean") {
+        throw new TypeError(
+            "A complete GSS-API key-exchange step must declare mutual authentication",
+        )
+    }
+    return normalized
 }
 
 export function normalizeGSSAPIToken(token: Buffer, name = "GSS-API token"): Buffer {
@@ -191,6 +257,24 @@ export function buildGSSAPIUserAuthMIC(
     ])
 }
 
+/** Build the exact RFC 4462 gssapi-keyex user-authentication MIC input. */
+export function buildGSSAPIKeyExchangeUserAuthMIC(
+    sessionIdentifier: Buffer,
+    username: string,
+    service: string,
+): Buffer {
+    if (!Buffer.isBuffer(sessionIdentifier) || sessionIdentifier.length === 0) {
+        throw new TypeError("SSH session identifier must be a non-empty buffer")
+    }
+    return Buffer.concat([
+        serializeBuffer(Buffer.from(sessionIdentifier)),
+        serializeUint8(50),
+        serializeBuffer(encodeSSHUTF8(username, "SSH username")),
+        serializeBuffer(encodeSSHName(service, "SSH service name")),
+        serializeBuffer(Buffer.from(GSSAPI_KEYEX, "ascii")),
+    ])
+}
+
 async function closeGSSAPIContext(context: { close?(): void | Promise<void> }): Promise<void> {
     await context.close?.()
 }
@@ -205,16 +289,37 @@ function normalizeMechanisms(
         throw new TypeError(`SSH ${role} GSS-API mechanisms must be an array`)
     }
     const normalized = mechanisms.map((mechanism) => {
+        if (typeof mechanism !== "object" || mechanism === null) {
+            throw new TypeError(`Invalid SSH ${role} GSS-API mechanism`)
+        }
         if (
-            typeof mechanism !== "object" ||
-            mechanism === null ||
+            mechanism.createContext !== undefined &&
             typeof mechanism.createContext !== "function"
+        ) {
+            throw new TypeError(`Invalid SSH ${role} GSS-API authentication mechanism`)
+        }
+        if (
+            mechanism.createKeyExchangeContext !== undefined &&
+            typeof mechanism.createKeyExchangeContext !== "function"
+        ) {
+            throw new TypeError(`Invalid SSH ${role} GSS-API key-exchange mechanism`)
+        }
+        if (
+            mechanism.createContext === undefined &&
+            mechanism.createKeyExchangeContext === undefined
         ) {
             throw new TypeError(`Invalid SSH ${role} GSS-API mechanism`)
         }
         return Object.freeze({
             oid: normalizeGSSAPIOID(mechanism.oid),
-            createContext: mechanism.createContext.bind(mechanism),
+            ...(mechanism.createContext === undefined
+                ? {}
+                : { createContext: mechanism.createContext.bind(mechanism) }),
+            ...(mechanism.createKeyExchangeContext === undefined
+                ? {}
+                : {
+                      createKeyExchangeContext: mechanism.createKeyExchangeContext.bind(mechanism),
+                  }),
         }) as GSSAPIClientMechanism | GSSAPIServerMechanism
     })
     for (let index = 0; index < normalized.length; index++) {

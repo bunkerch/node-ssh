@@ -1,5 +1,7 @@
 import GSSAPIWithMICAuthMethod from "../../src/auth/gssapi-with-mic.js"
+import GSSAPIKeyExchangeAuthMethod from "../../src/auth/gssapi-keyex.js"
 import {
+    buildGSSAPIKeyExchangeUserAuthMIC,
     buildGSSAPIUserAuthMIC,
     KERBEROS_V5_GSSAPI_OID,
     normalizeGSSAPIClientMechanisms,
@@ -78,6 +80,39 @@ describe("RFC 4462 GSS-API authentication vectors", () => {
         ).toEqual(expected)
     })
 
+    test("matches the gssapi-keyex request and session-bound MIC input", () => {
+        const micInput = Buffer.from(
+            "0000000401020304" +
+                "32" +
+                "00000005616c696365" +
+                "0000000e7373682d636f6e6e656374696f6e" +
+                "0000000c6773736170692d6b65796578",
+            "hex",
+        )
+        expect(
+            buildGSSAPIKeyExchangeUserAuthMIC(
+                Buffer.from("01020304", "hex"),
+                "alice",
+                "ssh-connection",
+            ),
+        ).toEqual(micInput)
+
+        const frame = Buffer.from(
+            "32" +
+                "00000005616c696365" +
+                "0000000e7373682d636f6e6e656374696f6e" +
+                "0000000c6773736170692d6b65796578" +
+                "00000004deadbeef",
+            "hex",
+        )
+        const request = UserAuthRequest.parse(frame)
+        expect(request.data.method).toBeInstanceOf(GSSAPIKeyExchangeAuthMethod)
+        expect((request.data.method as GSSAPIKeyExchangeAuthMethod).mic).toEqual(
+            Buffer.from("deadbeef", "hex"),
+        )
+        expect(request.serialize()).toEqual(frame)
+    })
+
     test("requires canonical DER OIDs, complete framing, and owned token bytes", () => {
         expect(KERBEROS_V5_GSSAPI_OID.toString("hex")).toBe(kerberosOID)
         expect(() => normalizeGSSAPIOID(Buffer.from("0500", "hex"))).toThrow("object identifier")
@@ -107,6 +142,18 @@ describe("RFC 4462 GSS-API authentication vectors", () => {
                     getMIC: () => Buffer.from([1]),
                 }
             }
+
+            createKeyExchangeContext() {
+                expect(this.identity).toBe("class-adapter")
+                return {
+                    step: () => ({
+                        complete: true,
+                        integrity: true,
+                        mutualAuthentication: true,
+                    }),
+                    verifyMIC: () => true,
+                }
+            }
         }
         const mechanism = new Mechanism()
         const [normalized] = normalizeGSSAPIClientMechanisms([mechanism])
@@ -118,5 +165,16 @@ describe("RFC 4462 GSS-API authentication vectors", () => {
         })
 
         expect(context.step).toBeFunction()
+        expect(normalized.createKeyExchangeContext).toBeFunction()
+        await normalized.createKeyExchangeContext!({
+            hostname: "example.test",
+            service: "host",
+            delegateCredentials: false,
+            anonymous: true,
+            mutualAuthentication: true,
+            integrity: true,
+            replayDetection: false,
+            sequenceDetection: false,
+        })
     })
 })

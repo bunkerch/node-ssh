@@ -1,6 +1,7 @@
 import { createHash } from "crypto"
 
 import type { KexAlgorithm } from "../../algorithms.js"
+import type { KeyExchangeRole } from "../../algorithms.js"
 import type Client from "../../Client.js"
 import type ServerClient from "../../ServerClient.js"
 import { serializeMpintBufferToBuffer } from "../../utils/mpint.js"
@@ -21,11 +22,16 @@ export default abstract class KeyExchange implements KexAlgorithm {
         this.hashName = hashName
     }
 
-    abstract generateKeyPair(): void
+    abstract generateKeyPair(role?: KeyExchangeRole): void
     abstract getPublicKey(): Buffer
     abstract computeSharedSecret(peerPublicKey: Buffer): void
     abstract computeHClient(client: Client, serverKexInit: Buffer): Buffer
     abstract computeHServer(client: ServerClient, clientKexInit: Buffer, hostKey: Buffer): Buffer
+
+    getSharedSecret(): Buffer {
+        if (!this.sharedSecret) throw new KeyExchangeError("Shared secret has not been computed")
+        return Buffer.from(this.sharedSecret)
+    }
 
     deriveKeysClient(client: Client | ServerClient): void {
         const [

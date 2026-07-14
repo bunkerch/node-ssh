@@ -91,6 +91,16 @@ function hostKeyAlgorithm(
 
 export const host_key_algorithms = new Map<string, HostKeyAlgorithm>([
     [
+        "null",
+        Object.freeze({
+            alg_name: "null",
+            key_format: "null",
+            signature_algorithm: "null",
+            has_encryption: false,
+            has_signature: false,
+        }),
+    ],
+    [
         "ssh-ed25519-cert",
         hostKeyAlgorithm("ssh-ed25519-cert", "ssh-ed25519-cert", "ssh-ed25519", "ssh-ed25519"),
     ],
@@ -188,6 +198,7 @@ export abstract class KexAlgorithm {
     abstract generateKeyPair(role?: KeyExchangeRole): void
     abstract getPublicKey(): Buffer
     abstract computeSharedSecret(peerPublicKey: Buffer): void
+    abstract getSharedSecret(): Buffer
     abstract computeHClient(client: Client, serverKexInit: Buffer): Buffer
     abstract computeHServer(client: ServerClient, clientKexInit: Buffer, hostKey: Buffer): Buffer
 
@@ -196,7 +207,13 @@ export abstract class KexAlgorithm {
         throw new Error("Not implemented")
     }
 }
-export const kex_algorithms = new Map<string, typeof KexAlgorithm>([
+export interface KexAlgorithmFactory {
+    readonly alg_name: string
+    readonly requires_encryption: boolean
+    readonly requires_signature: boolean
+    instantiate(): KexAlgorithm
+}
+export const kex_algorithms = new Map<string, KexAlgorithmFactory>([
     ["sntrup761x25519-sha512", SNTRUP761X25519SHA512],
     ["sntrup761x25519-sha512@openssh.com", SNTRUP761X25519SHA512OpenSSH],
     ["curve25519-sha256", Curve25519SHA256],
@@ -412,7 +429,10 @@ export function chooseAlgorithms(client: Client | ServerClient) {
 
     for (const name of client.clientKexInit.data.kex_algorithms) {
         if (!client.serverKexInit.data.kex_algorithms.includes(name)) continue
-        const algorithm = kex_algorithms.get(name)
+        const algorithm =
+            client instanceof Client
+                ? client.kexAlgorithms.get(name)
+                : client.server.kexAlgorithms.get(name)
         if (!algorithm) continue
         const hostKeyAlgorithm = mutual_host_key_algorithms.find((alg) => {
             if (algorithm.requires_encryption && !alg.has_encryption) {

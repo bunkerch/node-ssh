@@ -5,6 +5,7 @@ import { join } from "node:path"
 import { promisify } from "node:util"
 import {
     Agent,
+    buildGSSAPIKeyExchangeUserAuthMIC,
     Channel,
     Client,
     ClientAgentChannel,
@@ -27,6 +28,7 @@ import {
     generateKeyPair,
     generateKeyPairSync,
     GSSAPIError,
+    GSSAPI_KEYEX,
     HTTPAgent,
     HTTPSAgent,
     KERBEROS_V5_GSSAPI_OID,
@@ -61,6 +63,7 @@ import {
     TerminalModes,
     type ClientOptions,
     type ClientSessionOptions,
+    type GSSAPIKeyExchangeClientContextOptions,
     type ServerOptions,
 } from "../../src/index.js"
 
@@ -71,10 +74,21 @@ describe("package exports", () => {
         const clientOptions: ClientOptions = { hostname: "example.test" }
         const sessionOptions: ClientSessionOptions = { env: { LANG: "C" }, pty: true }
         const serverOptions: ServerOptions = { sendAllHostKeys: false }
+        const keyExchangeOptions: GSSAPIKeyExchangeClientContextOptions = {
+            hostname: "example.test",
+            service: "host",
+            delegateCredentials: false,
+            anonymous: true,
+            mutualAuthentication: true,
+            integrity: true,
+            replayDetection: false,
+            sequenceDetection: false,
+        }
 
         expect(clientOptions.hostname).toBe("example.test")
         expect(sessionOptions.pty).toBe(true)
         expect(serverOptions.sendAllHostKeys).toBe(false)
+        expect(keyExchangeOptions.service).toBe("host")
         expect([
             Agent,
             Channel,
@@ -119,6 +133,11 @@ describe("package exports", () => {
         expect(SSHAuthenticationMethods.PublicKey).toBe("publickey")
         expect(SSHAuthenticationMethods.KeyboardInteractive).toBe("keyboard-interactive")
         expect(SSHAuthenticationMethods.GSSAPIWithMIC).toBe("gssapi-with-mic")
+        expect(SSHAuthenticationMethods.GSSAPIKeyExchange).toBe("gssapi-keyex")
+        expect(GSSAPI_KEYEX).toBe("gssapi-keyex")
+        expect(
+            buildGSSAPIKeyExchangeUserAuthMIC(Buffer.from("session"), "user", "ssh-connection"),
+        ).toBeInstanceOf(Buffer)
         expect(KERBEROS_V5_GSSAPI_OID.toString("hex")).toBe("06092a864886f712010202")
         expect(TerminalMode.ECHO).toBe(53)
         expect(TerminalModes).toBe(TerminalMode)
@@ -153,6 +172,8 @@ describe("package exports", () => {
         expect(entry.generateKeyPair).toBeFunction()
         expect(entry.generateKeyPairSync).toBeFunction()
         expect(entry.GSSAPIError).toBeFunction()
+        expect(entry.GSSAPI_KEYEX).toBe("gssapi-keyex")
+        expect(entry.buildGSSAPIKeyExchangeUserAuthMIC).toBeFunction()
         expect(entry.KERBEROS_V5_GSSAPI_OID).toBeInstanceOf(Buffer)
         expect(entry.KnownHosts).toBeFunction()
         expect(entry.parseKeys).toBeFunction()

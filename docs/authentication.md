@@ -1,8 +1,9 @@
 # User authentication
 
 `modernssh` implements the RFC 4252 `none`, public-key, host-based, and password methods, RFC 4256
-`keyboard-interactive` authentication, and RFC 4462 `gssapi-with-mic` authentication. The client
-uses the configured order, but only attempts methods that the server advertises. When a factor
+`keyboard-interactive` authentication, and RFC 4462 `gssapi-with-mic` and `gssapi-keyex`
+authentication. The client uses the configured order, but only attempts methods that the server
+advertises. When a factor
 returns partial success, selection starts a new stage using the server's new continuation list;
 this supports multi-factor policies without hard-coding a particular sequence.
 
@@ -160,6 +161,23 @@ const kerberosMechanism: GSSAPIClientMechanism = {
             close: () => mechanismContext.close(),
         }
     },
+    async createKeyExchangeContext(options) {
+        const mechanismContext = await kerberosProvider.initiate({
+            target: `${options.service}@${options.hostname}`,
+            delegateCredentials: options.delegateCredentials,
+            anonymous: options.anonymous,
+            mutualAuthentication: options.mutualAuthentication,
+            integrity: options.integrity,
+            replayDetection: options.replayDetection,
+            sequenceDetection: options.sequenceDetection,
+        })
+        return {
+            step: (inputToken) => mechanismContext.step(inputToken),
+            verifyMIC: (message, mic) => mechanismContext.verifyMIC(message, mic),
+            getMIC: (message) => mechanismContext.getMIC(message),
+            close: () => mechanismContext.close(),
+        }
+    },
 }
 
 const client = new Client({
@@ -174,15 +192,32 @@ const client = new Client({
 })
 ```
 
-`createContext`, `step`, `getMIC`, and `close` may return either direct values or promises. A
+An adapter may provide `createContext` for `gssapi-with-mic`, `createKeyExchangeContext` for
+GSS-API key exchange, or both. At least one is required. These factories and `step`, `getMIC`,
+`verifyMIC`, and `close` may return either direct values or promises. A
 completed `step` must state whether per-message integrity is available. When it is available, the
 client sends a MIC over the exact session identifier, username, service, and method fields. Without
 integrity, it sends the RFC exchange-complete message instead. Any final output token is always sent
 before that acknowledgement.
 
+Providing `createKeyExchangeContext` also offers the RFC 8732 GSS-API key-exchange families for
+that mechanism. Their SSH names are derived from the mechanism OID. Context establishment requests
+mutual authentication and integrity while disabling replay and sequence detection, as required by
+the protocol. The server's MIC authenticates the complete key-exchange transcript before the
+client accepts the host key or installs transport keys.
+
+For the initial exchange, the client normally requests a non-anonymous context and retains it long
+enough to attempt RFC 4462 `gssapi-keyex` authentication. That authentication sends a MIC over the
+session identifier, username, and requested service without establishing a second context. Set
+`gssapiKeyExchangeAuthentication: false`, or omit `GSSAPIKeyExchange` from an explicit
+`authenticationMethodsOrder`, when the mechanism context must be anonymous or must not be retained.
+Contexts created during rekeying are never retained for user authentication.
+
 Server adapters expose the authenticated mechanism identity and optional delegated credentials only
-after context establishment and MIC verification. Authorization remains an awaited, deny-by-default
-application decision:
+after context establishment and MIC verification. A key-exchange server context supplies `getMIC`
+for the transport transcript and, if `gssapi-keyex` authentication is supported, `verifyMIC` plus a
+completed step containing `peerIdentity`. Both authentication methods use the same awaited,
+deny-by-default application decision:
 
 ```ts
 const server = new Server({
@@ -204,7 +239,8 @@ Credential delegation is disabled by default and should be enabled only when the
 trusted to act with the delegated identity. Mechanism contexts are closed after success, rejection,
 abandonment, or failure. Throw `GSSAPIError` from an adapter to attach RFC major/minor status and an
 optional mechanism error token. The client reports peer status through the synchronous
-`gssapiError` observation event; perform asynchronous follow-up outside the EventEmitter handler.
+`gssapiError` or `gssapiKeyExchangeError` observation event; perform asynchronous follow-up outside
+the EventEmitter handler.
 
 RSA identities use RFC 8332 SHA-2 signatures by preference: `rsa-sha2-512`, then
 `rsa-sha2-256`. The public key blob remains in the `ssh-rsa` format. When a server supplies the RFC

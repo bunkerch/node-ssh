@@ -228,6 +228,22 @@ interval `1 < e,f < p-1`; shared secrets at either endpoint are rejected as well
 preferred fixed finite-field method under RFC 9142, while groups 15, 17, and 18 remain available
 after it for peers with different policy.
 
+RFC 8732 GSS-API key exchange is enabled when a configured mechanism adapter supplies
+`createKeyExchangeContext`. The library derives each method's suffix from the complete DER-encoded
+mechanism OID and offers the Curve25519, Curve448, NIST P-256/P-384/P-521, and fixed groups 14
+through 18 families with their specified SHA-2 hash. Context establishment may use any number of
+tokens. It must finish with mutual authentication and integrity, after which the server's GSS-API
+MIC authenticates the exchange hash before either peer installs keys. Mechanism contexts perform
+only token and MIC operations; the transport owns packet ordering, shared-secret calculation,
+exchange-hash construction, and cleanup.
+
+The server normally sends its host key during GSS-API key exchange. RFC 4462's `null` host-key
+algorithm may instead be configured explicitly for deployments whose GSS mechanism authenticates
+the server without an SSH host key. `null` must be the server's only configured host-key algorithm;
+it is never mixed into a normal host-key offer. In that mode there is no host-key value for
+`hostVerifier` to approve, so applications must treat the configured GSS mechanism and its target
+name as the server-authentication trust boundary.
+
 The RFC 6668 `hmac-sha2-256` and `hmac-sha2-512` integrity methods are available for both
 directions. Their full 32- and 64-byte outputs authenticate the RFC 4253 sequence number followed
 by the plaintext packet. The OpenSSH `hmac-sha2-256-etm@openssh.com`,

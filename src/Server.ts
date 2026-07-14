@@ -26,6 +26,7 @@ import {
     kex_algorithms,
     mac_algorithms,
     default_algorithm_names,
+    type KexAlgorithmFactory,
 } from "./algorithms.js"
 import {
     DEFAULT_REKEY_BYTES,
@@ -34,6 +35,7 @@ import {
     validateRekeyInterval,
 } from "./RekeyLimits.js"
 import { normalizeGSSAPIServerMechanisms, type GSSAPIServerMechanism } from "./GSSAPI.js"
+import { createGSSAPIKeyExchangeAlgorithms } from "./algorithms/kex/gssapi-key-exchange.js"
 
 export interface ServerOptions {
     protocolVersionExchange?: ProtocolVersionExchange
@@ -398,17 +400,28 @@ export default class Server extends EventEmitter<ServerEvents> {
         }
         validateRekeyBytes(this.options.rekeyBytes)
         validateRekeyInterval(this.options.rekeyInterval)
+        const gssapiKeyExchangeAlgorithms = createGSSAPIKeyExchangeAlgorithms(this.options.gssapi)
+        this.kexAlgorithms = new Map([...kex_algorithms, ...gssapiKeyExchangeAlgorithms])
         this.algorithmOffer = resolveServerAlgorithmOptions(
             this.options.algorithms,
             {
-                kex: [...kex_algorithms.keys()],
+                kex: [...this.kexAlgorithms.keys()],
                 serverHostKey: [...host_key_algorithms.keys()],
                 cipher: [...encryption_algorithms.keys()],
                 hmac: [...mac_algorithms.keys()],
                 compress: [...compression_algorithms.keys()],
             },
-            default_algorithm_names,
+            {
+                ...default_algorithm_names,
+                kex: [...gssapiKeyExchangeAlgorithms.keys(), ...default_algorithm_names.kex],
+            },
         )
+        if (
+            this.algorithmOffer.serverHostKey.includes("null") &&
+            this.algorithmOffer.serverHostKey.length !== 1
+        ) {
+            throw new TypeError("SSH server null host key must be the only advertised host key")
+        }
         this.server = net.createServer((socket) => void this.acceptSocket(socket))
         this.server.on("error", (error) => this.emit("error", error))
         this.server.on("listening", () => this.emit("listening"))
@@ -417,7 +430,7 @@ export default class Server extends EventEmitter<ServerEvents> {
             this.emit("close")
         })
 
-        if (this.options.hostKeys.length === 0) {
+        if (this.options.hostKeys.length === 0 && this.algorithmOffer.serverHostKey[0] !== "null") {
             console.warn(
                 "[node-ssh] No host key supplied. Generating a temporary Ed25519 host key.",
             )
@@ -433,6 +446,7 @@ export default class Server extends EventEmitter<ServerEvents> {
     server: net.Server
     clients = new Set<ServerClient>()
     readonly algorithmOffer: ResolvedAlgorithmOptions
+    readonly kexAlgorithms: ReadonlyMap<string, KexAlgorithmFactory>
     private readonly hostKeysReady: Promise<void>
 
     listen(port?: number, hostname?: string, backlog?: number): this

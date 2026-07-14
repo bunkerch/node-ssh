@@ -30,6 +30,7 @@ import {
     kex_algorithms,
     mac_algorithms,
     type HostKeyAlgorithm,
+    type KexAlgorithmFactory,
     type CompressionAlgorithm,
     default_algorithm_names,
 } from "./algorithms.js"
@@ -133,7 +134,16 @@ import PrivateKeyAgent from "./publickey/PrivateKeyAgent.js"
 import SSHAgent from "./publickey/SSHAgent.js"
 import { parseKey } from "./KeyParsing.js"
 import { encodeSSHUTF8 } from "./utils/SSHText.js"
-import { normalizeGSSAPIClientMechanisms, type GSSAPIClientMechanism } from "./GSSAPI.js"
+import {
+    closeGSSAPIContext,
+    buildGSSAPIKeyExchangeUserAuthMIC,
+    GSSAPIError,
+    normalizeGSSAPIClientMechanisms,
+    normalizeGSSAPIKeyExchangeContextStep,
+    normalizeGSSAPIToken,
+    type GSSAPIClientMechanism,
+    type GSSAPIKeyExchangeClientContext,
+} from "./GSSAPI.js"
 import type { UserAuthGSSAPIErrorData } from "./packets/UserAuthGSSAPI.js"
 import {
     AGENT_FORWARDING_EXTENSION,
@@ -146,6 +156,18 @@ import {
     validateRekeyBytes,
     validateRekeyInterval,
 } from "./RekeyLimits.js"
+import GSSAPIKeyExchange, {
+    createGSSAPIKeyExchangeAlgorithms,
+} from "./algorithms/kex/gssapi-key-exchange.js"
+import {
+    KexGSSAPIComplete,
+    KexGSSAPIContinue,
+    KexGSSAPIError,
+    KexGSSAPIHostKey,
+    KexGSSAPIInit,
+    type KexGSSAPIErrorData,
+} from "./packets/KexGSSAPI.js"
+import PacketEventQueue from "./utils/PacketEventQueue.js"
 
 export interface ClientHostbasedOptions {
     key: PrivateKey
@@ -153,6 +175,30 @@ export interface ClientHostbasedOptions {
     localUsername: string
     /** Signature algorithm; defaults to the strongest algorithm supported by the key. */
     algorithm?: string
+}
+
+function requireGSSAPIKeyExchangeToken(token: Buffer | undefined): Buffer {
+    if (!token) {
+        throw new KeyExchangeError("GSS-API context step did not produce a required token")
+    }
+    return normalizeGSSAPIToken(token)
+}
+
+function assertGSSAPIKeyExchangeClientContext(
+    context: unknown,
+): asserts context is GSSAPIKeyExchangeClientContext {
+    if (
+        typeof context !== "object" ||
+        context === null ||
+        typeof (context as { step?: unknown }).step !== "function" ||
+        typeof (context as { verifyMIC?: unknown }).verifyMIC !== "function" ||
+        ("getMIC" in context &&
+            context.getMIC !== undefined &&
+            typeof context.getMIC !== "function") ||
+        ("close" in context && context.close !== undefined && typeof context.close !== "function")
+    ) {
+        throw new TypeError("Invalid SSH client GSS-API key-exchange context")
+    }
 }
 
 export interface ClientOptions {
@@ -193,6 +239,8 @@ export interface ClientOptions {
     gssapi?: readonly GSSAPIClientMechanism[]
     /** Request credential delegation during RFC 4462 context establishment. */
     gssapiDelegateCredentials?: boolean
+    /** Retain an initial GSS-API key-exchange context for gssapi-keyex authentication. */
+    gssapiKeyExchangeAuthentication?: boolean
     protocolVersionExchange?: ProtocolVersionExchange
     serverClient?: boolean
     authenticationMethodsOrder?: SSHAuthenticationMethods[]
@@ -277,6 +325,8 @@ export interface ClientEvents {
     banner: [message: string, languageTag: string]
     /** Diagnostic status sent by the server during RFC 4462 context establishment. */
     gssapiError: [error: Readonly<UserAuthGSSAPIErrorData>]
+    /** Diagnostic status sent by the server during GSS-API key exchange. */
+    gssapiKeyExchangeError: [error: Readonly<KexGSSAPIErrorData>]
     /** Complete replacement set from the latest valid server EXT_INFO message. */
     serverExtensions: [extensions: readonly Readonly<SSHExtension>[]]
     "tcp connection": [
@@ -428,6 +478,7 @@ export default class Client extends EventEmitter<ClientEvents> {
         this.options.agentForward ??= false
         this.options.gssapi = normalizeGSSAPIClientMechanisms(this.options.gssapi ?? [])
         this.options.gssapiDelegateCredentials ??= false
+        this.options.gssapiKeyExchangeAuthentication ??= true
         if (typeof this.options.agent === "string") {
             this.options.agent = new SSHAgent(this.options.agent)
         }
@@ -484,7 +535,14 @@ export default class Client extends EventEmitter<ClientEvents> {
                 : ProtocolVersionExchange.fromIdent(this.options.ident)
         this.options.authenticationMethodsOrder ??= [
             SSHAuthenticationMethods.None,
-            ...(this.options.gssapi.length > 0 ? [SSHAuthenticationMethods.GSSAPIWithMIC] : []),
+            ...(this.options.gssapi.some(
+                (mechanism) => mechanism.createKeyExchangeContext !== undefined,
+            ) && this.options.gssapiKeyExchangeAuthentication
+                ? [SSHAuthenticationMethods.GSSAPIKeyExchange]
+                : []),
+            ...(this.options.gssapi.some((mechanism) => mechanism.createContext !== undefined)
+                ? [SSHAuthenticationMethods.GSSAPIWithMIC]
+                : []),
             SSHAuthenticationMethods.PublicKey,
             SSHAuthenticationMethods.Password,
             SSHAuthenticationMethods.Hostbased,
@@ -528,16 +586,21 @@ export default class Client extends EventEmitter<ClientEvents> {
                 )
             }
         }
+        const gssapiKeyExchangeAlgorithms = createGSSAPIKeyExchangeAlgorithms(this.options.gssapi)
+        this.kexAlgorithms = new Map([...kex_algorithms, ...gssapiKeyExchangeAlgorithms])
         this.algorithmOffer = resolveClientAlgorithmOptions(
             this.options.algorithms,
             {
-                kex: [...kex_algorithms.keys()],
+                kex: [...this.kexAlgorithms.keys()],
                 serverHostKey: [...host_key_algorithms.keys()],
                 cipher: [...encryption_algorithms.keys()],
                 hmac: [...mac_algorithms.keys()],
                 compress: [...compression_algorithms.keys()],
             },
-            default_algorithm_names,
+            {
+                ...default_algorithm_names,
+                kex: [...gssapiKeyExchangeAlgorithms.keys(), ...default_algorithm_names.kex],
+            },
         )
 
         setImmediate(() => {
@@ -574,6 +637,7 @@ export default class Client extends EventEmitter<ClientEvents> {
     private identificationParser = new IdentificationParser({ allowPreamble: true })
     private readonly greetingChunks: Buffer[] = []
     readonly algorithmOffer: ResolvedAlgorithmOptions
+    readonly kexAlgorithms: ReadonlyMap<string, KexAlgorithmFactory>
     private packetDecoder = new BinaryPacketDecoder()
     private packetEncoder = new BinaryPacketEncoder()
     private packetProcessingPaused = false
@@ -663,6 +727,7 @@ export default class Client extends EventEmitter<ClientEvents> {
     private discardNextGuessedKeyExchangePacket = false
     private readonly packetsQueuedDuringKeyExchange: Packet[] = []
     private readonly actionQueue = new ActionQueue()
+    private initialGSSAPIKeyExchangeContext?: GSSAPIKeyExchangeClientContext
 
     get serverHostKey(): Buffer | undefined {
         return this.negotiatedServerHostKey ? Buffer.from(this.negotiatedServerHostKey) : undefined
@@ -675,6 +740,26 @@ export default class Client extends EventEmitter<ClientEvents> {
     /** Whether the server advertised RFC 9987 agent forwarding version 0. */
     get rfc9987AgentForwarding(): boolean {
         return this.rfc9987AgentForwardingSupported
+    }
+
+    async createGSSAPIKeyExchangeAuthenticationMIC(
+        username: string,
+        service: string,
+    ): Promise<Buffer> {
+        const context = this.initialGSSAPIKeyExchangeContext
+        if (!context?.getMIC || !this.sessionID) {
+            throw new Error("No initial GSS-API key-exchange context is available")
+        }
+        const input = buildGSSAPIKeyExchangeUserAuthMIC(this.sessionID, username, service)
+        try {
+            return normalizeGSSAPIToken(
+                await context.getMIC(input),
+                "GSS-API key-exchange authentication MIC",
+            )
+        } finally {
+            this.initialGSSAPIKeyExchangeContext = undefined
+            await closeGSSAPIContext(context)
+        }
     }
 
     get serverExtensions(): readonly Readonly<SSHExtension>[] {
@@ -698,6 +783,9 @@ export default class Client extends EventEmitter<ClientEvents> {
     }
 
     private resetConnectionState(): void {
+        void this.closeInitialGSSAPIKeyExchangeContext().catch((error) =>
+            this.debug("Could not close the initial GSS-API key-exchange context:", error),
+        )
         this.peerDisconnect = undefined
         this.identificationParser = new IdentificationParser({ allowPreamble: true })
         this.greetingChunks.length = 0
@@ -770,6 +858,12 @@ export default class Client extends EventEmitter<ClientEvents> {
         this.discardNextGuessedKeyExchangePacket = false
         this.packetsQueuedDuringKeyExchange.length = 0
         this.actionQueue.actionQueues.clear()
+    }
+
+    private async closeInitialGSSAPIKeyExchangeContext(): Promise<void> {
+        const context = this.initialGSSAPIKeyExchangeContext
+        this.initialGSSAPIKeyExchangeContext = undefined
+        if (context) await closeGSSAPIContext(context)
     }
 
     debug(...message: unknown[]): void {
@@ -1284,6 +1378,147 @@ export default class Client extends EventEmitter<ClientEvents> {
         })
     }
 
+    private async performGSSAPIKeyExchange(
+        algorithm: GSSAPIKeyExchange,
+        serverKexInit: Buffer,
+        retainContext: boolean,
+    ): Promise<{
+        hostKey: Buffer
+        exchangeHash: Buffer
+        context?: GSSAPIKeyExchangeClientContext
+    }> {
+        const context = await algorithm.createClientContext({
+            hostname: this.options.hostname,
+            service: "host",
+            delegateCredentials: this.options.gssapiDelegateCredentials,
+            anonymous: !retainContext,
+            mutualAuthentication: true,
+            integrity: true,
+            replayDetection: false,
+            sequenceDetection: false,
+        })
+        assertGSSAPIKeyExchangeClientContext(context)
+        const packets = new PacketEventQueue(
+            this,
+            () => new KeyExchangeError("Connection closed during GSS-API key exchange"),
+        )
+        let hostKey: Buffer | undefined
+        let receivedContextMessage = false
+        let contextRetained = false
+        try {
+            algorithm.generateKeyPair("client")
+            let step = normalizeGSSAPIKeyExchangeContextStep(await context.step())
+            const initialToken = requireGSSAPIKeyExchangeToken(step.token)
+            this.expectInboundKeyExchange(
+                KexGSSAPIContinue.type,
+                KexGSSAPIComplete.type,
+                KexGSSAPIHostKey.type,
+                KexGSSAPIError.type,
+            )
+            this.sendPacket(
+                new KexGSSAPIInit(
+                    initialToken,
+                    algorithm.getPublicKey(),
+                    algorithm.exchangeValueEncoding,
+                ),
+            )
+
+            while (true) {
+                this.expectInboundKeyExchange(
+                    KexGSSAPIContinue.type,
+                    KexGSSAPIComplete.type,
+                    KexGSSAPIHostKey.type,
+                    KexGSSAPIError.type,
+                )
+                this.resumePacketProcessing()
+                const packet = await packets.next()
+                if (packet instanceof KexGSSAPIHostKey) {
+                    if (hostKey || receivedContextMessage) {
+                        throw new KeyExchangeError("Server sent an out-of-order GSS-API host key")
+                    }
+                    hostKey = Buffer.from(packet.hostKey)
+                    continue
+                }
+                if (packet instanceof KexGSSAPIError) {
+                    receivedContextMessage = true
+                    this.emit("gssapiKeyExchangeError", packet.data)
+                    continue
+                }
+                if (packet instanceof KexGSSAPIContinue) {
+                    receivedContextMessage = true
+                    if (step.complete) {
+                        throw new KeyExchangeError(
+                            "Server continued after the GSS-API client context completed",
+                        )
+                    }
+                    step = normalizeGSSAPIKeyExchangeContextStep(await context.step(packet.token))
+                    this.sendPacket(
+                        new KexGSSAPIContinue(requireGSSAPIKeyExchangeToken(step.token)),
+                    )
+                    continue
+                }
+                if (!(packet instanceof KexGSSAPIComplete)) {
+                    throw new KeyExchangeError("Unexpected packet during GSS-API key exchange")
+                }
+                receivedContextMessage = true
+                if (packet.token !== undefined) {
+                    if (step.complete) {
+                        throw new KeyExchangeError(
+                            "Server sent a final token after the GSS-API client context completed",
+                        )
+                    }
+                    step = normalizeGSSAPIKeyExchangeContextStep(await context.step(packet.token))
+                    if (step.token !== undefined) {
+                        throw new KeyExchangeError(
+                            "GSS-API client produced a token after processing the final server token",
+                        )
+                    }
+                }
+                if (!step.complete) {
+                    throw new KeyExchangeError(
+                        "Server completed key exchange before the GSS-API client context",
+                    )
+                }
+                if (!step.integrity || !step.mutualAuthentication) {
+                    throw new KeyExchangeError(
+                        "GSS-API key exchange requires integrity and mutual authentication",
+                    )
+                }
+                const authenticatedHostKey = hostKey ?? Buffer.alloc(0)
+                algorithm.setServerHostKey(authenticatedHostKey)
+                algorithm.computeSharedSecret(packet.publicKey)
+                const exchangeHash = algorithm.computeHClient(this, serverKexInit)
+                if (!(await context.verifyMIC(exchangeHash, packet.mic))) {
+                    throw new KeyExchangeError("Invalid GSS-API key-exchange MIC")
+                }
+                if (retainContext) {
+                    if (!context.getMIC) {
+                        throw new KeyExchangeError(
+                            "GSS-API context cannot authenticate with gssapi-keyex",
+                        )
+                    }
+                    contextRetained = true
+                }
+                return {
+                    hostKey: authenticatedHostKey,
+                    exchangeHash,
+                    context: contextRetained ? context : undefined,
+                }
+            }
+        } catch (error) {
+            if (error instanceof GSSAPIError && error.token && this.socket?.writable) {
+                this.sendPacket(new KexGSSAPIContinue(error.token))
+            }
+            if (error instanceof KeyExchangeError) throw error
+            throw new KeyExchangeError(
+                error instanceof Error ? error.message : "GSS-API key exchange failed",
+            )
+        } finally {
+            packets.close()
+            if (!contextRetained) await closeGSSAPIContext(context)
+        }
+    }
+
     private async performKeyExchange(peerInitiated = false): Promise<void> {
         if (this.keyExchangeInProgress) {
             throw new Error("SSH key exchange is already in progress")
@@ -1323,8 +1558,21 @@ export default class Client extends EventEmitter<ClientEvents> {
             const kexAlgorithm = this.kexAlgorithm
             assert(kexAlgorithm, "No key exchange algorithm was negotiated")
             let hostKeyBlob: Buffer
-            let signatureBlob: Buffer
-            if (kexAlgorithm instanceof DiffieHellmanGroupExchange) {
+            let signatureBlob: Buffer | undefined
+            let h: Buffer | undefined
+            if (kexAlgorithm instanceof GSSAPIKeyExchange) {
+                const result = await this.performGSSAPIKeyExchange(
+                    kexAlgorithm,
+                    serverKexInitBuffer,
+                    !isRekey &&
+                        this.options.authenticationMethodsOrder.includes(
+                            SSHAuthenticationMethods.GSSAPIKeyExchange,
+                        ),
+                )
+                hostKeyBlob = result.hostKey
+                h = result.exchangeHash
+                this.initialGSSAPIKeyExchangeContext = result.context
+            } else if (kexAlgorithm instanceof DiffieHellmanGroupExchange) {
                 this.expectInboundKeyExchange(PacketNameToType.SSH_MSG_KEXDH_REPLY)
                 kexAlgorithm.setRequest(defaultGroupExchangeRequest)
                 this.sendPacket(new KexDHGexRequest(defaultGroupExchangeRequest))
@@ -1364,53 +1612,73 @@ export default class Client extends EventEmitter<ClientEvents> {
                 hostKeyBlob = reply.data.K_S
                 signatureBlob = reply.data.H_sig
             }
-            const hostKey = PublicKey.parse(hostKeyBlob)
-            assert(
-                hostKey.data.alg === this.hostKeyAlgorithm!.key_format,
-                "Server did not use the negotiated host key algorithm",
-            )
-            const signature = EncodedSignature.parse(signatureBlob)
-            assert(
-                signature.data.alg === this.hostKeyAlgorithm!.signature_algorithm,
-                "Server did not use the negotiated signature algorithm",
-            )
-            const h = kexAlgorithm.computeHClient(this, serverKexInitBuffer)
-            assert(hostKey.verifySignature(h, signature), "Invalid host key signature from server")
-
-            const certificateAlgorithm = hostKey.data.algorithm
-            if (certificateAlgorithm instanceof SSHCertificatePublicKey) {
-                const now = BigInt(Math.floor(Date.now() / 1000))
-                assert(certificateAlgorithm.data.role === "host", "Invalid host certificate role")
-                assert(
-                    now >= certificateAlgorithm.data.validAfter &&
-                        now < certificateAlgorithm.data.validBefore,
-                    "Host certificate is outside its validity interval",
-                )
-                assert(
-                    certificateAlgorithm.verifyCertificateSignature(),
-                    "Invalid host certificate authority signature",
-                )
-                assert(
-                    certificateAlgorithm.data.criticalOptions.length === 0,
-                    "Host certificate contains unsupported critical options",
-                )
-                assert(
-                    certificateAlgorithm.data.principals.length === 0 ||
-                        certificateAlgorithm.data.principals.some(
-                            (principal) =>
-                                principal.toLowerCase() === this.options.hostname.toLowerCase(),
-                        ),
-                    "Host certificate is not valid for the requested hostname",
-                )
+            if (!(kexAlgorithm instanceof GSSAPIKeyExchange)) {
+                h = kexAlgorithm.computeHClient(this, serverKexInitBuffer)
             }
+            assert(h, "Key exchange hash was not computed")
+            if (hostKeyBlob.length === 0) {
+                assert(
+                    kexAlgorithm instanceof GSSAPIKeyExchange &&
+                        this.hostKeyAlgorithm!.alg_name === "null",
+                    "Server omitted the negotiated host key",
+                )
+                this.negotiatedServerHostKey = undefined
+            } else {
+                const hostKey = PublicKey.parse(hostKeyBlob)
+                assert(
+                    hostKey.data.alg === this.hostKeyAlgorithm!.key_format,
+                    "Server did not use the negotiated host key algorithm",
+                )
+                if (signatureBlob !== undefined) {
+                    const signature = EncodedSignature.parse(signatureBlob)
+                    assert(
+                        signature.data.alg === this.hostKeyAlgorithm!.signature_algorithm,
+                        "Server did not use the negotiated signature algorithm",
+                    )
+                    assert(
+                        hostKey.verifySignature(h, signature),
+                        "Invalid host key signature from server",
+                    )
+                }
 
-            await this.verifyConfiguredHostKey(hostKeyBlob)
-            this.negotiatedServerHostKey = Buffer.from(hostKeyBlob)
+                const certificateAlgorithm = hostKey.data.algorithm
+                if (certificateAlgorithm instanceof SSHCertificatePublicKey) {
+                    const now = BigInt(Math.floor(Date.now() / 1000))
+                    assert(
+                        certificateAlgorithm.data.role === "host",
+                        "Invalid host certificate role",
+                    )
+                    assert(
+                        now >= certificateAlgorithm.data.validAfter &&
+                            now < certificateAlgorithm.data.validBefore,
+                        "Host certificate is outside its validity interval",
+                    )
+                    assert(
+                        certificateAlgorithm.verifyCertificateSignature(),
+                        "Invalid host certificate authority signature",
+                    )
+                    assert(
+                        certificateAlgorithm.data.criticalOptions.length === 0,
+                        "Host certificate contains unsupported critical options",
+                    )
+                    assert(
+                        certificateAlgorithm.data.principals.length === 0 ||
+                            certificateAlgorithm.data.principals.some(
+                                (principal) =>
+                                    principal.toLowerCase() === this.options.hostname.toLowerCase(),
+                            ),
+                        "Host certificate is not valid for the requested hostname",
+                    )
+                }
 
-            if (this.hooker.hasHooks("hostKey")) {
-                const controller: ClientHookerHostKeyController = { allowHostKey: false }
-                await this.hooker.triggerHook("hostKey", controller, hostKey)
-                if (!controller.allowHostKey) throw new Error("Host key not allowed by hook")
+                await this.verifyConfiguredHostKey(hostKeyBlob)
+                this.negotiatedServerHostKey = Buffer.from(hostKeyBlob)
+
+                if (this.hooker.hasHooks("hostKey")) {
+                    const controller: ClientHookerHostKeyController = { allowHostKey: false }
+                    await this.hooker.triggerHook("hostKey", controller, hostKey)
+                    if (!controller.allowHostKey) throw new Error("Host key not allowed by hook")
+                }
             }
 
             this.H = h
@@ -1564,6 +1832,9 @@ export default class Client extends EventEmitter<ClientEvents> {
                 this.remoteStreamLocalForwardings.clear()
                 this.x11Forwardings.clear()
                 this.agentForwardingEnabled = false
+                void this.closeInitialGSSAPIKeyExchangeContext().catch((error) =>
+                    this.debug("Could not close the initial GSS-API key-exchange context:", error),
+                )
                 this.emit("close")
                 if (!connected) reject(closeError)
             }
@@ -1718,6 +1989,7 @@ export default class Client extends EventEmitter<ClientEvents> {
             this.authenticationInProgress = false
         }
         this.hasAuthenticated = true
+        await this.closeInitialGSSAPIKeyExchangeContext()
 
         // we are connected and logged in
         // we can now open channels
@@ -1984,46 +2256,70 @@ export default class Client extends EventEmitter<ClientEvents> {
         }
         this.validateKeyExchangeMessageBoundary(packetType)
         this.validateHigherLayerPhase(packetType)
-        let packet: typeof Packet
+        let p: Packet
         if (
-            packetType === PacketNameToType.SSH_MSG_KEXDH_INIT &&
-            this.kexAlgorithm instanceof RSA2048SHA256
+            this.kexAlgorithm instanceof GSSAPIKeyExchange &&
+            packetType >= 31 &&
+            packetType <= 34
         ) {
-            packet = KexRSAPublicKey
-        } else if (
-            packetType === PacketNameToType.SSH_MSG_KEX_DH_GEX_INIT &&
-            this.kexAlgorithm instanceof RSA2048SHA256
-        ) {
-            packet = KexRSADone
-        } else if (
-            packetType === PacketNameToType.SSH_MSG_KEXDH_REPLY &&
-            this.kexAlgorithm instanceof DiffieHellmanGroupExchange
-        ) {
-            packet = KexDHGexGroup
-        } else if (packetType === PacketNameToType.SSH_MSG_USERAUTH_PK_OK) {
-            switch (this.activeAuthenticationMethod) {
-                case SSHAuthenticationMethods.GSSAPIWithMIC:
-                    packet = UserAuthGSSAPIResponse
-                    break
-                case SSHAuthenticationMethods.Password:
-                    packet = UserAuthPasswordChangeRequest
-                    break
-                case SSHAuthenticationMethods.KeyboardInteractive:
-                    packet = UserAuthInfoRequest
-                    break
-                default:
-                    packet = UserAuthPKOK
+            if (packetType === KexGSSAPIContinue.type) {
+                p = KexGSSAPIContinue.parse(payload)
+            } else if (packetType === KexGSSAPIComplete.type) {
+                p = KexGSSAPIComplete.parse(payload, this.kexAlgorithm.exchangeValueEncoding)
+            } else if (packetType === KexGSSAPIHostKey.type) {
+                p = KexGSSAPIHostKey.parse(payload)
+            } else {
+                p = KexGSSAPIError.parse(payload)
             }
-        } else if (
-            packetType === PacketNameToType.SSH_MSG_USERAUTH_INFO_RESPONSE &&
-            this.activeAuthenticationMethod === SSHAuthenticationMethods.GSSAPIWithMIC
-        ) {
-            packet = UserAuthGSSAPIToken
         } else {
-            packet = packets[packetName as keyof typeof packets]
+            let packet: typeof Packet
+            if (
+                packetType === PacketNameToType.SSH_MSG_KEXDH_INIT &&
+                this.kexAlgorithm instanceof RSA2048SHA256
+            ) {
+                packet = KexRSAPublicKey
+            } else if (
+                packetType === PacketNameToType.SSH_MSG_KEX_DH_GEX_INIT &&
+                this.kexAlgorithm instanceof RSA2048SHA256
+            ) {
+                packet = KexRSADone
+            } else if (
+                packetType === PacketNameToType.SSH_MSG_KEXDH_REPLY &&
+                this.kexAlgorithm instanceof DiffieHellmanGroupExchange
+            ) {
+                packet = KexDHGexGroup
+            } else if (packetType === PacketNameToType.SSH_MSG_USERAUTH_PK_OK) {
+                switch (this.activeAuthenticationMethod) {
+                    case SSHAuthenticationMethods.GSSAPIWithMIC:
+                        packet = UserAuthGSSAPIResponse
+                        break
+                    case SSHAuthenticationMethods.Password:
+                        packet = UserAuthPasswordChangeRequest
+                        break
+                    case SSHAuthenticationMethods.KeyboardInteractive:
+                        packet = UserAuthInfoRequest
+                        break
+                    default:
+                        packet = UserAuthPKOK
+                }
+            } else if (
+                packetType === PacketNameToType.SSH_MSG_USERAUTH_INFO_RESPONSE &&
+                this.activeAuthenticationMethod === SSHAuthenticationMethods.GSSAPIWithMIC
+            ) {
+                packet = UserAuthGSSAPIToken
+            } else {
+                packet = packets[packetName as keyof typeof packets]
+            }
+            p = packet.parse(payload)
         }
-
-        const p = packet.parse(payload)
+        if (
+            p instanceof KexGSSAPIContinue ||
+            p instanceof KexGSSAPIComplete ||
+            p instanceof KexGSSAPIHostKey ||
+            p instanceof KexGSSAPIError
+        ) {
+            this.packetProcessingPaused = true
+        }
         if (p instanceof KexInit) this.#serverKexInitPayload = Buffer.from(payload)
         if (p instanceof KexInit) this.peerKexInitReceived = true
         this.debug("Parsing packet:", this.packetForDebug(p))
@@ -2047,7 +2343,10 @@ export default class Client extends EventEmitter<ClientEvents> {
             }
         }
         if (this.strictKeyExchange && this.strictInitialExchange) {
-            if (this.strictInitialPackets.has(packetType)) {
+            const repeatableGSSContinuation =
+                this.kexAlgorithm instanceof GSSAPIKeyExchange &&
+                packetType === KexGSSAPIContinue.type
+            if (!repeatableGSSContinuation && this.strictInitialPackets.has(packetType)) {
                 throw new KeyExchangeError("Received a duplicate packet during strict key exchange")
             }
             this.strictInitialPackets.add(packetType)
@@ -2069,7 +2368,7 @@ export default class Client extends EventEmitter<ClientEvents> {
         this.routeGlobalRequestReply(p)
         this.routeChannelPacket(p)
 
-        switch (packet.type) {
+        switch (packetType) {
             case PacketNameToType.SSH_MSG_DISCONNECT: {
                 const disconnect = p as Disconnect
                 this.peerDisconnect = peerDisconnectInfo(disconnect.data)
@@ -2182,7 +2481,9 @@ export default class Client extends EventEmitter<ClientEvents> {
                 break
 
             case PacketNameToType.SSH_MSG_KEXDH_REPLY:
-                if (p instanceof KexDHGexGroup) {
+                if (p instanceof KexGSSAPIContinue) {
+                    break
+                } else if (p instanceof KexDHGexGroup) {
                     this.emit("serverKexDHGexGroup", p)
                 } else {
                     this.packetProcessingPaused = true
@@ -2191,6 +2492,7 @@ export default class Client extends EventEmitter<ClientEvents> {
                 break
 
             case PacketNameToType.SSH_MSG_KEX_DH_GEX_REPLY:
+                if (p instanceof KexGSSAPIHostKey) break
                 if (!(this.kexAlgorithm instanceof DiffieHellmanGroupExchange)) {
                     throw new Error("Received a group-exchange reply for another key exchange")
                 }
@@ -2199,6 +2501,7 @@ export default class Client extends EventEmitter<ClientEvents> {
                 break
 
             case PacketNameToType.SSH_MSG_KEX_DH_GEX_INIT:
+                if (p instanceof KexGSSAPIComplete) break
                 if (!(this.kexAlgorithm instanceof RSA2048SHA256)) {
                     throw new Error("Received RSA key-exchange completion for another key exchange")
                 }

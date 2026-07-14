@@ -72,7 +72,9 @@ export default class GSSAPIWithMICAuthMethod implements AuthMethod {
     }
 
     static async handleAuthentication(client: Client): Promise<boolean> {
-        const mechanisms = client.options.gssapi
+        const mechanisms = client.options.gssapi.filter(
+            (mechanism) => mechanism.createContext !== undefined,
+        )
         if (mechanisms.length === 0) return false
 
         // Imported only when authentication starts so this method module remains safe to
@@ -100,7 +102,9 @@ export default class GSSAPIWithMICAuthMethod implements AuthMethod {
             if (response instanceof UserAuthFailure) return false
             if (!(response instanceof UserAuthGSSAPIResponse)) return false
             const mechanism = mechanisms.find(({ oid }) => oid.equals(response.oid))
-            if (!mechanism) throw new Error("SSH server selected an unoffered GSS-API mechanism")
+            if (!mechanism?.createContext) {
+                throw new Error("SSH server selected an unoffered GSS-API mechanism")
+            }
 
             context = await mechanism.createContext(
                 Object.freeze({

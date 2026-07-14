@@ -34,8 +34,10 @@ export type {
 } from "./Client.js"
 export type { AgentForwardingProtocol } from "./AgentForwarding.js"
 export {
+    buildGSSAPIKeyExchangeUserAuthMIC,
     buildGSSAPIUserAuthMIC,
     GSSAPIError,
+    GSSAPI_KEYEX,
     GSSAPI_WITH_MIC,
     KERBEROS_V5_GSSAPI_OID,
     normalizeGSSAPIOID,
@@ -49,7 +51,12 @@ export type {
     GSSAPIServerContext,
     GSSAPIServerContextOptions,
     GSSAPIServerMechanism,
+    GSSAPIKeyExchangeClientContext,
+    GSSAPIKeyExchangeClientContextOptions,
+    GSSAPIKeyExchangeServerContext,
+    GSSAPIKeyExchangeServerContextOptions,
 } from "./GSSAPI.js"
+export type { KexGSSAPIErrorData as GSSAPIKeyExchangeErrorStatus } from "./packets/KexGSSAPI.js"
 export type { UserAuthGSSAPIErrorData as GSSAPIErrorStatus } from "./packets/UserAuthGSSAPI.js"
 export {
     default as SFTPClient,
