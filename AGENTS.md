@@ -117,6 +117,8 @@ meaningful wire-level behavior.
   wire bytes, not JavaScript UTF-16 ordering; reject duplicates while preserving opaque values.
 - Support the standard SSH certificate key types as explicit algorithms, including Ed448 and RSA
   SHA-2 certificate names, without adding draft-only names to interoperable default offers.
+- Exercise standard certificate types in both host and user authentication. Certificate request
+  names wrap the underlying signature name, and awaited policy still owns CA/principal trust.
 - Certificate user authentication pairs the issued public certificate with its underlying private
   key, negotiates certificate key names while encoding the underlying signature name, and verifies
   possession before awaited policy. Reject invalid CA signatures, non-user roles, and expired or

@@ -171,6 +171,11 @@ certificate identities directly. The certificate stays separate from private-key
 Malformed discovered public-key files are skipped and can be reported through the awaited
 `onInvalidPublicKey` option.
 
+Standard certificate key types are accepted when configured or supplied explicitly. This includes
+Ed448 user identities: the request advertises `ssh-ed448-cert`, signs with the underlying
+`ssh-ed448` algorithm, verifies possession before policy, and leaves CA and principal authorization
+to the awaited hook. Draft-only certificate names are not added to interoperable defaults.
+
 On the server, `context.certificate` contains the verified certificate when present. Before the
 awaited policy hook runs, the library checks its CA signature, user role, validity interval, and
 the request's possession signature. The hook must still trust the CA explicitly, authorize at

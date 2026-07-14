@@ -11,6 +11,7 @@ import PrivateKeyAgent from "../../src/publickey/PrivateKeyAgent.js"
 import PrivateKey from "../../src/utils/PrivateKey.js"
 import PublicKey from "../../src/utils/PublicKey.js"
 import EncodedSignature from "../../src/utils/Signature.js"
+import { serializeBuffer, serializeUint32, serializeUint64 } from "../../src/utils/Buffer.js"
 
 const execFileAsync = promisify(execFile)
 
@@ -46,6 +47,66 @@ describe("certificate user authentication", () => {
         try {
             await expect(client.connect()).rejects.toThrow("All authentication methods failed")
             expect(policyCalls).toBe(0)
+        } finally {
+            client.destroy()
+            for (const connection of server.clients) connection.terminate()
+            await new Promise<void>((resolve, reject) => {
+                server.server!.close((error) => (error ? reject(error) : resolve()))
+            })
+        }
+    })
+
+    test("authenticates a standard CA-signed Ed448 identity", async () => {
+        const serverHostKey = await PrivateKey.generate("ssh-ed25519")
+        const identity = await PrivateKey.generate("ssh-ed448")
+        const ca = await PrivateKey.generate("ssh-ed25519")
+        const certificateType = "ssh-ed448-cert"
+        const signed = Buffer.concat([
+            serializeBuffer(Buffer.from(certificateType)),
+            serializeBuffer(Buffer.alloc(32, 0x24)),
+            identity.data.publicKey.data.algorithm.serialize(),
+            serializeUint64(9n),
+            serializeUint32(1),
+            serializeBuffer(Buffer.from("standard-ed448-user")),
+            serializeBuffer(serializeBuffer(Buffer.from("alice"))),
+            serializeUint64(0n),
+            serializeUint64(0xffffffffffffffffn),
+            serializeBuffer(Buffer.alloc(0)),
+            serializeBuffer(Buffer.alloc(0)),
+            serializeBuffer(Buffer.alloc(0)),
+            serializeBuffer(ca.data.publicKey.serialize()),
+        ])
+        const certificate = PublicKey.parse(
+            Buffer.concat([signed, serializeBuffer(ca.sign(signed).serialize())]),
+        )
+        const server = new Server({ hostKeys: [serverHostKey], sendAllHostKeys: false })
+        let observedAlgorithm: string | undefined
+        server.hooker.hook("publicKeyAuthentication", async (_hook, context, decision) => {
+            await Promise.resolve()
+            observedAlgorithm = context.algorithm
+            decision.allowLogin =
+                context.username === "alice" &&
+                context.certificate?.data.signatureKey.equals(ca.data.publicKey) === true &&
+                context.certificate.data.principals.includes("alice")
+        })
+        server.listen({ host: "127.0.0.1", port: 0 })
+        await new Promise<void>((resolve) => server.server!.once("listening", resolve))
+
+        const client = new Client({
+            hostname: "127.0.0.1",
+            port: (server.server!.address() as AddressInfo).port,
+            username: "alice",
+            privateKey: identity,
+            certificate,
+            authenticationMethodsOrder: [SSHAuthenticationMethods.PublicKey],
+        })
+        client.hooker.hook("hostKey", async (_hook, decision) => {
+            decision.allowHostKey = true
+        })
+        try {
+            await client.connect()
+            expect(observedAlgorithm).toBe(certificateType)
+            expect(client.isConnected).toBe(true)
         } finally {
             client.destroy()
             for (const connection of server.clients) connection.terminate()
