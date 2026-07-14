@@ -79,6 +79,8 @@ meaningful wire-level behavior.
 - RSA constructors require canonical positive mpints, validate the public exponent, modulus/factor
   product, probable primes, CRT inverse, and private exponent congruence, and copy every retained
   component.
+- Signature envelopes strictly validate their SSH algorithm name, reject trailing fields, copy
+  caller-owned payload bytes, and revalidate mutable metadata at serialization.
 - RFC 8709 Ed448 uses exact 57-byte public keys and 114-byte signatures, remains explicit rather
   than default, and is validated with RFC 8032 vectors. Use the portable curve primitive for core
   operations so Bun tests remain meaningful; verify private seeds derive their claimed public keys,

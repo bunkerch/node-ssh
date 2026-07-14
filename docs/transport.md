@@ -271,6 +271,10 @@ the modulus, and verifies the CRT inverse and private exponent congruence before
 retained component. Later mutation of input buffers cannot change the serialized identity or signing
 key.
 
+`EncodedSignature` uses the same strict RFC 4250 algorithm-name codec on construction, parsing, and
+serialization. It rejects trailing fields, copies caller-owned signature bytes, and revalidates its
+intentionally mutable algorithm metadata before writing a wire envelope.
+
 RFC 8709 public keys have fixed widths: `ssh-ed25519` contains exactly 32 key octets and `ssh-ed448`
 contains exactly 57. Their signatures contain 64 and 114 octets respectively. Parsing rejects
 trailing fields and incorrect lengths, while verification rejects incorrect signature names or

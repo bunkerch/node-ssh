@@ -1,5 +1,6 @@
 import assert from "assert"
 import { readNextBuffer, serializeBuffer } from "./Buffer.js"
+import { decodeSSHName, encodeSSHName } from "./SSHName.js"
 
 export interface EncodedSignatureData {
     alg: string
@@ -8,13 +9,14 @@ export interface EncodedSignatureData {
 export default class EncodedSignature {
     data: EncodedSignatureData
     constructor(data: EncodedSignatureData) {
-        this.data = data
+        encodeSSHName(data.alg, "SSH signature algorithm")
+        this.data = { alg: data.alg, data: Buffer.from(data.data) }
     }
 
     serialize(): Buffer {
         const buffers = []
 
-        buffers.push(serializeBuffer(Buffer.from(this.data.alg, "utf8")))
+        buffers.push(serializeBuffer(encodeSSHName(this.data.alg, "SSH signature algorithm")))
         buffers.push(serializeBuffer(this.data.data))
 
         return Buffer.concat(buffers)
@@ -30,8 +32,8 @@ export default class EncodedSignature {
         assert(raw.length === 0)
 
         return new EncodedSignature({
-            alg: name.toString("utf8"),
-            data: data,
+            alg: decodeSSHName(name, "SSH signature algorithm"),
+            data,
         })
     }
 }
