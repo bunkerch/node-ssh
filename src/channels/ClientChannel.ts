@@ -26,7 +26,8 @@ type WriteCallback = (error?: Error | null) => void
 interface PendingWrite {
     data: Buffer
     offset: number
-    callback: WriteCallback
+    resolve: () => void
+    reject: (error: Error) => void
     atomic: boolean
 }
 
@@ -92,7 +93,7 @@ export default class ClientChannel extends Duplex {
     private openReject!: (error: Error) => void
     private readonly openPromise: Promise<void>
     private openSettled = false
-    private pendingWrite?: PendingWrite
+    private readonly pendingWrites: PendingWrite[] = []
     private readonly pendingRequests: PendingRequest[] = []
     private stdoutBlocked = false
     private stderrBlocked = false
@@ -280,7 +281,7 @@ export default class ClientChannel extends Duplex {
             throw new ProtocolError(`SSH channel ${this.localId} window adjustment exceeds uint32`)
         }
         this.remoteWindowSize += bytesToAdd
-        this.flushPendingWrite()
+        this.flushPendingWrites()
     }
 
     receiveData(data: Buffer): void {
@@ -433,16 +434,7 @@ export default class ClientChannel extends Duplex {
     }
 
     _write(data: Buffer | string, encoding: BufferEncoding, callback: WriteCallback): void {
-        if (!this.isOpen) {
-            callback(new Error(`SSH channel ${this.localId} is not open for writing`))
-            return
-        }
-        if (this.pendingWrite) {
-            callback(new Error(`SSH channel ${this.localId} already has a pending write`))
-            return
-        }
-
-        this.writeChannelData(Buffer.isBuffer(data) ? data : Buffer.from(data, encoding), callback)
+        void this.sendData(data, encoding).then(() => callback(), callback)
     }
 
     _final(callback: WriteCallback): void {
@@ -455,13 +447,9 @@ export default class ClientChannel extends Duplex {
             this.sendClose()
         }
         const closeError = error ?? this.transportCloseError
-        if (this.pendingWrite) {
-            const pending = this.pendingWrite
-            this.pendingWrite = undefined
-            pending.callback(
-                closeError ?? new Error(`SSH channel ${this.localId} closed during write`),
-            )
-        }
+        const writeError =
+            closeError ?? new Error(`SSH channel ${this.localId} closed during write`)
+        while (this.pendingWrites.length > 0) this.pendingWrites.shift()!.reject(writeError)
         while (this.pendingRequests.length > 0) {
             this.pendingRequests
                 .shift()!
@@ -472,25 +460,32 @@ export default class ClientChannel extends Duplex {
         callback(error)
     }
 
-    protected writeChannelData(data: Buffer, callback: WriteCallback, atomic = false): void {
+    /** Send channel data and resolve after SSH flow control permits every resulting packet. */
+    sendData(data: Buffer | string, encoding: BufferEncoding = "utf8"): Promise<void> {
+        return this.queueData(Buffer.isBuffer(data) ? data : Buffer.from(data, encoding), false)
+    }
+
+    protected sendAtomicData(data: Buffer): Promise<void> {
+        return this.queueData(data, true)
+    }
+
+    private queueData(data: Buffer, atomic: boolean): Promise<void> {
         if (!this.isOpen) {
-            callback(new Error(`SSH channel ${this.localId} is not open for writing`))
-            return
-        }
-        if (this.pendingWrite) {
-            callback(new Error(`SSH channel ${this.localId} already has a pending write`))
-            return
+            return Promise.reject(new Error(`SSH channel ${this.localId} is not open for writing`))
         }
         if (
             atomic &&
             (data.length > this.remoteMaximumPacketSize ||
                 data.length > DEFAULT_CHANNEL_PACKET_SIZE)
         ) {
-            callback(new Error(`SSH channel ${this.localId} atomic packet exceeds peer limits`))
-            return
+            return Promise.reject(
+                new Error(`SSH channel ${this.localId} atomic packet exceeds peer limits`),
+            )
         }
-        this.pendingWrite = { data: Buffer.from(data), offset: 0, callback, atomic }
-        this.flushPendingWrite()
+        return new Promise<void>((resolve, reject) => {
+            this.pendingWrites.push({ data: Buffer.from(data), offset: 0, resolve, reject, atomic })
+            this.flushPendingWrites()
+        })
     }
 
     private replyToRequest(packet: ChannelRequest, success: boolean): void {
@@ -537,39 +532,37 @@ export default class ClientChannel extends Duplex {
         )
     }
 
-    private flushPendingWrite(): void {
-        const pending = this.pendingWrite
-        if (!pending || this.remoteId === undefined) return
-
-        if (pending.atomic && this.remoteWindowSize < pending.data.length) return
-
-        while (
-            pending.offset < pending.data.length &&
-            this.remoteWindowSize > 0 &&
-            this.remoteMaximumPacketSize > 0
-        ) {
-            const length = pending.atomic
-                ? pending.data.length
-                : Math.min(
-                      pending.data.length - pending.offset,
-                      this.remoteWindowSize,
-                      this.remoteMaximumPacketSize,
-                      DEFAULT_CHANNEL_PACKET_SIZE,
-                  )
-            const data = pending.data.subarray(pending.offset, pending.offset + length)
-            this.client.sendPacket(
-                new ChannelData({
-                    recipient_channel_id: this.remoteId,
-                    data,
-                }),
-            )
-            pending.offset += length
-            this.remoteWindowSize -= length
-        }
-
-        if (pending.offset === pending.data.length) {
-            this.pendingWrite = undefined
-            pending.callback()
+    private flushPendingWrites(): void {
+        if (this.remoteId === undefined) return
+        while (this.pendingWrites.length > 0) {
+            const pending = this.pendingWrites[0]!
+            if (pending.atomic && this.remoteWindowSize < pending.data.length) return
+            while (
+                pending.offset < pending.data.length &&
+                this.remoteWindowSize > 0 &&
+                this.remoteMaximumPacketSize > 0
+            ) {
+                const length = pending.atomic
+                    ? pending.data.length
+                    : Math.min(
+                          pending.data.length - pending.offset,
+                          this.remoteWindowSize,
+                          this.remoteMaximumPacketSize,
+                          DEFAULT_CHANNEL_PACKET_SIZE,
+                      )
+                const data = pending.data.subarray(pending.offset, pending.offset + length)
+                this.client.sendPacket(
+                    new ChannelData({
+                        recipient_channel_id: this.remoteId,
+                        data,
+                    }),
+                )
+                pending.offset += length
+                this.remoteWindowSize -= length
+            }
+            if (pending.offset !== pending.data.length) return
+            this.pendingWrites.shift()
+            pending.resolve()
         }
     }
 

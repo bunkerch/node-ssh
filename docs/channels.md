@@ -62,6 +62,7 @@ await channel.requestPty({
 await channel.setEnv("LANG", "en_US.UTF-8")
 await channel.exec("top")
 
+await channel.sendData("help\n")
 await channel.setWindow({ columns: 160, rows: 50 })
 await channel.sendBreak(750)
 await channel.signal("SIGTERM")
@@ -74,6 +75,10 @@ or a `ReadonlyMap`; numeric opcodes remain accepted for future assignments in th
 range. The encoder validates every opcode and value and adds the required `TTY_OP_END` terminator.
 The server exposes received values through `SessionPtyInfo.modes` without discarding modes it does
 not recognize.
+
+Client channels remain ordinary Node.js duplex streams for piping. Use `await channel.sendData()`
+when subsequent protocol actions must follow fully flow-controlled stdin; concurrent calls are
+queued in call order, split at the peer's packet limit, and own a copy of Buffer input.
 
 Applications can also exchange private channel requests without bypassing channel state. Outbound
 requests are matched to success or failure replies in wire order; pass `false` as the third argument

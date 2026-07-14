@@ -55,16 +55,13 @@ export default class ClientTunnelChannel extends ClientChannel {
         encoding: BufferEncoding,
         callback: WriteCallback,
     ): void {
-        this.writeChannelData(
-            Buffer.isBuffer(data) ? data : Buffer.from(data, encoding),
+        void this.sendAtomicData(Buffer.isBuffer(data) ? data : Buffer.from(data, encoding)).then(
+            () => callback(),
             callback,
-            true,
         )
     }
 
     private sendPayload(payload: Buffer): Promise<void> {
-        return new Promise<void>((resolve, reject) => {
-            this.write(payload, (error) => (error ? reject(error) : resolve()))
-        })
+        return this.sendAtomicData(payload)
     }
 }

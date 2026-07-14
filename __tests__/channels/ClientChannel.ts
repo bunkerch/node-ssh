@@ -103,12 +103,12 @@ describe("ClientChannel", () => {
         channel.destroy()
     })
 
-    test("splits writes by packet and window limits, then resumes after window adjustment", async () => {
+    test("queues awaited sends across packet and window limits", async () => {
         const { channel, sent } = createChannel()
-        const writeFinished = new Promise<void>((resolve, reject) => {
-            channel.write(Buffer.from("abcdefgh"), (error) => (error ? reject(error) : resolve()))
-        })
-        await new Promise<void>((resolve) => setImmediate(resolve))
+        const input = Buffer.from("abcdefgh")
+        const first = channel.sendData(input)
+        const second = channel.sendData("ij")
+        input.fill(0)
 
         expect(
             sent
@@ -116,13 +116,13 @@ describe("ClientChannel", () => {
                 .map((packet) => packet.data.data.toString()),
         ).toEqual(["abc", "de"])
 
-        channel.receiveWindowAdjust(3)
-        await writeFinished
+        channel.receiveWindowAdjust(5)
+        await Promise.all([first, second])
         expect(
             sent
                 .filter((packet): packet is ChannelData => packet instanceof ChannelData)
                 .map((packet) => packet.data.data.toString()),
-        ).toEqual(["abc", "de", "fgh"])
+        ).toEqual(["abc", "de", "fgh", "ij"])
         channel.destroy()
     })
 

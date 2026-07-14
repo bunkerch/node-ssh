@@ -169,6 +169,7 @@ describe("package exports", () => {
 
     test("compiled declarations expose Promise-only completion APIs", async () => {
         const client = await readFile("dist/Client.d.ts", "utf8")
+        const clientChannel = await readFile("dist/channels/ClientChannel.d.ts", "utf8")
         const channel = await readFile("dist/Channel.d.ts", "utf8")
         const serverClient = await readFile("dist/ServerClient.d.ts", "utf8")
         const server = await readFile("dist/Server.d.ts", "utf8")
@@ -179,6 +180,7 @@ describe("package exports", () => {
         expect(client).not.toContain("ClientGlobalRequestCallback")
         expect(client).toContain("globalRequest(name: string, args?: Buffer): Promise<Buffer>")
         expect(client).toContain("exec(command: string, options?: ClientSessionOptions)")
+        expect(clientChannel).toContain("sendData(data: Buffer | string")
         expect(channel).toContain("sendData(data: Buffer): Promise<void>")
         expect(channel).toContain("sendExtendedData(dataType: number, data: Buffer): Promise<void>")
         expect(serverClient).not.toContain("ServerGlobalRequestCallback")
