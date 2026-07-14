@@ -2116,7 +2116,14 @@ export default class Client extends EventEmitter<ClientEvents> {
                         methodsRemaining,
                         partialSuccess: this.partialAuthenticationSuccess,
                     })
-                    await this.hooker.triggerHook("authenticationMethod", context, selection)
+                    const policyCompleted = await this.hooker.triggerHookChecked(
+                        "authenticationMethod",
+                        context,
+                        selection,
+                    )
+                    if (!policyCompleted) {
+                        throw new Error("Authentication method policy failed.")
+                    }
                 }
 
                 const method = selection.method

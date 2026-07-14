@@ -67,6 +67,187 @@ describe("RFC 4252 multi-method authentication", () => {
         }
     }, 15_000)
 
+    test("stops authentication when method selection policy fails", async () => {
+        const hostKey = await PrivateKey.generate("ssh-ed25519")
+        const server = new Server({ hostKeys: [hostKey], sendAllHostKeys: false })
+        let noneAttempts = 0
+        server.hooker.hook("noneAuthentication", (_hook, _context, decision) => {
+            noneAttempts++
+            decision.allowLogin = true
+        })
+        server.listen({ host: "127.0.0.1", port: 0 })
+        await once(server.server!, "listening")
+
+        const client = new Client({
+            hostname: "127.0.0.1",
+            port: (server.server!.address() as AddressInfo).port,
+            username: "failed-selection-policy",
+            authenticationMethodsOrder: [SSHAuthenticationMethods.None],
+        })
+        const hookErrors: Error[] = []
+        client.hooker.on("uncaughtException", (_event, error) => hookErrors.push(error))
+        client.hooker.hook("hostKey", (_hook, decision) => {
+            decision.allowHostKey = true
+        })
+        client.hooker.hook("authenticationMethod", (_hook, _context, decision) => {
+            decision.method = SSHAuthenticationMethods.None
+        })
+        client.hooker.hook("authenticationMethod", async () => {
+            await Promise.resolve()
+            throw new Error("authentication selector backend failed")
+        })
+
+        try {
+            await expect(client.connect()).rejects.toThrow("Authentication method policy failed")
+            expect(noneAttempts).toBe(0)
+            expect(hookErrors.map((error) => error.message)).toEqual([
+                "authentication selector backend failed",
+            ])
+        } finally {
+            client.destroy()
+            for (const connection of server.clients) connection.terminate()
+            await server.close()
+        }
+    }, 15_000)
+
+    test("does not send a password after a later credential hook failure", async () => {
+        const hostKey = await PrivateKey.generate("ssh-ed25519")
+        const server = new Server({ hostKeys: [hostKey], sendAllHostKeys: false })
+        let passwordAttempts = 0
+        server.hooker.hook("passwordAuthentication", (_hook, context, decision) => {
+            passwordAttempts++
+            decision.allowLogin = context.password === "secret"
+        })
+        server.listen({ host: "127.0.0.1", port: 0 })
+        await once(server.server!, "listening")
+
+        const client = new Client({
+            hostname: "127.0.0.1",
+            port: (server.server!.address() as AddressInfo).port,
+            username: "failed-password-policy",
+            authenticationMethodsOrder: [SSHAuthenticationMethods.Password],
+        })
+        const hookErrors: Error[] = []
+        client.hooker.on("uncaughtException", (_event, error) => hookErrors.push(error))
+        client.hooker.hook("hostKey", (_hook, decision) => {
+            decision.allowHostKey = true
+        })
+        client.hooker.hook("passwordAuth", (_hook, _context, decision) => {
+            decision.password = "secret"
+        })
+        client.hooker.hook("passwordAuth", async () => {
+            await Promise.resolve()
+            throw new Error("password provider backend failed")
+        })
+
+        try {
+            await expect(client.connect()).rejects.toThrow("All authentication methods failed")
+            expect(passwordAttempts).toBe(0)
+            expect(hookErrors.map((error) => error.message)).toEqual([
+                "password provider backend failed",
+            ])
+        } finally {
+            client.destroy()
+            for (const connection of server.clients) connection.terminate()
+            await server.close()
+        }
+    }, 15_000)
+
+    test("does not send challenge responses after a later credential hook failure", async () => {
+        const hostKey = await PrivateKey.generate("ssh-ed25519")
+        const server = new Server({ hostKeys: [hostKey], sendAllHostKeys: false })
+        const rounds: number[] = []
+        server.hooker.hook("keyboardInteractiveAuthentication", (_hook, context, decision) => {
+            rounds.push(context.round)
+            if (context.round === 0) {
+                decision.prompts = [{ prompt: "Code: ", echo: false }]
+            } else {
+                decision.allowLogin = context.responses?.[0] === "654321"
+            }
+        })
+        server.listen({ host: "127.0.0.1", port: 0 })
+        await once(server.server!, "listening")
+
+        const client = new Client({
+            hostname: "127.0.0.1",
+            port: (server.server!.address() as AddressInfo).port,
+            username: "failed-challenge-policy",
+            authenticationMethodsOrder: [SSHAuthenticationMethods.KeyboardInteractive],
+        })
+        const hookErrors: Error[] = []
+        client.hooker.on("uncaughtException", (_event, error) => hookErrors.push(error))
+        client.hooker.hook("hostKey", (_hook, decision) => {
+            decision.allowHostKey = true
+        })
+        client.hooker.hook("keyboardInteractive", (_hook, _context, decision) => {
+            decision.responses = ["654321"]
+        })
+        client.hooker.hook("keyboardInteractive", async () => {
+            await Promise.resolve()
+            throw new Error("challenge provider backend failed")
+        })
+
+        try {
+            await expect(client.connect()).rejects.toThrow("All authentication methods failed")
+            expect(rounds).toEqual([0])
+            expect(hookErrors.map((error) => error.message)).toEqual([
+                "challenge provider backend failed",
+            ])
+        } finally {
+            client.destroy()
+            for (const connection of server.clients) connection.terminate()
+            await server.close()
+        }
+    }, 15_000)
+
+    test("does not send a replacement password after a later credential hook failure", async () => {
+        const hostKey = await PrivateKey.generate("ssh-ed25519")
+        const server = new Server({ hostKeys: [hostKey], sendAllHostKeys: false })
+        const attempts: { password: string; newPassword?: string }[] = []
+        server.hooker.hook("passwordAuthentication", (_hook, context, decision) => {
+            attempts.push({ password: context.password, newPassword: context.newPassword })
+            if (context.newPassword === undefined) {
+                decision.requestPasswordChange = { prompt: "Choose a new password: " }
+            } else {
+                decision.allowLogin = true
+            }
+        })
+        server.listen({ host: "127.0.0.1", port: 0 })
+        await once(server.server!, "listening")
+
+        const client = new Client({
+            hostname: "127.0.0.1",
+            port: (server.server!.address() as AddressInfo).port,
+            username: "failed-password-change-policy",
+            password: "current-password",
+            authenticationMethodsOrder: [SSHAuthenticationMethods.Password],
+        })
+        const hookErrors: Error[] = []
+        client.hooker.on("uncaughtException", (_event, error) => hookErrors.push(error))
+        client.hooker.hook("hostKey", (_hook, decision) => {
+            decision.allowHostKey = true
+        })
+        client.hooker.hook("passwordChange", (_hook, _context, decision) => {
+            decision.newPassword = "replacement-password"
+        })
+        client.hooker.hook("passwordChange", async () => {
+            await Promise.resolve()
+            throw new Error("password change backend failed")
+        })
+
+        try {
+            await expect(client.connect()).rejects.toThrow("All authentication methods failed")
+            expect(attempts).toEqual([{ password: "current-password", newPassword: undefined }])
+            expect(hookErrors.map((error) => error.message)).toEqual([
+                "password change backend failed",
+            ])
+        } finally {
+            client.destroy()
+            for (const connection of server.clients) connection.terminate()
+            await server.close()
+        }
+    }, 15_000)
+
     test.each(["client", "server"] as const)(
         "rejects %s EXT_INFO outside the negotiated message position",
         async (sender) => {

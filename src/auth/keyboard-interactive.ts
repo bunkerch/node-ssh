@@ -78,7 +78,7 @@ export default class KeyboardInteractiveAuthMethod implements AuthMethod {
             if (!(answer instanceof UserAuthInfoRequest)) return false
 
             const controller: ClientHookerKeyboardInteractiveController = { responses: undefined }
-            await client.hooker.triggerHook(
+            const policyCompleted = await client.hooker.triggerHookChecked(
                 "keyboardInteractive",
                 Object.freeze({
                     username: client.options.username,
@@ -92,7 +92,7 @@ export default class KeyboardInteractiveAuthMethod implements AuthMethod {
                 }),
                 controller,
             )
-            if (!controller.responses) return false
+            if (!policyCompleted || !controller.responses) return false
             if (controller.responses.length !== answer.data.prompts.length) {
                 throw new Error("Keyboard-interactive response count does not match prompt count")
             }

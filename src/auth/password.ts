@@ -85,13 +85,13 @@ export default class PasswordAuthMethod implements AuthMethod {
         const controller: ClientHookerPasswordAuthController = {
             password: undefined,
         }
-        await client.hooker.triggerHook(
+        const policyCompleted = await client.hooker.triggerHookChecked(
             "passwordAuth",
             Object.freeze({ username: client.options.username! }),
             controller,
         )
         // no hook, or no password was provided by the user
-        if (controller.password === undefined) {
+        if (!policyCompleted || controller.password === undefined) {
             client.debug(
                 `[Authentication]`,
                 `[Password]`,
@@ -120,7 +120,7 @@ export default class PasswordAuthMethod implements AuthMethod {
             if (!(answer instanceof UserAuthPasswordChangeRequest)) return false
 
             const passwordChangeController = { newPassword: undefined as string | undefined }
-            await client.hooker.triggerHook(
+            const policyCompleted = await client.hooker.triggerHookChecked(
                 "passwordChange",
                 Object.freeze({
                     username: client.options.username,
@@ -129,7 +129,7 @@ export default class PasswordAuthMethod implements AuthMethod {
                 }),
                 passwordChangeController,
             )
-            if (passwordChangeController.newPassword === undefined) return false
+            if (!policyCompleted || passwordChangeController.newPassword === undefined) return false
             method.data.change_password = true
             method.data.newPassword = passwordChangeController.newPassword
         }

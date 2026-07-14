@@ -53,7 +53,9 @@ replace it with another configured method. The context contains immutable snapsh
 already attempted in this stage and the server's latest continuation list. After partial success,
 the attempted set is cleared and the hook runs for the new stage. A replacement must be configured,
 must not have failed in the current stage, and must appear in the continuation list when one is
-known. Set `decision.method` to `undefined` to stop authentication.
+known. Set `decision.method` to `undefined` to stop authentication. Every registered selector must
+complete without rejection; a contained selector failure stops authentication instead of retaining
+the default or an earlier replacement.
 
 ```ts
 client.hooker.hook("authenticationMethod", async (_hook, context, decision) => {
@@ -65,7 +67,10 @@ client.hooker.hook("authenticationMethod", async (_hook, context, decision) => {
 ```
 
 Method selection does not carry secrets. Configure keys through `privateKey` or `agent`, and supply
-interactive passwords and challenge responses through their dedicated awaited hooks.
+interactive passwords and challenge responses through their dedicated awaited hooks. Password,
+password-change, and keyboard-interactive values are used only when every handler for that request
+completes without rejection. A later contained failure discards an earlier credential value before
+it can be sent to the server.
 
 RFC 4252 banners are delivered independently of the active method:
 

@@ -298,6 +298,9 @@ method set and cause an earlier failed keyboard-interactive method to be retried
 factor. It also verifies the RFC authentication-limit disconnect packet, proves that `none` and
 partial success do not consume the failure ceiling, and holds an async policy hook past the server
 deadline to ensure its late approval cannot authenticate the connection.
+Separate encrypted client/server cases prove that contained later failures stop authentication
+method selection and discard earlier password, password-change, and keyboard-interactive values
+before those values cross the wire.
 
 Host-based authentication is exercised in both peer roles with real OpenSSH machine keys. OpenSSH
 signs a request with the isolated container's Ed25519 host key and the modern server authorizes its
