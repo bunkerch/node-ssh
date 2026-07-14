@@ -304,6 +304,9 @@ role, identifier, principals, validity interval, critical options, and extension
 64-bit values. Call `verifyCertificateSignature()` before using that metadata for authentication.
 The caller must also enforce the expected role, current time, accepted principal, trusted CA, and
 every critical option; parsing a valid CA signature alone is not an authorization decision.
+Certificate identifiers, principals, and option names use fatal UTF-8 decoding. Critical options
+and extensions must be strictly ordered by their exact encoded key bytes; duplicates and malformed
+text are rejected while option values remain opaque buffers for policy-specific interpretation.
 
 `DiskAgent` can receive a fixed passphrase or resolve one for each key path. A resolver is useful
 when the secret comes from an application credential store and should only be fetched when a

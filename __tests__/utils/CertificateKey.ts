@@ -3,11 +3,42 @@ import { mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
-import PublicKey, { SSHCertificatePublicKey } from "../../src/utils/PublicKey.js"
+import { serializeBuffer } from "../../src/utils/Buffer.js"
+import PublicKey, {
+    parseCertificateOptions,
+    SSHCertificatePublicKey,
+} from "../../src/utils/PublicKey.js"
 
 const execFileAsync = promisify(execFile)
 
 describe("certificate public keys", () => {
+    test("orders option names by their exact UTF-8 wire bytes", () => {
+        const lower = Buffer.from("\ue000")
+        const higher = Buffer.from("\u{10000}")
+        const pair = (name: Buffer) =>
+            Buffer.concat([serializeBuffer(name), serializeBuffer(Buffer.alloc(0))])
+        const ordered = Buffer.concat([pair(lower), pair(higher)])
+
+        expect(parseCertificateOptions(ordered).map(({ name }) => name)).toEqual([
+            "\ue000",
+            "\u{10000}",
+        ])
+        expect(() => parseCertificateOptions(Buffer.concat([pair(higher), pair(lower)]))).toThrow(
+            "not sorted",
+        )
+    })
+
+    test("rejects duplicate and malformed UTF-8 option names", () => {
+        const pair = (name: Buffer) =>
+            Buffer.concat([serializeBuffer(name), serializeBuffer(Buffer.alloc(0))])
+        const name = Buffer.from("force-command")
+
+        expect(() => parseCertificateOptions(Buffer.concat([pair(name), pair(name)]))).toThrow(
+            "not sorted",
+        )
+        expect(() => parseCertificateOptions(pair(Buffer.from([0xff])))).toThrow("Invalid UTF-8")
+    })
+
     test.each([
         ["ed25519", []],
         ["rsa", ["-b", "2048"]],

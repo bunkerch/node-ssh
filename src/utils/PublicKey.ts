@@ -456,9 +456,9 @@ function parseCertificatePrincipals(raw: Buffer): string[] {
     return principals
 }
 
-function parseCertificateOptions(raw: Buffer): SSHCertificateOption[] {
+export function parseCertificateOptions(raw: Buffer): SSHCertificateOption[] {
     const options: SSHCertificateOption[] = []
-    let previousName: string | undefined
+    let previousName: Buffer | undefined
     while (raw.length > 0) {
         let nameRaw: Buffer
         let data: Buffer
@@ -466,10 +466,10 @@ function parseCertificateOptions(raw: Buffer): SSHCertificateOption[] {
         ;[data, raw] = readNextBuffer(raw)
         const name = decodeUTF8(nameRaw, "certificate option name")
         assert(
-            previousName === undefined || previousName < name,
+            previousName === undefined || Buffer.compare(previousName, nameRaw) < 0,
             "Certificate options are not sorted",
         )
-        previousName = name
+        previousName = Buffer.from(nameRaw)
         options.push(Object.freeze({ name, data: Buffer.from(data) }))
     }
     return options

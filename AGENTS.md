@@ -113,6 +113,8 @@ meaningful wire-level behavior.
   as `bigint`, reject certificate CA keys and malformed option ordering, and verify the CA signature
   separately from application authorization. Callers must still enforce role, time, principals,
   trusted CA policy, and every critical option before accepting a certificate.
+- Certificate option and extension names are fatal UTF-8 and strictly increase by their encoded
+  wire bytes, not JavaScript UTF-16 ordering; reject duplicates while preserving opaque values.
 - Certificate user authentication pairs the issued public certificate with its underlying private
   key, negotiates certificate key names while encoding the underlying signature name, and verifies
   possession before awaited policy. Reject invalid CA signatures, non-user roles, and expired or
