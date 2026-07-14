@@ -187,6 +187,7 @@ export default class Channel {
             serverClient,
             request,
         )
+        if (!this.isOpen) return true
         if (controller.deny) {
             await Channel.prototype.handleChannelRequest.call(this, request)
             return true
@@ -207,7 +208,7 @@ export default class Channel {
             this.remoteId !== undefined,
             "handleChannelRequest was demanded, but remoteId was not set.",
         )
-        if (request.data.want_reply) {
+        if (request.data.want_reply && this.isOpen) {
             this.client.sendPacket(new ChannelFailure({ recipient_channel_id: this.remoteId }))
         }
     }

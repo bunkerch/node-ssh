@@ -106,6 +106,11 @@ hook. Its request packet is the fifth argument; set `handled = true` and set `su
 application work has completed. Unknown requests fail by default. One-way requests still invoke the
 hook but never receive a protocol reply.
 
+Request hooks are awaited before their decisions change channel state or produce application
+events. A peer CLOSE remains terminal and is acknowledged immediately even while a hook is pending;
+any decision that finishes after the channel closes is discarded. Pending writes and outbound
+request Promises reject on close instead of waiting for an application hook that may never settle.
+
 `sendBreak(duration)` implements RFC 4335 and waits for the server to confirm that it performed a
 terminal BREAK. The duration is an unsigned millisecond value; zero requests the device default.
 `break(duration)` is an equivalent short form. Servers commonly clamp nonzero requests to 500
@@ -254,6 +259,8 @@ The implementation follows RFC 4254 channel rules:
   stream consumers make room. A zero adjustment is a valid no-op; an adjustment that would raise
   the current window above `2^32 - 1` causes an RFC protocol-error disconnect.
 - Request success and failure replies are matched in request order.
+- A peer CLOSE promptly tears down the channel and settles pending operations. Late results from
+  request hooks cannot create session resources, emit request events, or send request replies.
 - `exit-status` and `exit-signal` requests are exposed through the `exit` event and channel fields.
   Exit signals retain `exitSignal`, `exitCoreDumped`, `exitErrorMessage`, and `exitLanguageTag`.
   These one-way results are accepted only once on a session channel; signal names, UTF-8 messages,

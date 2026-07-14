@@ -325,6 +325,7 @@ export default class ClientChannel extends Duplex {
             if (this.receivedEndOfWrite) return
             this.receivedEndOfWrite = true
             await this.hooker.triggerHook("endOfWrite")
+            if (!this.isOpen) return
             this.emit("endOfWrite")
             if (!this.writableEnded) this.end()
             return

@@ -189,6 +189,7 @@ export default class SessionChannel extends Channel {
             }
             if (!this.hasReceivedEndOfWrite) {
                 await this.hooker.triggerHook("endOfWrite")
+                if (!this.isOpen) return
                 this.events.emit("endOfWrite")
                 this.receiveEndOfWrite()
             }
@@ -206,6 +207,7 @@ export default class SessionChannel extends Channel {
                     success: false,
                 }
                 await this.hooker.triggerHook("agentForwardRequest", controller)
+                if (!this.isOpen) return
                 if (controller.success) {
                     ;(this.client as ServerClient)[authorizeAgentForwarding](protocol)
                     this.sendRequestSuccess(request)
@@ -220,6 +222,7 @@ export default class SessionChannel extends Channel {
                 const context = Object.freeze(SessionChannel.parseX11Request(request.data.args))
                 const controller: SessionChannelHookerX11RequestController = { success: false }
                 await this.hooker.triggerHook("x11Request", context, controller)
+                if (!this.isOpen) return
                 if (controller.success) {
                     this.x11 = context
                     ;(this.client as ServerClient).registerX11Forwarding(
@@ -238,6 +241,7 @@ export default class SessionChannel extends Channel {
                 const pty = Object.freeze(this.parsePtyRequest(request.data.args))
                 const controller: SessionChannelHookerPtyRequestController = { success: false }
                 await this.hooker.triggerHook("ptyRequest", pty, controller)
+                if (!this.isOpen) return
                 if (controller.success) {
                     this.pty = pty
                     this.sendRequestSuccess(request)
@@ -260,18 +264,11 @@ export default class SessionChannel extends Channel {
                 }
 
                 await this.hooker.triggerHook("envRequest", Object.freeze(context), controller)
+                if (!this.isOpen) return
 
                 if (controller.success) {
                     this.env.set(key, value)
-
-                    if (request.data.want_reply) {
-                        this.client.sendPacket(
-                            new ChannelSuccess({
-                                recipient_channel_id: this.remoteId!,
-                            }),
-                        )
-                    }
-
+                    this.sendRequestSuccess(request)
                     this.events.emit("env", key, value)
                     return
                 }
@@ -290,19 +287,12 @@ export default class SessionChannel extends Channel {
                     command: command,
                 }
                 await this.hooker.triggerHook("execRequest", Object.freeze(context), controller)
+                if (!this.isOpen) return
 
                 if (controller.success) {
                     this.consumed = true
                     const shell = this.activateShell()
-
-                    if (request.data.want_reply) {
-                        this.client.sendPacket(
-                            new ChannelSuccess({
-                                recipient_channel_id: this.remoteId!,
-                            }),
-                        )
-                    }
-
+                    this.sendRequestSuccess(request)
                     this.events.emit("exec", command, shell)
                     return
                 }
@@ -318,19 +308,12 @@ export default class SessionChannel extends Channel {
                     success: false,
                 }
                 await this.hooker.triggerHook("shellRequest", controller)
+                if (!this.isOpen) return
 
                 if (controller.success) {
                     this.consumed = true
                     const shell = this.activateShell()
-
-                    if (request.data.want_reply) {
-                        this.client.sendPacket(
-                            new ChannelSuccess({
-                                recipient_channel_id: this.remoteId!,
-                            }),
-                        )
-                    }
-
+                    this.sendRequestSuccess(request)
                     this.events.emit("shell", shell)
 
                     return
@@ -350,6 +333,7 @@ export default class SessionChannel extends Channel {
                     Object.freeze(context),
                     controller,
                 )
+                if (!this.isOpen) return
                 if (controller.success) {
                     if (controller.sftp && subsystem !== "sftp") {
                         throw new Error("SFTP options require the sftp subsystem")
@@ -387,6 +371,7 @@ export default class SessionChannel extends Channel {
                 assert(!request.data.want_reply, "SSH window-change must not request a reply")
                 const dimensions = Object.freeze(this.parseWindowChange(request.data.args))
                 await this.hooker.triggerHook("windowChange", dimensions)
+                if (!this.isOpen) return
                 this.events.emit("windowChange", dimensions)
                 return
             }
@@ -395,6 +380,7 @@ export default class SessionChannel extends Channel {
                 assert(this.consumed, "Cannot signal an SSH session before its program starts")
                 const signal = this.parseSignalRequest(request.data.args)
                 await this.hooker.triggerHook("signal", Object.freeze({ signal }))
+                if (!this.isOpen) return
                 this.events.emit("signal", signal)
                 return
             }
@@ -405,6 +391,7 @@ export default class SessionChannel extends Channel {
                 const context = Object.freeze({ duration })
                 const controller: SessionChannelHookerBreakRequestController = { success: false }
                 await this.hooker.triggerHook("breakRequest", context, controller)
+                if (!this.isOpen) return
                 if (controller.success) {
                     this.sendRequestSuccess(request)
                     this.events.emit("break", duration)
@@ -599,7 +586,7 @@ export default class SessionChannel extends Channel {
     }
 
     private sendRequestSuccess(request: ChannelRequest): void {
-        if (request.data.want_reply) {
+        if (request.data.want_reply && this.isOpen) {
             this.client.sendPacket(new ChannelSuccess({ recipient_channel_id: this.remoteId! }))
         }
     }
