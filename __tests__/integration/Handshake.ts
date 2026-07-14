@@ -18,6 +18,7 @@ import GlobalRequest from "../../src/packets/GlobalRequest.js"
 import PrivateKey from "../../src/utils/PrivateKey.js"
 import Packet from "../../src/packet.js"
 import Unimplemented from "../../src/packets/Unimplemented.js"
+import { serializeBuffer, serializeUint32 } from "../../src/utils/Buffer.js"
 
 class UnsupportedPacket {
     static type = 200
@@ -91,6 +92,11 @@ describe("client/server integration", () => {
         let configuredSession: SessionChannel | undefined
         let configuredShell: Shell | undefined
         const breakDurations: number[] = []
+        const runtimeControls: string[] = []
+        let resolveRuntimeControls: (() => void) | undefined
+        const runtimeControlsComplete = new Promise<void>((resolve) => {
+            resolveRuntimeControls = resolve
+        })
         const serverChannelRequests: string[] = []
         let resolveServerChannelNotification: (() => void) | undefined
         const serverChannelNotification = new Promise<void>((resolve) => {
@@ -157,6 +163,21 @@ describe("client/server integration", () => {
                     await Promise.resolve()
                     breakDurations.push(context.duration)
                     controller.success = context.duration === 750
+                })
+                channel.hooker.hook("windowChange", async (_hook, dimensions) => {
+                    await new Promise<void>((resolve) => setTimeout(resolve, 10))
+                    runtimeControls.push(`hook:window:${dimensions.columns}x${dimensions.rows}`)
+                })
+                channel.hooker.hook("signal", async (_hook, context) => {
+                    await Promise.resolve()
+                    runtimeControls.push(`hook:signal:${context.signal}`)
+                })
+                channel.events.on("windowChange", (dimensions) => {
+                    runtimeControls.push(`event:window:${dimensions.columns}x${dimensions.rows}`)
+                })
+                channel.events.on("signal", (signal) => {
+                    runtimeControls.push(`event:signal:${signal}`)
+                    resolveRuntimeControls?.()
                 })
                 channel.events.on("exec", (_command, shell) => {
                     configuredShell = shell
@@ -533,6 +554,32 @@ describe("client/server integration", () => {
             expect(breakDurations).toEqual([750])
             await expect(configured.sendBreak(4_000)).rejects.toThrow("request failed")
             expect(breakDurations).toEqual([750, 4_000])
+            await Promise.all([
+                configured.setWindow({ columns: 132, rows: 43 }),
+                configured.signal("SIGTERM"),
+            ])
+            await runtimeControlsComplete
+            expect(runtimeControls).toEqual([
+                "hook:window:132x43",
+                "event:window:132x43",
+                "hook:signal:TERM",
+                "event:signal:TERM",
+            ])
+            await expect(
+                configured.request("signal", serializeBuffer(Buffer.from("TERM", "ascii"))),
+            ).rejects.toThrow("request failed (signal)")
+            await expect(
+                configured.request(
+                    "window-change",
+                    Buffer.concat([
+                        serializeUint32(80),
+                        serializeUint32(24),
+                        serializeUint32(0),
+                        serializeUint32(0),
+                    ]),
+                ),
+            ).rejects.toThrow("request failed (window-change)")
+            expect(runtimeControls).toHaveLength(4)
             const xonXoff = new Promise<boolean>((resolve) => configured.once("xonXoff", resolve))
             expect(configuredShell!.setXonXoff(false)).toBe(configuredShell!)
             expect(await xonXoff).toBe(false)

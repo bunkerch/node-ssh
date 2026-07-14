@@ -185,6 +185,9 @@ meaningful wire-level behavior.
 - Use `Hooker` for application request and policy surfaces whose handlers may need asynchronous
   work. Await hooks before sending protocol success or failure; reserve `EventEmitter` for
   observation and stream-style notifications that do not control a reply.
+- Runtime session controls such as `window-change` and `signal` are one-way RFC notifications, but
+  adapters may still require ordered asynchronous work. Await their Hooker handlers before emitting
+  observation events or processing the next channel request, and reject an invalid reply request.
 - Generic channel requests use awaited, deny-by-default hooks and FIFO reply matching. Copy opaque
   request arguments before exposing them, invoke one-way notifications without replying, reject
   pending outbound requests when a channel closes, and suppress replies from handlers that finish

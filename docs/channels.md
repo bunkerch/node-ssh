@@ -191,9 +191,22 @@ remote EOF only ends stdin so the server can still finish its response.
 
 Session hooks also cover `ptyRequest`, `envRequest`, and `subsystemRequest`. Accepted values are
 available in `channel.pty` and `channel.env`; the corresponding `pty`, `env`, and `subsystem` events
-are emitted after acceptance. Runtime `windowChange` and `signal` notifications are exposed as
-events. PTY mode payloads are parsed and validated before a policy hook runs, and malformed setup
-requests that ask for a reply receive channel failure.
+are emitted after acceptance. Runtime `windowChange` and `signal` notifications first run ordered,
+awaited hooks and are then exposed as observation events:
+
+```ts
+channel.hooker.hook("windowChange", async (_hook, dimensions) => {
+    await pty.resize(dimensions.columns, dimensions.rows)
+})
+
+channel.hooker.hook("signal", async (_hook, { signal }) => {
+    await processController.signal(signal)
+})
+```
+
+These runtime controls are one-way notifications: conforming senders never request a reply. PTY
+mode payloads are parsed and validated before a policy hook runs, and malformed setup requests that
+ask for a reply receive channel failure.
 
 RFC 4335 BREAK is denied unless the session has started a program and an awaited `breakRequest`
 policy hook confirms that the operation was performed. The hook receives the requested duration

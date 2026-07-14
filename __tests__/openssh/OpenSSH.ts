@@ -2336,7 +2336,9 @@ describe("OpenSSH interoperability", () => {
             await expect(
                 breakSession.request("unknown-channel-request@example.test"),
             ).rejects.toThrow("request failed (unknown-channel-request@example.test)")
+            await breakSession.setWindow({ columns: 132, rows: 43 })
             await breakSession.sendBreak(750)
+            await breakSession.signal("USR1")
             await new Promise<void>((resolve) => breakSession.once("close", resolve))
 
             const sftp = await client.sftp()

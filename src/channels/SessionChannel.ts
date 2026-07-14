@@ -77,6 +77,9 @@ export interface SessionBreakRequestContext {
 export interface SessionChannelHookerBreakRequestController {
     success: boolean
 }
+export interface SessionSignalContext {
+    signal: string
+}
 // eslint-disable-next-line @typescript-eslint/consistent-type-definitions
 export type SessionChannelHooker = {
     breakRequest: [
@@ -95,6 +98,7 @@ export type SessionChannelHooker = {
         envRequestController: SessionChannelHookerEnvRequestController,
     ]
     shellRequest: [shellRequestController: SessionChannelHookerShellRequestController]
+    signal: [signalContext: Readonly<SessionSignalContext>]
     ptyRequest: [
         ptyRequestContext: Readonly<SessionPtyInfo>,
         ptyRequestController: SessionChannelHookerPtyRequestController,
@@ -103,6 +107,7 @@ export type SessionChannelHooker = {
         subsystemRequestContext: Readonly<SessionChannelHookerSubsystemRequestContext>,
         subsystemRequestController: SessionChannelHookerSubsystemRequestController,
     ]
+    windowChange: [dimensions: Readonly<SessionWindowDimensions>]
     x11Request: [
         x11RequestContext: Readonly<SessionX11Request>,
         x11RequestController: SessionChannelHookerX11RequestController,
@@ -340,13 +345,17 @@ export default class SessionChannel extends Channel {
                 break
             }
             case "window-change": {
+                assert(!request.data.want_reply, "SSH window-change must not request a reply")
                 const dimensions = Object.freeze(this.parseWindowChange(request.data.args))
+                await this.hooker.triggerHook("windowChange", dimensions)
                 this.events.emit("windowChange", dimensions)
                 return
             }
             case "signal": {
+                assert(!request.data.want_reply, "SSH signal request must not request a reply")
                 assert(this.consumed, "Cannot signal an SSH session before its program starts")
                 const signal = this.parseSignalRequest(request.data.args)
+                await this.hooker.triggerHook("signal", Object.freeze({ signal }))
                 this.events.emit("signal", signal)
                 return
             }
