@@ -199,7 +199,9 @@ meaningful wire-level behavior.
   so future and private-use assignments still produce a clean terminal disconnect.
 - Preserve all inbound RFC 4253 debug fields in an immutable semantic event. Copy outbound ignore
   bytes at the API boundary, keep ignore payloads semantically opaque, and queue both debug and
-  ignore messages across key exchange so they cannot violate strict-KEX ordering.
+  ignore messages across key exchange so they cannot violate strict-KEX ordering. Transport-level
+  messages must not disrupt service or multi-round authentication waits, and KEX completion events
+  must run only after outbound traffic has stopped targeting the exchange queue.
 - Publish inbound RFC 4253 disconnect metadata immutably before close in both roles. Reject every
   active packet wait and pending operation with the typed peer-disconnect error; clean socket closes
   without a protocol message retain contextual ordinary errors and must never leave setup hanging.

@@ -701,6 +701,8 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             while (this.packetsQueuedDuringKeyExchange.length > 0) {
                 this.writePacket(this.packetsQueuedDuringKeyExchange.shift()!)
             }
+            this.keyExchangeInProgress = false
+            this.strictInitialExchange = false
             this.emit("serverNewKeys")
             this.emit("handshake", describeNegotiatedAlgorithms(this))
             if (isRekey) this.emit("rekey")
@@ -742,7 +744,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         this.debug("Keys exchanged, encryption and MAC algorithms set up")
         this.debug("Starting authentication...")
 
-        const [serviceRequest] = (await this.waitEvent("packet")) as [ServiceRequest]
+        const serviceRequest = await this.waitForHigherLayerPacket()
         assert(serviceRequest instanceof ServiceRequest, "Invalid packet type")
         this.debug("Client requested service:", serviceRequest.data.service_name)
         assert(
@@ -1374,7 +1376,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                     authRequest = pendingAuthRequest
                     pendingAuthRequest = undefined
                 } else {
-                    const [packet] = await this.waitEvent("packet")
+                    const packet = await this.waitForHigherLayerPacket()
                     assert(packet instanceof UserAuthRequest, "Invalid packet type")
                     authRequest = packet
                 }
@@ -1640,7 +1642,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                                 prompts: controller.prompts,
                             })
                             this.sendPacket(request)
-                            const [packet] = await this.waitEvent("packet")
+                            const packet = await this.waitForHigherLayerPacket()
                             if (packet instanceof UserAuthRequest) {
                                 pendingAuthRequest = packet
                                 break keyboardInteractive
@@ -1685,6 +1687,12 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         event: event,
     ): Promise<ServerClientEvents[event]> {
         return new Promise((resolve, reject) => {
+            if (this.state === SocketState.Disconnected || this.socket.destroyed) {
+                reject(
+                    this.connectionClosedError(`SSH connection closed while waiting for ${event}`),
+                )
+                return
+            }
             const onError = (error: Error) => {
                 cleanup()
                 reject(error)
@@ -1710,6 +1718,21 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             this.once("error", onError)
             this.once("close", onClose)
         })
+    }
+
+    private async waitForHigherLayerPacket(): Promise<Packet> {
+        while (true) {
+            const [packet] = await this.waitEvent("packet")
+            const type = (packet.constructor as typeof Packet).type
+            if (
+                type <= PacketNameToType.SSH_MSG_DEBUG ||
+                type === PacketNameToType.SSH_MSG_EXT_INFO ||
+                (type >= PacketNameToType.SSH_MSG_KEXINIT && type < 50)
+            ) {
+                continue
+            }
+            return packet
+        }
     }
 
     sendPacket(packet: Packet): number {

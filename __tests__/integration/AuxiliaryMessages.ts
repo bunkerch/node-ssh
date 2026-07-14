@@ -5,8 +5,14 @@ import Server from "../../src/Server.js"
 import type ServerClient from "../../src/ServerClient.js"
 import type { ProtocolDebugMessage } from "../../src/packets/Debug.js"
 import PrivateKey from "../../src/utils/PrivateKey.js"
+import Debug from "../../src/packets/Debug.js"
+import Ignore from "../../src/packets/Ignore.js"
+import ServiceAccept from "../../src/packets/ServiceAccept.js"
 
-async function createConnectedPeers(): Promise<{
+async function createConnectedPeers(
+    configureClient?: (client: Client) => void,
+    configurePeer?: (peer: ServerClient) => void,
+): Promise<{
     server: Server
     peer: ServerClient
     client: Client
@@ -19,6 +25,7 @@ async function createConnectedPeers(): Promise<{
     let peer: ServerClient | undefined
     server.on("connection", (connection) => {
         peer = connection
+        configurePeer?.(connection)
     })
     server.listen({ host: "127.0.0.1", port: 0 })
     await new Promise<void>((resolve) => server.server!.once("listening", resolve))
@@ -32,6 +39,7 @@ async function createConnectedPeers(): Promise<{
     client.hooker.hook("hostKey", async (_hook, controller) => {
         controller.allowHostKey = true
     })
+    configureClient?.(client)
     await client.connect()
     return { server, peer: peer!, client }
 }
@@ -47,6 +55,66 @@ function nextDebug(emitter: Client | ServerClient): Promise<Readonly<ProtocolDeb
 }
 
 describe("RFC 4253 auxiliary transport messages", () => {
+    test("keeps transport messages transparent during service and authentication", async () => {
+        const diagnostics: Readonly<ProtocolDebugMessage>[] = []
+        const clientDiagnostics: Readonly<ProtocolDebugMessage>[] = []
+        const { server, client } = await createConnectedPeers(
+            (client) => {
+                client.on("protocolDebug", (message) => clientDiagnostics.push(message))
+                client.once("serverNewKeys", () => {
+                    client.sendPacket(new Ignore({ data: Buffer.from("before service") }))
+                    client.sendPacket(
+                        new Debug({
+                            always_display: false,
+                            message: "before service",
+                            language_tag: "",
+                        }),
+                    )
+                })
+                client.on("packet", (packet) => {
+                    if (!(packet instanceof ServiceAccept)) return
+                    client.sendPacket(new Ignore({ data: Buffer.from("before authentication") }))
+                    client.sendPacket(
+                        new Debug({
+                            always_display: true,
+                            message: "before authentication",
+                            language_tag: "en",
+                        }),
+                    )
+                })
+            },
+            (peer) => {
+                peer.on("protocolDebug", (message) => diagnostics.push(message))
+                peer.once("serverNewKeys", () => {
+                    peer.sendPacket(
+                        new Debug({
+                            always_display: false,
+                            message: "server exchange complete",
+                            language_tag: "",
+                        }),
+                    )
+                })
+            },
+        )
+
+        try {
+            expect(client.isConnected).toBe(true)
+            expect(diagnostics).toEqual([
+                { alwaysDisplay: false, message: "before service", languageTag: "" },
+                { alwaysDisplay: true, message: "before authentication", languageTag: "en" },
+            ])
+            expect(clientDiagnostics).toEqual([
+                {
+                    alwaysDisplay: false,
+                    message: "server exchange complete",
+                    languageTag: "",
+                },
+            ])
+        } finally {
+            await closePeers(server, client)
+        }
+    }, 15_000)
+
     test("exposes immutable debug metadata in both directions", async () => {
         const { server, peer, client } = await createConnectedPeers()
         try {

@@ -52,6 +52,9 @@ where to display it. `sendDebug(message, alwaysDisplay?, languageTag?)` sends th
 diagnostic, while `sendIgnore(data)` sends opaque traffic that the peer must ignore. Ignore data is
 copied when the call is made. Both auxiliary message types wait behind an active key exchange so
 strict key-exchange peers never receive them between `KEXINIT` and `NEWKEYS`.
+Inbound auxiliary traffic remains transparent to service negotiation and every authentication
+round. Completion events observe the exchange as complete, so packets sent from `handshake` or
+`rekey` handlers use the new outbound protection immediately rather than entering the old queue.
 
 ```ts
 client.on("protocolDebug", ({ alwaysDisplay, message, languageTag }) => {

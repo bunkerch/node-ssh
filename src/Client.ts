@@ -1428,6 +1428,11 @@ export default class Client extends EventEmitter<ClientEvents> {
             }
             this.emit("clientNewKeys")
             if (!this.hasReceivedNewKeys) await this.waitEvent("serverNewKeys")
+            while (this.packetsQueuedDuringKeyExchange.length > 0) {
+                this.writePacket(this.packetsQueuedDuringKeyExchange.shift()!)
+            }
+            this.keyExchangeInProgress = false
+            this.strictInitialExchange = false
             this.emit("handshake", describeNegotiatedAlgorithms(this))
             if (isRekey) this.emit("rekey")
         } catch (error) {
