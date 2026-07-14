@@ -123,6 +123,7 @@ import PrivateKey from "./utils/PrivateKey.js"
 import { parseHostKeysProofResponse } from "./utils/HostKeysProof.js"
 import { ActionQueue } from "./utils/ActionQueue.js"
 import PrivateKeyAgent from "./publickey/PrivateKeyAgent.js"
+import SSHAgent from "./publickey/SSHAgent.js"
 import { parseKey } from "./KeyParsing.js"
 
 export interface ClientHostbasedOptions {
@@ -155,7 +156,8 @@ export interface ClientOptions {
     algorithms?: ClientAlgorithmOptions
     username?: string
     password?: string
-    agent?: Agent
+    /** Signing agent object, or a UNIX-domain agent socket path. */
+    agent?: Agent | string
     /** Private key object or encoded private-key container used for public-key authentication. */
     privateKey?: PrivateKey | string | Buffer
     /** Certificate public key paired with `privateKey` for certificate authentication. */
@@ -190,6 +192,7 @@ export interface ClientOptionsRequired
             | "privateKey"
             | "certificate"
             | "passphrase"
+            | "agent"
         >
     > {
     sock?: Duplex
@@ -203,6 +206,7 @@ export interface ClientOptionsRequired
     privateKey?: PrivateKey | string | Buffer
     certificate?: PublicKey | string | Buffer
     passphrase?: string | Buffer
+    agent: Agent
 }
 
 export type ClientHostVerifier = (
@@ -392,6 +396,9 @@ export default class Client extends EventEmitter<ClientEvents> {
         this.options.strictVendor ??= true
         this.options.username ??= "root"
         this.options.password ??= ""
+        if (typeof this.options.agent === "string") {
+            this.options.agent = new SSHAgent(this.options.agent)
+        }
         if (this.options.agent !== undefined && this.options.privateKey !== undefined) {
             throw new TypeError("SSH agent and privateKey options are mutually exclusive")
         }

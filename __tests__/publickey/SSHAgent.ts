@@ -4,6 +4,7 @@ import { createServer, type Socket } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
+import Client from "../../src/Client.js"
 import SSHAgent from "../../src/publickey/SSHAgent.js"
 
 const execFileAsync = promisify(execFile)
@@ -58,7 +59,10 @@ describe("SSHAgent", () => {
         await new Promise<void>((resolve) => server.once("listening", resolve))
 
         try {
-            const agent = new SSHAgent(socketPath)
+            const client = new Client({ agent: socketPath })
+            expect(client.options.agent).toBeInstanceOf(SSHAgent)
+            expect((client.options.agent as SSHAgent).socketPath).toBe(socketPath)
+            const agent = client.options.agent
             const identities = await agent.getPublicKeys()
             expect(identities).toHaveLength(1)
             const [id, publicKey] = identities[0]

@@ -286,18 +286,20 @@ to the root exports as its implementation and tests become library-ready.
 agent's public identities and delegates signatures without reading private key material.
 
 ```ts
-import { Client, SSHAgent } from "modernssh"
+import { Client } from "modernssh"
 
 const client = new Client({
     hostname: "ssh.example.com",
     username: "deploy",
-    agent: new SSHAgent(),
+    agent: process.env.SSH_AUTH_SOCK,
 })
 
 await client.connect()
 ```
 
-The implementation follows [RFC 9987](https://www.rfc-editor.org/rfc/rfc9987.html), bounds messages
+Passing a socket path is shorthand for constructing `new SSHAgent(path)`. Construct `SSHAgent`
+directly when its methods or socket metadata are also needed. The implementation follows
+[RFC 9987](https://www.rfc-editor.org/rfc/rfc9987.html), bounds messages
 to OpenSSH's 256 KiB limit, handles fragmented socket reads, and treats identity IDs as opaque
 values. `OnePasswordAgent` uses the same protocol while discovering 1Password's default socket and
 marks signing as interactive. Access to an agent socket normally grants the ability to request

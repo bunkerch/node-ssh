@@ -82,6 +82,10 @@ const client = new Client({
 already-loaded private keys should be attempted in order. It is non-interactive and signs entirely
 in memory; unlike a socket-backed agent, it cannot be forwarded to the remote host.
 
+`agent` may also be the UNIX-domain socket path of an RFC 9987 agent. The client normalizes that
+path to an `SSHAgent` during construction; omitting or passing an empty path does not implicitly
+enable `$SSH_AUTH_SOCK`.
+
 Keyboard-interactive may contain zero, one, or several prompts and may use several rounds. Supply
 exactly one response per prompt. The `echo` flag tells a user interface whether an answer may be
 displayed; mask the answer when the interface cannot honor the flag.

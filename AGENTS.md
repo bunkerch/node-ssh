@@ -56,6 +56,8 @@ meaningful wire-level behavior.
   design; validate it with independent fixed vectors and real OpenSSH peers.
 - The SSH agent client follows RFC 9987. Keep its framing bounded to OpenSSH's 256 KiB limit and
   validate it with fixed frames plus the system `ssh-agent`, never another JavaScript SSH library.
+  Client agent socket-path shorthand must normalize eagerly to the same `SSHAgent` implementation;
+  an omitted option must remain disabled instead of implicitly consulting the environment.
 - OpenSSH private-key encryption follows upstream `PROTOCOL.key`. Keep passphrase and derived-key
   buffers short-lived, validate authenticated modes before parsing plaintext, compare the public
   envelope with the private key, and exercise both decryption and serialization for every supported
