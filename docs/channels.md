@@ -136,13 +136,13 @@ when that disconnect arrives.
 
 OpenSSH-specific client APIs require a compatible OpenSSH server identification by default. Set
 `strictVendor: false` on `Client` only when a non-OpenSSH peer is known to implement these vendor
-requests correctly. The same gate applies to agent forwarding and stream-local forwarding.
+requests correctly. The same gate applies to the explicit compatibility form of agent forwarding
+and to stream-local forwarding.
 
 ## Agent forwarding
 
 Agent forwarding is disabled by default. Configure a forwardable `SSHAgent` or `OnePasswordAgent`.
-For a single manually opened session, request the OpenSSH-compatible forwarding extension before
-starting its program:
+For a single manually opened session, request forwarding before starting its program:
 
 ```ts
 import { Client, SSHAgent } from "modernssh"
@@ -151,9 +151,15 @@ const client = new Client({ hostname, username, agent: new SSHAgent() })
 await client.connect()
 
 const channel = await client.openSession()
-await channel.openssh_forwardAgent()
+await channel.forwardAgent()
 await channel.exec("ssh-add -L")
 ```
+
+`forwardAgent()` uses RFC 9987's `agent-req` request and accepts `agent-connect` channels when the
+server advertises exact version `0` of `agent-forward`. When the advertisement is absent, it safely
+falls back to the pre-standardization names for identified OpenSSH servers. Use
+`openssh_forwardAgent()` only when intentionally forcing that compatibility form; as with other
+vendor requests, `strictVendor: false` is required to force it for an unidentified peer.
 
 Set `agentForward: true` on the client to request forwarding automatically before every `exec()` or
 `shell()` program request. A session may override the connection default in either direction.
@@ -171,9 +177,10 @@ const forwarded = await client.exec("ssh-add -L")
 const isolated = await client.exec("deploy", { agentForward: false })
 ```
 
-After the server accepts the request, each `auth-agent@openssh.com` channel is connected directly
-to a fresh local agent socket. Incoming agent channels are rejected unless a session request has
-succeeded, and agents without a stream capability such as `DiskAgent` cannot be forwarded.
+After the server accepts the request, each `agent-connect` channel—or its compatibility form—is
+connected directly to a fresh local agent socket. Incoming agent channels are rejected unless a
+session request has succeeded, and agents without a stream capability such as `DiskAgent` cannot
+be forwarded.
 
 ## Protocol behavior
 
@@ -289,14 +296,16 @@ channel.hooker.hook("agentForwardRequest", (_hook, decision) => {
     decision.success = connection.credentials?.data.username === "deploy"
 })
 
-const agentChannel = await connection.openssh_forwardAgent()
+const agentChannel = await connection.forwardAgent()
 agentProtocolStream.pipe(agentChannel.stream).pipe(agentProtocolStream)
 ```
 
 The request creates a transitive trust relationship: the server can ask the user's agent to sign
 arbitrary supported data for the rest of the SSH connection. Only enable it for fully trusted
-servers and authenticated principals. The implementation uses RFC 9987's deployed OpenSSH request
-and channel names because peers generally do not yet advertise the standardized names via RFC 8308.
+servers and authenticated principals. A `modernssh` server advertises RFC 9987 version `0`, accepts
+both request forms, and opens the channel form corresponding to the accepted request. The explicit
+`connection.openssh_forwardAgent()` helper remains available when a server must force the
+pre-standardization channel name for a known compatibility peer.
 
 ## X11 forwarding
 

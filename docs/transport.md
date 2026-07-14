@@ -336,7 +336,13 @@ wrapped before the exchange completed, and resets each direction's implicit pack
 immediately after every NEWKEYS. These checks prevent unauthenticated transport messages from
 changing sequence state that survives into the protected connection.
 
-The server advertises version `0` of `ping@openssh.com` in its initial RFC 8308 extension message.
+The server advertises version `0` of `agent-forward` in its initial RFC 8308 extension message.
+Clients use the standardized RFC 9987 `agent-req` and `agent-connect` names only after receiving
+that exact value; a replacement extension message that omits it disables the capability. Without
+the advertisement, the public agent-forwarding API uses the pre-standardization compatibility
+names only for an identified supporting vendor.
+
+The server also advertises version `0` of `ping@openssh.com` in its initial extension message.
 Transport PING and PONG use opcodes 192 and 193 and carry one opaque SSH string; the response must
 copy that string exactly. Client `ping()` calls are matched in FIFO order, reject mismatched data,
 and are available only after the advertisement is received. Pings and replies created during a

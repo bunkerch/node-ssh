@@ -148,9 +148,10 @@ describe("RFC 4252 multi-method authentication", () => {
         try {
             await client.connect()
             expect(extensionSets).toEqual([
-                ["server-sig-algs", "ping@openssh.com"],
+                ["server-sig-algs", "ping@openssh.com", "agent-forward"],
                 ["authenticated@example.test"],
             ])
+            expect(client.rfc9987AgentForwarding).toBe(false)
             expect(client.serverExtensions).toEqual([
                 {
                     name: "authenticated@example.test",

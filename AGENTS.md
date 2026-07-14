@@ -73,7 +73,9 @@ meaningful wire-level behavior.
   an omitted option must remain disabled instead of implicitly consulting the environment.
 - Connection-wide agent forwarding remains opt-in, is applied before each high-level session
   program request, and may be explicitly disabled or enabled per session. It must still require a
-  forwardable agent and the normal vendor capability gate.
+  forwardable agent. Advertise exact RFC 9987 `agent-forward` version `0`; use `agent-req` and
+  `agent-connect` only after that advertisement, and use the pre-standardization names as a
+  vendor-gated fallback when it is absent. A replacement EXT_INFO set must clear stale support.
 - OpenSSH private-key encryption follows upstream `PROTOCOL.key`. Keep passphrase and derived-key
   buffers short-lived, validate authenticated modes before parsing plaintext, compare the public
   envelope with the private key, and exercise both decryption and serialization for every supported
@@ -507,7 +509,10 @@ meaningful wire-level behavior.
   with the fatal UTF-8 codec before authorization or lookup; never allow replacement decoding to
   change a peer-supplied policy key.
 - Agent forwarding requires a successful per-session request before accepting or opening agent
-  channels. Test both directions with a real OpenSSH agent and document its transitive trust risk.
+  channels. Await the deny-by-default policy, remember which request form it accepted, and use the
+  corresponding channel-open form. Test standardized negotiation with fixed bytes and in-process
+  peers, test compatibility fallback in both directions with a real OpenSSH agent, and document its
+  transitive trust risk.
 - X11 forwarding authorization is session-scoped. Enforce single-connection consumption, remove
   unused authorization when the session closes, and test OpenSSH cookie substitution end to end.
 - Scope remote-forwarding TCP and UNIX-socket listeners to the authenticated connection that

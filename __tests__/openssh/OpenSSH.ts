@@ -2907,7 +2907,8 @@ describe("OpenSSH interoperability", () => {
             const agentSession = await client.openSession()
             const agentOutput: Buffer[] = []
             agentSession.on("data", (data: Buffer) => agentOutput.push(data))
-            await agentSession.openssh_forwardAgent()
+            expect(client.rfc9987AgentForwarding).toBe(false)
+            await agentSession.forwardAgent()
             await agentSession.exec("ssh-add -L")
             await new Promise<void>((resolve) => agentSession.once("close", resolve))
             const forwardedKey = PublicKey.parseString(Buffer.concat(agentOutput).toString())

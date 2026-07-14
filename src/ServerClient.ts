@@ -146,6 +146,12 @@ import {
     UserAuthGSSAPIToken,
 } from "./packets/UserAuthGSSAPI.js"
 import PacketEventQueue from "./utils/PacketEventQueue.js"
+import {
+    AGENT_FORWARDING_EXTENSION,
+    AGENT_FORWARDING_EXTENSION_VERSION,
+    authorizeAgentForwarding,
+    type AgentForwardingProtocol,
+} from "./AgentForwarding.js"
 
 interface RemoteForwardListener {
     server: net.Server
@@ -239,6 +245,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             this.remoteStreamLocalListeners.clear()
             this.x11Forwardings.clear()
             this.agentForwardingEnabled = false
+            this.agentForwardingProtocol = undefined
             for (const channel of this.channels.values()) channel.abort(closeError)
             this.channels.clear()
             this.remoteChannelIds.clear()
@@ -327,6 +334,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     private readonly remoteStreamLocalListeners = new Map<string, RemoteForwardListener>()
     private readonly x11Forwardings = new Map<number, { single: boolean }>()
     agentForwardingEnabled = false
+    private agentForwardingProtocol?: AgentForwardingProtocol
     private noMoreSessionsRequested = false
     private authenticationExpired = false
     private authenticationInProgress = false
@@ -346,17 +354,35 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         return copySSHExtensions(this.negotiatedClientExtensions)
     }
 
+    [authorizeAgentForwarding](protocol: AgentForwardingProtocol): void {
+        this.agentForwardingEnabled = true
+        if (protocol === "rfc9987" || !this.agentForwardingProtocol) {
+            this.agentForwardingProtocol = protocol
+        }
+    }
+
     state = SocketState.Closed
     get isConnected(): boolean {
         return this.state === SocketState.Connected
     }
 
     async openssh_forwardAgent(): Promise<ForwardedAgentChannel> {
+        return this.openAgentChannel("legacy")
+    }
+
+    /** Open an agent channel using the form authorized by the client request. */
+    async forwardAgent(): Promise<ForwardedAgentChannel> {
+        return this.openAgentChannel(this.agentForwardingProtocol ?? "legacy")
+    }
+
+    private async openAgentChannel(
+        protocol: AgentForwardingProtocol,
+    ): Promise<ForwardedAgentChannel> {
         if (!this.isConnected) throw new Error("SSH connection is not open")
         if (!this.agentForwardingEnabled) {
             throw new Error("The SSH client has not authorized agent forwarding")
         }
-        const channel = new ForwardedAgentChannel(this)
+        const channel = new ForwardedAgentChannel(this, protocol)
         this.channels.set(channel.localId, channel)
         try {
             this.sendPacket(channel.getChannelOpenPacket())
@@ -713,6 +739,10 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                                 ),
                             },
                             { name: "ping@openssh.com", value: Buffer.from("0", "ascii") },
+                            {
+                                name: AGENT_FORWARDING_EXTENSION,
+                                value: AGENT_FORWARDING_EXTENSION_VERSION,
+                            },
                             ...(this.server.hooker.hasHooks("publicKeyAuthentication")
                                 ? [
                                       {

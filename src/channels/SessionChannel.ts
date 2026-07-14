@@ -17,6 +17,12 @@ import { normalizeSSHSignal } from "../utils/Signal.js"
 import SFTPServer, { SFTPServerOptions } from "../sftp/SFTPServer.js"
 import { decodeSSHName } from "../utils/SSHName.js"
 import { decodeSSHUTF8 } from "../utils/SSHText.js"
+import {
+    authorizeAgentForwarding,
+    LEGACY_AGENT_REQUEST,
+    RFC9987_AGENT_REQUEST,
+    type AgentForwardingProtocol,
+} from "../AgentForwarding.js"
 
 export interface SessionPtyInfo {
     term: string
@@ -184,15 +190,18 @@ export default class SessionChannel extends Channel {
         }
 
         switch (request.data.request_type) {
-            case "auth-agent-req@openssh.com": {
+            case RFC9987_AGENT_REQUEST:
+            case LEGACY_AGENT_REQUEST: {
                 assert(request.data.args.length === 0, "Agent forwarding request has trailing data")
                 this.assertNotConsumed()
+                const protocol: AgentForwardingProtocol =
+                    request.data.request_type === RFC9987_AGENT_REQUEST ? "rfc9987" : "legacy"
                 const controller: SessionChannelHookerAgentForwardRequestController = {
                     success: false,
                 }
                 await this.hooker.triggerHook("agentForwardRequest", controller)
                 if (controller.success) {
-                    ;(this.client as ServerClient).agentForwardingEnabled = true
+                    ;(this.client as ServerClient)[authorizeAgentForwarding](protocol)
                     this.sendRequestSuccess(request)
                     this.events.emit("agentForward")
                     return

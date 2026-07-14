@@ -136,6 +136,11 @@ import { encodeSSHUTF8 } from "./utils/SSHText.js"
 import { normalizeGSSAPIClientMechanisms, type GSSAPIClientMechanism } from "./GSSAPI.js"
 import type { UserAuthGSSAPIErrorData } from "./packets/UserAuthGSSAPI.js"
 import {
+    AGENT_FORWARDING_EXTENSION,
+    AGENT_FORWARDING_EXTENSION_VERSION,
+    RFC9987_AGENT_CHANNEL,
+} from "./AgentForwarding.js"
+import {
     DEFAULT_REKEY_BYTES,
     DEFAULT_REKEY_INTERVAL,
     validateRekeyBytes,
@@ -641,6 +646,7 @@ export default class Client extends EventEmitter<ClientEvents> {
     private readonly pendingGlobalRequests: PendingGlobalRequest[] = []
     private readonly pendingPings: PendingPing[] = []
     private transportPingSupported = false
+    private rfc9987AgentForwardingSupported = false
     private readonly remoteForwardings = new Map<string, RemoteForwarding>()
     private readonly remoteStreamLocalForwardings = new Set<string>()
     private readonly x11Forwardings = new Map<number, { single: boolean }>()
@@ -664,6 +670,11 @@ export default class Client extends EventEmitter<ClientEvents> {
 
     get hostboundPublicKeyAuthentication(): boolean {
         return this.hostboundAuthenticationSupported
+    }
+
+    /** Whether the server advertised RFC 9987 agent forwarding version 0. */
+    get rfc9987AgentForwarding(): boolean {
+        return this.rfc9987AgentForwardingSupported
     }
 
     get serverExtensions(): readonly Readonly<SSHExtension>[] {
@@ -745,6 +756,7 @@ export default class Client extends EventEmitter<ClientEvents> {
         this.pendingGlobalRequests.length = 0
         this.pendingPings.length = 0
         this.transportPingSupported = false
+        this.rfc9987AgentForwardingSupported = false
         this.remoteForwardings.clear()
         this.remoteStreamLocalForwardings.clear()
         this.x11Forwardings.clear()
@@ -979,7 +991,7 @@ export default class Client extends EventEmitter<ClientEvents> {
     ): Promise<void> {
         channel.allowHalfOpen = options.allowHalfOpen !== false
         if (options.agentForward ?? this.options.agentForward) {
-            await channel.openssh_forwardAgent()
+            await channel.forwardAgent()
         }
         for (const [name, value] of Object.entries(options.env ?? {})) {
             await channel.setEnv(name, value, false)
@@ -2316,6 +2328,7 @@ export default class Client extends EventEmitter<ClientEvents> {
         this.serverSignatureAlgorithms = undefined
         this.transportPingSupported = false
         this.hostboundAuthenticationSupported = false
+        this.rfc9987AgentForwardingSupported = false
 
         const signatureAlgorithms = extensions.find(({ name }) => name === "server-sig-algs")
         if (signatureAlgorithms) {
@@ -2331,6 +2344,9 @@ export default class Client extends EventEmitter<ClientEvents> {
         const hostbound = extensions.find(({ name }) => name === "publickey-hostbound@openssh.com")
         this.hostboundAuthenticationSupported =
             hostbound?.value.equals(Buffer.from("0", "ascii")) === true
+        const agentForwarding = extensions.find(({ name }) => name === AGENT_FORWARDING_EXTENSION)
+        this.rfc9987AgentForwardingSupported =
+            agentForwarding?.value.equals(AGENT_FORWARDING_EXTENSION_VERSION) === true
         this.emit("serverExtensions", this.serverExtensions)
     }
 
@@ -2568,7 +2584,10 @@ export default class Client extends EventEmitter<ClientEvents> {
             this.handleIncomingX11ChannelOpen(packet)
             return
         }
-        if (packet.data.channel_type === ClientAgentChannel.channelType) {
+        if (
+            packet.data.channel_type === ClientAgentChannel.channelType ||
+            packet.data.channel_type === RFC9987_AGENT_CHANNEL
+        ) {
             void this.handleIncomingAgentChannelOpen(packet)
             return
         }

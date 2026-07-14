@@ -1,8 +1,10 @@
 import { AddressInfo } from "node:net"
-import type { Duplex } from "node:stream"
+import { once } from "node:events"
+import { Duplex, PassThrough } from "node:stream"
 import Client from "../../src/Client.js"
 import { SSHAuthenticationMethods } from "../../src/constants.js"
 import Server from "../../src/Server.js"
+import type ServerClient from "../../src/ServerClient.js"
 import SessionChannel from "../../src/channels/SessionChannel.js"
 import Agent, { AgentType } from "../../src/publickey/Agent.js"
 import PrivateKey from "../../src/utils/PrivateKey.js"
@@ -24,6 +26,81 @@ const forwardableAgent: Agent<string> = {
 }
 
 describe("client agent-forwarding defaults", () => {
+    test("negotiates the RFC 9987 request and channel names", async () => {
+        const streams: Duplex[] = []
+        const agent: Agent<string> = {
+            type: AgentType.NonInteractive,
+            async getPublicKeys() {
+                return []
+            },
+            async getPublicKey() {
+                throw new Error("No fixture identity")
+            },
+            async sign() {
+                throw new Error("No fixture identity")
+            },
+            async getStream() {
+                const stream = new PassThrough()
+                streams.push(stream)
+                return stream
+            },
+        }
+        const server = new Server({
+            hostKeys: [await PrivateKey.generate("ssh-ed25519")],
+            sendAllHostKeys: false,
+        })
+        server.hooker.hook("noneAuthentication", (_hook, _context, decision) => {
+            decision.allowLogin = true
+        })
+        server.hooker.hook("channelOpenRequest", (_hook, channel, decision) => {
+            decision.allowOpen = channel instanceof SessionChannel
+        })
+        let connection: ServerClient | undefined
+        server.on("connection", (peer) => {
+            connection = peer
+            peer.on("channel", (channel) => {
+                if (!(channel instanceof SessionChannel)) return
+                channel.hooker.hook("agentForwardRequest", (_hook, decision) => {
+                    decision.success = true
+                })
+                channel.hooker.hook("execRequest", (_hook, _context, decision) => {
+                    decision.success = true
+                })
+            })
+        })
+        server.listen({ host: "127.0.0.1", port: 0 })
+        await once(server, "listening")
+
+        const client = new Client({
+            hostname: "127.0.0.1",
+            port: (server.address() as AddressInfo).port,
+            username: "rfc9987-forwarding",
+            agent,
+            authenticationMethodsOrder: [SSHAuthenticationMethods.None],
+        })
+        client.hooker.hook("hostKey", (_hook, decision) => {
+            decision.allowHostKey = true
+        })
+
+        try {
+            await client.connect()
+            expect(client.rfc9987AgentForwarding).toBe(true)
+            const session = await client.openSession()
+            await session.forwardAgent()
+            await session.exec("agent-forwarding")
+            const forwarded = await connection!.forwardAgent()
+            expect(forwarded.channel_type).toBe("agent-connect")
+            expect(streams).toHaveLength(1)
+            forwarded.close()
+            session.close()
+        } finally {
+            client.destroy()
+            for (const peer of server.clients) peer.terminate()
+            for (const stream of streams) stream.destroy()
+            await server.close()
+        }
+    }, 15_000)
+
     test("awaits the connection default before the program request and honors a session opt-out", async () => {
         const hostKey = await PrivateKey.generate("ssh-ed25519")
         const server = new Server({ hostKeys: [hostKey], sendAllHostKeys: false })
@@ -49,7 +126,7 @@ describe("client agent-forwarding defaults", () => {
             })
         })
         server.listen({ host: "127.0.0.1", port: 0 })
-        await new Promise<void>((resolve) => server.server!.once("listening", resolve))
+        await once(server.server!, "listening")
 
         const client = new Client({
             hostname: "127.0.0.1",
@@ -57,7 +134,6 @@ describe("client agent-forwarding defaults", () => {
             username: "forwarding-default",
             agent: forwardableAgent,
             agentForward: true,
-            strictVendor: false,
             authenticationMethodsOrder: [SSHAuthenticationMethods.None],
         })
         client.hooker.hook("hostKey", (_hook, decision) => {
@@ -78,7 +154,6 @@ describe("client agent-forwarding defaults", () => {
                 port: (server.server!.address() as AddressInfo).port,
                 username: "forwarding-opt-in",
                 agent: forwardableAgent,
-                strictVendor: false,
                 authenticationMethodsOrder: [SSHAuthenticationMethods.None],
             })
             optInClient.hooker.hook("hostKey", (_hook, decision) => {
@@ -98,9 +173,7 @@ describe("client agent-forwarding defaults", () => {
             client.destroy()
             optInClient?.destroy()
             for (const connection of server.clients) connection.terminate()
-            await new Promise<void>((resolve, reject) => {
-                server.server!.close((error) => (error ? reject(error) : resolve()))
-            })
+            await server.close()
         }
     }, 15_000)
 

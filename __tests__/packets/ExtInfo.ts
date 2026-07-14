@@ -5,6 +5,7 @@ const serverSignatureAlgorithms = Buffer.from(
         "000000187273612d736861322d3531322c7373682d65643235353139",
     "hex",
 )
+const agentForwarding = Buffer.from("07000000010000000d6167656e742d666f72776172640000000130", "hex")
 
 describe("RFC 8308 extension information vectors", () => {
     test("parses and serializes a fixed server-sig-algs message", () => {
@@ -29,6 +30,15 @@ describe("RFC 8308 extension information vectors", () => {
                     ],
                 }),
         ).toThrow("Duplicate SSH extension")
+    })
+
+    test("parses and serializes the fixed RFC 9987 agent-forward advertisement", () => {
+        const packet = ExtInfo.parse(agentForwarding)
+
+        expect(packet.data.extensions).toEqual([
+            { name: "agent-forward", value: Buffer.from("0", "ascii") },
+        ])
+        expect(packet.serialize()).toEqual(agentForwarding)
     })
 
     test("copies opaque extension values supplied by the caller", () => {

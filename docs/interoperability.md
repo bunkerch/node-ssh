@@ -21,8 +21,9 @@ establishes real TCP connections in both directions:
   leaving a channel pending. It also opens a second authenticated SSH connection through an
   OpenSSH `direct-tcpip` channel to validate supplied-duplex connection hopping. The OpenSSH client
   initiates key re-exchange against the modern server under a deliberately low byte limit.
-  The same test requests agent forwarding and runs `ssh-add -L` on OpenSSH to prove that the remote
-  process sees the modern client's local OpenSSH agent. It also requests X11 forwarding, connects
+  The same test uses the public agent-forwarding API without an RFC 9987 advertisement, then runs
+  `ssh-add -L` on OpenSSH to prove both safe compatibility-name fallback and that the remote process
+  sees the modern client's local OpenSSH agent. It also requests X11 forwarding, connects
   to the display allocated by sshd, and exchanges data through the resulting `x11` channel.
   A Node subprocess also uses the packaged `HTTPAgent` with `http.get()` to reach an HTTP endpoint
   through a forced `direct-tcpip` channel on the OpenSSH server.
@@ -46,8 +47,8 @@ Wire codecs are tested independently of OpenSSH with fixed byte strings derived 
 formats. The channel vector suites cover `direct-tcpip`, `forwarded-tcpip`, TCP forwarding global
 requests, all four OpenSSH stream-local forwarding messages, allocated-port responses, PTY and
 terminal modes, environment, window changes, signals, RFC 4254 `xon-xoff`, RFC 4335 BREAK,
-subsystems, agent forwarding requests and
-channel opens, X11 requests and channel opens, session exit status and signal metadata,
+subsystems, both RFC 9987 agent-forwarding request and channel-open name forms, X11 requests and
+channel opens, session exit status and signal metadata,
 `no-more-sessions@openssh.com`, window adjustment,
 `keepalive@openssh.com`, standard data, stderr extended data, EOF, and CLOSE. Every vector is parsed
 into asserted fields and serialized back to the exact original bytes.
@@ -58,6 +59,11 @@ and exercises ordered server-initiated requests through the client's awaited hoo
 `ServerClient` API, including a request queued across rekey and one rejected on close. Real OpenSSH
 peers reject private unknown requests initiated in either direction, proving standards-compatible
 failure handling for both public APIs.
+
+Agent-forwarding integration also connects the library's client and server directly, verifies the
+literal `agent-forward` version `0` advertisement, and proves that `forwardAgent()` selects
+`agent-req` followed by `agent-connect`. Replacement-extension coverage proves that omitting the
+advertisement clears the capability instead of retaining stale negotiation state.
 
 Session interoperability sends a BREAK from the modern client to a real OpenSSH PTY and delivers
 an `xon-xoff` notification from the modern server to the system OpenSSH client. In-process peers

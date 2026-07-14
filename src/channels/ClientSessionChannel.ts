@@ -8,6 +8,7 @@ import ChannelRequest from "../packets/ChannelRequest.js"
 import { encodeSSHName } from "../utils/SSHName.js"
 import type { TerminalModeSettings } from "../TerminalModes.js"
 import { encodeSSHUTF8 } from "../utils/SSHText.js"
+import { agentRequestName, type AgentForwardingProtocol } from "../AgentForwarding.js"
 
 export interface ClientPtyOptions {
     term?: string
@@ -110,13 +111,26 @@ export default class ClientSessionChannel extends ClientChannel {
     }
 
     async openssh_forwardAgent(): Promise<void> {
-        this.ensureNotStarted("request agent forwarding")
         this.client.assertOpenSSHVendor()
+        await this.requestAgentForwarding("legacy")
+    }
+
+    /** Request RFC 9987 agent forwarding, with the pre-standardization compatibility fallback. */
+    async forwardAgent(): Promise<void> {
+        const protocol: AgentForwardingProtocol = this.client.rfc9987AgentForwarding
+            ? "rfc9987"
+            : "legacy"
+        if (protocol === "legacy") this.client.assertOpenSSHVendor()
+        await this.requestAgentForwarding(protocol)
+    }
+
+    private async requestAgentForwarding(protocol: AgentForwardingProtocol): Promise<void> {
+        this.ensureNotStarted("request agent forwarding")
         if (this.agentForwardingRequested) return
         if (!this.client.options.agent.getStream) {
             throw new Error("The configured authentication agent cannot be forwarded")
         }
-        await this.request("auth-agent-req@openssh.com")
+        await this.request(agentRequestName(protocol))
         this.agentForwardingRequested = true
         this.client.agentForwardingEnabled = true
     }

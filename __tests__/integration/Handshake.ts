@@ -270,7 +270,10 @@ describe("client/server integration", () => {
 
             expect(receivedClientExtensions).toEqual([[]])
             expect(serverPeer!.clientExtensions).toEqual([])
-            expect(receivedServerExtensions).toEqual([["server-sig-algs", "ping@openssh.com"]])
+            expect(receivedServerExtensions).toEqual([
+                ["server-sig-algs", "ping@openssh.com", "agent-forward"],
+            ])
+            expect(client.rfc9987AgentForwarding).toBe(true)
             const serverExtensionSnapshot = client.serverExtensions
             serverExtensionSnapshot[1]!.value.fill(0)
             expect(client.serverExtensions[1]).toEqual({

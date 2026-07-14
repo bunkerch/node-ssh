@@ -25,6 +25,7 @@ export type {
     ClientOptions,
     ClientSessionOptions,
 } from "./Client.js"
+export type { AgentForwardingProtocol } from "./AgentForwarding.js"
 export {
     buildGSSAPIUserAuthMIC,
     GSSAPIError,

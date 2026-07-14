@@ -96,21 +96,35 @@ describe("RFC 4254 channel packet vectors", () => {
         expect(packet.serialize()).toEqual(raw)
     })
 
-    test("round-trips the fixed RFC 9987 agent forwarding messages", () => {
-        const request = vector(`
-            62 00000003
-            0000001a 617574682d6167656e742d726571406f70656e7373682e636f6d
-            01
-        `)
-        const open = vector(`
-            5a
-            00000016 617574682d6167656e74406f70656e7373682e636f6d
-            00000007 00200000 00008000
-        `)
+    test.each([
+        [
+            "agent-req",
+            "agent-connect",
+            `62 00000003 00000009 6167656e742d726571 01`,
+            `5a 0000000d 6167656e742d636f6e6e656374 00000007 00200000 00008000`,
+        ],
+        [
+            "auth-agent-req@openssh.com",
+            "auth-agent@openssh.com",
+            `62 00000003
+             0000001a 617574682d6167656e742d726571406f70656e7373682e636f6d 01`,
+            `5a 00000016 617574682d6167656e74406f70656e7373682e636f6d
+             00000007 00200000 00008000`,
+        ],
+    ])(
+        "round-trips the fixed RFC 9987 %s and %s messages",
+        (requestType, channelType, requestHex, openHex) => {
+            const request = ChannelRequest.parse(vector(requestHex))
+            const open = ChannelOpen.parse(vector(openHex))
 
-        expect(ChannelRequest.parse(request).serialize()).toEqual(request)
-        expect(ChannelOpen.parse(open).serialize()).toEqual(open)
-    })
+            expect(request.data.request_type).toBe(requestType)
+            expect(request.data.args).toHaveLength(0)
+            expect(request.serialize()).toEqual(vector(requestHex))
+            expect(open.data.channel_type).toBe(channelType)
+            expect(open.data.args).toHaveLength(0)
+            expect(open.serialize()).toEqual(vector(openHex))
+        },
+    )
 
     test("parses and serializes fixed RFC 4254 X11 forwarding messages", () => {
         const request = vector(`
