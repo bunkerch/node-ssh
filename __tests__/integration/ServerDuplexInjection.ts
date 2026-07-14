@@ -36,6 +36,24 @@ test("rejects a server transport that has already closed", async () => {
     )
 })
 
+test("rejects a client transport that has already ended", async () => {
+    const transport = new PassThrough({ autoDestroy: false })
+    transport.resume()
+    const ended = once(transport, "end")
+    const finished = once(transport, "finish")
+    transport.end()
+    await Promise.all([ended, finished])
+    expect(transport.destroyed).toBe(false)
+
+    const client = new Client({ sock: transport, readyTimeout: 20 })
+    client.on("error", () => undefined)
+    await expect(client.connect()).rejects.toThrow(
+        "The supplied SSH transport must be open, readable, and writable",
+    )
+    expect(client.canConnect).toBe(true)
+    transport.destroy()
+})
+
 test("injects an SSH channel as a server transport", async () => {
     const outerServer = new Server({
         hostKeys: [await PrivateKey.generate("ssh-ed25519")],

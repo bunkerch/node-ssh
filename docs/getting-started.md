@@ -161,7 +161,8 @@ command.pipe(process.stdout)
 When `sock` is supplied, `hostname` is optional and no new TCP connection is created. The client
 installs the same framing, error, end, close, keepalive, rekey, and channel cleanup handlers used
 for a normal socket. `end()` and `destroy()` own and close the supplied transport; a destroyed
-transport cannot be reused for another connection.
+transport cannot be reused for another connection. `connect()` rejects before writing if the
+supplied stream has already ended, closed, or stopped being both readable and writable.
 
 `Server.injectSocket()` accepts the same kind of connected `Duplex`, so an application can run a
 nested SSH server directly over an accepted channel without creating a loopback TCP listener:

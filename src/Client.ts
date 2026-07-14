@@ -1,7 +1,7 @@
 import crypto from "crypto"
 import EventEmitter from "node:events"
 import net from "node:net"
-import type { Duplex } from "node:stream"
+import { isReadable, type Duplex } from "node:stream"
 import {
     SocketState,
     SSHAuthenticationMethods,
@@ -1940,9 +1940,12 @@ export default class Client extends EventEmitter<ClientEvents> {
         this.resetConnectionState()
         this.state = SocketState.Connecting
         const suppliedSocket = this.options.sock
-        if (suppliedSocket?.destroyed) {
+        if (
+            suppliedSocket !== undefined &&
+            (!isReadable(suppliedSocket) || !suppliedSocket.writable || suppliedSocket.destroyed)
+        ) {
             this.state = SocketState.Closed
-            throw new Error("The supplied SSH transport is already destroyed")
+            throw new Error("The supplied SSH transport must be open, readable, and writable")
         }
         this.socket =
             suppliedSocket ??
