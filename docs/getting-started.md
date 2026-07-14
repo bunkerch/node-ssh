@@ -67,12 +67,15 @@ automatically requests an ownership proof bound to the current session and emits
 with keys whose signatures verify:
 
 ```ts
+import { homedir } from "node:os"
+import { join } from "node:path"
+import { KnownHosts } from "modernssh"
+
+const knownHosts = await KnownHosts.load(join(homedir(), ".ssh", "known_hosts"))
+
 client.on("hostKeys", (publicKeys) => {
     void knownHosts
-        .replaceHostKeys(
-            client.options.hostname,
-            publicKeys.map((key) => key.toString()),
-        )
+        .replaceHostKeys(client.options.hostname, publicKeys, { port: client.options.port })
         .catch((error) => logger.error({ error }, "Could not update known hosts"))
 })
 ```
@@ -80,6 +83,9 @@ client.on("hostKeys", (publicKeys) => {
 This event does not replace initial host verification. The proof is trustworthy only because the
 current connection was first authenticated with an already trusted key. Unsupported, malformed,
 unsigned, or incorrectly signed announcements are never emitted.
+
+See [Known hosts](known-hosts.md) for initial verification, hashed hostname storage, certificate
+authorities, revocations, and safe file updates.
 
 `readyTimeout` bounds the complete connection setup: opening a TCP connection (unless `sock` is
 supplied), exchanging SSH identification strings, negotiating transport keys, and authenticating.

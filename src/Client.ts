@@ -1390,6 +1390,18 @@ export default class Client extends EventEmitter<ClientEvents> {
                     certificateAlgorithm.verifyCertificateSignature(),
                     "Invalid host certificate authority signature",
                 )
+                assert(
+                    certificateAlgorithm.data.criticalOptions.length === 0,
+                    "Host certificate contains unsupported critical options",
+                )
+                assert(
+                    certificateAlgorithm.data.principals.length === 0 ||
+                        certificateAlgorithm.data.principals.some(
+                            (principal) =>
+                                principal.toLowerCase() === this.options.hostname.toLowerCase(),
+                        ),
+                    "Host certificate is not valid for the requested hostname",
+                )
             }
 
             await this.verifyConfiguredHostKey(hostKeyBlob)

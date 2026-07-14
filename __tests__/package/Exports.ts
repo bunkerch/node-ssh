@@ -30,6 +30,7 @@ import {
     HTTPAgent,
     HTTPSAgent,
     KERBEROS_V5_GSSAPI_OID,
+    KnownHosts,
     OnePasswordAgent,
     OPEN_MODE,
     parseKey,
@@ -98,6 +99,7 @@ describe("package exports", () => {
             HTTPAgent,
             HTTPSAgent,
             KERBEROS_V5_GSSAPI_OID,
+            KnownHosts,
             OnePasswordAgent,
             parseKey,
             parseKeys,
@@ -113,7 +115,7 @@ describe("package exports", () => {
             SSHAgent,
             SSHHTTPAgent,
             SSHHTTPSAgent,
-        ]).toHaveLength(38)
+        ]).toHaveLength(39)
         expect(SSHAuthenticationMethods.PublicKey).toBe("publickey")
         expect(SSHAuthenticationMethods.KeyboardInteractive).toBe("keyboard-interactive")
         expect(SSHAuthenticationMethods.GSSAPIWithMIC).toBe("gssapi-with-mic")
@@ -152,6 +154,7 @@ describe("package exports", () => {
         expect(entry.generateKeyPairSync).toBeFunction()
         expect(entry.GSSAPIError).toBeFunction()
         expect(entry.KERBEROS_V5_GSSAPI_OID).toBeInstanceOf(Buffer)
+        expect(entry.KnownHosts).toBeFunction()
         expect(entry.parseKeys).toBeFunction()
         expect(entry.DirectTCPIPChannel).toBeDefined()
         expect(entry.DirectStreamLocalChannel).toBeDefined()
@@ -188,6 +191,7 @@ describe("package exports", () => {
         const streams = await readFile("dist/sftp/streams.d.ts", "utf8")
         const shell = await readFile("dist/channels/Session/Shell.d.ts", "utf8")
         const privateKey = await readFile("dist/utils/PrivateKey.d.ts", "utf8")
+        const knownHosts = await readFile("dist/KnownHosts.d.ts", "utf8")
 
         expect(client).not.toContain("ClientSessionCallback")
         expect(client).not.toContain("ClientGlobalRequestCallback")
@@ -208,6 +212,9 @@ describe("package exports", () => {
         expect(privateKey).toContain(
             "fromPuTTY(data: string | Buffer, passphrase?: string | Buffer): PrivateKey",
         )
+        expect(knownHosts).toContain("static load(path: string): Promise<KnownHosts>")
+        expect(knownHosts).toContain("replaceHostKeys(")
+        expect(knownHosts).toContain("): Promise<void>")
     })
 
     test("package archive exposes working ESM key generation", async () => {
@@ -225,7 +232,7 @@ describe("package exports", () => {
                     "--input-type=module",
                     "--eval",
                     `
-                    const { Client, generateKeyPair, generateKeyPairSync, parseKey, PrivateKey, PrivateKeyAgent } = await import("modernssh")
+                    const { Client, generateKeyPair, generateKeyPairSync, KnownHosts, parseKey, PrivateKey, PrivateKeyAgent } = await import("modernssh")
                     const { privateKey, publicKey } = await generateKeyPair("ed25519", {
                         comment: "packed@example.test",
                     })
@@ -254,6 +261,8 @@ describe("package exports", () => {
                     if (!importedPPK.data.publicKey.verifySignature(Buffer.alloc(0), importedPPK.sign(Buffer.alloc(0)))) process.exit(13)
                     const curve448Client = new Client({ algorithms: { kex: ["curve448-sha512"] } })
                     if (curve448Client.algorithmOffer.kex[0] !== "curve448-sha512") process.exit(14)
+                    const knownHosts = KnownHosts.parse("packed.example.test " + publicKey.toString())
+                    if (knownHosts.check("packed.example.test", publicKey).status !== "trusted") process.exit(15)
                     process.stdout.write(publicKey.toString())
                 `,
                 ],

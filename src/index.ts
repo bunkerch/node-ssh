@@ -6,6 +6,13 @@ export {
     SSHHTTPSAgent as HTTPSAgent,
 } from "./HTTPAgents.js"
 export type { SSHAgentOptions, SSHHTTPAgentOptions, SSHHTTPSAgentOptions } from "./HTTPAgents.js"
+export { default as KnownHosts, KnownHostsError } from "./KnownHosts.js"
+export type {
+    KnownHostCheckResult,
+    KnownHostMarker,
+    KnownHostStatus,
+    KnownHostsReplaceOptions,
+} from "./KnownHosts.js"
 export type {
     ClientEvents,
     ClientEnvironment,

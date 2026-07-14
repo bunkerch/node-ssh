@@ -352,6 +352,20 @@ export class SSHCertificatePublicKey implements PublicKeyAlgoritm {
         return this.data.signatureKey.verifySignature(this.signedData, this.data.signature)
     }
 
+    verifyHostCertificate(hostname: string, at = BigInt(Math.floor(Date.now() / 1000))): boolean {
+        return (
+            this.data.role === "host" &&
+            this.verifyCertificateSignature() &&
+            this.data.validAfter <= at &&
+            at < this.data.validBefore &&
+            this.data.criticalOptions.length === 0 &&
+            (this.data.principals.length === 0 ||
+                this.data.principals.some(
+                    (principal) => principal.toLowerCase() === hostname.toLowerCase(),
+                ))
+        )
+    }
+
     verifySignature(data: Buffer, signature: Buffer, algorithm?: string): boolean {
         return this.publicKey.data.algorithm.verifySignature(data, signature, algorithm)
     }

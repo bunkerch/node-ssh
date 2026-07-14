@@ -6,6 +6,7 @@ import { join } from "node:path"
 import { promisify } from "node:util"
 import Client from "../../src/Client.js"
 import { SSHAuthenticationMethods } from "../../src/constants.js"
+import KnownHosts from "../../src/KnownHosts.js"
 import Server from "../../src/Server.js"
 import PrivateKey from "../../src/utils/PrivateKey.js"
 import PublicKey, { SSHCertificatePublicKey } from "../../src/utils/PublicKey.js"
@@ -13,7 +14,10 @@ import PublicKey, { SSHCertificatePublicKey } from "../../src/utils/PublicKey.js
 const execFileAsync = promisify(execFile)
 
 describe("certificate host authentication", () => {
-    test("rejects a user-role certificate before host trust policy", async () => {
+    test.each([
+        ["user-role", [] as string[], "Invalid host certificate role"],
+        ["wrong-principal", ["-h"], "Host certificate is not valid for the requested hostname"],
+    ])("rejects a %s certificate before host trust policy", async (identity, options, message) => {
         const directory = await mkdtemp(join(tmpdir(), "modernssh-wrong-host-certificate-"))
         let server: Server | undefined
         const hostKey = await PrivateKey.generate("ssh-ed25519")
@@ -28,9 +32,10 @@ describe("certificate host authentication", () => {
                 "-s",
                 caPath,
                 "-I",
-                "wrong-role",
+                identity,
+                ...options,
                 "-n",
-                "127.0.0.1",
+                identity === "wrong-principal" ? "elsewhere.example.test" : "127.0.0.1",
                 "-V",
                 "-1m:+1h",
                 hostPath + ".pub",
@@ -54,7 +59,7 @@ describe("certificate host authentication", () => {
             client.hooker.hook("hostKey", () => {
                 policyCalls++
             })
-            await expect(client.connect()).rejects.toThrow("Invalid host certificate role")
+            await expect(client.connect()).rejects.toThrow(message)
             expect(policyCalls).toBe(0)
         } finally {
             client?.destroy()
@@ -124,10 +129,14 @@ describe("certificate host authentication", () => {
                 await new Promise<void>((resolve) => server!.server!.once("listening", resolve))
 
                 let policyCalls = 0
+                const serverPort = (server.server!.address() as AddressInfo).port
                 client = new Client({
                     hostname: "127.0.0.1",
-                    port: (server.server!.address() as AddressInfo).port,
+                    port: serverPort,
                     username: "host-certificate-test",
+                    hostVerifier: KnownHosts.parse(
+                        `@cert-authority [127.0.0.1]:${serverPort} ${ca.toString()}`,
+                    ).verifier("127.0.0.1", serverPort),
                     authenticationMethodsOrder: [SSHAuthenticationMethods.None],
                 })
                 client.hooker.hook("hostKey", async (_hook, decision, key) => {

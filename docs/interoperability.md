@@ -220,6 +220,12 @@ message, and matching the resulting RSA key to the real containerized server key
 bytes cover the proof preimage, while focused cryptographic tests reject modified, truncated, and
 extra signatures.
 
+Known-hosts interoperability hashes a real database with `ssh-keygen -H` and verifies that the
+library finds its hidden hostname. In the other direction, `ssh-keygen -F` finds an independently
+salted hashed entry written by the library. Certificate-authority coverage generates and signs a
+host certificate with `ssh-keygen`, then exercises hostname principals, validity, authority trust,
+and authority revocation through the public `KnownHosts` API.
+
 Public-key authentication also exercises the version-0 host-bound extension in both roles. Fixed
 wire bytes prove that the exact negotiated server host key is part of the signature preimage; live
 tests prove the unsigned key probe followed by a bound signed request and reject a mismatched host
