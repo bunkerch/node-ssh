@@ -776,7 +776,6 @@ export class SSHECDSAPublicKey implements PublicKeyAlgoritm {
 
     constructor(curve: ECDSACurve, data: SSHECDSAPublicKeyData) {
         this.curve = curve
-        this.data = data
         try {
             this.normalizedPublicKey = Buffer.from(
                 ECDH.convertKey(
@@ -790,6 +789,7 @@ export class SSHECDSAPublicKey implements PublicKeyAlgoritm {
         } catch (error) {
             throw new Error(`Invalid ${curve.identifier} public key`, { cause: error })
         }
+        this.data = { publicKey: Buffer.from(data.publicKey) }
     }
 
     verifySignature(data: Buffer, signature: Buffer, algorithm = this.curve.algorithm): boolean {

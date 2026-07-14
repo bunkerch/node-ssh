@@ -276,6 +276,11 @@ verifies both the repeated public bytes and the public key derived from the seed
 copies of the key material. A malformed container therefore cannot publish one identity while
 signing with unrelated or subsequently mutated bytes.
 
+ECDSA private import likewise derives the RFC 5656 public point from its scalar and compares the
+normalized point before accepting it. Public points and private scalars are copied at construction,
+so later caller mutation cannot make serialization, signing, and verification observe different
+keys.
+
 RFC 4253 `ssh-dss` host and user keys are supported only when explicitly configured. Their public
 blob contains the canonical positive `p`, `q`, `g`, and `y` mpints; private containers add `x`.
 The implementation enforces the historical 1024-bit `p` and 160-bit `q`, validates primes,

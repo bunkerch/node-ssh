@@ -1,6 +1,6 @@
 import EncodedSignature from "../../src/utils/Signature.js"
-import PrivateKey from "../../src/utils/PrivateKey.js"
-import PublicKey from "../../src/utils/PublicKey.js"
+import PrivateKey, { SSHECDSAPrivateKey } from "../../src/utils/PrivateKey.js"
+import PublicKey, { ECDSA_CURVES, SSHECDSAPublicKey } from "../../src/utils/PublicKey.js"
 
 const rfc6979P256PublicKey = Buffer.from(
     "0000001365636473612d736861322d6e69737470323536" +
@@ -18,6 +18,11 @@ const rfc6979P256Signature = new EncodedSignature({
         "hex",
     ),
 })
+const rfc6979P256PrivateKey = Buffer.from(
+    "c9afa9d845ba75166b5c215767b1d6934e50c3db36e89b127b8a622b120f6721",
+    "hex",
+)
+const rfc6979P256Point = Buffer.from(rfc6979P256PublicKey.subarray(-65))
 
 describe("RFC 5656 ECDSA keys and signatures", () => {
     test("verifies the RFC 6979 P-256 SHA-256 signature in SSH mpint encoding", () => {
@@ -68,5 +73,33 @@ describe("RFC 5656 ECDSA keys and signatures", () => {
                 }),
             ),
         ).toBe(false)
+    })
+
+    test("does not retain caller-owned public or private key storage", () => {
+        const publicInput = Buffer.from(rfc6979P256Point)
+        const publicAlgorithm = new SSHECDSAPublicKey(ECDSA_CURVES[0], {
+            publicKey: publicInput,
+        })
+        publicInput.fill(0xff)
+        expect(publicAlgorithm.serialize().subarray(-65)).toEqual(rfc6979P256Point)
+
+        const privatePublicInput = Buffer.from(rfc6979P256Point)
+        const privateInput = Buffer.from(rfc6979P256PrivateKey)
+        const privateAlgorithm = new SSHECDSAPrivateKey(ECDSA_CURVES[0], {
+            publicKey: privatePublicInput,
+            privateKey: privateInput,
+        })
+        privatePublicInput.fill(0xff)
+        privateInput.fill(0xff)
+
+        const key = new PrivateKey({
+            alg: ECDSA_CURVES[0].algorithm,
+            algorithm: privateAlgorithm,
+            publicKey: privateAlgorithm.getPublicKey(),
+        })
+        const message = Buffer.from("stable ECDSA key ownership")
+        expect(key.data.publicKey.verifySignature(message, key.sign(message))).toBe(true)
+        expect(privateAlgorithm.data.publicKey).toEqual(rfc6979P256Point)
+        expect(privateAlgorithm.data.privateKey).toEqual(rfc6979P256PrivateKey)
     })
 })

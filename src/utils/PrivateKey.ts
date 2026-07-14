@@ -976,7 +976,6 @@ export class SSHECDSAPrivateKey implements PrivateKeyAlgorithm {
 
     constructor(curve: ECDSACurve, data: SSHECDSAPrivateKeyData) {
         this.curve = curve
-        this.data = data
         const ecdh = createECDH(curve.nodeName)
         try {
             ecdh.setPrivateKey(unsignedInteger(data.privateKey))
@@ -989,6 +988,10 @@ export class SSHECDSAPrivateKey implements PrivateKeyAlgorithm {
         })
         const derived = new SSHECDSAPublicKey(curve, { publicKey: derivedPublicKey })
         assert(suppliedPublicKey.equals(derived), "ECDSA private and public keys do not match")
+        this.data = {
+            publicKey: Buffer.from(data.publicKey),
+            privateKey: Buffer.from(data.privateKey),
+        }
     }
 
     sign(data: Buffer, algorithm = this.curve.algorithm): EncodedSignature {

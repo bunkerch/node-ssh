@@ -74,6 +74,8 @@ meaningful wire-level behavior.
   P-256 defaults, restricts ECDSA to the three RFC 5656 curves, and propagates a line-safe comment to
   both returned key objects. Validate every family with signing plus real `ssh-keygen` derivation
   and fingerprinting, including the documented RSA default.
+- RFC 5656 ECDSA constructors normalize and validate public points, derive each public point from
+  its private scalar, and copy caller-owned point and scalar buffers before retaining them.
 - RFC 8709 Ed448 uses exact 57-byte public keys and 114-byte signatures, remains explicit rather
   than default, and is validated with RFC 8032 vectors. Use the portable curve primitive for core
   operations so Bun tests remain meaningful; verify private seeds derive their claimed public keys,
