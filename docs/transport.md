@@ -171,7 +171,8 @@ rejected before negotiation begins.
 
 Each peer snapshots its exact serialized local KEXINIT at the transport write boundary. Exchange
 hashes use that immutable wire payload, so later mutation of an inspected packet object cannot
-change the session transcript.
+change the session transcript. Snapshot access returns a copy, and unrelated low-level KEXINIT
+objects cannot replace the active exchange transcript.
 
 The two optional language preference name-lists use RFC 3066 syntax rather than algorithm-name
 rules. Their order and repeated tags are preserved; malformed tags are rejected in both directions.

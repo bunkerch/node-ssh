@@ -550,6 +550,9 @@ describe("client/server integration", () => {
             expect(client.clientKexInitPayload?.subarray(1, 17)).not.toEqual(
                 client.clientKexInit?.data.cookie,
             )
+            const exposedClientTranscript = client.clientKexInitPayload!
+            exposedClientTranscript.fill(0)
+            expect(client.clientKexInitPayload).not.toEqual(exposedClientTranscript)
 
             const serverSendPacket = serverPeer!.sendPacket.bind(serverPeer!)
             serverPeer!.sendPacket = (packet: Packet) => {
@@ -577,6 +580,9 @@ describe("client/server integration", () => {
             expect(serverPeer!.serverKexInitPayload?.subarray(1, 17)).not.toEqual(
                 serverPeer!.serverKexInit?.data.cookie,
             )
+            const exposedServerTranscript = serverPeer!.serverKexInitPayload!
+            exposedServerTranscript.fill(0)
+            expect(serverPeer!.serverKexInitPayload).not.toEqual(exposedServerTranscript)
             expect(clientHandshakes).toEqual([
                 expectedNegotiated,
                 expectedNegotiated,
