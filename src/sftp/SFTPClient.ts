@@ -537,13 +537,15 @@ export default class SFTPClient {
     }
 
     async write(handle: Buffer, data: Buffer, position: SFTPPosition): Promise<void> {
+        const ownedHandle = Buffer.from(handle)
+        const ownedData = Buffer.from(data)
         let offset = positionBigInt(position)
-        for (let start = 0; start < data.length; start += this.maxWriteLength) {
-            const chunk = data.subarray(start, start + this.maxWriteLength)
+        for (let start = 0; start < ownedData.length; start += this.maxWriteLength) {
+            const chunk = ownedData.subarray(start, start + this.maxWriteLength)
             await this.statusRequest({
                 type: SFTPPacketType.Write,
                 requestId: this.allocateRequestId(),
-                handle,
+                handle: ownedHandle,
                 offset,
                 data: chunk,
             })
