@@ -1,6 +1,7 @@
 import PrivateKey from "./utils/PrivateKey.js"
 import PublicKey from "./utils/PublicKey.js"
 import { parseRFC4716PublicKey, RFC4716_BEGIN_MARKER } from "./utils/RFC4716.js"
+import { isPuTTYPrivateKey } from "./utils/PuTTYPrivateKey.js"
 
 export type ParsedKey = PrivateKey | PublicKey
 
@@ -15,6 +16,9 @@ export function parseKey(data: string | Buffer, passphrase?: string | Buffer): P
 }
 
 export function parseKeys(data: string | Buffer, passphrase?: string | Buffer): ParsedKey[] {
+    if (isPuTTYPrivateKey(data)) {
+        return [PrivateKey.fromPuTTY(data, passphrase)]
+    }
     if (
         Buffer.isBuffer(data) &&
         data.subarray(0, OPENSSH_PRIVATE_MAGIC.length).equals(OPENSSH_PRIVATE_MAGIC)

@@ -147,6 +147,15 @@ malformed framing, continuation, line-length, UTF-8, and base64 cases. A generat
 exported in RFC 4716 form by `ssh-keygen` and parsed through the package's unified key router;
 `ssh-keygen` also imports the fixed RFC example and produces the same canonical SSH key.
 
+PPK import uses the RFC 8032 Ed25519 seed, public key, and empty-message signature as a fixed
+private-key vector in both version 2 and version 3 envelopes. The system `puttygen` independently
+accepts those fixtures, and generated version 3 fixtures cover RSA, DSA, Ed25519, Ed448, and every
+supported ECDSA curve. Encrypted tests cover version 2 plus Argon2d, Argon2i, and Argon2id version 3
+files, including incorrect passphrases, integrity failures, malformed framing, and resource bounds.
+Every generated key signs through the library and is matched to `puttygen`'s public output; key
+families understood by the system OpenSSH build are also reserialized and checked with
+`ssh-keygen -y`.
+
 Ed448 coverage uses RFC 8032's empty-message key and signature vector, wrapped in the exact RFC
 8709 SSH public-key and signature encodings. A native Node subprocess independently generates an
 Ed448 PKCS#8 and SubjectPublicKeyInfo pair, imports both, and verifies a signature; generated

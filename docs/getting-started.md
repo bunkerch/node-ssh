@@ -274,11 +274,12 @@ buffers after encryption; callers remain responsible for clearing their original
 ### Reading protected keys
 
 Use `parseKey()` when input may contain either a private or public key. It routes raw OpenSSH
-private containers, armored private keys, SSH public-key blobs, authorized-key lines, generic
-SubjectPublicKeyInfo public PEM, PKCS#1 RSA public PEM, and RFC 4716 public-key files by their
-explicit framing. The return type is `PrivateKey | PublicKey`; a passphrase is accepted only when
-the input is private. Authorized-key and RFC 4716 blobs require canonical standard base64;
-malformed characters and noncanonical pad bits are rejected rather than silently ignored.
+private containers, armored private keys, PuTTY PPK private keys, SSH public-key blobs,
+authorized-key lines, generic SubjectPublicKeyInfo public PEM, PKCS#1 RSA public PEM, and RFC 4716
+public-key files by their explicit framing. The return type is `PrivateKey | PublicKey`; a
+passphrase is accepted only when the input is private. Authorized-key, RFC 4716, and PPK blobs
+require canonical standard base64; malformed characters and noncanonical pad bits are rejected
+rather than silently ignored.
 
 ```ts
 import { readFile } from "node:fs/promises"
@@ -287,6 +288,18 @@ import { parseKey, PrivateKey } from "modernssh"
 const key = parseKey(await readFile("./deploy_key"), process.env.SSH_KEY_PASSPHRASE)
 if (!(key instanceof PrivateKey)) throw new Error("A private key is required")
 ```
+
+PPK versions 2 and 3 can also be loaded directly with `PrivateKey.fromPuTTY()`. Import supports
+RSA, DSA, Ed25519, Ed448, and the NIST P-256, P-384, and P-521 ECDSA curves. Encrypted version 3
+files support Argon2d, Argon2i, and Argon2id with AES-256-CBC; version 2's SHA-1-based derivation is
+accepted for existing keys but should not be selected for new storage. The loader authenticates
+the complete public and private envelope before constructing a key, rejects incorrect or missing
+passphrases, and clears passphrase copies, derived material, and temporary plaintext buffers.
+
+To keep untrusted key files from causing unbounded work, PPK input is limited to 16 MiB, each
+decoded key blob to 8 MiB, and Argon2 settings to 256 MiB of memory, 100 passes, and 64 lanes.
+Comments must be valid UTF-8 without NUL or line endings. PPK support is import-only; serialize a
+loaded key with `PrivateKey.toString()` when an OpenSSH private-key container is required.
 
 RFC 4716 import accepts CR, LF, and CRLF files, preserves the case-insensitive `Comment` header on
 the returned `PublicKey`, joins backslash-continued headers, and ignores unrecognized headers as
@@ -306,11 +319,11 @@ passphrase. They read the `openssh-key-v1` format produced by `ssh-keygen`, incl
 and ECDSA keys encrypted with any cipher accepted by current OpenSSH: 3DES-CBC, AES-CBC, AES-CTR,
 AES-GCM, and `chacha20-poly1305@openssh.com`.
 
-`PrivateKey.fromString()` also accepts standard unencrypted PKCS#8 PEM for Ed25519, Ed448, RSA, DSA, and
-the three supported ECDSA curves; traditional RSA and DSA PEM; and SEC1 EC PEM. Encrypted PKCS#8
-and traditional PEM use the same optional passphrase argument and are decrypted by Node's native
-key parser before conversion into the library's validated SSH representation. Unsupported key
-families and curves are rejected rather than silently coerced.
+`PrivateKey.fromString()` also accepts standard unencrypted PKCS#8 PEM for Ed25519, Ed448, RSA,
+DSA, and the three supported ECDSA curves; traditional RSA and DSA PEM; and SEC1 EC PEM. Encrypted
+PKCS#8 and traditional PEM use the same optional passphrase argument and are decrypted by Node's
+native key parser before conversion into the library's validated SSH representation. Unsupported
+key families and curves are rejected rather than silently coerced.
 
 Call `PublicKey.fromPEM()` directly when the input is known to be a public PEM. It accepts Ed25519,
 Ed448, RSA, legacy DSA, and the three supported ECDSA curves and converts them to the canonical SSH

@@ -48,6 +48,11 @@ import {
 import { ed448 } from "@noble/curves/ed448.js"
 import { decodeSSHName, encodeSSHName } from "./SSHName.js"
 import { decodeSSHUTF8 } from "./SSHText.js"
+import {
+    isPuTTYPrivateKey,
+    parsePuTTYPrivateKey,
+    type ParsedPuTTYPrivateKey,
+} from "./PuTTYPrivateKey.js"
 
 export interface PrivateKeyData {
     publicKey: PublicKey
@@ -321,6 +326,9 @@ export default class PrivateKey {
     }
 
     static fromStringAll(data: string, passphrase?: string | Buffer): PrivateKey[] {
+        if (isPuTTYPrivateKey(data)) {
+            return [PrivateKey.fromPuTTY(data, passphrase)]
+        }
         if (!data.trimStart().startsWith("-----BEGIN OPENSSH PRIVATE KEY-----")) {
             return [PrivateKey.fromPEM(data, passphrase)]
         }
@@ -336,6 +344,15 @@ export default class PrivateKey {
         const raw = Buffer.from(base64, "base64")
 
         return PrivateKey.parseAll(raw, passphrase)
+    }
+
+    static fromPuTTY(data: string | Buffer, passphrase?: string | Buffer): PrivateKey {
+        const parsed = parsePuTTYPrivateKey(data, passphrase)
+        try {
+            return privateKeyFromPuTTY(parsed)
+        } finally {
+            parsed.privateKey.fill(0)
+        }
     }
 
     static fromPEM(data: string, passphrase?: string | Buffer): PrivateKey {
@@ -356,6 +373,101 @@ export default class PrivateKey {
 
         return algo.generateSync()
     }
+}
+
+function readPuTTYPrivateMpint(raw: Buffer): [Buffer, Buffer] {
+    let value: Buffer
+    ;[value, raw] = readNextBuffer(raw)
+    parseBufferToMpintBuffer(value)
+    assert(value.length > 0, "PuTTY private key integer must be positive")
+    return [value, raw]
+}
+
+function privateKeyFromPuTTY(parsed: ParsedPuTTYPrivateKey): PrivateKey {
+    const publicKey = PublicKey.parse(parsed.publicKey)
+    assert(
+        publicKey.data.alg === parsed.algorithmName,
+        "PuTTY key algorithm does not match its public key",
+    )
+    assert(
+        !(publicKey.data.algorithm instanceof SSHCertificatePublicKey),
+        "PuTTY certificate private keys are not supported",
+    )
+
+    const publicAlgorithm = publicKey.data.algorithm
+    let raw = parsed.privateKey
+    let algorithm: PrivateKeyAlgorithm
+    if (publicAlgorithm instanceof SSHRSAPublicKey) {
+        let privateExponent: Buffer
+        let p: Buffer
+        let q: Buffer
+        let iqmp: Buffer
+        ;[privateExponent, raw] = readPuTTYPrivateMpint(raw)
+        ;[p, raw] = readPuTTYPrivateMpint(raw)
+        ;[q, raw] = readPuTTYPrivateMpint(raw)
+        ;[iqmp, raw] = readPuTTYPrivateMpint(raw)
+        algorithm = new SSHRSAPrivateKey({
+            ...publicAlgorithm.data,
+            privateExponent,
+            p,
+            q,
+            iqmp,
+        })
+    } else if (publicAlgorithm instanceof SSHDSSPublicKey) {
+        let x: Buffer
+        ;[x, raw] = readPuTTYPrivateMpint(raw)
+        algorithm = new SSHDSSPrivateKey({ ...publicAlgorithm.data, x })
+    } else if (publicAlgorithm instanceof SSHECDSAPublicKey) {
+        let scalar: Buffer
+        ;[scalar, raw] = readPuTTYPrivateMpint(raw)
+        const RegisteredAlgorithm = PrivateKey.algorithms.get(parsed.algorithmName)
+        assert(RegisteredAlgorithm, `Unsupported algorithm: ${parsed.algorithmName}`)
+        const Algorithm = RegisteredAlgorithm as unknown as new (
+            data: SSHECDSAPrivateKeyData,
+        ) => PrivateKeyAlgorithm
+        algorithm = new Algorithm({
+            publicKey: publicAlgorithm.data.publicKey,
+            privateKey: unsignedInteger(scalar),
+        })
+    } else if (
+        publicAlgorithm instanceof SSHED25519PublicKey ||
+        publicAlgorithm instanceof SSHED448PublicKey
+    ) {
+        const width = publicAlgorithm instanceof SSHED25519PublicKey ? 32 : 57
+        let seed: Buffer
+        ;[seed, raw] = readNextBuffer(raw)
+        assert(seed.length === width, `Invalid PuTTY EdDSA private key length`)
+        const privateKey = Buffer.concat([seed, publicAlgorithm.data.publicKey])
+        try {
+            algorithm =
+                publicAlgorithm instanceof SSHED25519PublicKey
+                    ? new SSHED25519PrivateKey({
+                          publicKey: publicAlgorithm.data.publicKey,
+                          privateKey,
+                      })
+                    : new SSHED448PrivateKey({
+                          publicKey: publicAlgorithm.data.publicKey,
+                          privateKey,
+                      })
+        } finally {
+            seed.fill(0)
+            privateKey.fill(0)
+        }
+    } else {
+        throw new Error(`Unsupported PuTTY private key algorithm: ${parsed.algorithmName}`)
+    }
+
+    if (parsed.encryption === "none") {
+        assert(raw.length === 0, "Unexpected data after PuTTY private key fields")
+    } else {
+        assert(raw.length < 16, "Invalid PuTTY private key encryption padding")
+    }
+    return new PrivateKey({
+        alg: parsed.algorithmName,
+        publicKey,
+        algorithm,
+        comment: parsed.comment.length > 0 ? parsed.comment : undefined,
+    })
 }
 
 function jwkBuffer(jwk: JsonWebKey, name: keyof JsonWebKey): Buffer {

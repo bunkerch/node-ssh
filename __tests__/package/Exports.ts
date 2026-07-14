@@ -187,6 +187,7 @@ describe("package exports", () => {
         const server = await readFile("dist/Server.d.ts", "utf8")
         const streams = await readFile("dist/sftp/streams.d.ts", "utf8")
         const shell = await readFile("dist/channels/Session/Shell.d.ts", "utf8")
+        const privateKey = await readFile("dist/utils/PrivateKey.d.ts", "utf8")
 
         expect(client).not.toContain("ClientSessionCallback")
         expect(client).not.toContain("ClientGlobalRequestCallback")
@@ -204,6 +205,9 @@ describe("package exports", () => {
         expect(streams.match(/close\(\): Promise<void>/gu)).toHaveLength(2)
         expect(shell).toContain("writeStdout(data: Buffer | string")
         expect(shell).toContain("writeStderr(data: Buffer | string")
+        expect(privateKey).toContain(
+            "fromPuTTY(data: string | Buffer, passphrase?: string | Buffer): PrivateKey",
+        )
     })
 
     test("package archive exposes working ESM key generation", async () => {
@@ -243,6 +247,11 @@ describe("package exports", () => {
                     if (!synchronous.publicKey.verifySignature(message, synchronous.privateKey.sign(message))) process.exit(9)
                     const rfc4716 = "---- BEGIN SSH" + "2 PUBLIC KEY ----\\n" + publicKey.serialize().toString("base64") + "\\n---- END SSH" + "2 PUBLIC KEY ----\\n"
                     if (!parseKey(rfc4716).equals(publicKey)) process.exit(10)
+                    const ppk = Buffer.from("UHVUVFktVXNlci1LZXktRmlsZS0zOiBzc2gtZWQyNTUxOQpFbmNyeXB0aW9uOiBub25lCkNvbW1lbnQ6IFJGQyA4MDMyIHRlc3QgdmVjdG9yIDEKUHVibGljLUxpbmVzOiAyCkFBQUFDM056YUMxbFpESTFOVEU1QUFBQUlOZGFtQUdDc1FxMzFVdiswOGxrQnpvTzRYTHoycVlqSmE4Q0dtajMKQjFFYQpQcml2YXRlLUxpbmVzOiAxCkFBQUFJSjFoc1ozdi9WcGd1b1JLOUpMc0xNUkVTY1ZwZXpKcEdYQTdyQU1jcm45ZwpQcml2YXRlLU1BQzogOWUxNzE1ZjEwNzM2ZWY1NTdiMDI0OWJkNjAxOWVjYTgyOTBhNjQ4ZDk3YjFmZjc1MmVlNmJlMDhkMDNiNzcxOQo=", "base64")
+                    const importedPPK = parseKey(ppk)
+                    if (!(importedPPK instanceof PrivateKey)) process.exit(11)
+                    if (importedPPK.data.comment !== "RFC 8032 test vector 1") process.exit(12)
+                    if (!importedPPK.data.publicKey.verifySignature(Buffer.alloc(0), importedPPK.sign(Buffer.alloc(0)))) process.exit(13)
                     process.stdout.write(publicKey.toString())
                 `,
                 ],
