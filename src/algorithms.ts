@@ -64,8 +64,6 @@ import {
     UMAC64OpenSSH,
 } from "./algorithms/mac/umac.js"
 
-import Client from "./Client.js"
-import ServerClient from "./ServerClient.js"
 import assert from "assert"
 import PublicKey from "./utils/PublicKey.js"
 import {
@@ -76,6 +74,9 @@ import {
 import type { NegotiatedAlgorithms, ResolvedAlgorithmOptions } from "./AlgorithmOptions.js"
 import type { InboundPacketProtection, OutboundPacketProtection } from "./BinaryPacket.js"
 import { MAXIMUM_BINARY_PACKET_SIZE } from "./BinaryPacket.js"
+import type { KexInitData } from "./packets/KexInit.js"
+import type Client from "./Client.js"
+import type ServerClient from "./ServerClient.js"
 
 export interface HostKeyAlgorithm {
     readonly alg_name: string
@@ -483,20 +484,27 @@ export interface ChosenAlgorithms {
     readonly serverCompression: CompressionAlgorithm
 }
 
-export function chooseAlgorithms(client: Client | ServerClient): ChosenAlgorithms {
-    assert(client.clientKexInit, "Client KexInit not set")
-    assert(client.serverKexInit, "Server KexInit not set")
-    client.debug("Choosing algorithms...")
+export interface AlgorithmSelectionInput {
+    readonly clientOffer: Readonly<KexInitData>
+    readonly serverOffer: Readonly<KexInitData>
+    readonly keyExchanges: ReadonlyMap<string, KexAlgorithmFactory>
+    readonly debug?: (...message: unknown[]) => void
+}
+
+export function chooseAlgorithms(input: AlgorithmSelectionInput): ChosenAlgorithms {
+    const { clientOffer, serverOffer, keyExchanges } = input
+    const debug = input.debug ?? (() => undefined)
+    debug("Choosing algorithms...")
 
     const server_host_key_algorithms: HostKeyAlgorithm[] = []
-    for (const alg of client.serverKexInit.data.server_host_key_algorithms) {
+    for (const alg of serverOffer.server_host_key_algorithms) {
         const algorithm = host_key_algorithms.get(alg)
         if (!algorithm) continue
 
         server_host_key_algorithms.push(algorithm)
     }
     const mutual_host_key_algorithms: HostKeyAlgorithm[] = []
-    for (const alg of client.clientKexInit.data.server_host_key_algorithms) {
+    for (const alg of clientOffer.server_host_key_algorithms) {
         const algorithm = host_key_algorithms.get(alg)
         if (!algorithm) continue
         if (!server_host_key_algorithms.includes(algorithm)) continue
@@ -506,12 +514,9 @@ export function chooseAlgorithms(client: Client | ServerClient): ChosenAlgorithm
 
     let keyExchange: KexAlgorithm | undefined
     let hostKey: HostKeyAlgorithm | undefined
-    for (const name of client.clientKexInit.data.kex_algorithms) {
-        if (!client.serverKexInit.data.kex_algorithms.includes(name)) continue
-        const algorithm =
-            client instanceof Client
-                ? client.kexAlgorithms.get(name)
-                : client.server.kexAlgorithms.get(name)
+    for (const name of clientOffer.kex_algorithms) {
+        if (!serverOffer.kex_algorithms.includes(name)) continue
+        const algorithm = keyExchanges.get(name)
         if (!algorithm) continue
         const hostKeyAlgorithm = mutual_host_key_algorithms.find((alg) => {
             if (algorithm.requires_encryption && !alg.has_encryption) {
@@ -529,19 +534,19 @@ export function chooseAlgorithms(client: Client | ServerClient): ChosenAlgorithm
     }
     assert(
         keyExchange,
-        `No key exchange algorithm found (client KEX: ${client.clientKexInit.data.kex_algorithms.join(",")}; server KEX: ${client.serverKexInit.data.kex_algorithms.join(",")}; client host keys: ${client.clientKexInit.data.server_host_key_algorithms.join(",")}; server host keys: ${client.serverKexInit.data.server_host_key_algorithms.join(",")})`,
+        `No key exchange algorithm found (client KEX: ${clientOffer.kex_algorithms.join(",")}; server KEX: ${serverOffer.kex_algorithms.join(",")}; client host keys: ${clientOffer.server_host_key_algorithms.join(",")}; server host keys: ${serverOffer.server_host_key_algorithms.join(",")})`,
     )
     assert(hostKey, "No host key algorithm found")
 
     const clientEncryption = firstRegisteredMutual(
-        client.clientKexInit.data.encryption_algorithms_client_to_server,
-        client.serverKexInit.data.encryption_algorithms_client_to_server,
+        clientOffer.encryption_algorithms_client_to_server,
+        serverOffer.encryption_algorithms_client_to_server,
         encryption_algorithms,
     )
     assert(clientEncryption, "No client to server encryption algorithm found")
     const serverEncryption = firstRegisteredMutual(
-        client.clientKexInit.data.encryption_algorithms_server_to_client,
-        client.serverKexInit.data.encryption_algorithms_server_to_client,
+        clientOffer.encryption_algorithms_server_to_client,
+        serverOffer.encryption_algorithms_server_to_client,
         encryption_algorithms,
     )
     assert(serverEncryption, "No server to client encryption algorithm found")
@@ -549,46 +554,46 @@ export function chooseAlgorithms(client: Client | ServerClient): ChosenAlgorithm
     const clientMac = negotiateMACAlgorithm(
         "client to server",
         clientEncryption,
-        client.clientKexInit.data.mac_algorithms_client_to_server,
-        client.serverKexInit.data.mac_algorithms_client_to_server,
+        clientOffer.mac_algorithms_client_to_server,
+        serverOffer.mac_algorithms_client_to_server,
     )
     const serverMac = negotiateMACAlgorithm(
         "server to client",
         serverEncryption,
-        client.clientKexInit.data.mac_algorithms_server_to_client,
-        client.serverKexInit.data.mac_algorithms_server_to_client,
+        clientOffer.mac_algorithms_server_to_client,
+        serverOffer.mac_algorithms_server_to_client,
     )
 
     const clientCompression = firstRegisteredMutual(
-        client.clientKexInit.data.compression_algorithms_client_to_server,
-        client.serverKexInit.data.compression_algorithms_client_to_server,
+        clientOffer.compression_algorithms_client_to_server,
+        serverOffer.compression_algorithms_client_to_server,
         compression_algorithms,
     )
     assert(clientCompression, "No client to server compression algorithm found")
     const serverCompression = firstRegisteredMutual(
-        client.clientKexInit.data.compression_algorithms_server_to_client,
-        client.serverKexInit.data.compression_algorithms_server_to_client,
+        clientOffer.compression_algorithms_server_to_client,
+        serverOffer.compression_algorithms_server_to_client,
         compression_algorithms,
     )
     assert(serverCompression, "No server to client compression algorithm found")
 
-    client.debug(
+    debug(
         "Key Exchange Algorithm chosen:",
         (keyExchange.constructor as typeof KexAlgorithm).alg_name,
     )
-    client.debug("Host Key Algorithm chosen:", hostKey.alg_name)
-    client.debug("Client to Server Encryption Algorithm chosen:", clientEncryption.alg_name)
-    client.debug("Server to Client Encryption Algorithm chosen:", serverEncryption.alg_name)
-    client.debug(
+    debug("Host Key Algorithm chosen:", hostKey.alg_name)
+    debug("Client to Server Encryption Algorithm chosen:", clientEncryption.alg_name)
+    debug("Server to Client Encryption Algorithm chosen:", serverEncryption.alg_name)
+    debug(
         "Client to Server MAC Algorithm chosen:",
         negotiatedMACName(clientEncryption, clientMac) || "<implicit>",
     )
-    client.debug(
+    debug(
         "Server to Client MAC Algorithm chosen:",
         negotiatedMACName(serverEncryption, serverMac) || "<implicit>",
     )
-    client.debug("Client to Server Compression Algorithm chosen:", clientCompression.alg_name)
-    client.debug("Server to Client Compression Algorithm chosen:", serverCompression.alg_name)
+    debug("Client to Server Compression Algorithm chosen:", clientCompression.alg_name)
+    debug("Server to Client Compression Algorithm chosen:", serverCompression.alg_name)
 
     return {
         keyExchange,

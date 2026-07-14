@@ -92,6 +92,8 @@ describe("client/server integration", () => {
         const serverHandshakes: unknown[] = []
         const serverExchangeEvents: string[] = []
         const receivedClientExtensions: string[][] = []
+        let initialClientKexInit: KexInit | undefined
+        let initialServerKexInit: KexInit | undefined
         let configuredSession: SessionChannel | undefined
         let configuredShell: Shell | undefined
         const breakDurations: number[] = []
@@ -143,6 +145,9 @@ describe("client/server integration", () => {
         })
         server.on("connection", (peer) => {
             serverPeer = peer
+            peer.once("clientKexInit", (packet) => {
+                initialClientKexInit = packet
+            })
             peer.on("error", (error) => serverErrors.push(error))
             peer.on("rekey", () => serverRekeys++)
             peer.on("handshake", (negotiated) => {
@@ -247,6 +252,9 @@ describe("client/server integration", () => {
             clientExchangeEvents.push("handshake")
         })
         client.on("rekey", () => clientExchangeEvents.push("rekey"))
+        client.once("serverKexInit", (packet) => {
+            initialServerKexInit = packet
+        })
         client.on("serverExtensions", (extensions) => {
             receivedServerExtensions.push(extensions.map(({ name }) => name))
         })
@@ -268,8 +276,8 @@ describe("client/server integration", () => {
         try {
             await client.connect()
 
-            expect(client.clientKexInit?.data.kex_algorithms).toContain("ext-info-c")
-            expect(serverPeer!.serverKexInit?.data.kex_algorithms).toContain("ext-info-s")
+            expect(initialClientKexInit?.data.kex_algorithms).toContain("ext-info-c")
+            expect(initialServerKexInit?.data.kex_algorithms).toContain("ext-info-s")
             expect(receivedClientExtensions).toEqual([["ext-info-in-auth@openssh.com"]])
             expect(serverPeer!.clientExtensions).toEqual([
                 { name: "ext-info-in-auth@openssh.com", value: Buffer.alloc(0) },
@@ -535,9 +543,6 @@ describe("client/server integration", () => {
             expect(client.exchangeHash).not.toEqual(initialClientExchangeHash)
             expect(serverPeer!.exchangeHash).not.toEqual(initialServerExchangeHash)
             expect(client.exchangeHash).toEqual(serverPeer!.exchangeHash)
-            expect(client.clientKexInitPayload?.subarray(1, 17)).not.toEqual(
-                client.clientKexInit?.data.cookie,
-            )
             expect(client.serverKexInitPayload?.subarray(1, 17)).not.toEqual(
                 clientObservedServerKexInit?.data.cookie,
             )
@@ -567,9 +572,6 @@ describe("client/server integration", () => {
             expect(await serverRequestDuringRekey).toEqual(Buffer.from("reply:during-rekey"))
             expect(clientRekeys).toBe(2)
             expect(serverRekeys).toBe(2)
-            expect(serverPeer!.serverKexInitPayload?.subarray(1, 17)).not.toEqual(
-                serverPeer!.serverKexInit?.data.cookie,
-            )
             const exposedServerTranscript = serverPeer!.serverKexInitPayload!
             exposedServerTranscript.fill(0)
             expect(serverPeer!.serverKexInitPayload).not.toEqual(exposedServerTranscript)

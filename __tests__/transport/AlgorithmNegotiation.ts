@@ -1,4 +1,8 @@
-import { chooseAlgorithms, describeNegotiatedAlgorithms } from "../../src/algorithms.js"
+import {
+    chooseAlgorithms,
+    describeNegotiatedAlgorithms,
+    kex_algorithms,
+} from "../../src/algorithms.js"
 import Client from "../../src/Client.js"
 import KexInit, { type KexInitData } from "../../src/packets/KexInit.js"
 import {
@@ -21,6 +25,14 @@ function offer(overrides: Partial<KexInitData>): KexInit {
         languages_server_to_client: [],
         first_kex_packet_follows: false,
         ...overrides,
+    })
+}
+
+function select(clientOffer: KexInit, serverOffer: KexInit) {
+    return chooseAlgorithms({
+        clientOffer: clientOffer.data,
+        serverOffer: serverOffer.data,
+        keyExchanges: kex_algorithms,
     })
 }
 
@@ -189,8 +201,7 @@ describe("RFC 4253 algorithm negotiation", () => {
     })
 
     test("selects the first client-preferred mutual algorithm in every direction", () => {
-        const client = new Client({ hostname: "unused.invalid" })
-        client.clientKexInit = offer({
+        const clientOffer = offer({
             kex_algorithms: ["diffie-hellman-group14-sha256", "diffie-hellman-group16-sha512"],
             server_host_key_algorithms: ["ssh-rsa", "ssh-ed25519"],
             encryption_algorithms_client_to_server: ["aes128-ctr", "aes256-ctr"],
@@ -200,7 +211,7 @@ describe("RFC 4253 algorithm negotiation", () => {
             compression_algorithms_client_to_server: ["zlib", "none"],
             compression_algorithms_server_to_client: ["zlib@openssh.com", "none"],
         })
-        client.serverKexInit = offer({
+        const serverOffer = offer({
             kex_algorithms: ["diffie-hellman-group16-sha512", "diffie-hellman-group14-sha256"],
             server_host_key_algorithms: ["ssh-ed25519", "ssh-rsa"],
             encryption_algorithms_client_to_server: ["aes256-ctr", "aes128-ctr"],
@@ -211,7 +222,7 @@ describe("RFC 4253 algorithm negotiation", () => {
             compression_algorithms_server_to_client: ["none", "zlib@openssh.com"],
         })
 
-        const algorithms = chooseAlgorithms(client)
+        const algorithms = select(clientOffer, serverOffer)
 
         expect(algorithms.keyExchange.constructor).toHaveProperty(
             "alg_name",
@@ -227,21 +238,20 @@ describe("RFC 4253 algorithm negotiation", () => {
     })
 
     test("treats the MAC as implicit when AEAD ciphers are negotiated", () => {
-        const client = new Client({ hostname: "unused.invalid" })
-        client.clientKexInit = offer({
+        const clientOffer = offer({
             encryption_algorithms_client_to_server: ["chacha20-poly1305@openssh.com"],
             encryption_algorithms_server_to_client: ["aes256-gcm@openssh.com"],
             mac_algorithms_client_to_server: ["client-only-mac@example.test"],
             mac_algorithms_server_to_client: ["client-only-mac@example.test"],
         })
-        client.serverKexInit = offer({
+        const serverOffer = offer({
             encryption_algorithms_client_to_server: ["chacha20-poly1305@openssh.com"],
             encryption_algorithms_server_to_client: ["aes256-gcm@openssh.com"],
             mac_algorithms_client_to_server: ["server-only-mac@example.test"],
             mac_algorithms_server_to_client: ["server-only-mac@example.test"],
         })
 
-        const algorithms = chooseAlgorithms(client)
+        const algorithms = select(clientOffer, serverOffer)
 
         expect(algorithms.clientEncryption.alg_name).toBe("chacha20-poly1305@openssh.com")
         expect(algorithms.serverEncryption.alg_name).toBe("aes256-gcm@openssh.com")
@@ -250,21 +260,20 @@ describe("RFC 4253 algorithm negotiation", () => {
     })
 
     test("requires the matching RFC 5647 MAC name for standard AES-GCM", () => {
-        const client = new Client({ hostname: "unused.invalid" })
-        client.clientKexInit = offer({
+        const clientOffer = offer({
             encryption_algorithms_client_to_server: ["AEAD_AES_128_GCM", "aes128-ctr"],
             encryption_algorithms_server_to_client: ["AEAD_AES_256_GCM", "aes128-ctr"],
             mac_algorithms_client_to_server: ["AEAD_AES_128_GCM", "hmac-sha2-256"],
             mac_algorithms_server_to_client: ["AEAD_AES_256_GCM", "hmac-sha2-256"],
         })
-        client.serverKexInit = offer({
+        const serverOffer = offer({
             encryption_algorithms_client_to_server: ["AEAD_AES_128_GCM", "aes128-ctr"],
             encryption_algorithms_server_to_client: ["AEAD_AES_256_GCM", "aes128-ctr"],
             mac_algorithms_client_to_server: ["AEAD_AES_128_GCM", "hmac-sha2-256"],
             mac_algorithms_server_to_client: ["AEAD_AES_256_GCM", "hmac-sha2-256"],
         })
 
-        const algorithms = chooseAlgorithms(client)
+        const algorithms = select(clientOffer, serverOffer)
 
         expect(algorithms.clientEncryption.alg_name).toBe("AEAD_AES_128_GCM")
         expect(algorithms.serverEncryption.alg_name).toBe("AEAD_AES_256_GCM")
@@ -275,76 +284,62 @@ describe("RFC 4253 algorithm negotiation", () => {
     })
 
     test("rejects inconsistent RFC 5647 cipher and MAC selections", () => {
-        const client = new Client({ hostname: "unused.invalid" })
-        client.clientKexInit = offer({
+        let clientOffer = offer({
             encryption_algorithms_client_to_server: ["AEAD_AES_128_GCM", "aes128-ctr"],
             mac_algorithms_client_to_server: ["hmac-sha2-256", "AEAD_AES_128_GCM"],
         })
-        client.serverKexInit = offer({
+        let serverOffer = offer({
             encryption_algorithms_client_to_server: ["AEAD_AES_128_GCM", "aes128-ctr"],
             mac_algorithms_client_to_server: ["hmac-sha2-256", "AEAD_AES_128_GCM"],
         })
 
-        expect(() => chooseAlgorithms(client)).toThrow(
+        expect(() => select(clientOffer, serverOffer)).toThrow(
             "AEAD_AES_128_GCM requires AEAD_AES_128_GCM as the client to server MAC algorithm",
         )
 
-        client.clientKexInit = offer({
+        clientOffer = offer({
             encryption_algorithms_client_to_server: ["aes128-ctr"],
             mac_algorithms_client_to_server: ["AEAD_AES_128_GCM", "hmac-sha2-256"],
         })
-        client.serverKexInit = offer({
+        serverOffer = offer({
             encryption_algorithms_client_to_server: ["aes128-ctr"],
             mac_algorithms_client_to_server: ["AEAD_AES_128_GCM", "hmac-sha2-256"],
         })
-        expect(() => chooseAlgorithms(client)).toThrow(
+        expect(() => select(clientOffer, serverOffer)).toThrow(
             "AEAD_AES_128_GCM may only be selected with the same RFC 5647 encryption algorithm",
         )
     })
 
     test("does not partially install a selection when a later exchange has no overlap", () => {
-        const client = new Client({ hostname: "unused.invalid" })
-        client.clientKexInit = offer({})
-        client.serverKexInit = offer({})
-        const first = chooseAlgorithms(client)
+        const clientOffer = offer({})
+        let serverOffer = offer({})
+        const first = select(clientOffer, serverOffer)
         expect(first.keyExchange).toBeDefined()
 
-        client.serverKexInit = offer({ kex_algorithms: ["unsupported-kex@example.test"] })
-        expect(() => chooseAlgorithms(client)).toThrow("No key exchange algorithm found")
-        expect(client.keyExchangeAlgorithm).toBeUndefined()
-        expect(client.hostKeyAlgorithm).toBeUndefined()
-        expect(client.clientCompressionAlgorithm).toBeUndefined()
-        expect(client.serverCompressionAlgorithm).toBeUndefined()
+        serverOffer = offer({ kex_algorithms: ["unsupported-kex@example.test"] })
+        expect(() => select(clientOffer, serverOffer)).toThrow("No key exchange algorithm found")
     })
 
     test("rejects missing compression overlap independently in each direction", () => {
-        const client = new Client({ hostname: "unused.invalid" })
-        client.clientKexInit = offer({})
-        client.serverKexInit = offer({
+        const clientOffer = offer({})
+        const serverOffer = offer({
             compression_algorithms_server_to_client: ["unsupported-compression@example.test"],
         })
 
-        expect(() => chooseAlgorithms(client)).toThrow(
+        expect(() => select(clientOffer, serverOffer)).toThrow(
             "No server to client compression algorithm found",
         )
-        expect(client.keyExchangeAlgorithm).toBeUndefined()
-        expect(client.hostKeyAlgorithm).toBeUndefined()
-        expect(client.clientEncryptionAlgorithm).toBeUndefined()
-        expect(client.serverEncryptionAlgorithm).toBeUndefined()
-        expect(client.clientCompressionAlgorithm).toBeUndefined()
-        expect(client.serverCompressionAlgorithm).toBeUndefined()
     })
 
     test("negotiates an RSA SHA-2 signature while retaining the ssh-rsa key format", () => {
-        const client = new Client({ hostname: "unused.invalid" })
-        client.clientKexInit = offer({
+        const clientOffer = offer({
             server_host_key_algorithms: ["rsa-sha2-512", "rsa-sha2-256"],
         })
-        client.serverKexInit = offer({
+        const serverOffer = offer({
             server_host_key_algorithms: ["rsa-sha2-256", "rsa-sha2-512"],
         })
 
-        const algorithms = chooseAlgorithms(client)
+        const algorithms = select(clientOffer, serverOffer)
 
         expect(algorithms.hostKey).toEqual({
             alg_name: "rsa-sha2-512",

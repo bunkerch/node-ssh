@@ -768,10 +768,8 @@ export default class Client extends EventEmitter<ClientEvents> {
 
     serverProtocolVersion?: ProtocolVersionExchange
     serverKexDHReply?: KexDHReply
-    // TODO: Assess if these should be private properties
-    clientKexInit?: KexInit
+    #clientKexInit?: KexInit
     #clientKexInitPayload?: Buffer
-    serverKexInit?: KexInit
     #serverKexInitPayload?: Buffer
 
     get clientKexInitPayload(): Buffer | undefined {
@@ -940,8 +938,7 @@ export default class Client extends EventEmitter<ClientEvents> {
 
         this.serverProtocolVersion = undefined
         this.serverKexDHReply = undefined
-        this.clientKexInit = undefined
-        this.serverKexInit = undefined
+        this.#clientKexInit = undefined
         this.#kexAlgorithm = undefined
         this.hostKeyAlgorithm = undefined
         this.serverSignatureAlgorithms = undefined
@@ -1777,18 +1774,22 @@ export default class Client extends EventEmitter<ClientEvents> {
         this.hasSentNewKeys = false
 
         try {
-            this.clientKexInit = this.createKexInit()
-            this.sendPacket(this.clientKexInit)
+            this.#clientKexInit = this.createKexInit()
+            this.sendPacket(this.#clientKexInit)
             if (!peerInitiated) await this.waitEvent("serverKexInit")
             const serverKexInitBuffer = this.serverKexInitPayload
             assert(serverKexInitBuffer, "Missing exact server KEXINIT payload")
             const serverKexInit = KexInit.parse(serverKexInitBuffer)
-            this.serverKexInit = serverKexInit
             this.strictKeyExchange ||= negotiatesStrictKeyExchange(
-                this.clientKexInit.data.kex_algorithms,
+                this.#clientKexInit.data.kex_algorithms,
                 serverKexInit.data.kex_algorithms,
             )
-            const algorithms = chooseAlgorithms(this)
+            const algorithms = chooseAlgorithms({
+                clientOffer: this.#clientKexInit.data,
+                serverOffer: serverKexInit.data,
+                keyExchanges: this.kexAlgorithms,
+                debug: this.debug.bind(this),
+            })
             this.#kexAlgorithm = algorithms.keyExchange
             this.hostKeyAlgorithm = algorithms.hostKey
             this.clientEncryptionAlgorithm = algorithms.clientEncryption
@@ -2473,7 +2474,7 @@ export default class Client extends EventEmitter<ClientEvents> {
     private writePacket(packet: Packet): number {
         this.debug("Sending packet:", this.packetForDebug(packet))
         const payload = packet.serialize()
-        if (packet === this.clientKexInit) this.#clientKexInitPayload = Buffer.from(payload)
+        if (packet === this.#clientKexInit) this.#clientKexInitPayload = Buffer.from(payload)
         const encoded = this.packetEncoder.encode(payload)
         this.socket!.write(encoded.data)
         if (packet instanceof UserAuthRequest) this.sentAuthenticationRequest = true
@@ -2634,7 +2635,7 @@ export default class Client extends EventEmitter<ClientEvents> {
         if (packetType === PacketNameToType.SSH_MSG_KEXINIT && this.strictInitialExchange) {
             const serverAlgorithms = (p as KexInit).data.kex_algorithms
             const negotiated = negotiatesStrictKeyExchange(
-                this.clientKexInit!.data.kex_algorithms,
+                this.#clientKexInit!.data.kex_algorithms,
                 serverAlgorithms,
             )
             this.strictKeyExchange ||= negotiated

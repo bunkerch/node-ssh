@@ -358,6 +358,10 @@ describe("package exports", () => {
         expect(serverClient).toContain("get exchangeHash(): Buffer | undefined")
         expect(client).toContain("get keyExchangeAlgorithm(): string | undefined")
         expect(serverClient).toContain("get keyExchangeAlgorithm(): string | undefined")
+        expect(client).not.toContain("clientKexInit?: KexInit")
+        expect(client).not.toContain("serverKexInit?: KexInit")
+        expect(serverClient).not.toContain("clientKexInit?: KexInit")
+        expect(serverClient).not.toContain("serverKexInit?: KexInit")
         for (const exposedState of [
             "kexAlgorithm?: KexAlgorithm",
             "clientEncryption?: EncryptionAlgorithm",
