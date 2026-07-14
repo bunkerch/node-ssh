@@ -311,26 +311,42 @@ describe("OpenSSH interoperability", () => {
         })
         const errors: Error[] = []
         const rounds: (readonly string[] | undefined)[] = []
-        server.hooker.hook("keyboardInteractiveAuthentication", (_hook, context, decision) => {
-            rounds.push(context.responses)
-            if (context.round === 0) {
-                decision.name = "modernssh login"
-                decision.instruction = "Supply both credentials"
-                decision.prompts = [
-                    { prompt: "Password: ", echo: false },
-                    { prompt: "OTP: ", echo: false },
-                ]
-                return
-            }
-            decision.allowLogin =
-                context.responses?.[0] === "correct-horse-battery-staple" &&
-                context.responses?.[1] === "654321"
-        })
+        const clientExtensionSets: string[][] = []
+        let authenticationExtensionSupported = false
+        server.hooker.hook(
+            "keyboardInteractiveAuthentication",
+            (_hook, context, decision, connection) => {
+                rounds.push(context.responses)
+                if (context.round === 0) {
+                    authenticationExtensionSupported =
+                        connection.clientSupportsAuthenticationExtensionInfo
+                    connection.sendAuthenticationExtensions([
+                        {
+                            name: "server-sig-algs",
+                            value: Buffer.from("ssh-ed25519", "ascii"),
+                        },
+                    ])
+                    decision.name = "modernssh login"
+                    decision.instruction = "Supply both credentials"
+                    decision.prompts = [
+                        { prompt: "Password: ", echo: false },
+                        { prompt: "OTP: ", echo: false },
+                    ]
+                    return
+                }
+                decision.allowLogin =
+                    context.responses?.[0] === "correct-horse-battery-staple" &&
+                    context.responses?.[1] === "654321"
+            },
+        )
         server.hooker.hook("channelOpenRequest", (_hook, channel, decision) => {
             decision.allowOpen = channel instanceof SessionChannel
         })
         server.on("connection", (connection) => {
             connection.on("error", (error) => errors.push(error))
+            connection.on("clientExtensions", (extensions) => {
+                clientExtensionSets.push(extensions.map(({ name }) => name))
+            })
             connection.on("channel", (channel) => {
                 if (!(channel instanceof SessionChannel)) return
                 channel.hooker.hook("execRequest", (_hook, _context, decision) => {
@@ -381,13 +397,21 @@ describe("OpenSSH interoperability", () => {
                     },
                 },
             )
-            expect({ result, rounds, errors: errors.map(String) }).toEqual({
+            expect({
+                result,
+                rounds,
+                clientExtensionSets,
+                authenticationExtensionSupported,
+                errors: errors.map(String),
+            }).toEqual({
                 result: {
                     code: 0,
                     stdout: "keyboard-interactive accepted\n",
                     stderr: "",
                 },
                 rounds: [undefined, ["correct-horse-battery-staple", "654321"]],
+                clientExtensionSets: [["ext-info-in-auth@openssh.com"]],
+                authenticationExtensionSupported: true,
                 errors: [],
             })
         } finally {

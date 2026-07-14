@@ -68,7 +68,11 @@ import KexDHGexRequest from "./packets/KexDHGexRequest.js"
 import KexDHGexRequestOld from "./packets/KexDHGexRequestOld.js"
 import { DiffieHellmanGroupExchange } from "./algorithms/kex/diffie-hellman-group-exchange.js"
 import NewKeys from "./packets/NewKeys.js"
-import ExtInfo, { copySSHExtensions, type SSHExtension } from "./packets/ExtInfo.js"
+import ExtInfo, {
+    AUTHENTICATION_EXT_INFO_EXTENSION,
+    copySSHExtensions,
+    type SSHExtension,
+} from "./packets/ExtInfo.js"
 import Ping from "./packets/Ping.js"
 import Pong from "./packets/Pong.js"
 import { KeyExchangeError } from "./algorithms/kex/key-exchange.js"
@@ -291,6 +295,9 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     private negotiatedClientExtensions: readonly Readonly<SSHExtension>[] = Object.freeze([])
     private initialClientNewKeysReceived = false
     private clientExtInfoAfterNewKeys = false
+    private clientAuthenticationExtInfoSupported = false
+    private authenticationRequestReceived = false
+    private authenticationExtInfoSent = false
     private keyExchangeInProgress = false
     private peerKexInitReceived = false
     private inboundNewKeysReady = false
@@ -381,6 +388,11 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
 
     get clientExtensions(): readonly Readonly<SSHExtension>[] {
         return copySSHExtensions(this.negotiatedClientExtensions)
+    }
+
+    /** Whether the client permits one EXT_INFO update after authentication starts. */
+    get clientSupportsAuthenticationExtensionInfo(): boolean {
+        return this.clientAuthenticationExtInfoSupported
     }
 
     [authorizeAgentForwarding](protocol: AgentForwardingProtocol): void {
@@ -543,6 +555,26 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         if (!this.isConnected) throw new Error("Cannot send SSH ignore data before connection")
         if (!Buffer.isBuffer(data)) throw new TypeError("SSH ignore data must be a buffer")
         this.sendPacket(new Ignore({ data }))
+        return this
+    }
+
+    sendAuthenticationExtensions(extensions: readonly SSHExtension[]): this {
+        if (!this.clientAuthenticationExtInfoSupported) {
+            throw new Error("SSH client did not advertise authentication extension information")
+        }
+        if (this.hasAuthenticated) {
+            throw new Error("Cannot send authentication extension information after authentication")
+        }
+        if (!this.authenticationRequestReceived || !this.authenticationInProgress) {
+            throw new Error(
+                "Authentication extension information requires an active authentication request",
+            )
+        }
+        if (this.authenticationExtInfoSent) {
+            throw new Error("SSH server already sent authentication extension information")
+        }
+        this.sendPacket(new ExtInfo({ extensions }))
+        this.authenticationExtInfoSent = true
         return this
     }
 
@@ -2383,6 +2415,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         }
         if (p instanceof UserAuthRequest) {
             this.activeAuthenticationMethod = p.data.method.method_name
+            this.authenticationRequestReceived = true
         }
         if (p instanceof KexInit) this.#clientKexInitPayload = Buffer.from(payload)
         if (p instanceof KexInit) this.peerKexInitReceived = true
@@ -2460,6 +2493,9 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
 
             case PacketNameToType.SSH_MSG_EXT_INFO: {
                 this.negotiatedClientExtensions = copySSHExtensions((p as ExtInfo).data.extensions)
+                this.clientAuthenticationExtInfoSupported = this.negotiatedClientExtensions.some(
+                    ({ name }) => name === AUTHENTICATION_EXT_INFO_EXTENSION,
+                )
                 this.emit("clientExtensions", this.clientExtensions)
                 break
             }

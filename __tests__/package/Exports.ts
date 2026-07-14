@@ -296,6 +296,10 @@ describe("package exports", () => {
         expect(serverClient).not.toContain("ServerGlobalRequestCallback")
         expect(serverClient).toContain("rekey(): Promise<void>")
         expect(serverClient).toContain("forwardAgent(): Promise<ForwardedAgentChannel>")
+        expect(serverClient).toContain(
+            "sendAuthenticationExtensions(extensions: readonly SSHExtension[]): this",
+        )
+        expect(serverClient).toContain("get clientSupportsAuthenticationExtensionInfo(): boolean")
         expect(server).toContain("getConnections(): Promise<number>")
         expect(server).toContain("close(): Promise<void>")
         expect(agentProtocol).toContain("addIdentity(")

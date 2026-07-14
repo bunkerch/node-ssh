@@ -1,4 +1,5 @@
 import { AddressInfo } from "node:net"
+import { once } from "node:events"
 import Client from "../../src/Client.js"
 import { SSHAuthenticationMethods } from "../../src/constants.js"
 import Disconnect, { DisconnectReason } from "../../src/packets/Disconnect.js"
@@ -31,7 +32,7 @@ describe("RFC 4252 multi-method authentication", () => {
             connection.on("rekey", () => serverRekeys++)
         })
         server.listen({ host: "127.0.0.1", port: 0 })
-        await new Promise<void>((resolve) => server.server!.once("listening", resolve))
+        await once(server.server!, "listening")
 
         const client = new Client({
             hostname: "127.0.0.1",
@@ -167,6 +168,147 @@ describe("RFC 4252 multi-method authentication", () => {
             await new Promise<void>((resolve, reject) => {
                 server.server!.close((error) => (error ? reject(error) : resolve()))
             })
+        }
+    }, 15_000)
+
+    test("replaces extension information between negotiated authentication requests", async () => {
+        const hostKey = await PrivateKey.generate("ssh-ed25519")
+        const server = new Server({ hostKeys: [hostKey], sendAllHostKeys: false })
+        const errors: Error[] = []
+        const rejectedSends: string[] = []
+        let connection: ServerClient | undefined
+        server.hooker.hook("passwordAuthentication", (_hook, context, decision, peer) => {
+            const policy = Buffer.from(context.username)
+            peer.sendAuthenticationExtensions([
+                {
+                    name: "server-sig-algs",
+                    value: Buffer.from("ssh-ed25519", "ascii"),
+                },
+                {
+                    name: "per-user@example.test",
+                    value: policy,
+                },
+            ])
+            policy.fill(0)
+            expect(() => peer.sendAuthenticationExtensions([])).toThrow(
+                "already sent authentication extension information",
+            )
+            decision.partialSuccess = true
+            decision.authenticationMethods = [SSHAuthenticationMethods.KeyboardInteractive]
+        })
+        server.hooker.hook("keyboardInteractiveAuthentication", (_hook, context, decision) => {
+            if (context.round === 0) {
+                decision.prompts = [{ prompt: "Second factor: ", echo: false }]
+            } else {
+                decision.allowLogin = context.responses?.[0] === "654321"
+            }
+        })
+        server.on("connection", (peer) => {
+            connection = peer
+            peer.on("error", (error) => errors.push(error))
+            try {
+                peer.sendAuthenticationExtensions([])
+            } catch (error) {
+                rejectedSends.push((error as Error).message)
+            }
+            peer.on("clientExtensions", () => {
+                try {
+                    peer.sendAuthenticationExtensions([])
+                } catch (error) {
+                    rejectedSends.push((error as Error).message)
+                }
+            })
+        })
+        server.listen({ host: "127.0.0.1", port: 0 })
+        await once(server.server!, "listening")
+
+        const client = new Client({
+            hostname: "127.0.0.1",
+            port: (server.server!.address() as AddressInfo).port,
+            username: "extension-user",
+            password: "first-factor",
+            authenticationMethodsOrder: [
+                SSHAuthenticationMethods.Password,
+                SSHAuthenticationMethods.KeyboardInteractive,
+            ],
+        })
+        const extensionSets: string[][] = []
+        client.on("error", (error) => errors.push(error))
+        client.on("serverExtensions", (extensions) => {
+            extensionSets.push(extensions.map(({ name }) => name))
+        })
+        client.hooker.hook("hostKey", (_hook, decision) => {
+            decision.allowHostKey = true
+        })
+        client.hooker.hook("keyboardInteractive", (_hook, context, decision) => {
+            decision.responses = context.prompts.map(() => "654321")
+        })
+
+        try {
+            await client.connect()
+            expect(connection!.clientExtensions).toEqual([
+                { name: "ext-info-in-auth@openssh.com", value: Buffer.alloc(0) },
+            ])
+            expect(extensionSets).toEqual([
+                ["server-sig-algs", "ping@openssh.com", "agent-forward"],
+                ["server-sig-algs", "per-user@example.test"],
+            ])
+            expect(client.serverSignatureAlgorithms).toEqual(["ssh-ed25519"])
+            expect(client.serverExtensions[1]).toEqual({
+                name: "per-user@example.test",
+                value: Buffer.from("extension-user"),
+            })
+            expect(rejectedSends).toEqual([
+                "SSH client did not advertise authentication extension information",
+                "Authentication extension information requires an active authentication request",
+            ])
+            expect(() => connection!.sendAuthenticationExtensions([])).toThrow(
+                "after authentication",
+            )
+            expect(errors).toEqual([])
+        } finally {
+            client.destroy()
+            for (const peer of server.clients) peer.terminate()
+            await server.close()
+        }
+    }, 15_000)
+
+    test("rejects duplicate negotiated authentication extension updates", async () => {
+        const hostKey = await PrivateKey.generate("ssh-ed25519")
+        const server = new Server({ hostKeys: [hostKey], sendAllHostKeys: false })
+        server.hooker.hook("passwordAuthentication", (_hook, _context, decision, peer) => {
+            peer.sendAuthenticationExtensions([
+                { name: "first@example.test", value: Buffer.alloc(0) },
+            ])
+            peer.sendPacket(
+                new ExtInfo({
+                    extensions: [{ name: "duplicate@example.test", value: Buffer.alloc(0) }],
+                }),
+            )
+            decision.authenticationMethods = [SSHAuthenticationMethods.Password]
+        })
+        server.listen({ host: "127.0.0.1", port: 0 })
+        await once(server.server!, "listening")
+
+        const client = new Client({
+            hostname: "127.0.0.1",
+            port: (server.server!.address() as AddressInfo).port,
+            username: "extension-user",
+            password: "rejected",
+            authenticationMethodsOrder: [SSHAuthenticationMethods.Password],
+        })
+        client.hooker.hook("hostKey", (_hook, decision) => {
+            decision.allowHostKey = true
+        })
+
+        try {
+            await expect(client.connect()).rejects.toThrow(
+                "duplicate authentication extension information",
+            )
+        } finally {
+            client.destroy()
+            for (const peer of server.clients) peer.terminate()
+            await server.close()
         }
     }, 15_000)
 

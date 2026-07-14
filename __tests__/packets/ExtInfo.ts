@@ -6,6 +6,10 @@ const serverSignatureAlgorithms = Buffer.from(
     "hex",
 )
 const agentForwarding = Buffer.from("07000000010000000d6167656e742d666f72776172640000000130", "hex")
+const authenticationExtensionInfo = Buffer.from(
+    "07000000010000001c6578742d696e666f2d696e2d61757468406f70656e7373682e636f6d00000000",
+    "hex",
+)
 
 describe("RFC 8308 extension information vectors", () => {
     test("parses and serializes a fixed server-sig-algs message", () => {
@@ -39,6 +43,15 @@ describe("RFC 8308 extension information vectors", () => {
             { name: "agent-forward", value: Buffer.from("0", "ascii") },
         ])
         expect(packet.serialize()).toEqual(agentForwarding)
+    })
+
+    test("parses and serializes the fixed authentication extension advertisement", () => {
+        const packet = ExtInfo.parse(authenticationExtensionInfo)
+
+        expect(packet.data.extensions).toEqual([
+            { name: "ext-info-in-auth@openssh.com", value: Buffer.alloc(0) },
+        ])
+        expect(packet.serialize()).toEqual(authenticationExtensionInfo)
     })
 
     test("copies opaque extension values supplied by the caller", () => {

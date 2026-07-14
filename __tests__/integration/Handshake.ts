@@ -268,8 +268,11 @@ describe("client/server integration", () => {
         try {
             await client.connect()
 
-            expect(receivedClientExtensions).toEqual([[]])
-            expect(serverPeer!.clientExtensions).toEqual([])
+            expect(receivedClientExtensions).toEqual([["ext-info-in-auth@openssh.com"]])
+            expect(serverPeer!.clientExtensions).toEqual([
+                { name: "ext-info-in-auth@openssh.com", value: Buffer.alloc(0) },
+            ])
+            expect(serverPeer!.clientSupportsAuthenticationExtensionInfo).toBe(true)
             expect(receivedServerExtensions).toEqual([
                 ["server-sig-algs", "ping@openssh.com", "agent-forward"],
             ])

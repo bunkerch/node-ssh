@@ -379,10 +379,37 @@ deterministically according to RFC 6979 instead of depending on fresh random inp
 signature.
 
 RFC 8308 extension messages are position-checked. A client message is accepted only immediately
-after its first `NEWKEYS`; the client sends an empty message at that point when the server offered
-`ext-info-s`. A server message is accepted immediately after its first `NEWKEYS` and/or immediately
-before `USERAUTH_SUCCESS`. A second server message replaces the complete first set, so capabilities
-omitted from it stop being active. Messages outside these opportunities terminate the connection.
+after its first `NEWKEYS`. When the server offered `ext-info-s`, the client sends that message with
+the `ext-info-in-auth@openssh.com` capability. A server message is accepted immediately after its
+first `NEWKEYS`. Without the negotiated authentication capability, the only later RFC 8308
+opportunity is immediately before `USERAUTH_SUCCESS`.
+
+The advertised authentication capability lets a server send one replacement extension set after
+receiving the first `USERAUTH_REQUEST` and before authentication completes. This is useful when
+extension values depend on the requested account, and the update may precede either an
+authentication failure or success. Send it from an awaited authentication hook:
+
+```ts
+server.hooker.hook("passwordAuthentication", async (_hook, context, decision, connection) => {
+    const account = await accounts.verifyPassword(context.username, context.password)
+
+    if (connection.clientSupportsAuthenticationExtensionInfo) {
+        connection.sendAuthenticationExtensions([
+            {
+                name: "account-policy@example.com",
+                value: Buffer.from(account.policy, "utf8"),
+            },
+        ])
+    }
+    decision.allowLogin = account.accepted
+})
+```
+
+`sendAuthenticationExtensions()` throws if the client did not advertise support, no authentication
+request is active, authentication already completed, or an update was already sent. Every valid
+later message replaces the complete first set, so capabilities omitted from it stop being active.
+In particular, a replacement `server-sig-algs` value supersedes the initial value. Messages outside
+these opportunities terminate the connection.
 
 `client.serverExtensions` and `serverConnection.clientExtensions` expose deep-copied snapshots that
 preserve unknown binary values. Their corresponding `serverExtensions` and `clientExtensions`

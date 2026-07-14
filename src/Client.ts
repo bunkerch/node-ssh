@@ -45,7 +45,11 @@ import {
     DiffieHellmanGroupExchange,
 } from "./algorithms/kex/diffie-hellman-group-exchange.js"
 import EncodedSignature from "./utils/Signature.js"
-import ExtInfo, { copySSHExtensions, type SSHExtension } from "./packets/ExtInfo.js"
+import ExtInfo, {
+    AUTHENTICATION_EXT_INFO_EXTENSION,
+    copySSHExtensions,
+    type SSHExtension,
+} from "./packets/ExtInfo.js"
 import Ping from "./packets/Ping.js"
 import Pong from "./packets/Pong.js"
 import PublicKey, { SSHCertificatePublicKey } from "./utils/PublicKey.js"
@@ -691,6 +695,9 @@ export default class Client extends EventEmitter<ClientEvents> {
     private initialServerNewKeysReceived = false
     private serverExtInfoAfterNewKeys = false
     private serverExtInfoMustPrecedeSuccess = false
+    private advertisedAuthenticationExtInfo = false
+    private sentAuthenticationRequest = false
+    private serverAuthenticationExtInfoReceived = false
     clientEncryptionAlgorithm?: typeof EncryptionAlgorithm
     serverEncryptionAlgorithm?: typeof EncryptionAlgorithm
     clientEncryption?: EncryptionAlgorithm
@@ -831,6 +838,9 @@ export default class Client extends EventEmitter<ClientEvents> {
         this.initialServerNewKeysReceived = false
         this.serverExtInfoAfterNewKeys = false
         this.serverExtInfoMustPrecedeSuccess = false
+        this.advertisedAuthenticationExtInfo = false
+        this.sentAuthenticationRequest = false
+        this.serverAuthenticationExtInfoReceived = false
         this.clientEncryptionAlgorithm = undefined
         this.serverEncryptionAlgorithm = undefined
         this.clientEncryption = undefined
@@ -1733,7 +1743,17 @@ export default class Client extends EventEmitter<ClientEvents> {
             )
             this.installOutboundCompression()
             if (!isRekey && serverKexInit.data.kex_algorithms.includes("ext-info-s")) {
-                this.sendPacket(new ExtInfo({ extensions: [] }))
+                this.sendPacket(
+                    new ExtInfo({
+                        extensions: [
+                            {
+                                name: AUTHENTICATION_EXT_INFO_EXTENSION,
+                                value: Buffer.alloc(0),
+                            },
+                        ],
+                    }),
+                )
+                this.advertisedAuthenticationExtInfo = true
             }
             while (this.packetsQueuedDuringKeyExchange.length > 0) {
                 this.writePacket(this.packetsQueuedDuringKeyExchange.shift()!)
@@ -2192,6 +2212,7 @@ export default class Client extends EventEmitter<ClientEvents> {
         if (packet === this.clientKexInit) this.#clientKexInitPayload = Buffer.from(payload)
         const encoded = this.packetEncoder.encode(payload)
         this.socket!.write(encoded.data)
+        if (packet instanceof UserAuthRequest) this.sentAuthenticationRequest = true
         this.checkRekeyByteLimit()
         return encoded.sequenceNumber
     }
@@ -2550,6 +2571,25 @@ export default class Client extends EventEmitter<ClientEvents> {
                 return
             }
             if (this.initialServerNewKeysReceived && !this.hasAuthenticated) {
+                if (
+                    this.advertisedAuthenticationExtInfo &&
+                    this.sentAuthenticationRequest &&
+                    this.authenticationInProgress
+                ) {
+                    if (this.serverAuthenticationExtInfoReceived) {
+                        throw new Error(
+                            "Server sent duplicate authentication extension information",
+                        )
+                    }
+                    this.serverAuthenticationExtInfoReceived = true
+                    return
+                }
+                if (this.serverAuthenticationExtInfoReceived) {
+                    throw new Error(
+                        "Server sent duplicate pre-authentication extension information",
+                    )
+                }
+                this.serverAuthenticationExtInfoReceived = true
                 this.serverExtInfoMustPrecedeSuccess = true
                 return
             }

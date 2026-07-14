@@ -16,6 +16,8 @@ export interface SSHExtension {
     readonly value: Buffer
 }
 
+export const AUTHENTICATION_EXT_INFO_EXTENSION = "ext-info-in-auth@openssh.com"
+
 export interface ExtInfoData {
     readonly extensions: readonly SSHExtension[]
 }
