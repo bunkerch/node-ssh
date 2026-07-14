@@ -134,7 +134,9 @@ a key-exchange violation and terminates the connection instead of receiving this
 section 7.3. A sender protects packets immediately after sending its unprotected `NEWKEYS`; a
 receiver protects packets immediately after receiving its peer's `NEWKEYS`. Packet processing
 yields between coalesced messages so the key-exchange state machine can derive and install keys
-before decoding the next protected packet from the same TCP read.
+before decoding the next protected packet from the same TCP read. `NEWKEYS` and method-specific
+key-exchange messages are protocol errors when no exchange is active; they can never reinstall
+stale protection or pause ordinary connection traffic.
 
 Algorithm negotiation follows the client's name-list preference order independently for key
 exchange, host keys, and both transport directions. Non-AEAD ciphers also negotiate each MAC

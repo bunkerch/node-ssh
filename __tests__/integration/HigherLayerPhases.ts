@@ -8,6 +8,8 @@ import UserAuthRequest, { UnknownAuthMethod } from "../../src/packets/UserAuthRe
 import Server from "../../src/Server.js"
 import type ServerClient from "../../src/ServerClient.js"
 import PrivateKey from "../../src/utils/PrivateKey.js"
+import NewKeys from "../../src/packets/NewKeys.js"
+import KexDHInit from "../../src/packets/KexDHInit.js"
 
 async function listen(server: Server): Promise<number> {
     server.listen({ host: "127.0.0.1", port: 0 })
@@ -41,6 +43,45 @@ function peerDisconnect(peer: Client | ServerClient): Promise<Readonly<PeerDisco
 }
 
 describe("RFC higher-layer message phases", () => {
+    test.each([
+        ["client", "NEWKEYS"],
+        ["server", "NEWKEYS"],
+        ["client", "method-specific"],
+        ["server", "method-specific"],
+    ] as const)(
+        "rejects a %s %s packet outside key exchange",
+        async (sender, packetKind) => {
+            const hostKey = await PrivateKey.generate("ssh-ed25519")
+            const server = new Server({ hostKeys: [hostKey], sendAllHostKeys: false })
+            server.hooker.hook("noneAuthentication", (_hook, _context, decision) => {
+                decision.allowLogin = true
+            })
+            let connection!: ServerClient
+            server.once("connection", (peer) => {
+                connection = peer
+            })
+            const client = clientFor(await listen(server))
+
+            try {
+                await client.connect()
+                const disconnected = peerDisconnect(sender === "client" ? client : connection)
+                const packet =
+                    packetKind === "NEWKEYS"
+                        ? new NewKeys({})
+                        : new KexDHInit({ e: Buffer.alloc(32, 0x42), encoding: "string" })
+                if (sender === "client") client.sendPacket(packet)
+                else connection.sendPacket(packet)
+                await expect(disconnected).resolves.toMatchObject({
+                    reasonCode: DisconnectReason.SSH_DISCONNECT_PROTOCOL_ERROR,
+                    description: `SSH ${sender} sent a key-exchange message outside key exchange`,
+                })
+            } finally {
+                await close(server, client)
+            }
+        },
+        15_000,
+    )
+
     test.each(["client", "server"] as const)(
         "rejects an authentication message from the %s after login",
         async (sender) => {

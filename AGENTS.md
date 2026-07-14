@@ -220,6 +220,9 @@ meaningful wire-level behavior.
   new transport keys from the current exchange hash. Queue application output after sending
   `KEXINIT`, switch each direction exactly at its own `NEWKEYS`, preserve sequence numbers and open
   channels, and test both initiator roles against OpenSSH.
+- Accept `NEWKEYS` and method-specific key-exchange messages only while an exchange is active.
+  Reject late or unsolicited exchange packets with an RFC protocol-error disconnect before parsing
+  their method-specific payload or changing packet protection.
 - RFC 4253 unknown message numbers receive `SSH_MSG_UNIMPLEMENTED` with the rejected inbound packet
   sequence and must not stop later buffered processing. Keep malformed known packets fatal, and
   classify strict initial-KEX non-KEX traffic before this recovery path so it still disconnects.

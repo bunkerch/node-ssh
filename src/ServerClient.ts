@@ -1883,6 +1883,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         const packetType = payload[0] as PacketType
         this.debug("Receiving packet:", packetType)
 
+        this.validateKeyExchangePhase(packetType)
         this.validateClientExtInfoPosition(packetType)
 
         if (
@@ -2163,6 +2164,22 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             return
         }
         this.clientExtInfoAfterNewKeys = false
+    }
+
+    private validateKeyExchangePhase(packetType: PacketType): void {
+        const exchangeOnly =
+            packetType === PacketNameToType.SSH_MSG_NEWKEYS ||
+            packetType === PacketNameToType.SSH_MSG_KEXDH_INIT ||
+            packetType === PacketNameToType.SSH_MSG_KEXDH_REPLY ||
+            packetType === PacketNameToType.SSH_MSG_KEX_DH_GEX_INIT ||
+            packetType === PacketNameToType.SSH_MSG_KEX_DH_GEX_REPLY ||
+            packetType === PacketNameToType.SSH_MSG_KEX_DH_GEX_REQUEST
+        if (exchangeOnly && !this.keyExchangeInProgress) {
+            throw new DisconnectError(
+                DisconnectReason.SSH_DISCONNECT_PROTOCOL_ERROR,
+                "SSH client sent a key-exchange message outside key exchange",
+            )
+        }
     }
 
     private validateHigherLayerPhase(packetType: PacketType): void {

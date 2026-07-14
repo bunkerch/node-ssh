@@ -2046,6 +2046,7 @@ export default class Client extends EventEmitter<ClientEvents> {
         const packetType = payload[0] as PacketType
         this.debug("Receiving packet:", packetType)
 
+        this.validateKeyExchangePhase(packetType)
         this.validateServerExtInfoPosition(packetType)
 
         if (
@@ -2302,6 +2303,22 @@ export default class Client extends EventEmitter<ClientEvents> {
             throw new Error("Server EXT_INFO arrived outside an RFC 8308 opportunity")
         }
         this.serverExtInfoAfterNewKeys = false
+    }
+
+    private validateKeyExchangePhase(packetType: PacketType): void {
+        const exchangeOnly =
+            packetType === PacketNameToType.SSH_MSG_NEWKEYS ||
+            packetType === PacketNameToType.SSH_MSG_KEXDH_INIT ||
+            packetType === PacketNameToType.SSH_MSG_KEXDH_REPLY ||
+            packetType === PacketNameToType.SSH_MSG_KEX_DH_GEX_INIT ||
+            packetType === PacketNameToType.SSH_MSG_KEX_DH_GEX_REPLY ||
+            packetType === PacketNameToType.SSH_MSG_KEX_DH_GEX_REQUEST
+        if (exchangeOnly && !this.keyExchangeInProgress) {
+            throw new DisconnectError(
+                DisconnectReason.SSH_DISCONNECT_PROTOCOL_ERROR,
+                "SSH server sent a key-exchange message outside key exchange",
+            )
+        }
     }
 
     private validateHigherLayerPhase(packetType: PacketType): void {
