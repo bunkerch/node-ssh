@@ -312,6 +312,29 @@ hardware key handles. It supports delegated signing through `Agent`, but it does
 authenticators or communicate with them directly. Those operations belong in a FIDO provider used
 by the application or receiving agent.
 
+`SecurityKeyAttestation` parses the published `ssh-sk-attest-v00` and `ssh-sk-attest-v01`
+enrollment records. Version 1 adds CBOR authenticator data; both versions contain an attestation
+certificate, enrollment signature, reserved flags, and reserved bytes. The certificate,
+signature, authenticator data, and reserved value remain opaque and are returned as defensive
+copies, matching the format's storage role:
+
+```ts
+import { SecurityKeyAttestation } from "@bunkerch/modernssh"
+
+const attestation = await SecurityKeyAttestation.load("./id_ed25519_sk.attestation")
+await registerHardwareIdentity({
+    certificate: attestation.certificate,
+    signature: attestation.enrollmentSignature,
+    authenticatorData: attestation.authenticatorData,
+})
+```
+
+Parsing proves only that the record is well-formed. Applications must validate the attestation
+certificate, enrollment signature, authenticator data, and local manufacturer policy before
+treating a key as hardware-backed. Attestation data is not privacy-preserving and may identify a
+token's manufacturer and batch, so retain or transmit it only for an explicit registration
+workflow. Direct authenticator enrollment remains outside the library.
+
 Historical RFC 4253 DSS identities are available as `ssh-dss` for explicitly configured legacy
 peers. They use only DSA-1024 with SHA-1 and are excluded from normal algorithm offers. Do not
 enable them for new credentials; prefer Ed25519, ECDSA, or RSA SHA-2.

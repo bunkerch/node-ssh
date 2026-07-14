@@ -58,6 +58,7 @@ import {
     PublicKey,
     PublicKeyAlgorithm,
     PublicKeySubsystemClient,
+    SecurityKeyAttestation,
     PublicKeySubsystemServer,
     PublicKeySubsystemStatusCode,
     Server,
@@ -201,6 +202,7 @@ describe("package exports", () => {
             ProtocolVersionExchange,
             PublicKey,
             PublicKeyAlgorithm,
+            SecurityKeyAttestation,
             Server,
             ServerClient,
             SessionChannel,
@@ -208,7 +210,7 @@ describe("package exports", () => {
             SSHAgent,
             SSHHTTPAgent,
             SSHHTTPSAgent,
-        ]).toHaveLength(41)
+        ]).toHaveLength(42)
         expect(SSHAuthenticationMethods.PublicKey).toBe("publickey")
         expect(SSHAuthenticationMethods.KeyboardInteractive).toBe("keyboard-interactive")
         expect(SSHAuthenticationMethods.GSSAPIWithMIC).toBe("gssapi-with-mic")
@@ -281,6 +283,7 @@ describe("package exports", () => {
         expect(entry.PublicKeySubsystemServer).toBeFunction()
         expect(entry.PublicKeySubsystemStatusCode.Success).toBe(0)
         expect(entry.KeyRevocationList).toBeFunction()
+        expect(entry.SecurityKeyAttestation).toBeFunction()
         expect(entry.KnownHosts).toBeFunction()
         expect(entry.parseKeys).toBeFunction()
         expect(entry.DirectTCPIPChannel).toBeDefined()
@@ -334,6 +337,7 @@ describe("package exports", () => {
         const privateKey = await readFile("dist/utils/PrivateKey.d.ts", "utf8")
         const knownHosts = await readFile("dist/KnownHosts.d.ts", "utf8")
         const keyRevocationList = await readFile("dist/KeyRevocationList.d.ts", "utf8")
+        const securityKeyAttestation = await readFile("dist/SecurityKeyAttestation.d.ts", "utf8")
         const agentProtocol = await readFile("dist/publickey/SSHAgentProtocol.d.ts", "utf8")
         const cygwinAgent = await readFile("dist/publickey/CygwinAgent.d.ts", "utf8")
         const pageantAgent = await readFile("dist/publickey/PageantAgent.d.ts", "utf8")
@@ -413,6 +417,10 @@ describe("package exports", () => {
         expect(keyRevocationList).toContain("static load(path: string): Promise<KeyRevocationList>")
         expect(keyRevocationList).toContain("isRevoked(key: PublicKey | Buffer): boolean")
         expect(keyRevocationList).toContain("isSignedBy(key: PublicKey | Buffer): boolean")
+        expect(securityKeyAttestation).toContain(
+            "static load(path: string): Promise<SecurityKeyAttestation>",
+        )
+        expect(securityKeyAttestation).toContain("get authenticatorData(): Buffer | undefined")
         expect(agentProtocol).toContain("getPublicKeys(): Promise<[string, PublicKey][]>")
         expect(agentProtocol).toContain("serve(stream: Duplex): Promise<void>")
         expect(agentProtocol).not.toContain("callback")
@@ -443,7 +451,7 @@ describe("package exports", () => {
                     "--input-type=module",
                     "--eval",
                     `
-                    const { Client, createSocketAgent, CygwinAgent, CygwinAgentError, DELAY_COMPRESSION_EXTENSION, delayCompressionExtension, discoverPageantAgentSocket, ELEVATION_EXTENSION, EncodedSignature, generateKeyPair, generateKeyPairSync, KeyRevocationList, KnownHosts, MAX_OPENSSH_AGENT_SESSION_BINDINGS, MAX_SSH_AGENT_MESSAGE_LENGTH, NO_FLOW_CONTROL_EXTENSION, OnePasswordAgent, OPENSSH_AGENT_SECURITY_KEY_PROVIDER, OPENSSH_AGENT_SESSION_BIND, PageantAgent, PageantAgentError, parseKey, PrivateKey, PrivateKeyAgent, PublicKey, PublicKeySubsystemClient, PublicKeySubsystemServer, PublicKeySubsystemStatusCode, SSH_ED25519_SECURITY_KEY_ALGORITHM, SSHAgentConstraintType, SSHAgentExtensionFailureError, SSHAgentMessageType, SSHAgentProtocolClient, SSHAgentProtocolError, SSHAgentProtocolServer, SSHED25519SecurityKeyPrivateKey, SSHED25519SecurityKeyPublicKey } = await import("@bunkerch/modernssh")
+                    const { Client, createSocketAgent, CygwinAgent, CygwinAgentError, DELAY_COMPRESSION_EXTENSION, delayCompressionExtension, discoverPageantAgentSocket, ELEVATION_EXTENSION, EncodedSignature, generateKeyPair, generateKeyPairSync, KeyRevocationList, KnownHosts, MAX_OPENSSH_AGENT_SESSION_BINDINGS, MAX_SSH_AGENT_MESSAGE_LENGTH, NO_FLOW_CONTROL_EXTENSION, OnePasswordAgent, OPENSSH_AGENT_SECURITY_KEY_PROVIDER, OPENSSH_AGENT_SESSION_BIND, PageantAgent, PageantAgentError, parseKey, PrivateKey, PrivateKeyAgent, PublicKey, PublicKeySubsystemClient, PublicKeySubsystemServer, PublicKeySubsystemStatusCode, SecurityKeyAttestation, SSH_ED25519_SECURITY_KEY_ALGORITHM, SSHAgentConstraintType, SSHAgentExtensionFailureError, SSHAgentMessageType, SSHAgentProtocolClient, SSHAgentProtocolError, SSHAgentProtocolServer, SSHED25519SecurityKeyPrivateKey, SSHED25519SecurityKeyPublicKey } = await import("@bunkerch/modernssh")
                     const { privateKey, publicKey } = await generateKeyPair("ed25519", {
                         comment: "packed@example.test",
                     })
@@ -478,6 +486,8 @@ describe("package exports", () => {
                     const packedRevokedKey = PublicKey.parseString("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINdamAGCsQq31Uv+08lkBzoO4XLz2qYjJa8CGmj3B1Ea")
                     if (!packedKRL.isRevoked(packedRevokedKey)) process.exit(39)
                     if (packedKRL.isSignedBy(packedRevokedKey)) process.exit(40)
+                    const packedAttestation = SecurityKeyAttestation.parse(Buffer.from("000000117373682d736b2d6174746573742d76303000000004cafebabe00000004112233440000000000000000", "hex"))
+                    if (packedAttestation.format !== "ssh-sk-attest-v00" || !packedAttestation.serialize().equals(Buffer.from("000000117373682d736b2d6174746573742d76303000000004cafebabe00000004112233440000000000000000", "hex"))) process.exit(41)
                     if (new Client({}).algorithmOffer.kex[0] !== "mlkem768x25519-sha256") process.exit(16)
                     if (typeof SSHAgentProtocolClient !== "function" || typeof SSHAgentProtocolServer !== "function" || typeof SSHAgentProtocolError !== "function") process.exit(17)
                     if (SSHAgentMessageType.SignResponse !== 14 || MAX_SSH_AGENT_MESSAGE_LENGTH !== 262144) process.exit(18)
