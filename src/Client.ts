@@ -2227,6 +2227,16 @@ export default class Client extends EventEmitter<ClientEvents> {
 
     waitEvent<event extends keyof ClientEvents>(event: event): Promise<ClientEvents[event]> {
         return new Promise((resolve, reject) => {
+            if (
+                this.state === SocketState.Closed ||
+                this.state === SocketState.Disconnected ||
+                this.socket?.destroyed
+            ) {
+                reject(
+                    this.connectionClosedError(`SSH connection closed while waiting for ${event}`),
+                )
+                return
+            }
             const onError = (error: Error) => {
                 cleanup()
                 reject(error)
@@ -2255,6 +2265,16 @@ export default class Client extends EventEmitter<ClientEvents> {
     }
     waitForPacket<Name extends keyof typeof packets>(name: Name): Promise<(typeof packets)[Name]> {
         return new Promise((resolve, reject) => {
+            if (
+                this.state === SocketState.Closed ||
+                this.state === SocketState.Disconnected ||
+                this.socket?.destroyed
+            ) {
+                reject(
+                    this.connectionClosedError(`SSH connection closed while waiting for ${name}`),
+                )
+                return
+            }
             const classType = packets[name]
             const onError = (error: Error) => {
                 cleanup()
@@ -2296,6 +2316,16 @@ export default class Client extends EventEmitter<ClientEvents> {
         timeout: number,
     ): Promise<Packets[Extract<keyof Predicates, keyof Packets>]> {
         return new Promise((resolve, reject) => {
+            if (
+                this.state === SocketState.Closed ||
+                this.state === SocketState.Disconnected ||
+                this.socket?.destroyed
+            ) {
+                reject(
+                    this.connectionClosedError("SSH connection closed while waiting for message"),
+                )
+                return
+            }
             const cleanup = () => {
                 this.off("packet", onPacket)
                 this.off("error", onError)
