@@ -34,7 +34,11 @@ export class Hooker<types extends Record<string, unknown[]>> extends EventEmitte
             return
         }
 
-        hooks.splice(index, 1)
+        if (hooks.length === 1) {
+            this.hooks.delete(event)
+        } else {
+            hooks.splice(index, 1)
+        }
     }
 
     hasHooks(event: keyof types) {
