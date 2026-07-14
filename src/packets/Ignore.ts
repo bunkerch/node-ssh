@@ -9,9 +9,9 @@ export interface IgnoreData {
 export default class Ignore implements Packet {
     static type = PacketNameToType.SSH_MSG_IGNORE
 
-    data: IgnoreData
+    readonly data: Readonly<IgnoreData>
     constructor(data: IgnoreData) {
-        this.data = data
+        this.data = Object.freeze({ data: Buffer.from(data.data) })
     }
 
     serialize(): Buffer {

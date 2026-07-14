@@ -20,12 +20,27 @@ export interface DebugData {
     message: string
     language_tag: string
 }
+export interface ProtocolDebugMessage {
+    alwaysDisplay: boolean
+    message: string
+    languageTag: string
+}
+
+export function protocolDebugMessage(data: DebugData): Readonly<ProtocolDebugMessage> {
+    return Object.freeze({
+        alwaysDisplay: data.always_display,
+        message: data.message,
+        languageTag: data.language_tag,
+    })
+}
 export default class Debug implements Packet {
     static type = PacketNameToType.SSH_MSG_DEBUG
 
-    data: DebugData
+    readonly data: Readonly<DebugData>
     constructor(data: DebugData) {
-        this.data = data
+        encodeSSHUTF8(data.message, "SSH debug message")
+        encodeSSHLanguageTag(data.language_tag)
+        this.data = Object.freeze({ ...data })
     }
 
     serialize(): Buffer {

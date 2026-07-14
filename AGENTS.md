@@ -197,6 +197,9 @@ meaningful wire-level behavior.
 - Human-readable SSH fields use fatal UTF-8 decoding and RFC 3066 ASCII language tags; never allow
   replacement decoding before authentication or policy. Preserve unknown uint32 disconnect reasons
   so future and private-use assignments still produce a clean terminal disconnect.
+- Preserve all inbound RFC 4253 debug fields in an immutable semantic event. Copy outbound ignore
+  bytes at the API boundary, keep ignore payloads semantically opaque, and queue both debug and
+  ignore messages across key exchange so they cannot violate strict-KEX ordering.
 - Publish inbound RFC 4253 disconnect metadata immutably before close in both roles. Reject every
   active packet wait and pending operation with the typed peer-disconnect error; clean socket closes
   without a protocol message retain contextual ordinary errors and must never leave setup hanging.

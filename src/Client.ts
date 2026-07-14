@@ -68,7 +68,8 @@ import NoneAgent from "./publickey/NoneAgent.js"
 import GlobalRequest from "./packets/GlobalRequest.js"
 import RequestFailure from "./packets/RequestFailure.js"
 import RequestSuccess from "./packets/RequestSuccess.js"
-import Debug from "./packets/Debug.js"
+import Debug, { protocolDebugMessage, type ProtocolDebugMessage } from "./packets/Debug.js"
+import Ignore from "./packets/Ignore.js"
 import Unimplemented from "./packets/Unimplemented.js"
 import { readNextBuffer, readNextUint32, serializeBuffer, serializeUint32 } from "./utils/Buffer.js"
 import IdentificationParser from "./IdentificationParser.js"
@@ -213,6 +214,8 @@ export interface ClientEvents {
     close: []
     /** Authenticated or unauthenticated terminal disconnect received from the peer. */
     disconnect: [info: Readonly<PeerDisconnectInfo>]
+    /** Human-readable transport diagnostic sent by the peer. */
+    protocolDebug: [info: Readonly<ProtocolDebugMessage>]
     connect: []
     message: [message: Buffer]
     packet: [packet: Packet]
@@ -679,6 +682,25 @@ export default class Client extends EventEmitter<ClientEvents> {
             (reply) => callback(undefined, reply),
             (error: Error) => callback(error),
         )
+        return this
+    }
+
+    sendDebug(message: string, alwaysDisplay = false, languageTag = ""): this {
+        if (!this.isConnected) throw new Error("Cannot send SSH debug output before connection")
+        this.sendPacket(
+            new Debug({
+                always_display: alwaysDisplay,
+                message,
+                language_tag: languageTag,
+            }),
+        )
+        return this
+    }
+
+    sendIgnore(data: Buffer): this {
+        if (!this.isConnected) throw new Error("Cannot send SSH ignore data before connection")
+        if (!Buffer.isBuffer(data)) throw new TypeError("SSH ignore data must be a buffer")
+        this.sendPacket(new Ignore({ data }))
         return this
     }
 
@@ -1761,6 +1783,8 @@ export default class Client extends EventEmitter<ClientEvents> {
             (type >= 50 ||
                 type === PacketNameToType.SSH_MSG_PING ||
                 type === PacketNameToType.SSH_MSG_PONG ||
+                type === PacketNameToType.SSH_MSG_IGNORE ||
+                type === PacketNameToType.SSH_MSG_DEBUG ||
                 type === PacketNameToType.SSH_MSG_SERVICE_REQUEST ||
                 type === PacketNameToType.SSH_MSG_SERVICE_ACCEPT)
         ) {
@@ -1936,6 +1960,7 @@ export default class Client extends EventEmitter<ClientEvents> {
 
             case PacketNameToType.SSH_MSG_DEBUG: {
                 const debug = p as Debug
+                this.emit("protocolDebug", protocolDebugMessage(debug.data))
                 this.debug(`Received debug packet:`, [debug.data.message])
                 break
             }

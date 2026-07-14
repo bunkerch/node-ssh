@@ -10,6 +10,7 @@ import NoneAuthMethod from "../../src/auth/none.js"
 import ExtInfo from "../../src/packets/ExtInfo.js"
 import ServiceRequest from "../../src/packets/ServiceRequest.js"
 import ChannelRequest from "../../src/packets/ChannelRequest.js"
+import Ignore from "../../src/packets/Ignore.js"
 
 function vector(hex: string): Buffer {
     return Buffer.from(hex.replace(/\s/gu, ""), "hex")
@@ -45,6 +46,18 @@ describe("RFC SSH text fields", () => {
         expect(disconnect.serialize()).toEqual(disconnectRaw)
     })
 
+    test("parses a fixed ignore frame and owns its opaque bytes", () => {
+        const raw = vector("02 00000004 deadbeef")
+        const ignore = Ignore.parse(raw)
+        expect(ignore.data.data).toEqual(vector("deadbeef"))
+        expect(ignore.serialize()).toEqual(raw)
+
+        const input = vector("01020304")
+        const outbound = new Ignore({ data: input })
+        input.fill(0xff)
+        expect(outbound.serialize()).toEqual(vector("02 00000004 01020304"))
+    })
+
     test.each([
         ["debug", (raw: Buffer) => Debug.parse(raw), "04 00 00000001 ff 00000000"],
         ["disconnect", (raw: Buffer) => Disconnect.parse(raw), "01 0000000b 00000001 ff 00000000"],
@@ -78,6 +91,14 @@ describe("RFC SSH text fields", () => {
                 description: "bad\ud800text",
                 language_tag: "",
             }).serialize(),
+        ).toThrow("not valid UTF-8")
+        expect(
+            () =>
+                new Debug({
+                    always_display: false,
+                    message: "invalid\ud800debug",
+                    language_tag: "",
+                }),
         ).toThrow("not valid UTF-8")
     })
 

@@ -46,6 +46,22 @@ protocol errors rather than being replaced with the Unicode replacement characte
 are empty or valid RFC 3066 ASCII tags. The same codec is used for channel-open failure text and
 other protocol messages that carry these field types.
 
+Both peer roles expose RFC 4253 diagnostic messages through `protocolDebug`. Its immutable value
+retains the peer's `alwaysDisplay`, `message`, and `languageTag` fields; applications decide how and
+where to display it. `sendDebug(message, alwaysDisplay?, languageTag?)` sends the corresponding
+diagnostic, while `sendIgnore(data)` sends opaque traffic that the peer must ignore. Ignore data is
+copied when the call is made. Both auxiliary message types wait behind an active key exchange so
+strict key-exchange peers never receive them between `KEXINIT` and `NEWKEYS`.
+
+```ts
+client.on("protocolDebug", ({ alwaysDisplay, message, languageTag }) => {
+    logPeerDiagnostic({ alwaysDisplay, message, languageTag })
+})
+
+client.sendDebug("connection is entering maintenance", true, "en")
+client.sendIgnore(Buffer.from("opaque padding"))
+```
+
 Disconnect reason codes are retained as their exact uint32 value. Named RFC 4253 values use the
 `DisconnectReason` enum, while future assignments and the private-use range remain parseable so an
 otherwise valid disconnect can always terminate the connection cleanly.

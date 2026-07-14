@@ -130,6 +130,7 @@ export type {
 export type { UserAuthPrompt } from "./packets/UserAuthInfoRequest.js"
 export { PeerDisconnectError } from "./packets/Disconnect.js"
 export type { PeerDisconnectInfo } from "./packets/Disconnect.js"
+export type { ProtocolDebugMessage } from "./packets/Debug.js"
 export type { SSHExtension } from "./packets/ExtInfo.js"
 export { default as ServerClient } from "./ServerClient.js"
 export {
