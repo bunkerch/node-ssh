@@ -2035,6 +2035,27 @@ describe("OpenSSH interoperability", () => {
             const expectedHostHash = createHash("sha256")
                 .update(expectedHostKey.serialize())
                 .digest("hex")
+            const privateKeyClient = new Client({
+                hostname: "127.0.0.1",
+                port,
+                username: "interop",
+                privateKey: await readFile(join(agentFixture.directory, "id_rsa")),
+                authenticationMethodsOrder: [SSHAuthenticationMethods.PublicKey],
+            })
+            privateKeyClient.hooker.hook("hostKey", (_hook, decision) => {
+                decision.allowHostKey = true
+            })
+            await privateKeyClient.connect()
+            const privateKeySession = await privateKeyClient.exec("printf direct-private-key-ok")
+            const privateKeyOutput: Buffer[] = []
+            privateKeySession.on("data", (data: Buffer) => privateKeyOutput.push(data))
+            await new Promise<void>((resolve) => privateKeySession.once("close", resolve))
+            expect(Buffer.concat(privateKeyOutput).toString()).toBe("direct-private-key-ok")
+            const privateKeyClosed = new Promise<void>((resolve) =>
+                privateKeyClient.once("close", resolve),
+            )
+            privateKeyClient.end()
+            await privateKeyClosed
             const { stdout: clientHostPrivateKeyText } = await execFileAsync("docker", [
                 "exec",
                 containerId,

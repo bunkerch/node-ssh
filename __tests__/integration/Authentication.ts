@@ -7,31 +7,11 @@ import type ServerClient from "../../src/ServerClient.js"
 import PrivateKey from "../../src/utils/PrivateKey.js"
 import PublicKey from "../../src/utils/PublicKey.js"
 import EncodedSignature from "../../src/utils/Signature.js"
-import Agent, { AgentType } from "../../src/publickey/Agent.js"
+import PrivateKeyAgent from "../../src/publickey/PrivateKeyAgent.js"
 import Packet from "../../src/packet.js"
 import UserAuthRequest from "../../src/packets/UserAuthRequest.js"
 import { HostboundPublicKeyAuthMethod } from "../../src/auth/publickey.js"
 import ExtInfo from "../../src/packets/ExtInfo.js"
-
-class PrivateKeyAgent extends Agent<number> {
-    readonly type = AgentType.NonInteractive
-
-    constructor(private readonly key: PrivateKey) {
-        super()
-    }
-
-    async getPublicKeys(): Promise<[number, PublicKey][]> {
-        return [[0, this.key.data.publicKey]]
-    }
-
-    async getPublicKey(): Promise<PublicKey> {
-        return this.key.data.publicKey
-    }
-
-    async sign(_id: number, data: Buffer, algorithm?: string): Promise<EncodedSignature> {
-        return this.key.sign(data, algorithm)
-    }
-}
 
 describe("RFC 4252 multi-method authentication", () => {
     test.each(["client", "server"] as const)(
@@ -165,7 +145,8 @@ describe("RFC 4252 multi-method authentication", () => {
             hostname: "127.0.0.1",
             port,
             username: "bound-user",
-            agent: new PrivateKeyAgent(userKey),
+            privateKey: userKey.toString({ passphrase: "bound-key-secret", rounds: 1 }),
+            passphrase: "bound-key-secret",
             authenticationMethodsOrder: [SSHAuthenticationMethods.PublicKey],
         })
         client.on("error", (error) => errors.push(error))

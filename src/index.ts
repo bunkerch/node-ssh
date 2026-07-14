@@ -175,6 +175,7 @@ export { default as DiskAgent, DiskAgentError } from "./publickey/DiskAgent.js"
 export type { DiskAgentOptions, DiskAgentPassphrase } from "./publickey/DiskAgent.js"
 export { default as SSHAgent, SSHAgentError } from "./publickey/SSHAgent.js"
 export { default as OnePasswordAgent, OnePasswordAgentError } from "./publickey/OnePasswordAgent.js"
+export { default as PrivateKeyAgent, PrivateKeyAgentError } from "./publickey/PrivateKeyAgent.js"
 
 export {
     default as ProtocolVersionExchange,

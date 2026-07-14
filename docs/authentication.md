@@ -38,6 +38,25 @@ client.on("banner", (message, languageTag) => {
 })
 ```
 
+For a single identity, pass a loaded `PrivateKey`, encoded private-key string, or `Buffer` directly.
+Encrypted input uses `passphrase`; the client parses it during construction and does not retain the
+encoded key or passphrase in `client.options`.
+
+```ts
+import { readFile } from "node:fs/promises"
+
+const client = new Client({
+    hostname: "ssh.example.com",
+    username: "deploy",
+    privateKey: await readFile("./id_ed25519"),
+    passphrase: process.env.SSH_KEY_PASSPHRASE,
+})
+```
+
+`privateKey` and `agent` are mutually exclusive. Use `PrivateKeyAgent` explicitly when several
+already-loaded private keys should be attempted in order. It is non-interactive and signs entirely
+in memory; unlike a socket-backed agent, it cannot be forwarded to the remote host.
+
 Keyboard-interactive may contain zero, one, or several prompts and may use several rounds. Supply
 exactly one response per prompt. The `echo` flag tells a user interface whether an answer may be
 displayed; mask the answer when the interface cannot honor the flag.
@@ -67,8 +86,8 @@ authentication should only be used over an authenticated, encrypted transport.
 RSA identities use RFC 8332 SHA-2 signatures by preference: `rsa-sha2-512`, then
 `rsa-sha2-256`. The public key blob remains in the `ssh-rsa` format. When a server supplies the RFC
 8308 `server-sig-algs` extension, the client restricts its attempts to the advertised signature
-algorithms. `DiskAgent` selects the requested hash locally, while `SSHAgent` sends the corresponding
-RFC 9987 RSA SHA-2 flag to the external agent.
+algorithms. Direct private keys, `PrivateKeyAgent`, and `DiskAgent` select the requested hash
+locally, while `SSHAgent` sends the corresponding RFC 9987 RSA SHA-2 flag to the external agent.
 
 ECDSA identities on `nistp256`, `nistp384`, and `nistp521` use the matching RFC 5656 algorithm name
 and SHA-2 hash. Disk-backed OpenSSH ECDSA keys and delegated agent signatures use the same public-key

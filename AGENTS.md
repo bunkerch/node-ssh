@@ -61,6 +61,10 @@ meaningful wire-level behavior.
   P-256 defaults, restricts ECDSA to the three RFC 5656 curves, and propagates a line-safe comment to
   both returned key objects. Validate every family with signing plus real `ssh-keygen` derivation
   and fingerprinting, including the documented RSA default.
+- Direct client private-key authentication parses key objects or encoded containers during
+  construction, rejects ambiguous agent configuration, and removes encoded keys and passphrases
+  from retained client options. Keep multi-key in-memory signing in `PrivateKeyAgent`, and validate
+  the direct option against real OpenSSH without password fallback.
 - Private-key PEM import delegates PKCS#8, PKCS#1, SEC1, and their encrypted forms to Node's native
   parser, then converts only Ed25519, RSA, and the three RFC 5656 ECDSA curves into validated SSH
   key objects. Reject unsupported families and prove every accepted container with OpenSSL input,

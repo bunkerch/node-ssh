@@ -31,6 +31,7 @@ import {
     OPEN_MODE,
     parseKey,
     PrivateKey,
+    PrivateKeyAgent,
     ProtocolVersionExchange,
     PublicKey,
     PublicKeyAlgorithm,
@@ -91,6 +92,7 @@ describe("package exports", () => {
             OnePasswordAgent,
             parseKey,
             PrivateKey,
+            PrivateKeyAgent,
             ProtocolVersionExchange,
             PublicKey,
             PublicKeyAlgorithm,
@@ -101,7 +103,7 @@ describe("package exports", () => {
             SSHAgent,
             SSHHTTPAgent,
             SSHHTTPSAgent,
-        ]).toHaveLength(33)
+        ]).toHaveLength(34)
         expect(SSHAuthenticationMethods.PublicKey).toBe("publickey")
         expect(SSHAuthenticationMethods.KeyboardInteractive).toBe("keyboard-interactive")
         expect(encodeSFTPPacket).toBeFunction()
@@ -171,7 +173,7 @@ describe("package exports", () => {
                     "--input-type=module",
                     "--eval",
                     `
-                    const { generateKeyPair, parseKey, PrivateKey } = await import("modernssh")
+                    const { Client, generateKeyPair, parseKey, PrivateKey, PrivateKeyAgent } = await import("modernssh")
                     const { privateKey, publicKey } = await generateKeyPair("ed25519", {
                         comment: "packed@example.test",
                     })
@@ -181,6 +183,8 @@ describe("package exports", () => {
                     const parsed = PrivateKey.fromString(encrypted, "packed-secret")
                     if (!parsed.data.publicKey.equals(publicKey)) process.exit(3)
                     if (!parseKey(publicKey.toString()).equals(publicKey)) process.exit(4)
+                    const configured = new Client({ privateKey: encrypted, passphrase: "packed-secret" })
+                    if (!(configured.options.agent instanceof PrivateKeyAgent)) process.exit(5)
                     process.stdout.write(publicKey.toString())
                 `,
                 ],

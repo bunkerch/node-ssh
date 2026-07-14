@@ -104,9 +104,11 @@ import {
     type NegotiatedAlgorithms,
     type ResolvedAlgorithmOptions,
 } from "./AlgorithmOptions.js"
-import type PrivateKey from "./utils/PrivateKey.js"
+import PrivateKey from "./utils/PrivateKey.js"
 import { parseHostKeysProofResponse } from "./utils/HostKeysProof.js"
 import { ActionQueue } from "./utils/ActionQueue.js"
+import PrivateKeyAgent from "./publickey/PrivateKeyAgent.js"
+import { parseKey } from "./KeyParsing.js"
 
 export interface ClientHostbasedOptions {
     key: PrivateKey
@@ -139,6 +141,10 @@ export interface ClientOptions {
     username?: string
     password?: string
     agent?: Agent
+    /** Private key object or encoded private-key container used for public-key authentication. */
+    privateKey?: PrivateKey | string | Buffer
+    /** Passphrase for an encoded `privateKey`. */
+    passphrase?: string | Buffer
     /** RFC 4252 host-based authentication identity. */
     hostbased?: ClientHostbasedOptions
     protocolVersionExchange?: ProtocolVersionExchange
@@ -164,6 +170,8 @@ export interface ClientOptionsRequired
             | "hostbased"
             | "ident"
             | "algorithms"
+            | "privateKey"
+            | "passphrase"
         >
     > {
     sock?: Duplex
@@ -174,6 +182,8 @@ export interface ClientOptionsRequired
     hostbased?: ClientHostbasedOptions
     ident?: string | Buffer
     algorithms?: ClientAlgorithmOptions
+    privateKey?: PrivateKey | string | Buffer
+    passphrase?: string | Buffer
 }
 
 export type ClientHostVerifier = (
@@ -330,7 +340,7 @@ export default class Client extends EventEmitter<ClientEvents> {
     constructor(options: ClientOptions) {
         super()
 
-        this.options = options as ClientOptionsRequired
+        this.options = { ...options } as ClientOptionsRequired
         this.options.hostname ??= "localhost"
         this.options.port ??= 22
         this.options.forceIPv4 ??= false
@@ -338,6 +348,29 @@ export default class Client extends EventEmitter<ClientEvents> {
         this.options.strictVendor ??= true
         this.options.username ??= "root"
         this.options.password ??= ""
+        if (this.options.agent !== undefined && this.options.privateKey !== undefined) {
+            throw new TypeError("SSH agent and privateKey options are mutually exclusive")
+        }
+        if (this.options.privateKey !== undefined) {
+            if (
+                this.options.privateKey instanceof PrivateKey &&
+                this.options.passphrase !== undefined
+            ) {
+                throw new TypeError("SSH passphrase is only valid for an encoded privateKey")
+            }
+            const key =
+                this.options.privateKey instanceof PrivateKey
+                    ? this.options.privateKey
+                    : parseKey(this.options.privateKey, this.options.passphrase)
+            if (!(key instanceof PrivateKey)) {
+                throw new TypeError("SSH privateKey option must contain a private key")
+            }
+            this.options.agent = new PrivateKeyAgent(key)
+            this.options.privateKey = undefined
+            this.options.passphrase = undefined
+        } else if (this.options.passphrase !== undefined) {
+            throw new TypeError("SSH passphrase option requires privateKey")
+        }
         this.options.agent ??= new NoneAgent()
         if (
             this.options.ident !== undefined &&
@@ -404,6 +437,8 @@ export default class Client extends EventEmitter<ClientEvents> {
             this.debug("Client created with options:", {
                 ...this.options,
                 password: this.options.password ? "<redacted>" : "",
+                privateKey: undefined,
+                passphrase: undefined,
                 agent: this.options.agent.constructor.name,
             })
         })

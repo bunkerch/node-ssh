@@ -122,6 +122,11 @@ the public `generateKeyPair()` API. OpenSSH `ssh-keygen` derives and fingerprint
 private key, while independent signing checks prove that each returned public key matches. A
 separate default-generation test verifies the documented 3072-bit RSA modulus.
 
+Direct client private-key authentication loads the same RSA identity authorized by the OpenSSH
+fixture, connects without a password or external agent, and executes a command. In-process coverage
+also loads an encrypted key through `privateKey` and `passphrase`, exercises host-bound
+authentication, and verifies that encoded secrets are not retained in client options.
+
 Authentication interoperability covers RFC 4252 banners and password changes plus RFC 4256
 keyboard-interactive exchanges. OpenSSH's client completes a two-prompt keyboard-interactive round
 and a forced password change against the modern server. The modern client authenticates through
