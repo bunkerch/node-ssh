@@ -1075,9 +1075,10 @@ export default class Client extends EventEmitter<ClientEvents> {
     }
 
     exec(command: string, options: ClientSessionOptions = {}): Promise<ClientSessionChannel> {
+        const environment = options.env === undefined ? undefined : { ...options.env }
         return this.openSessionChannel().then(async (channel) => {
             try {
-                await this.configureSession(channel, options, false)
+                await this.configureSession(channel, { ...options, env: environment }, false)
                 await channel.exec(command)
                 return channel
             } catch (error) {
