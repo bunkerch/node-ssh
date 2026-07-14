@@ -50,6 +50,10 @@ meaningful wire-level behavior.
 
 - Implement behavior from the RFCs in `../rfcs`; fetch missing RFCs from an authoritative source
   when needed.
+- Treat third-party implementations only as a short-lived feature-gap inventory. Do not mention,
+  cite, imitate, or use them as behavioral authorities in tracked source, tests, documentation, or
+  API rationale. Derive behavior and naming from protocol specifications and this library's own
+  design; validate it with independent fixed vectors and real OpenSSH peers.
 - The SSH agent client follows RFC 9987. Keep its framing bounded to OpenSSH's 256 KiB limit and
   validate it with fixed frames plus the system `ssh-agent`, never another JavaScript SSH library.
 - OpenSSH private-key encryption follows upstream `PROTOCOL.key`. Keep passphrase and derived-key
