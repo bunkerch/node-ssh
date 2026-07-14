@@ -288,6 +288,10 @@ decision.sftp = {
 }
 ```
 
+Extension names are validated when the server session is constructed. The configured array,
+entries, and opaque data buffers are snapshotted before use, so later application mutation cannot
+change the version advertisement already assigned to that session.
+
 For `SYMLINK`, call `sftp.symlinkPaths(request)` to obtain semantic `targetPath` and `linkPath`
 values. Session integration detects OpenSSH and Dropbear identifications and normalizes OpenSSH's
 published argument reversal; `openSSHSymlinkArguments` can be set explicitly for a proxied or

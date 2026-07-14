@@ -38,6 +38,42 @@ function asShell(client: SFTPClientFixture): Shell {
 const flush = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
 
 describe("SFTP server request engine", () => {
+    test("rejects an invalid advertised extension name during construction", () => {
+        const fixture = new SFTPClientFixture()
+        try {
+            expect(
+                () =>
+                    new SFTPServer(asShell(fixture), {
+                        extensions: [{ name: "invalid extension", data: Buffer.alloc(0) }],
+                    }),
+            ).toThrow("SFTP extension name must be 1 to 64 printable US-ASCII characters")
+        } finally {
+            fixture.destroy()
+        }
+    })
+
+    test("owns advertised extension metadata before the version exchange", async () => {
+        const fixture = new SFTPClientFixture()
+        const data = Buffer.from("1")
+        const extensions = [{ name: "x@test", data }]
+        new SFTPServer(asShell(fixture), { extensions })
+
+        extensions[0]!.name = "changed@test"
+        data[0] = 0x32
+        extensions.push({ name: "added@test", data: Buffer.from("3") })
+        fixture.send({ type: SFTPPacketType.Init, version: 3, extensions: [] })
+        await flush()
+
+        expect(fixture.responses).toEqual([
+            {
+                type: SFTPPacketType.Version,
+                version: 3,
+                extensions: [{ name: "x@test", data: Buffer.from("1") }],
+            },
+        ])
+        fixture.destroy()
+    })
+
     test("negotiates v3 and serializes requests until each has one response", async () => {
         const fixture = new SFTPClientFixture()
         const server = new SFTPServer(asShell(fixture), {

@@ -1,6 +1,7 @@
 import EventEmitter from "node:events"
 import type Shell from "../channels/Session/Shell.js"
 import { Hooker } from "../utils/Hooker.js"
+import { validateSSHName } from "../utils/SSHName.js"
 import { encodeSFTPPacket, SFTPPacketParser, SFTPProtocolError } from "./codec.js"
 import { SFTP_VERSION, SFTPPacketType, SFTPStatusCode } from "./constants.js"
 import type {
@@ -108,7 +109,12 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
     constructor(stream: Shell, options: SFTPServerOptions = {}) {
         super()
         this.stream = stream
-        this.extensions = options.extensions ?? []
+        this.extensions = Object.freeze(
+            (options.extensions ?? []).map((extension) => {
+                validateSSHName(extension.name, "SFTP extension name")
+                return Object.freeze({ name: extension.name, data: Buffer.from(extension.data) })
+            }),
+        )
         this.openSSHSymlinkArguments = options.openSSHSymlinkArguments ?? false
         this.hooker.on("uncaughtException", (_event, error) => {
             this.hookError = error
