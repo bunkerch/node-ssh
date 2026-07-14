@@ -15,7 +15,7 @@ export default class HMACSHA2512 implements MACAlgorithm {
     private readonly key: Buffer
 
     constructor(key: Buffer) {
-        this.key = key
+        this.key = Buffer.from(key)
     }
 
     computeMAC(sequenceNumber: number, packet: Buffer): Buffer {

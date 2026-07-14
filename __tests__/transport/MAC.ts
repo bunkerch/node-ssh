@@ -1,3 +1,4 @@
+import HMACSHA2256 from "../../src/algorithms/mac/hmac-sha2-256.js"
 import HMACSHA2512 from "../../src/algorithms/mac/hmac-sha2-512.js"
 import HMACSHA196 from "../../src/algorithms/mac/hmac-sha1-96.js"
 import HMACSHA196ETM from "../../src/algorithms/mac/hmac-sha1-96-etm.js"
@@ -56,16 +57,34 @@ describe("SSH MAC algorithms", () => {
         expect(UMAC128ETMOpenSSH.encrypt_then_mac).toBe(true)
     })
 
-    test("hmac-sha2-512 matches the RFC 4231 test case", () => {
+    test("hmac-sha2-512 owns its key and matches the RFC 4231 test case", () => {
         const key = Buffer.alloc(20, 0x0b)
         const expected = Buffer.from(
             "87aa7cdea5ef619d4ff0b4241a1d6cb02379f4e2ce4ec2787ad0b30545e17cdedaa833b7d6b8a702038b274eaea3f4e4be9d914eeb61f1702e696c203a126854",
             "hex",
         )
+        const mac = new HMACSHA2512(key)
+        key.fill(0)
 
         // RFC 4253 authenticates uint32(sequence_number) || packet. Together these fixed inputs
         // form the RFC 4231 message "Hi There" without bypassing the SSH MAC implementation.
-        expect(new HMACSHA2512(key).computeMAC(0x4869_2054, Buffer.from("here"))).toEqual(expected)
+        expect(mac.computeMAC(0x4869_2054, Buffer.from("here"))).toEqual(expected)
+    })
+
+    test("hmac-sha2-256 owns its key and matches the RFC 4231 test case", () => {
+        const key = Buffer.alloc(20, 0x0b)
+        const expected = Buffer.from(
+            "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7",
+            "hex",
+        )
+        const mac = new HMACSHA2256(key)
+        key.fill(0)
+
+        // RFC 4253 authenticates uint32(sequence_number) || packet. Together these fixed inputs
+        // form the RFC 4231 message "Hi There" without bypassing the SSH MAC implementation.
+        expect(mac.computeMAC(0x4869_2054, Buffer.from("here"))).toEqual(expected)
+        expect(HMACSHA2256.key_length).toBe(32)
+        expect(HMACSHA2256.digest_length).toBe(32)
     })
 
     test("hmac-sha1-96 truncates the RFC 2202 HMAC-SHA1 vector to 96 bits", () => {
