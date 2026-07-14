@@ -84,12 +84,11 @@ export default class PublicKey {
 
     get signatureAlgorithms(): readonly string[] {
         if (this.data.algorithm instanceof SSHCertificatePublicKey) {
+            const suffix = this.data.alg.endsWith(CERTIFICATE_SUFFIX)
+                ? CERTIFICATE_SUFFIX
+                : STANDARD_CERTIFICATE_SUFFIX
             return this.data.algorithm.publicKey.data.alg === SSHRSAPublicKey.alg_name
-                ? [
-                      `rsa-sha2-512${CERTIFICATE_SUFFIX}`,
-                      `rsa-sha2-256${CERTIFICATE_SUFFIX}`,
-                      this.data.alg,
-                  ]
+                ? [`rsa-sha2-512${suffix}`, `rsa-sha2-256${suffix}`, this.data.alg]
                 : [this.data.alg]
         }
         return this.data.alg === SSHRSAPublicKey.alg_name
@@ -114,8 +113,11 @@ export default class PublicKey {
         )
         if (!(this.data.algorithm instanceof SSHCertificatePublicKey)) return algorithm
         if (algorithm === this.data.alg) return this.data.algorithm.publicKey.data.alg
-        assert(algorithm.endsWith(CERTIFICATE_SUFFIX))
-        return algorithm.slice(0, -CERTIFICATE_SUFFIX.length)
+        const suffix = algorithm.endsWith(CERTIFICATE_SUFFIX)
+            ? CERTIFICATE_SUFFIX
+            : STANDARD_CERTIFICATE_SUFFIX
+        assert(algorithm.endsWith(suffix))
+        return algorithm.slice(0, -suffix.length)
     }
 
     verifySignature(data: Buffer, signature: EncodedSignature): boolean {
@@ -304,12 +306,20 @@ export interface SSHCertificateData {
 }
 
 const CERTIFICATE_SUFFIX = "-cert-v01@openssh.com"
+const STANDARD_CERTIFICATE_SUFFIX = "-cert"
 const CERTIFICATE_KEY_ALGORITHMS = new Map<string, string>([
     [`ssh-ed25519${CERTIFICATE_SUFFIX}`, "ssh-ed25519"],
     [`ssh-rsa${CERTIFICATE_SUFFIX}`, "ssh-rsa"],
     [`ssh-dss${CERTIFICATE_SUFFIX}`, "ssh-dss"],
     ...ECDSA_CURVES.map(
         ({ algorithm }) => [`${algorithm}${CERTIFICATE_SUFFIX}`, algorithm] as const,
+    ),
+    [`ssh-ed25519${STANDARD_CERTIFICATE_SUFFIX}`, "ssh-ed25519"],
+    [`ssh-ed448${STANDARD_CERTIFICATE_SUFFIX}`, "ssh-ed448"],
+    [`ssh-rsa${STANDARD_CERTIFICATE_SUFFIX}`, "ssh-rsa"],
+    [`ssh-dss${STANDARD_CERTIFICATE_SUFFIX}`, "ssh-dss"],
+    ...ECDSA_CURVES.map(
+        ({ algorithm }) => [`${algorithm}${STANDARD_CERTIFICATE_SUFFIX}`, algorithm] as const,
     ),
 ])
 
@@ -423,7 +433,7 @@ export class SSHCertificatePublicKey implements PublicKeyAlgoritm {
 
 function parseCertifiedPublicKey(keyAlgorithm: string, raw: Buffer): [PublicKey, Buffer] {
     const fields =
-        keyAlgorithm === "ssh-ed25519"
+        keyAlgorithm === "ssh-ed25519" || keyAlgorithm === "ssh-ed448"
             ? 1
             : keyAlgorithm === "ssh-rsa" || keyAlgorithm.startsWith("ecdsa-")
               ? 2

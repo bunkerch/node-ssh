@@ -115,6 +115,8 @@ meaningful wire-level behavior.
   trusted CA policy, and every critical option before accepting a certificate.
 - Certificate option and extension names are fatal UTF-8 and strictly increase by their encoded
   wire bytes, not JavaScript UTF-16 ordering; reject duplicates while preserving opaque values.
+- Support the standard SSH certificate key types as explicit algorithms, including Ed448 and RSA
+  SHA-2 certificate names, without adding draft-only names to interoperable default offers.
 - Certificate user authentication pairs the issued public certificate with its underlying private
   key, negotiates certificate key names while encoding the underlying signature name, and verifies
   possession before awaited policy. Reject invalid CA signatures, non-user roles, and expired or

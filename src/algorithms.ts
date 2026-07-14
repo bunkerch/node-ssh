@@ -85,6 +85,29 @@ function hostKeyAlgorithm(
 
 export const host_key_algorithms = new Map<string, HostKeyAlgorithm>([
     [
+        "ssh-ed25519-cert",
+        hostKeyAlgorithm("ssh-ed25519-cert", "ssh-ed25519-cert", "ssh-ed25519", "ssh-ed25519"),
+    ],
+    [
+        "ssh-ed448-cert",
+        hostKeyAlgorithm("ssh-ed448-cert", "ssh-ed448-cert", "ssh-ed448", "ssh-ed448"),
+    ],
+    ...["nistp256", "nistp384", "nistp521"].map((curve) => {
+        const plain = `ecdsa-sha2-${curve}`
+        const certificate = `${plain}-cert`
+        return [certificate, hostKeyAlgorithm(certificate, certificate, plain, plain)] as const
+    }),
+    [
+        "rsa-sha2-512-cert",
+        hostKeyAlgorithm("rsa-sha2-512-cert", "ssh-rsa-cert", "rsa-sha2-512", "ssh-rsa"),
+    ],
+    [
+        "rsa-sha2-256-cert",
+        hostKeyAlgorithm("rsa-sha2-256-cert", "ssh-rsa-cert", "rsa-sha2-256", "ssh-rsa"),
+    ],
+    ["ssh-rsa-cert", hostKeyAlgorithm("ssh-rsa-cert", "ssh-rsa-cert", "ssh-rsa", "ssh-rsa")],
+    ["ssh-dss-cert", hostKeyAlgorithm("ssh-dss-cert", "ssh-dss-cert", "ssh-dss", "ssh-dss")],
+    [
         "ssh-ed25519-cert-v01@openssh.com",
         hostKeyAlgorithm(
             "ssh-ed25519-cert-v01@openssh.com",

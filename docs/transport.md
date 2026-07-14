@@ -277,6 +277,12 @@ trailing fields and incorrect lengths, while verification rejects incorrect sign
 sizes before curve verification. Ed448 is registered for host-key and authentication use and can
 be selected explicitly, but is not part of the default offer.
 
+The standard certificate key types from the SSH certificate draft are available through explicit
+algorithm configuration, including `ssh-ed448-cert` and the RSA SHA-2 certificate negotiation
+names. Their older deployed counterparts remain the interoperable defaults. Standard Ed448
+certificates use the underlying 57-byte key and 114-byte signature rules and are covered by a
+CA-signed client/server handshake.
+
 Ed25519 and Ed448 private containers hold the RFC 8032 seed followed by their public key. Import
 verifies both the repeated public bytes and the public key derived from the seed, then takes private
 copies of the key material. A malformed container therefore cannot publish one identity while
