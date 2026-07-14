@@ -245,6 +245,8 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     private clientExtInfoAfterNewKeys = false
     private keyExchangeInProgress = false
     private inboundNewKeysReady = false
+    private readonly expectedInboundKeyExchangePackets = new Set<PacketType>()
+    private discardNextGuessedKeyExchangePacket = false
     private readonly packetsQueuedDuringKeyExchange: Packet[] = []
     private readonly remoteChannelIds = new Set<number>()
 
@@ -591,6 +593,11 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         if (!isRekey) this.strictInitialPackets.clear()
         this.keyExchangeInProgress = true
         this.inboundNewKeysReady = false
+        this.expectedInboundKeyExchangePackets.clear()
+        this.discardNextGuessedKeyExchangePacket = false
+        if (!received) {
+            this.expectedInboundKeyExchangePackets.add(PacketNameToType.SSH_MSG_KEXINIT)
+        }
         this.hasReceivedNewKeys = false
         this.hasSentNewKeys = false
 
@@ -605,6 +612,8 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 this.serverKexInit.data.kex_algorithms,
             )
             chooseAlgorithms(this)
+            this.discardNextGuessedKeyExchangePacket =
+                this.shouldDiscardGuessedPacket(clientKexInit)
 
             const kexAlgorithm = this.kexAlgorithm
             assert(kexAlgorithm, "No key exchange algorithm was negotiated")
@@ -614,6 +623,10 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             assert(hostKey, "No host key found for the negotiated algorithm")
             const publicKey = hostKey.data.publicKey.serialize()
             if (kexAlgorithm instanceof DiffieHellmanGroupExchange) {
+                this.expectInboundKeyExchange(
+                    PacketNameToType.SSH_MSG_KEXDH_INIT,
+                    PacketNameToType.SSH_MSG_KEX_DH_GEX_REQUEST,
+                )
                 const [request] = await this.waitEvent("clientKexDHGexRequest")
                 if (request instanceof KexDHGexRequestOld) {
                     kexAlgorithm.setOldRequest(request.data.preferred)
@@ -623,9 +636,11 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 const group = kexAlgorithm.selectServerGroup()
                 kexAlgorithm.generateKeyPair()
                 this.sendPacket(new KexDHGexGroup(group))
+                this.expectInboundKeyExchange(PacketNameToType.SSH_MSG_KEX_DH_GEX_INIT)
                 const [init] = await this.waitEvent("clientKexDHGexInit")
                 kexAlgorithm.computeSharedSecret(init.data.e)
             } else if (kexAlgorithm instanceof RSA2048SHA256) {
+                this.expectInboundKeyExchange(PacketNameToType.SSH_MSG_KEXDH_REPLY)
                 await kexAlgorithm.generateTransientKey()
                 kexAlgorithm.setHostKey(publicKey)
                 this.sendPacket(
@@ -637,6 +652,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 const [secret] = await this.waitEvent("clientKexRSASecret")
                 kexAlgorithm.decryptSecret(secret.data.encryptedSecret)
             } else {
+                this.expectInboundKeyExchange(PacketNameToType.SSH_MSG_KEXDH_INIT)
                 const [clientKexDHInit] = await this.waitEvent("clientKexDHInit")
                 this.clientKexDHInit = clientKexDHInit
                 kexAlgorithm.generateKeyPair()
@@ -679,6 +695,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             this.clientMac = this.clientMacAlgorithm?.instantiate(this.integrityKeyClientToServer!)
             this.serverMac = this.serverMacAlgorithm?.instantiate(this.integrityKeyServerToClient!)
             this.inboundNewKeysReady = true
+            this.expectInboundKeyExchange(PacketNameToType.SSH_MSG_NEWKEYS)
             this.resumePacketProcessing()
 
             if (!this.hasReceivedNewKeys) await this.waitEvent("clientNewKeys")
@@ -741,6 +758,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         } finally {
             this.keyExchangeInProgress = false
             this.strictInitialExchange = false
+            this.expectedInboundKeyExchangePackets.clear()
         }
     }
 
@@ -1886,6 +1904,14 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         const packetType = payload[0] as PacketType
         this.debug("Receiving packet:", packetType)
 
+        if (this.discardNextGuessedKeyExchangePacket) {
+            this.discardNextGuessedKeyExchangePacket = false
+            this.debug("Discarding incorrectly guessed key-exchange packet")
+            if (this.packetDecoder.bufferedLength > 0) {
+                this.scheduleMessageProcessing(Buffer.alloc(0))
+            }
+            return
+        }
         this.validateKeyExchangePhase(packetType)
         this.validateClientExtInfoPosition(packetType)
 
@@ -2178,6 +2204,16 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             packetType === PacketNameToType.SSH_MSG_KEX_DH_GEX_INIT ||
             packetType === PacketNameToType.SSH_MSG_KEX_DH_GEX_REPLY ||
             packetType === PacketNameToType.SSH_MSG_KEX_DH_GEX_REQUEST
+        if (packetType === PacketNameToType.SSH_MSG_KEXINIT) {
+            if (!this.keyExchangeInProgress) return
+            if (!this.expectedInboundKeyExchangePackets.delete(packetType)) {
+                throw new DisconnectError(
+                    DisconnectReason.SSH_DISCONNECT_PROTOCOL_ERROR,
+                    "SSH client sent an unexpected KEXINIT during key exchange",
+                )
+            }
+            return
+        }
         if (exchangeOnly && !this.keyExchangeInProgress) {
             throw new DisconnectError(
                 DisconnectReason.SSH_DISCONNECT_PROTOCOL_ERROR,
@@ -2190,6 +2226,28 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 "SSH client sent NEWKEYS before fresh inbound keys were ready",
             )
         }
+        if (exchangeOnly && !this.expectedInboundKeyExchangePackets.delete(packetType)) {
+            throw new DisconnectError(
+                DisconnectReason.SSH_DISCONNECT_PROTOCOL_ERROR,
+                "SSH client sent an out-of-order key-exchange message",
+            )
+        }
+    }
+
+    private expectInboundKeyExchange(...packetTypes: PacketType[]): void {
+        this.expectedInboundKeyExchangePackets.clear()
+        for (const packetType of packetTypes) {
+            this.expectedInboundKeyExchangePackets.add(packetType)
+        }
+    }
+
+    private shouldDiscardGuessedPacket(peerKexInit: KexInit): boolean {
+        if (!peerKexInit.data.first_kex_packet_follows) return false
+        const negotiatedKex = (this.kexAlgorithm!.constructor as typeof KexAlgorithm).alg_name
+        return (
+            peerKexInit.data.kex_algorithms[0] !== negotiatedKex ||
+            peerKexInit.data.server_host_key_algorithms[0] !== this.hostKeyAlgorithm!.alg_name
+        )
     }
 
     private validateHigherLayerPhase(packetType: PacketType): void {

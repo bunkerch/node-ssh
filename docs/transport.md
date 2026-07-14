@@ -140,7 +140,14 @@ stale protection or pause ordinary connection traffic. During an exchange, each 
 peer's `NEWKEYS` only after fresh inbound keys and protection objects have been derived and the
 compression selection is ready to instantiate, then consumes that readiness exactly once. A
 premature or duplicate message receives a protocol-error disconnect before packet protection
-changes.
+changes. The negotiated method also determines the exact next inbound KEX opcode: ordinary
+exchanges accept one init or reply, group exchange advances through request, group, init, and reply,
+and RSA exchange advances through transient key, encrypted secret, and completion. Each stage is
+single-use, so a duplicate or method-incompatible packet is rejected before its payload is parsed.
+RFC 4253 optimistic guesses remain compatible with that validation: when
+`first_kex_packet_follows` is true and either the peer's first KEX or host-key name differs from the
+negotiated pair, exactly one following packet is silently discarded. A correct guess is processed
+normally, and an incorrect guess does not consume the real method-stage expectation.
 
 Algorithm negotiation follows the client's name-list preference order independently for key
 exchange, host keys, and both transport directions. Non-AEAD ciphers also negotiate each MAC

@@ -11,6 +11,8 @@ import PrivateKey from "../../src/utils/PrivateKey.js"
 import NewKeys from "../../src/packets/NewKeys.js"
 import KexDHInit from "../../src/packets/KexDHInit.js"
 import KexInit from "../../src/packets/KexInit.js"
+import KexDHGexRequest from "../../src/packets/KexDHGexRequest.js"
+import KexDHReply from "../../src/packets/KexDHReply.js"
 
 async function listen(server: Server): Promise<number> {
     server.listen({ host: "127.0.0.1", port: 0 })
@@ -45,8 +47,87 @@ function peerDisconnect(peer: Client | ServerClient): Promise<Readonly<PeerDisco
 
 describe("RFC higher-layer message phases", () => {
     test.each(["client", "server"] as const)(
-        "rejects premature NEWKEYS from the %s before fresh keys are derived",
+        "discards one incorrect optimistic KEX guess from the %s",
         async (sender) => {
+            const hostKey = await PrivateKey.generate("ssh-ed25519")
+            const server = new Server({
+                hostKeys: [hostKey],
+                sendAllHostKeys: false,
+                algorithms: {
+                    kex:
+                        sender === "server"
+                            ? ["ecdh-sha2-nistp256", "curve25519-sha256"]
+                            : ["curve25519-sha256"],
+                },
+            })
+            server.hooker.hook("noneAuthentication", (_hook, _context, decision) => {
+                decision.allowLogin = true
+            })
+            const client = new Client({
+                hostname: "127.0.0.1",
+                port: await listen(server),
+                username: "phase-test",
+                authenticationMethodsOrder: [SSHAuthenticationMethods.None],
+                algorithms: {
+                    kex:
+                        sender === "client"
+                            ? ["ecdh-sha2-nistp256", "curve25519-sha256"]
+                            : ["curve25519-sha256"],
+                },
+            })
+            client.hooker.hook("hostKey", (_hook, decision) => {
+                decision.allowHostKey = true
+            })
+            const appendWrongGuess = (peer: Client | ServerClient) => {
+                const transport = peer as unknown as {
+                    sendPacket: (packet: Packet) => number
+                }
+                const sendPacket = transport.sendPacket.bind(peer)
+                transport.sendPacket = (packet) => {
+                    if (!(packet instanceof KexInit)) return sendPacket(packet)
+                    packet.data.first_kex_packet_follows = true
+                    packet.data.kex_algorithms = packet.data.kex_algorithms.filter(
+                        (name) => !name.startsWith("kex-strict-"),
+                    )
+                    const sequence = sendPacket(packet)
+                    sendPacket(
+                        sender === "client"
+                            ? new KexDHInit({ e: Buffer.alloc(65, 0x41), encoding: "string" })
+                            : new KexDHReply({
+                                  K_S: Buffer.from("guessed-host-key"),
+                                  f: Buffer.alloc(65, 0x42),
+                                  H_sig: Buffer.from("guessed-signature"),
+                                  encoding: "string",
+                              }),
+                    )
+                    return sequence
+                }
+            }
+            if (sender === "client") appendWrongGuess(client)
+            server.once("connection", (peer) => {
+                peer.on("error", () => undefined)
+                if (sender === "server") appendWrongGuess(peer)
+            })
+
+            try {
+                await client.connect()
+                expect(client.isConnected).toBe(true)
+                expect(client.sessionID).toBeDefined()
+            } finally {
+                await close(server, client)
+            }
+        },
+        15_000,
+    )
+
+    test.each([
+        ["client", "premature NEWKEYS"],
+        ["server", "premature NEWKEYS"],
+        ["client", "out-of-order method packet"],
+        ["server", "out-of-order method packet"],
+    ] as const)(
+        "rejects %s %s during key exchange",
+        async (sender, violation) => {
             const hostKey = await PrivateKey.generate("ssh-ed25519")
             const server = new Server({
                 hostKeys: [hostKey],
@@ -73,7 +154,17 @@ describe("RFC higher-layer message phases", () => {
                         )
                     }
                     const sequence = sendPacket(packet)
-                    if (packet instanceof KexInit) sendPacket(new NewKeys({}))
+                    if (packet instanceof KexInit) {
+                        sendPacket(
+                            violation === "premature NEWKEYS"
+                                ? new NewKeys({})
+                                : new KexDHGexRequest({
+                                      min: 2048,
+                                      preferred: 3072,
+                                      max: 8192,
+                                  }),
+                        )
+                    }
                     return sequence
                 }
             }
@@ -89,7 +180,10 @@ describe("RFC higher-layer message phases", () => {
                 await expect(client.connect()).rejects.toThrow()
                 await expect(disconnected).resolves.toMatchObject({
                     reasonCode: DisconnectReason.SSH_DISCONNECT_PROTOCOL_ERROR,
-                    description: `SSH ${sender} sent NEWKEYS before fresh inbound keys were ready`,
+                    description:
+                        violation === "premature NEWKEYS"
+                            ? `SSH ${sender} sent NEWKEYS before fresh inbound keys were ready`
+                            : `SSH ${sender} sent an out-of-order key-exchange message`,
                 })
             } finally {
                 await close(server, client)

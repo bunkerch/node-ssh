@@ -227,6 +227,13 @@ meaningful wire-level behavior.
   may switch in either order. Reset readiness at each exchange, enable it only after deriving fresh
   inbound keys and protection objects with a validated compression selection, and consume it on the
   first peer NEWKEYS so premature and duplicate messages cannot install stale or undefined state.
+- Model every negotiated key exchange as a single-consumption inbound packet sequence. Include both
+  current and legacy group-exchange request opcodes only at the request stage, then replace the
+  expected set before resuming buffered input. Reject duplicates, skipped stages, wrong-method
+  opcodes, and extra KEXINIT messages with a protocol-error disconnect before method parsing.
+- Honor RFC 4253 `first_kex_packet_follows`: compare both guessed KEX and host-key names with the
+  negotiated pair, silently discard exactly one following packet only when either guess is wrong,
+  and leave the real method-stage expectation unconsumed. Validate this in both peer directions.
 - RFC 4253 unknown message numbers receive `SSH_MSG_UNIMPLEMENTED` with the rejected inbound packet
   sequence and must not stop later buffered processing. Keep malformed known packets fatal, and
   classify strict initial-KEX non-KEX traffic before this recovery path so it still disconnects.
