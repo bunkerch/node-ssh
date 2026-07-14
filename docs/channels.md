@@ -318,6 +318,9 @@ available for piping. Output writes obey the client's shared channel window and 
 a signal name sends `exit-signal`. Its optional diagnostic message must be valid UTF-8 and is
 validated before the one-way result is sent. Ending stdout flushes queued output, sends EOF and CLOSE, and a
 remote EOF only ends stdin so the server can still finish its response.
+Destroying the `Shell`, including `destroy(error)` from an application failure, sends channel CLOSE
+when the SSH connection is still available. It never leaves a server-owned session channel open,
+and teardown caused by an existing peer CLOSE or transport failure remains idempotent.
 
 Session hooks also cover `ptyRequest`, `envRequest`, and `subsystemRequest`. Accepted values are
 available in `channel.pty` and `channel.env`; the corresponding `pty`, `env`, and `subsystem` events

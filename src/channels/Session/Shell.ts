@@ -62,6 +62,9 @@ export default class Shell extends Duplex {
     }
 
     _destroy(error: Error | null, callback: WriteCallback): void {
+        if (this.channel.isOpen && this.channel.client.isConnected) {
+            this.channel.terminate()
+        }
         if (!this.stderr.destroyed) this.stderr.destroy()
         callback(error)
     }
