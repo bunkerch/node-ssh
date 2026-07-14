@@ -124,6 +124,14 @@ sizes, compressed and uncompressed NIST points, invalid ML-KEM and classical val
 implicit rejection, and defensive buffer ownership. In-process peers force all three registered
 method names through authenticated traffic and rekeys initiated by both roles.
 
+Standalone ML-KEM coverage fixes all three FIPS 203 encapsulation-key parameter sets to NIST ACVP
+vectors and checks the SHA-256 digest of each published encapsulation key. It verifies exact
+800/1184/1568 byte client keys, exact 768/1088/1568 byte server ciphertexts, non-canonical key
+rejection, same-length ciphertext implicit rejection, and the specification's distinct raw-string
+exchange-hash encoding. In-process client/server tests force each IANA name through authenticated
+traffic and rekeys initiated by both roles; SHA-256 and SHA-384 exchange-hash lengths are checked
+separately.
+
 RFC 4250 name tests cover the 64-character boundary, extension-domain form, non-ASCII and control
 input, commas, empty entries, and duplicate name-list members. Packet tests separately prove that
 the validation is applied to services, extensions, channels, and requests rather than existing

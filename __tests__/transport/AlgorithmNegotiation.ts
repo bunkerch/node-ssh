@@ -150,6 +150,7 @@ describe("RFC 4253 algorithm negotiation", () => {
         expect(standardClient.algorithmOffer.serverHostKey).not.toContain("ssh-dss")
         expect(standardClient.algorithmOffer.serverHostKey).not.toContain("ssh-rsa")
         expect(standardClient.algorithmOffer.kex).not.toContain("diffie-hellman-group1-sha1")
+        expect(standardClient.algorithmOffer.kex).not.toContain("mlkem512-sha256")
         expect(standardClient.algorithmOffer.cipher).not.toContain("aes128-cbc")
         expect(standardClient.algorithmOffer.hmac).not.toContain("hmac-md5")
         expect(standardClient.algorithmOffer.hmac).not.toContain("hmac-ripemd160")
@@ -166,6 +167,18 @@ describe("RFC 4253 algorithm negotiation", () => {
         })
         expect(legacyClient.algorithmOffer.serverHostKey.at(-1)).toBe("ssh-dss")
         expect(legacyClient.algorithmOffer.hmac.at(-1)).toBe("hmac-ripemd160")
+
+        const standaloneMLKEM = new Client({
+            hostname: "unused.invalid",
+            algorithms: {
+                kex: ["mlkem512-sha256", "mlkem768-sha256", "mlkem1024-sha384"],
+            },
+        })
+        expect(standaloneMLKEM.algorithmOffer.kex).toEqual([
+            "mlkem512-sha256",
+            "mlkem768-sha256",
+            "mlkem1024-sha384",
+        ])
     })
 
     test("selects the first client-preferred mutual algorithm in every direction", () => {

@@ -27,6 +27,7 @@ import {
     MLKEM768NISTP256SHA256,
     MLKEM768X25519SHA256,
 } from "./algorithms/kex/mlkem-hybrid.js"
+import { MLKEM1024SHA384, MLKEM512SHA256, MLKEM768SHA256 } from "./algorithms/kex/mlkem.js"
 
 import AES128CTR from "./algorithms/encryption/aes128-ctr.js"
 import AES192CTR from "./algorithms/encryption/aes192-ctr.js"
@@ -245,6 +246,9 @@ export const kex_algorithms = new Map<string, KexAlgorithmFactory>([
     ["mlkem768x25519-sha256", MLKEM768X25519SHA256],
     ["mlkem768nistp256-sha256", MLKEM768NISTP256SHA256],
     ["mlkem1024nistp384-sha384", MLKEM1024NISTP384SHA384],
+    ["mlkem512-sha256", MLKEM512SHA256],
+    ["mlkem768-sha256", MLKEM768SHA256],
+    ["mlkem1024-sha384", MLKEM1024SHA384],
     ["sntrup761x25519-sha512", SNTRUP761X25519SHA512],
     ["sntrup761x25519-sha512@openssh.com", SNTRUP761X25519SHA512OpenSSH],
     ["curve25519-sha256", Curve25519SHA256],

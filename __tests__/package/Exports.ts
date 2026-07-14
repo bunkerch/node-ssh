@@ -436,6 +436,8 @@ describe("package exports", () => {
                     if (typeof PageantAgent !== "function" || typeof PageantAgentError !== "function" || typeof discoverPageantAgentSocket !== "function") process.exit(35)
                     const explicitPageant = new PageantAgent("explicit-pageant.sock")
                     if (explicitPageant.socketPath !== "explicit-pageant.sock") process.exit(36)
+                    const standaloneMLKEM = new Client({ algorithms: { kex: ["mlkem512-sha256", "mlkem768-sha256", "mlkem1024-sha384"] } })
+                    if (standaloneMLKEM.algorithmOffer.kex.join(",") !== "mlkem512-sha256,mlkem768-sha256,mlkem1024-sha384") process.exit(37)
                     process.stdout.write(publicKey.toString())
                 `,
                 ],

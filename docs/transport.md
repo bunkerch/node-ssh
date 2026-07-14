@@ -210,6 +210,25 @@ terminates key exchange. FIPS 203 implicit rejection supplies a pseudorandom sec
 same-length ciphertext, which makes the server host-key signature fail instead of exposing a
 decapsulation oracle. Ephemeral ML-KEM, ECDH, and X25519 secret material is erased after use.
 
+The IANA-registered standalone methods `mlkem512-sha256`, `mlkem768-sha256`, and
+`mlkem1024-sha384` are also available through explicit algorithm configuration. They implement the
+current [pure ML-KEM SSH specification](https://datatracker.ietf.org/doc/draft-harrison-sshm-mlkem/):
+the client sends a fresh FIPS 203 encapsulation key and the server returns only the matching
+ciphertext. The 32-byte ML-KEM secret is encoded directly as an SSH string in the exchange hash and
+as an RFC 4251 `mpint` for transport-key derivation. Public keys and ciphertexts must have the exact
+size for their parameter set, non-canonical encapsulation keys fail key exchange, and modified
+same-length ciphertexts use FIPS 203 implicit rejection.
+
+These methods are not in the default offer. Unlike the hybrid defaults, they have no classical
+ECDH component, and IANA marks them `MAY` rather than `SHOULD`. Opt in only when both peers
+deliberately require a pure post-quantum exchange, for example:
+
+```ts
+const client = new Client({
+    algorithms: { kex: ["mlkem768-sha256"] },
+})
+```
+
 RFC 9941 `sntrup761x25519-sha512` and its wire-equivalent
 `sntrup761x25519-sha512@openssh.com` alias follow the ML-KEM methods. This hybrid combines a
 Streamlined NTRU Prime sntrup761 KEM secret with an X25519 secret through SHA-512. The client sends
