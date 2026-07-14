@@ -386,6 +386,9 @@ remains the exchange hash from the first key exchange, as required for authentic
 continuity. Stateful compression streams also reset independently when the new protection for their
 direction becomes active.
 
+Reading `sessionID` returns a defensive copy. Mutating application-visible bytes cannot change the
+identifier reused by public-key signatures, host-key proofs, or later transport key derivation.
+
 Once either side sends `SSH_MSG_KEXINIT`, outbound service and application packets are queued until
 that side has sent `SSH_MSG_NEWKEYS`; transport and KEX packets remain permitted. Packets already in
 flight from the peer continue to be processed. Sending `NEWKEYS` changes outbound protection

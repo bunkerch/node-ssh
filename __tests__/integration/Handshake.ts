@@ -467,6 +467,12 @@ describe("client/server integration", () => {
             const initialServerSessionId = Buffer.from(serverPeer!.sessionID!)
             const initialClientExchangeHash = Buffer.from(client.H!)
             const initialServerExchangeHash = Buffer.from(serverPeer!.H!)
+            const exposedClientSessionId = client.sessionID!
+            const exposedServerSessionId = serverPeer!.sessionID!
+            exposedClientSessionId.fill(0)
+            exposedServerSessionId.fill(0)
+            expect(client.sessionID).toEqual(initialClientSessionId)
+            expect(serverPeer!.sessionID).toEqual(initialServerSessionId)
 
             let clientObservedServerKexInit: KexInit | undefined
             let serverObservedClientKexInit: KexInit | undefined

@@ -282,7 +282,11 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
 
     // TODO: Set those as private properties (Need to be accessed by the algorithms only)
     H?: Buffer
-    sessionID?: Buffer
+    #sessionID?: Buffer
+
+    get sessionID(): Buffer | undefined {
+        return this.#sessionID && Buffer.from(this.#sessionID)
+    }
     ivClientToServer?: Buffer
     ivServerToClient?: Buffer
     encryptionKeyClientToServer?: Buffer
@@ -696,7 +700,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             }
 
             this.H = h
-            this.sessionID ??= h
+            this.#sessionID ??= Buffer.from(h)
             kexAlgorithm.deriveKeysClient(this)
             this.clientEncryption = this.clientEncryptionAlgorithm!.instantiate(
                 this.encryptionKeyClientToServer!,
