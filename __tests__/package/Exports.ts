@@ -56,6 +56,9 @@ import {
     ProtocolVersionExchange,
     PublicKey,
     PublicKeyAlgorithm,
+    PublicKeySubsystemClient,
+    PublicKeySubsystemServer,
+    PublicKeySubsystemStatusCode,
     Server,
     ServerClient,
     SessionChannel,
@@ -94,6 +97,8 @@ import {
     type SSHAgentProtocolServerOptions,
     type SSHAgentConstraint,
     type ServerOptions,
+    type PublicKeySubsystemAddOptions,
+    type PublicKeySubsystemServerOptions,
 } from "../../src/index.js"
 
 const execFileAsync = promisify(execFile)
@@ -140,6 +145,10 @@ describe("package exports", () => {
             handshakeTimeout: 500,
             maxSocketFileLength: 512,
         }
+        const publicKeyAddOptions: PublicKeySubsystemAddOptions = { overwrite: true }
+        const publicKeyServerOptions: PublicKeySubsystemServerOptions = {
+            attributes: [{ name: "comment" }],
+        }
 
         expect(clientOptions.hostname).toBe("example.test")
         expect(sessionOptions.pty).toBe(true)
@@ -151,6 +160,8 @@ describe("package exports", () => {
         expect(destinationConstraint.type).toBe("openssh-restrict-destination")
         expect(sessionBinding).toBeUndefined()
         expect(cygwinAgentOptions.handshakeTimeout).toBe(500)
+        expect(publicKeyAddOptions.overwrite).toBe(true)
+        expect(publicKeyServerOptions.attributes?.[0]?.name).toBe("comment")
         expect([
             Agent,
             Channel,
@@ -236,6 +247,9 @@ describe("package exports", () => {
         expect(ELEVATION_EXTENSION).toBe("elevation")
         expect(DELAY_COMPRESSION_EXTENSION).toBe("delay-compression")
         expect(delayCompressionExtension(delayCompression).name).toBe("delay-compression")
+        expect(PublicKeySubsystemClient).toBeFunction()
+        expect(PublicKeySubsystemServer).toBeFunction()
+        expect(PublicKeySubsystemStatusCode.Success).toBe(0)
     })
 
     test("compiled entry point provides the same side-effect-free API", async () => {
@@ -258,6 +272,9 @@ describe("package exports", () => {
         expect(entry.GSSAPI_KEYEX).toBe("gssapi-keyex")
         expect(entry.buildGSSAPIKeyExchangeUserAuthMIC).toBeFunction()
         expect(entry.KERBEROS_V5_GSSAPI_OID).toBeInstanceOf(Buffer)
+        expect(entry.PublicKeySubsystemClient).toBeFunction()
+        expect(entry.PublicKeySubsystemServer).toBeFunction()
+        expect(entry.PublicKeySubsystemStatusCode.Success).toBe(0)
         expect(entry.KnownHosts).toBeFunction()
         expect(entry.parseKeys).toBeFunction()
         expect(entry.DirectTCPIPChannel).toBeDefined()
@@ -313,6 +330,10 @@ describe("package exports", () => {
         const agentProtocol = await readFile("dist/publickey/SSHAgentProtocol.d.ts", "utf8")
         const cygwinAgent = await readFile("dist/publickey/CygwinAgent.d.ts", "utf8")
         const pageantAgent = await readFile("dist/publickey/PageantAgent.d.ts", "utf8")
+        const publicKeySubsystemClient = await readFile(
+            "dist/publickey/PublicKeySubsystemClient.d.ts",
+            "utf8",
+        )
 
         expect(client).not.toContain("ClientSessionCallback")
         expect(client).not.toContain("ClientGlobalRequestCallback")
@@ -358,6 +379,12 @@ describe("package exports", () => {
         expect(cygwinAgent).not.toContain("callback")
         expect(pageantAgent).toContain("constructor(socketPath?: string)")
         expect(pageantAgent).not.toContain("callback")
+        expect(publicKeySubsystemClient).toContain("add(key: PublicKey")
+        expect(publicKeySubsystemClient).toContain("remove(key: PublicKey): Promise<void>")
+        expect(publicKeySubsystemClient).toContain("list(): Promise<")
+        expect(publicKeySubsystemClient).toContain("listAttributes(): Promise<")
+        expect(publicKeySubsystemClient).toContain("end(): void")
+        expect(publicKeySubsystemClient).not.toContain("callback")
     })
 
     test("package archive exposes a working ESM API", async () => {
@@ -375,7 +402,7 @@ describe("package exports", () => {
                     "--input-type=module",
                     "--eval",
                     `
-                    const { Client, createSocketAgent, CygwinAgent, CygwinAgentError, DELAY_COMPRESSION_EXTENSION, delayCompressionExtension, discoverPageantAgentSocket, ELEVATION_EXTENSION, EncodedSignature, generateKeyPair, generateKeyPairSync, KnownHosts, MAX_OPENSSH_AGENT_SESSION_BINDINGS, MAX_SSH_AGENT_MESSAGE_LENGTH, NO_FLOW_CONTROL_EXTENSION, OnePasswordAgent, OPENSSH_AGENT_SECURITY_KEY_PROVIDER, OPENSSH_AGENT_SESSION_BIND, PageantAgent, PageantAgentError, parseKey, PrivateKey, PrivateKeyAgent, PublicKey, SSH_ED25519_SECURITY_KEY_ALGORITHM, SSHAgentConstraintType, SSHAgentExtensionFailureError, SSHAgentMessageType, SSHAgentProtocolClient, SSHAgentProtocolError, SSHAgentProtocolServer, SSHED25519SecurityKeyPrivateKey, SSHED25519SecurityKeyPublicKey } = await import("modernssh")
+                    const { Client, createSocketAgent, CygwinAgent, CygwinAgentError, DELAY_COMPRESSION_EXTENSION, delayCompressionExtension, discoverPageantAgentSocket, ELEVATION_EXTENSION, EncodedSignature, generateKeyPair, generateKeyPairSync, KnownHosts, MAX_OPENSSH_AGENT_SESSION_BINDINGS, MAX_SSH_AGENT_MESSAGE_LENGTH, NO_FLOW_CONTROL_EXTENSION, OnePasswordAgent, OPENSSH_AGENT_SECURITY_KEY_PROVIDER, OPENSSH_AGENT_SESSION_BIND, PageantAgent, PageantAgentError, parseKey, PrivateKey, PrivateKeyAgent, PublicKey, PublicKeySubsystemClient, PublicKeySubsystemServer, PublicKeySubsystemStatusCode, SSH_ED25519_SECURITY_KEY_ALGORITHM, SSHAgentConstraintType, SSHAgentExtensionFailureError, SSHAgentMessageType, SSHAgentProtocolClient, SSHAgentProtocolError, SSHAgentProtocolServer, SSHED25519SecurityKeyPrivateKey, SSHED25519SecurityKeyPublicKey } = await import("modernssh")
                     const { privateKey, publicKey } = await generateKeyPair("ed25519", {
                         comment: "packed@example.test",
                     })
@@ -438,6 +465,7 @@ describe("package exports", () => {
                     if (explicitPageant.socketPath !== "explicit-pageant.sock") process.exit(36)
                     const standaloneMLKEM = new Client({ algorithms: { kex: ["mlkem512-sha256", "mlkem768-sha256", "mlkem1024-sha384"] } })
                     if (standaloneMLKEM.algorithmOffer.kex.join(",") !== "mlkem512-sha256,mlkem768-sha256,mlkem1024-sha384") process.exit(37)
+                    if (typeof PublicKeySubsystemClient !== "function" || typeof PublicKeySubsystemServer !== "function" || PublicKeySubsystemStatusCode.Success !== 0) process.exit(38)
                     process.stdout.write(publicKey.toString())
                 `,
                 ],

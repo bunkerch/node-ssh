@@ -132,6 +132,7 @@ import {
     UserAuthGSSAPIToken,
 } from "./packets/UserAuthGSSAPI.js"
 import SFTPClient from "./sftp/SFTPClient.js"
+import PublicKeySubsystemClient from "./publickey/PublicKeySubsystemClient.js"
 import {
     resolveClientAlgorithmOptions,
     type ClientAlgorithmOptions,
@@ -1109,6 +1110,18 @@ export default class Client extends EventEmitter<ClientEvents> {
                 await channel.subsystem("sftp")
                 const software = this.serverProtocolVersion?.protocol_software ?? ""
                 return await SFTPClient.connect(channel, /^(?:OpenSSH_|dropbear)/iu.test(software))
+            } catch (error) {
+                channel.close()
+                throw error
+            }
+        })
+    }
+
+    publicKeySubsystem(): Promise<PublicKeySubsystemClient> {
+        return this.openSessionChannel().then(async (channel) => {
+            try {
+                await channel.subsystem("publickey")
+                return await PublicKeySubsystemClient.connect(channel)
             } catch (error) {
                 channel.close()
                 throw error

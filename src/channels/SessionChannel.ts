@@ -15,6 +15,9 @@ import EventEmitter from "events"
 import Shell from "./Session/Shell.js"
 import { normalizeSSHSignal } from "../utils/Signal.js"
 import SFTPServer, { SFTPServerOptions } from "../sftp/SFTPServer.js"
+import PublicKeySubsystemServer, {
+    type PublicKeySubsystemServerOptions,
+} from "../publickey/PublicKeySubsystemServer.js"
 import { decodeSSHName } from "../utils/SSHName.js"
 import { decodeSSHUTF8 } from "../utils/SSHText.js"
 import {
@@ -65,6 +68,7 @@ export interface SessionChannelHookerSubsystemRequestContext {
 export interface SessionChannelHookerSubsystemRequestController {
     success: boolean
     sftp?: SFTPServerOptions
+    publicKey?: PublicKeySubsystemServerOptions
 }
 export interface SessionChannelHookerAgentForwardRequestController {
     success: boolean
@@ -133,6 +137,7 @@ export interface SessionChannelEvents {
     shell: [Shell]
     signal: [signal: string]
     sftp: [server: SFTPServer]
+    publicKey: [server: PublicKeySubsystemServer]
     subsystem: [name: string, shell: Shell]
     windowChange: [dimensions: Readonly<SessionWindowDimensions>]
     x11: [request: Readonly<SessionX11Request>]
@@ -149,6 +154,7 @@ export default class SessionChannel extends Channel {
 
     shell: Shell | undefined
     sftp: SFTPServer | undefined
+    publicKey: PublicKeySubsystemServer | undefined
     pty: Readonly<SessionPtyInfo> | undefined
     x11: Readonly<SessionX11Request> | undefined
     private readonly pendingInput: Buffer[] = []
@@ -348,6 +354,11 @@ export default class SessionChannel extends Channel {
                     if (controller.sftp && subsystem !== "sftp") {
                         throw new Error("SFTP options require the sftp subsystem")
                     }
+                    if (controller.publicKey && subsystem !== "publickey") {
+                        throw new Error(
+                            "Public-key subsystem options require the publickey subsystem",
+                        )
+                    }
                     this.consumed = true
                     const shell = this.activateShell()
                     this.sendRequestSuccess(request)
@@ -362,6 +373,9 @@ export default class SessionChannel extends Channel {
                                 /^(?:OpenSSH_|dropbear)/iu.test(clientSoftware),
                         })
                         this.events.emit("sftp", this.sftp)
+                    } else if (subsystem === "publickey") {
+                        this.publicKey = new PublicKeySubsystemServer(shell, controller.publicKey)
+                        this.events.emit("publicKey", this.publicKey)
                     } else {
                         this.events.emit("subsystem", subsystem, shell)
                     }

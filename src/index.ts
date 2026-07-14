@@ -280,6 +280,53 @@ export type {
 } from "./publickey/SSHAgentProtocol.js"
 export { default as OnePasswordAgent, OnePasswordAgentError } from "./publickey/OnePasswordAgent.js"
 export { default as PrivateKeyAgent, PrivateKeyAgentError } from "./publickey/PrivateKeyAgent.js"
+export {
+    default as PublicKeySubsystemClient,
+    PublicKeySubsystemStatusError,
+} from "./publickey/PublicKeySubsystemClient.js"
+export type {
+    PublicKeySubsystemAddOptions,
+    PublicKeySubsystemAttributeInput,
+    PublicKeySubsystemKey,
+    PublicKeySubsystemListedAttribute,
+    PublicKeySubsystemSupportedAttribute,
+} from "./publickey/PublicKeySubsystemClient.js"
+export { default as PublicKeySubsystemServer } from "./publickey/PublicKeySubsystemServer.js"
+export type {
+    PublicKeySubsystemServerAddContext,
+    PublicKeySubsystemServerEvents,
+    PublicKeySubsystemServerHooker,
+    PublicKeySubsystemServerListController,
+    PublicKeySubsystemServerListedAttribute,
+    PublicKeySubsystemServerListedKey,
+    PublicKeySubsystemServerOptions,
+    PublicKeySubsystemServerRemoveContext,
+    PublicKeySubsystemServerResponseController,
+} from "./publickey/PublicKeySubsystemServer.js"
+export {
+    decodePublicKeySubsystemPacket,
+    encodePublicKeySubsystemPacket,
+    MAX_PUBLIC_KEY_SUBSYSTEM_PACKET_LENGTH,
+    MAX_PUBLIC_KEY_SUBSYSTEM_RESPONSES,
+    MAX_PUBLIC_KEY_SUBSYSTEM_RESPONSE_BYTES,
+    PUBLIC_KEY_SUBSYSTEM_VERSION,
+    PublicKeySubsystemPacketParser,
+    PublicKeySubsystemProtocolError,
+    PublicKeySubsystemStatusCode,
+} from "./publickey/PublicKeySubsystemCodec.js"
+export type {
+    PublicKeySubsystemAddAttribute,
+    PublicKeySubsystemAddPacket,
+    PublicKeySubsystemAttributePacket,
+    PublicKeySubsystemListAttributesPacket,
+    PublicKeySubsystemListPacket,
+    PublicKeySubsystemPacket,
+    PublicKeySubsystemPublicKeyPacket,
+    PublicKeySubsystemRemovePacket,
+    PublicKeySubsystemStatusPacket,
+    PublicKeySubsystemUnknownPacket,
+    PublicKeySubsystemVersionPacket,
+} from "./publickey/PublicKeySubsystemCodec.js"
 
 export {
     default as ProtocolVersionExchange,

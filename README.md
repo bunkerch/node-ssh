@@ -18,6 +18,8 @@ stream behavior, the [SFTP guide](docs/sftp.md) covers remote file operations, a
 [packet tunnel guide](docs/tunnels.md) covers layer-3 and layer-2 tunnel channels. The
 [SSH agent protocol guide](docs/agent-protocol.md) covers identity management, constraints,
 locking, extensions, and restricted agent endpoints. The
+[public-key management guide](docs/public-key-subsystem.md) covers the RFC 4819 subsystem for
+adding, removing, and listing an authenticated user's authorized keys. The
 [global request guide](docs/global-requests.md) covers connection-wide application extensions. The
 [known-hosts guide](docs/known-hosts.md) covers persistent host verification, host certificates,
 revocation, and key rotation. The
