@@ -406,7 +406,7 @@ export default class SFTPClient {
     ): Promise<void> {
         const normalized = normalizeWriteFileOptions(options)
         const contents = Buffer.isBuffer(data)
-            ? data
+            ? Buffer.from(data)
             : Buffer.from(data, normalized.encoding ?? "utf8")
         const flag = normalized.flag ?? "w"
         const mode = parseMode(normalized.mode ?? 0o666)

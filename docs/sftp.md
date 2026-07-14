@@ -29,6 +29,8 @@ The baseline operations are Promise-based:
   server-safe requests; independent requests may be outstanding concurrently and responses are
   matched by request identifier. A write snapshots its handle and data when it starts, so caller
   mutation while an earlier chunk awaits acknowledgement cannot alter later chunks.
+- `writeFile` copies Buffer input before opening the remote file; mutation during the open request
+  cannot change the eventual contents.
 - `stat`, `lstat`, `fstat`, `setstat`, and `fsetstat` retrieve or change attributes. `chmod`,
   `fchmod`, `chown`, `fchown`, `utimes`, `futimes`, `truncate`, and `ftruncate` are focused helpers.
 - `opendir` and `readdir` expose incremental directory scanning. `readDirectory` reads all batches,
