@@ -248,7 +248,8 @@ owns the injected transport after acceptance. When `preconnect` hooks are presen
 complete without rejection and explicitly set `allowConnection = true`; denial happens before the
 public `connection` event. `injectSocket()` rejects a transport synchronously if it has already
 closed or is no longer both readable and writable; attach it before transferring or closing either
-side of the stream.
+side of the stream. The server rechecks the transport after deferred host-key preparation and
+discards it without emitting `connection` if it closed during that interval.
 
 ## Passphrase-protected private keys
 

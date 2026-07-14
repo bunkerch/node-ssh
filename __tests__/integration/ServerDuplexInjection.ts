@@ -36,6 +36,26 @@ test("rejects a server transport that has already closed", async () => {
     )
 })
 
+test("discards a server transport that closes before deferred acceptance", async () => {
+    const server = new Server({
+        hostKeys: [await PrivateKey.generate("ssh-ed25519")],
+        sendAllHostKeys: false,
+    })
+    const transport = new PassThrough()
+    let accepted = false
+    server.on("connection", () => {
+        accepted = true
+    })
+
+    server.injectSocket(transport)
+    transport.destroy()
+    await once(transport, "close")
+    await new Promise<void>((resolve) => setImmediate(resolve))
+
+    expect(accepted).toBe(false)
+    expect(await server.getConnections()).toBe(0)
+})
+
 test("rejects a client transport that has already ended", async () => {
     const transport = new PassThrough({ autoDestroy: false })
     transport.resume()

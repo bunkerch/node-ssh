@@ -543,7 +543,19 @@ export default class Server extends EventEmitter<ServerEvents> {
         if (!isReadable(socket) || !socket.writable || socket.destroyed) {
             throw new TypeError("SSH server transport must be open, readable, and writable")
         }
-        void this.hostKeysReady.then(() => this.acceptSocket(socket))
+        void this.hostKeysReady
+            .then(() => {
+                if (!isReadable(socket) || !socket.writable || socket.destroyed) {
+                    if (!socket.destroyed) socket.destroy()
+                    return
+                }
+                return this.acceptSocket(socket)
+            })
+            .catch((error: unknown) => {
+                const failure = error instanceof Error ? error : new Error(String(error))
+                if (!socket.destroyed) socket.destroy(failure)
+                this.emit("error", failure)
+            })
         return this
     }
 
