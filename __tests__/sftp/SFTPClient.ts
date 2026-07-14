@@ -182,6 +182,57 @@ describe("SFTP client request engine", () => {
         fixture.destroy()
     })
 
+    test("encoding failures do not exhaust pending request slots", async () => {
+        const requests: SFTPPacketType[] = []
+        const fixture = new SFTPServerFixture((packet) => {
+            if (packet.type === SFTPPacketType.Init) {
+                fixture.send({ type: SFTPPacketType.Version, version: 3, extensions: [] })
+                return
+            }
+            requests.push(packet.type)
+            if (packet.type === SFTPPacketType.Stat) {
+                fixture.send({
+                    type: SFTPPacketType.Attrs,
+                    requestId: packet.requestId,
+                    attributes: { size: 1n },
+                })
+            }
+        })
+
+        const client = await SFTPClient.connect(asClientChannel(fixture))
+        const invalidHandle = Buffer.alloc(257)
+        let expectedFailures = 0
+        for (let attempt = 0; attempt < 1024; attempt++) {
+            try {
+                await client.close(invalidHandle)
+            } catch (error) {
+                if (error instanceof Error && error.message === "SFTP handle exceeds 256 bytes") {
+                    expectedFailures++
+                }
+            }
+        }
+        let size: bigint | undefined
+        let statError: unknown
+        try {
+            size = (await client.stat("remote")).size
+        } catch (error) {
+            statError = error
+        }
+
+        expect({
+            expectedFailures,
+            requests,
+            size,
+            statError: statError instanceof Error ? statError.message : statError,
+        }).toEqual({
+            expectedFailures: 1024,
+            requests: [SFTPPacketType.Stat],
+            size: 1n,
+            statError: undefined,
+        })
+        fixture.destroy()
+    })
+
     test("rejects invalid UTF-8 string paths before writing a request", async () => {
         let requests = 0
         const fixture = new SFTPServerFixture((packet) => {

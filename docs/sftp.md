@@ -170,6 +170,8 @@ grammar, and extension identifiers are validated SSH names. Filenames, long name
 and extension payloads remain opaque bytes and are never replacement-decoded by the wire codec.
 Fatal errors, including EOF in the middle of a frame, close the SFTP channel in both peer roles and
 reject pending client operations. They do not tear down an otherwise healthy SSH connection.
+Local request-encoding failures reject without consuming an outstanding-request slot, so repeated
+invalid calls cannot exhaust or poison an otherwise healthy SFTP session.
 
 OpenSSH reverses the two wire arguments of the standard `SSH_FXP_SYMLINK` request. The client uses
 the peer's SSH identification to apply that published OpenSSH behavior while preserving the draft's

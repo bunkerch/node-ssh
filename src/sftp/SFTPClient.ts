@@ -1114,6 +1114,12 @@ export default class SFTPClient {
                 new Error(`SFTP has ${MAX_PENDING_REQUESTS} outstanding requests`),
             )
         }
+        let frame: Buffer
+        try {
+            frame = encodeSFTPPacket(packet)
+        } catch (error) {
+            return Promise.reject(error)
+        }
 
         const request = new Promise<SFTPPacket>((resolve, reject) => {
             this.pending.set(packet.requestId, {
@@ -1122,7 +1128,7 @@ export default class SFTPClient {
                 reject,
             })
         })
-        void this.writePacket(packet).catch((error: unknown) => {
+        void this.writeFrame(frame).catch((error: unknown) => {
             const pending = this.pending.get(packet.requestId)
             if (!pending) return
             this.pending.delete(packet.requestId)
@@ -1141,7 +1147,10 @@ export default class SFTPClient {
     }
 
     private writePacket(packet: SFTPPacket): Promise<void> {
-        const frame = encodeSFTPPacket(packet)
+        return this.writeFrame(encodeSFTPPacket(packet))
+    }
+
+    private writeFrame(frame: Buffer): Promise<void> {
         return new Promise<void>((resolve, reject) => {
             this.channel.write(frame, (error) => (error ? reject(error) : resolve()))
         })
