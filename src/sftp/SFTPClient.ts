@@ -38,7 +38,7 @@ import type {
     SFTPRequestPacketBase,
     SFTPStatusPacket,
 } from "./types.js"
-import { decodeSSHUTF8 } from "../utils/SSHText.js"
+import { decodeSSHUTF8, encodeSSHUTF8 } from "../utils/SSHText.js"
 
 export interface SFTPExtendedRequestOptions {
     /** Require this exact advertised extension version. */
@@ -1213,7 +1213,7 @@ export default class SFTPClient {
 }
 
 function pathBuffer(path: SFTPPath): Buffer {
-    return Buffer.isBuffer(path) ? path : Buffer.from(path, "utf8")
+    return Buffer.isBuffer(path) ? path : encodeSSHUTF8(path, "SFTP path")
 }
 
 function decodeSFTPName(value: Buffer, encoding: SFTPNameEncoding): string | Buffer {

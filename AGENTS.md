@@ -152,6 +152,7 @@ meaningful wire-level behavior.
   status messages as UTF-8, status language tags with the shared language codec, and extension
   identifiers as SSH names without applying text decoding to filename or payload bytes. Path-return
   helpers default to fatal UTF-8 but must offer an explicit owned-Buffer result for binary names.
+  Validate string paths and extension text before writing; Buffer paths remain byte-exact.
 - Derive OpenSSH SFTP extension layouts and response types from upstream `PROTOCOL`; automatically
   negotiate advertised `limits@openssh.com` v1, retain exact limit values as `bigint`, and keep
   conservative sizes when the server rejects the request. Never accept a malformed successful

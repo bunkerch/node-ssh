@@ -97,11 +97,15 @@ aborts it.
 
 ## Paths, offsets, and attributes
 
-String paths are encoded as UTF-8. Pass a `Buffer` when a server-side filename must be preserved as
-opaque bytes. File handles are always opaque `Buffer` values and are limited to the protocol's
+String paths are validated and encoded as UTF-8 before a request is written. Pass a `Buffer` when a
+server-side filename must be preserved as opaque bytes. File handles are always opaque `Buffer`
+values and are limited to the protocol's
 256-byte maximum. `realpath()`, `readlink()`, `opensshExpandPath()`, and `homeDirectory()` return a
 strict UTF-8 string by default; pass `"buffer"` as their final argument to receive the returned name
 as an owned `Buffer` without decoding it.
+
+Text arguments to extensions receive the same strict encoding. OpenSSH user/group lookup names are
+strictly decoded as UTF-8; malformed replies fail instead of exposing replacement characters.
 
 Offsets and file sizes are unsigned 64-bit wire values. The API accepts `bigint` positions and
 returns `bigint` sizes so values larger than JavaScript's safe integer range remain exact. Numeric

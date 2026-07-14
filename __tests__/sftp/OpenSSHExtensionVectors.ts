@@ -82,6 +82,9 @@ describe("OpenSSH SFTP extension fixed vectors", () => {
                 `),
             ),
         ).toEqual({ usernames: ["u", ""], groupNames: ["g"] })
+        expect(() => decodeSFTPUsersGroups(hex(`00000005 00000001 ff 00000000`))).toThrow(
+            "SFTP usernames entry is not valid UTF-8 text",
+        )
     })
 
     test("rejects truncated, trailing, and out-of-range extension fields", () => {
@@ -93,5 +96,8 @@ describe("OpenSSH SFTP extension fixed vectors", () => {
             encodeSFTPCopyDataExtension(Buffer.alloc(0), -1n, 0n, Buffer.alloc(0), 0n),
         ).toThrow("uint64")
         expect(() => encodeSFTPUsersGroupsExtension([0x1_0000_0000], [])).toThrow("uint32")
+        expect(() => encodeSFTPExtensionString("\ud800")).toThrow(
+            "SFTP extension string is not valid UTF-8 text",
+        )
     })
 })

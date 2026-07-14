@@ -43,6 +43,22 @@ function asClientChannel(channel: SFTPServerFixture): ClientSessionChannel {
 }
 
 describe("SFTP client request engine", () => {
+    test("rejects invalid UTF-8 string paths before writing a request", async () => {
+        let requests = 0
+        const fixture = new SFTPServerFixture((packet) => {
+            if (packet.type === SFTPPacketType.Init) {
+                fixture.send({ type: SFTPPacketType.Version, version: 3, extensions: [] })
+            } else {
+                requests++
+            }
+        })
+
+        const client = await SFTPClient.connect(asClientChannel(fixture))
+        await expect(client.stat("\ud800")).rejects.toThrow("SFTP path is not valid UTF-8 text")
+        expect(requests).toBe(0)
+        fixture.destroy()
+    })
+
     test("sends negotiated application extensions with explicit response contracts", async () => {
         const requests: { name: string; data: Buffer }[] = []
         const fixture = new SFTPServerFixture((packet) => {

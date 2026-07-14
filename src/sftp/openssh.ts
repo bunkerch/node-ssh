@@ -1,5 +1,6 @@
 import { encodeSFTPAttributes, SFTPProtocolError } from "./codec.js"
 import type { SFTPAttributes } from "./types.js"
+import { decodeSSHUTF8, encodeSSHUTF8 } from "../utils/SSHText.js"
 
 const UINT32_MAX = 0xffff_ffff
 const UINT64_MAX = 0xffff_ffff_ffff_ffffn
@@ -85,7 +86,7 @@ function uint64(value: bigint, name: string): Buffer {
 }
 
 export function encodeSFTPExtensionString(value: Buffer | string): Buffer {
-    const data = Buffer.isBuffer(value) ? value : Buffer.from(value, "utf8")
+    const data = Buffer.isBuffer(value) ? value : encodeSSHUTF8(value, "SFTP extension string")
     return Buffer.concat([uint32(data.length, "SFTP string length"), data])
 }
 
@@ -170,6 +171,8 @@ export function decodeSFTPUsersGroups(data: Buffer): Readonly<SFTPUserGroupNames
 function decodeNames(data: Buffer, name: string): readonly string[] {
     const reader = new Reader(data)
     const names: string[] = []
-    while (reader.remaining > 0) names.push(reader.string(name).toString("utf8"))
+    while (reader.remaining > 0) {
+        names.push(decodeSSHUTF8(reader.string(name), `SFTP ${name} entry`))
+    }
     return names
 }
