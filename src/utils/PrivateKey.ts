@@ -26,7 +26,12 @@ import {
 import EncodedSignature from "./Signature.js"
 import asn1js from "asn1js"
 import { decodeBigIntBE, encodeBigIntBE } from "./BigInt.js"
-import { decryptOpenSSHPrivateKey } from "./OpenSSHPrivateKeyCipher.js"
+import {
+    decryptOpenSSHPrivateKey,
+    encryptOpenSSHPrivateKey,
+    getOpenSSHPrivateKeyCipherBlockLength,
+    type OpenSSHPrivateKeyEncryptionOptions,
+} from "./OpenSSHPrivateKeyCipher.js"
 import { serializeMpintBufferToBuffer } from "./mpint.js"
 
 export interface PrivateKeyData {
@@ -48,47 +53,58 @@ export default class PrivateKey {
         return this.data.algorithm.sign(data, algorithm)
     }
 
-    serialize(): Buffer {
-        const buffers = []
-
-        // auth magic
-        buffers.push(serializeCString(Buffer.from("openssh-key-v1")))
-        // cipher name
-        buffers.push(serializeBuffer(Buffer.from("none")))
-        // kdf name
-        buffers.push(serializeBuffer(Buffer.from("none")))
-        // kdf options
-        buffers.push(serializeBuffer(Buffer.alloc(0)))
-
-        // number of keys
-        buffers.push(serializeUint32(1))
-        // public key
-        buffers.push(serializeBuffer(this.data.publicKey.serialize()))
-
+    serialize(options?: OpenSSHPrivateKeyEncryptionOptions): Buffer {
+        const cipherName = options?.cipher ?? "aes256-ctr"
+        const blockLength = options ? getOpenSSHPrivateKeyCipherBlockLength(cipherName) : 8
+        const algorithmPayload = this.data.algorithm.serialize()
         const prv = []
-
         const rnd = randomBytes(4)
         prv.push(rnd, rnd)
         prv.push(serializeBuffer(Buffer.from(this.data.alg, "utf8")))
-        prv.push(this.data.algorithm.serialize())
+        prv.push(algorithmPayload)
         prv.push(serializeBuffer(Buffer.from(this.data.comment ?? "", "utf8")))
-
         let prvPayload = Buffer.concat(prv)
-        if (prvPayload.length % 8 !== 0) {
-            const pad_len = 8 - (prvPayload.length % 8)
+        if (options) algorithmPayload.fill(0)
+        if (prvPayload.length % blockLength !== 0) {
+            const pad_len = blockLength - (prvPayload.length % blockLength)
             const pad = Buffer.alloc(pad_len, pad_len)
             for (let i = 0; i < pad_len; i++) {
                 pad[i] = i + 1
             }
-
-            prvPayload = Buffer.concat([prvPayload, pad])
+            const unpadded = prvPayload
+            prvPayload = Buffer.concat([unpadded, pad])
+            if (options) unpadded.fill(0)
         }
 
-        // rnd_prv_comment_pad_len
-        buffers.push(serializeUint32(prvPayload.length))
-        buffers.push(prvPayload)
+        let kdfName = "none"
+        let kdfOptions: Buffer = Buffer.alloc(0)
+        let privatePayload: Buffer = prvPayload
+        let authenticationTag: Buffer = Buffer.alloc(0)
+        let serializedCipherName = "none"
+        if (options) {
+            let encrypted: ReturnType<typeof encryptOpenSSHPrivateKey>
+            try {
+                encrypted = encryptOpenSSHPrivateKey(prvPayload, options)
+            } finally {
+                prvPayload.fill(0)
+            }
+            serializedCipherName = encrypted.cipherName
+            kdfName = encrypted.kdfName
+            kdfOptions = encrypted.kdfOptions
+            privatePayload = encrypted.ciphertext
+            authenticationTag = encrypted.authenticationTag
+        }
 
-        return Buffer.concat(buffers)
+        return Buffer.concat([
+            serializeCString(Buffer.from("openssh-key-v1")),
+            serializeBuffer(Buffer.from(serializedCipherName)),
+            serializeBuffer(Buffer.from(kdfName)),
+            serializeBuffer(kdfOptions),
+            serializeUint32(1),
+            serializeBuffer(this.data.publicKey.serialize()),
+            serializeBuffer(privatePayload),
+            authenticationTag,
+        ])
     }
 
     static parse(raw: Buffer, passphrase?: string | Buffer): PrivateKey {
@@ -185,9 +201,9 @@ export default class PrivateKey {
         })
     }
 
-    toString(): string {
+    toString(options?: OpenSSHPrivateKeyEncryptionOptions): string {
         const lines = [`-----BEGIN OPENSSH PRIVATE KEY-----`]
-        const b64 = this.serialize().toString("base64")
+        const b64 = this.serialize(options).toString("base64")
         for (let i = 0; i < b64.length; i += 70) {
             lines.push(b64.slice(i, i + 70))
         }

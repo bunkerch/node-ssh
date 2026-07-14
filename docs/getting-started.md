@@ -181,6 +181,26 @@ Comments cannot contain NUL or line endings because the public-key format is lin
 generation uses the runtime cryptographic random source; write private material with restrictive
 permissions and avoid logging it.
 
+Pass encryption options to `PrivateKey.toString()` or `serialize()` when persisting generated or
+loaded keys. Encryption uses OpenSSH's `bcrypt` KDF with 16 rounds and `aes256-ctr` by default,
+matching the broadly compatible OpenSSH key-file defaults. Increase `rounds` according to the
+latency budget of the application that loads the key.
+
+```ts
+const encrypted = privateKey.toString({
+    passphrase: Buffer.from(process.env.KEY_PASSPHRASE!, "utf8"),
+    cipher: "aes256-gcm@openssh.com",
+    rounds: 32,
+})
+await writeFile("./id_ed25519", `${encrypted}\n`, { mode: 0o600 })
+```
+
+Supported output ciphers are 3DES-CBC; AES-128/192/256 CBC and CTR; AES-128/256 GCM; and
+ChaCha20-Poly1305. Prefer AES-GCM or ChaCha20-Poly1305 when authenticated key-file encryption is
+required. Empty passphrases and invalid round counts are rejected. The serializer copies caller
+passphrase buffers and clears its derived key, IV, passphrase copy, and temporary plaintext key
+buffers after encryption; callers remain responsible for clearing their original buffer.
+
 ### Reading protected keys
 
 `PrivateKey.fromString()` and `PrivateKey.parse()` accept an optional string or `Buffer`

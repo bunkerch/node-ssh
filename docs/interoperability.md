@@ -98,6 +98,11 @@ ChaCha20-Poly1305), then decrypt, sign, and verify each key. They also cover enc
 missing and incorrect passphrases, authenticated-data tampering, and `DiskAgent` passphrase
 resolution. No JavaScript SSH implementation supplies expected key data.
 
+The inverse path serializes a generated key with every supported cipher and asks `ssh-keygen -y`
+to decrypt and derive its public key. Those outputs must match the generated public key exactly.
+Repeated encryption proves fresh salt generation, while incorrect passphrases, modified output,
+empty secrets, and invalid bcrypt round counts are rejected.
+
 OpenSSH private-key tests also generate every required ECDSA curve and prove parsing, public-key
 matching, signing, and verification. An RFC 6979 P-256/SHA-256 signature is independently encoded as
 the RFC 5656 pair of SSH mpints and verified as a fixed cryptographic vector.

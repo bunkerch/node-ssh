@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process"
-import { mkdtemp, readFile, rm } from "node:fs/promises"
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
@@ -61,6 +61,58 @@ function tamperWithAuthenticationTag(privateKey: string): string {
 }
 
 describe("OpenSSH private keys", () => {
+    test("encrypts generated keys with every cipher accepted by OpenSSH", async () => {
+        const directory = await mkdtemp(join(tmpdir(), "modernssh-encrypted-output-"))
+        const privateKey = await PrivateKey.generate("ssh-ed25519")
+        privateKey.data.comment = "encrypted-output"
+        try {
+            for (const cipher of ciphers) {
+                const path = join(directory, cipher)
+                const callerPassphrase = Buffer.from(passphrase)
+                const encoded = privateKey.toString({
+                    passphrase: callerPassphrase,
+                    cipher,
+                    rounds: 1,
+                })
+                expect(callerPassphrase.toString()).toBe(passphrase)
+                await writeFile(path, `${encoded}\n`, { mode: 0o600 })
+                const { stdout, stderr } = await execFileAsync("ssh-keygen", [
+                    "-y",
+                    "-P",
+                    passphrase,
+                    "-f",
+                    path,
+                ])
+                expect(PublicKey.parseString(stdout).equals(privateKey.data.publicKey)).toBe(true)
+                expect(stderr).toBe("")
+
+                const parsed = PrivateKey.fromString(encoded, passphrase)
+                const message = Buffer.from(`generated encryption ${cipher}`)
+                expect(parsed.data.comment).toBe("encrypted-output")
+                expect(parsed.data.publicKey.verifySignature(message, parsed.sign(message))).toBe(
+                    true,
+                )
+            }
+
+            const first = privateKey.toString({ passphrase, rounds: 1 })
+            const second = privateKey.toString({ passphrase, rounds: 1 })
+            expect(first).not.toBe(second)
+            expect(() => PrivateKey.fromString(first, "incorrect")).toThrow(/integrity|passphrase/i)
+            expect(() =>
+                PrivateKey.fromString(tamperWithAuthenticationTag(first), passphrase),
+            ).toThrow()
+        } finally {
+            await rm(directory, { recursive: true, force: true })
+        }
+    }, 30_000)
+
+    test("rejects invalid private-key encryption options", async () => {
+        const privateKey = await PrivateKey.generate("ssh-ed25519")
+        expect(() => privateKey.toString({ passphrase: "" })).toThrow("requires a passphrase")
+        expect(() => privateKey.toString({ passphrase, rounds: 0 })).toThrow("between 1")
+        expect(() => privateKey.toString({ passphrase, rounds: 1.5 })).toThrow("must be an integer")
+    })
+
     test("parses and signs every required OpenSSH ECDSA curve", async () => {
         const directory = await mkdtemp(join(tmpdir(), "modernssh-private-key-ecdsa-"))
         try {

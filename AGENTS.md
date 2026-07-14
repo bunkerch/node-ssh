@@ -54,7 +54,9 @@ meaningful wire-level behavior.
   validate it with fixed frames plus the system `ssh-agent`, never another JavaScript SSH library.
 - OpenSSH private-key encryption follows upstream `PROTOCOL.key`. Keep passphrase and derived-key
   buffers short-lived, validate authenticated modes before parsing plaintext, compare the public
-  envelope with the private key, and exercise every supported cipher with real `ssh-keygen` output.
+  envelope with the private key, and exercise both decryption and serialization for every supported
+  cipher with real `ssh-keygen` output. Serialization copies caller passphrases, uses fresh salts,
+  validates bcrypt rounds, and clears derived material plus temporary plaintext key buffers.
 - Public key generation accepts semantic Ed25519, RSA, and ECDSA family names, uses 3072-bit RSA and
   P-256 defaults, restricts ECDSA to the three RFC 5656 curves, and propagates a line-safe comment to
   both returned key objects. Validate every family with signing plus real `ssh-keygen` derivation

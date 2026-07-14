@@ -169,12 +169,15 @@ describe("package exports", () => {
                     "--input-type=module",
                     "--eval",
                     `
-                    const { generateKeyPair } = await import("modernssh")
+                    const { generateKeyPair, PrivateKey } = await import("modernssh")
                     const { privateKey, publicKey } = await generateKeyPair("ed25519", {
                         comment: "packed@example.test",
                     })
                     const message = Buffer.from("packed-key-generation")
                     if (!publicKey.verifySignature(message, privateKey.sign(message))) process.exit(2)
+                    const encrypted = privateKey.toString({ passphrase: "packed-secret", rounds: 1 })
+                    const parsed = PrivateKey.fromString(encrypted, "packed-secret")
+                    if (!parsed.data.publicKey.equals(publicKey)) process.exit(3)
                     process.stdout.write(publicKey.toString())
                 `,
                 ],
