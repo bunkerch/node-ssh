@@ -155,6 +155,8 @@ export { default as ForwardedX11Channel } from "./channels/ForwardedX11Channel.j
 export { default as TunnelChannel } from "./channels/TunnelChannel.js"
 export { AUTOMATIC_TUNNEL_UNIT, TunnelAddressFamily, TunnelMode } from "./channels/Tunnel.js"
 export type { TunnelEvents, TunnelIPPacket } from "./channels/Tunnel.js"
+export { TerminalMode, TerminalModes } from "./TerminalModes.js"
+export type { TerminalModeOpcode, TerminalModeSettings } from "./TerminalModes.js"
 export type {
     SessionChannelEvents,
     SessionChannelHooker,

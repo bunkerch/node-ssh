@@ -6,6 +6,7 @@ import { normalizeSSHSignal } from "../utils/Signal.js"
 import ClientChannel from "./ClientChannel.js"
 import ChannelRequest from "../packets/ChannelRequest.js"
 import { encodeSSHName } from "../utils/SSHName.js"
+import type { TerminalModeSettings } from "../TerminalModes.js"
 
 export interface ClientPtyOptions {
     term?: string
@@ -14,7 +15,7 @@ export interface ClientPtyOptions {
     rows?: number
     width?: number
     height?: number
-    modes?: Readonly<Record<number, number>> | ReadonlyMap<number, number>
+    modes?: TerminalModeSettings
 }
 
 export interface ClientWindowDimensions {
@@ -227,9 +228,7 @@ export default class ClientSessionChannel extends ClientChannel {
         }
     }
 
-    private serializeTerminalModes(
-        modes?: Readonly<Record<number, number>> | ReadonlyMap<number, number>,
-    ): Buffer {
+    private serializeTerminalModes(modes?: TerminalModeSettings): Buffer {
         const entries = modes instanceof Map ? [...modes.entries()] : Object.entries(modes ?? {})
         const encoded: Buffer[] = []
         for (const [rawOpcode, rawValue] of entries) {

@@ -300,6 +300,9 @@ meaningful wire-level behavior.
 - High-level session helpers must issue setup requests before the program request: agent forwarding,
   environment, PTY, X11, then exec/shell/subsystem. Treat automatic environment requests as
   best-effort without replies, but require replies for security- or terminal-sensitive setup.
+- Keep the public RFC 4254 terminal-mode registry complete and numerically exact. Named constants
+  are conveniences, not a closed-world parser: accept future opcodes 1 through 159, preserve them in
+  the server's mode map, validate uint32 values, and always append the terminal end marker.
 - RFC 4335 BREAK requests are valid only for a started session program and require an awaited,
   deny-by-default policy decision after the application performs the operation. Preserve the uint32
   requested duration, document the RFC's safe 500-to-3000 ms guidance, and treat console BREAK as

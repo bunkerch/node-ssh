@@ -53,6 +53,8 @@ import {
     SSHHTTPAgent,
     SSHHTTPSAgent,
     SSHAuthenticationMethods,
+    TerminalMode,
+    TerminalModes,
     type ClientOptions,
     type ClientSessionOptions,
     type ServerOptions,
@@ -108,6 +110,8 @@ describe("package exports", () => {
         ]).toHaveLength(35)
         expect(SSHAuthenticationMethods.PublicKey).toBe("publickey")
         expect(SSHAuthenticationMethods.KeyboardInteractive).toBe("keyboard-interactive")
+        expect(TerminalMode.ECHO).toBe(53)
+        expect(TerminalModes).toBe(TerminalMode)
         expect(encodeSFTPPacket).toBeFunction()
         expect(decodeSFTPLimits).toBeFunction()
         expect(SFTPPacketParser).toBeFunction()
@@ -159,6 +163,8 @@ describe("package exports", () => {
         expect(entry.OPEN_MODE.READ).toBe(1)
         expect(entry.STATUS_CODE.OK).toBe(0)
         expect(entry.decodeSFTPLimits).toBeDefined()
+        expect(entry.TerminalMode.TTY_OP_OSPEED).toBe(129)
+        expect(entry.TerminalModes).toBe(entry.TerminalMode)
     })
 
     test("package archive exposes working ESM key generation", async () => {

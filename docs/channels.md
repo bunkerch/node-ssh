@@ -50,8 +50,20 @@ For PTY, environment, resize, signal, or subsystem setup, open a session explici
 requests in protocol order:
 
 ```ts
+import { TerminalMode } from "modernssh"
+
 const channel = await client.openSession()
-await channel.requestPty({ term: "xterm-256color", columns: 120, rows: 40 })
+await channel.requestPty({
+    term: "xterm-256color",
+    columns: 120,
+    rows: 40,
+    modes: {
+        [TerminalMode.VINTR]: 3,
+        [TerminalMode.ECHO]: 1,
+        [TerminalMode.TTY_OP_ISPEED]: 115_200,
+        [TerminalMode.TTY_OP_OSPEED]: 115_200,
+    },
+})
 await channel.setEnv("LANG", "en_US.UTF-8")
 await channel.exec("top")
 
@@ -61,8 +73,12 @@ await channel.signal("SIGTERM")
 ```
 
 `subsystem(name)` starts a named subsystem instead of `exec()` or `shell()`. Only one program-start
-request can succeed on a session. PTY terminal modes can be supplied as numeric RFC 4254 opcode to
-uint32-value mappings; the encoder adds the required `TTY_OP_END` terminator.
+request can succeed on a session. `TerminalMode` contains every RFC 4254 mnemonic and
+`TerminalModes` is an equivalent registry alias. PTY modes accept either an opcode-to-uint32 object
+or a `ReadonlyMap`; numeric opcodes remain accepted for future assignments in the RFC's 1–159
+range. The encoder validates every opcode and value and adds the required `TTY_OP_END` terminator.
+The server exposes received values through `SessionPtyInfo.modes` without discarding modes it does
+not recognize.
 
 Applications can also exchange private channel requests without bypassing channel state. Outbound
 requests are matched to success or failure replies in wire order; pass `false` as the third argument

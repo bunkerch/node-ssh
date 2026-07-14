@@ -10,6 +10,7 @@ import ChannelWindowAdjust from "../../src/packets/ChannelWindowAdjust.js"
 import Packet from "../../src/packet.js"
 import { serializeBuffer } from "../../src/utils/Buffer.js"
 import { ProtocolError } from "../../src/packets/Disconnect.js"
+import { TerminalMode } from "../../src/TerminalModes.js"
 
 function createChannel(options: { initialWindowSize?: number; maximumPacketSize?: number } = {}) {
     const client = new Client({ hostname: "unused" })
@@ -32,6 +33,45 @@ function createChannel(options: { initialWindowSize?: number; maximumPacketSize?
 }
 
 describe("ClientChannel", () => {
+    test("encodes named RFC terminal modes in a PTY request", async () => {
+        const client = new Client({ hostname: "unused" })
+        const sent: Packet[] = []
+        client.sendPacket = (packet: Packet) => {
+            sent.push(packet)
+            return sent.length - 1
+        }
+        const channel = new ClientSessionChannel(client)
+        channel.confirmOpen(
+            new ChannelOpenConfirmation({
+                recipient_channel_id: channel.localId,
+                sender_channel_id: 42,
+                initial_window_size: 32,
+                maximum_packet_size: 32,
+                args: Buffer.alloc(0),
+            }),
+        )
+
+        const requested = channel.requestPty({
+            modes: new Map([
+                [TerminalMode.VINTR, 3],
+                [TerminalMode.ECHO, 1],
+            ]),
+        })
+        const packet = sent.at(-1)
+        expect(packet).toBeInstanceOf(ChannelRequest)
+        expect((packet as ChannelRequest).data.args).toEqual(
+            Buffer.from(
+                "000000057674313030" +
+                    "000000500000001800000280000001e0" +
+                    "0000000b0100000003350000000100",
+                "hex",
+            ),
+        )
+        channel.receiveRequestSuccess()
+        await requested
+        channel.destroy()
+    })
+
     test("splits writes by packet and window limits, then resumes after window adjustment", async () => {
         const { channel, sent } = createChannel()
         const writeFinished = new Promise<void>((resolve, reject) => {
