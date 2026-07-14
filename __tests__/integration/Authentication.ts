@@ -11,6 +11,7 @@ import Agent, { AgentType } from "../../src/publickey/Agent.js"
 import Packet from "../../src/packet.js"
 import UserAuthRequest from "../../src/packets/UserAuthRequest.js"
 import { HostboundPublicKeyAuthMethod } from "../../src/auth/publickey.js"
+import ExtInfo from "../../src/packets/ExtInfo.js"
 
 class PrivateKeyAgent extends Agent<number> {
     readonly type = AgentType.NonInteractive
@@ -33,6 +34,109 @@ class PrivateKeyAgent extends Agent<number> {
 }
 
 describe("RFC 4252 multi-method authentication", () => {
+    test.each(["client", "server"] as const)(
+        "rejects %s EXT_INFO outside the negotiated message position",
+        async (sender) => {
+            const hostKey = await PrivateKey.generate("ssh-ed25519")
+            const server = new Server({ hostKeys: [hostKey], sendAllHostKeys: false })
+            server.hooker.hook("noneAuthentication", (_hook, _context, decision) => {
+                decision.allowLogin = true
+            })
+            let connection: ServerClient | undefined
+            server.on("connection", (peer) => {
+                connection = peer
+            })
+            server.listen({ host: "127.0.0.1", port: 0 })
+            await new Promise<void>((resolve) => server.server!.once("listening", resolve))
+            const client = new Client({
+                hostname: "127.0.0.1",
+                port: (server.server!.address() as AddressInfo).port,
+                username: "extension-user",
+                authenticationMethodsOrder: [SSHAuthenticationMethods.None],
+            })
+            client.hooker.hook("hostKey", (_hook, decision) => {
+                decision.allowHostKey = true
+            })
+
+            try {
+                await client.connect()
+                const target = sender === "client" ? connection! : client
+                const protocolError = new Promise<Error>((resolve) => target.once("error", resolve))
+                const packet = new ExtInfo({
+                    extensions: [{ name: "late@example.test", value: Buffer.from("too late") }],
+                })
+                if (sender === "client") client.sendPacket(packet)
+                else connection!.sendPacket(packet)
+                expect((await protocolError).message).toContain(
+                    `${sender === "client" ? "Client" : "Server"} EXT_INFO arrived outside`,
+                )
+            } finally {
+                client.destroy()
+                for (const peer of server.clients) peer.terminate()
+                await new Promise<void>((resolve, reject) => {
+                    server.server!.close((error) => (error ? reject(error) : resolve()))
+                })
+            }
+        },
+        15_000,
+    )
+
+    test("replaces pre-authentication extension information immediately before success", async () => {
+        const hostKey = await PrivateKey.generate("ssh-ed25519")
+        const server = new Server({ hostKeys: [hostKey], sendAllHostKeys: false })
+        server.hooker.hook("noneAuthentication", (_hook, _context, decision, connection) => {
+            connection.sendPacket(
+                new ExtInfo({
+                    extensions: [
+                        {
+                            name: "authenticated@example.test",
+                            value: Buffer.from([0x00, 0xff, 0x41]),
+                        },
+                    ],
+                }),
+            )
+            decision.allowLogin = true
+        })
+        server.listen({ host: "127.0.0.1", port: 0 })
+        await new Promise<void>((resolve) => server.server!.once("listening", resolve))
+        const client = new Client({
+            hostname: "127.0.0.1",
+            port: (server.server!.address() as AddressInfo).port,
+            username: "extension-user",
+            authenticationMethodsOrder: [SSHAuthenticationMethods.None],
+        })
+        const extensionSets: string[][] = []
+        client.on("serverExtensions", (extensions) => {
+            extensionSets.push(extensions.map(({ name }) => name))
+        })
+        client.hooker.hook("hostKey", (_hook, decision) => {
+            decision.allowHostKey = true
+        })
+
+        try {
+            await client.connect()
+            expect(extensionSets).toEqual([
+                ["server-sig-algs", "ping@openssh.com"],
+                ["authenticated@example.test"],
+            ])
+            expect(client.serverExtensions).toEqual([
+                {
+                    name: "authenticated@example.test",
+                    value: Buffer.from([0x00, 0xff, 0x41]),
+                },
+            ])
+            await expect(client.ping()).rejects.toThrow(
+                "SSH server did not advertise transport ping support",
+            )
+        } finally {
+            client.destroy()
+            for (const connection of server.clients) connection.terminate()
+            await new Promise<void>((resolve, reject) => {
+                server.server!.close((error) => (error ? reject(error) : resolve()))
+            })
+        }
+    }, 15_000)
+
     test("binds public-key authentication to the negotiated server host key", async () => {
         const serverHostKey = await PrivateKey.generate("ssh-ed25519")
         const userKey = await PrivateKey.generate("ssh-ed25519")

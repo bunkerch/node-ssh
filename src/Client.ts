@@ -43,7 +43,7 @@ import {
     DiffieHellmanGroupExchange,
 } from "./algorithms/kex/diffie-hellman-group-exchange.js"
 import EncodedSignature from "./utils/Signature.js"
-import ExtInfo from "./packets/ExtInfo.js"
+import ExtInfo, { copySSHExtensions, type SSHExtension } from "./packets/ExtInfo.js"
 import Ping from "./packets/Ping.js"
 import Pong from "./packets/Pong.js"
 import PublicKey from "./utils/PublicKey.js"
@@ -203,6 +203,8 @@ export interface ClientEvents {
     /** Complete server pre-identification greeting, including its line endings. */
     greeting: [greeting: string]
     banner: [message: string, languageTag: string]
+    /** Complete replacement set from the latest valid server EXT_INFO message. */
+    serverExtensions: [extensions: readonly Readonly<SSHExtension>[]]
     "tcp connection": [
         details: Readonly<TCPIPConnectionDetails>,
         accept: () => ClientForwardedTCPIPChannel | undefined,
@@ -444,6 +446,10 @@ export default class Client extends EventEmitter<ClientEvents> {
     serverSignatureAlgorithms?: readonly string[]
     private negotiatedServerHostKey?: Buffer
     private hostboundAuthenticationSupported = false
+    private negotiatedServerExtensions: readonly Readonly<SSHExtension>[] = Object.freeze([])
+    private initialServerNewKeysReceived = false
+    private serverExtInfoAfterNewKeys = false
+    private serverExtInfoMustPrecedeSuccess = false
     clientEncryptionAlgorithm?: typeof EncryptionAlgorithm
     serverEncryptionAlgorithm?: typeof EncryptionAlgorithm
     clientEncryption?: EncryptionAlgorithm
@@ -495,6 +501,10 @@ export default class Client extends EventEmitter<ClientEvents> {
 
     get hostboundPublicKeyAuthentication(): boolean {
         return this.hostboundAuthenticationSupported
+    }
+
+    get serverExtensions(): readonly Readonly<SSHExtension>[] {
+        return copySSHExtensions(this.negotiatedServerExtensions)
     }
 
     registerX11Forwarding(sessionId: number, single: boolean): void {
@@ -1258,6 +1268,9 @@ export default class Client extends EventEmitter<ClientEvents> {
                 ),
             )
             this.installOutboundCompression()
+            if (!isRekey && serverKexInit.data.kex_algorithms.includes("ext-info-s")) {
+                this.sendPacket(new ExtInfo({ extensions: [] }))
+            }
             while (this.packetsQueuedDuringKeyExchange.length > 0) {
                 this.writePacket(this.packetsQueuedDuringKeyExchange.shift()!)
             }
@@ -1645,6 +1658,8 @@ export default class Client extends EventEmitter<ClientEvents> {
         const packetType = payload[0] as PacketType
         this.debug("Receiving packet:", packetType)
 
+        this.validateServerExtInfoPosition(packetType)
+
         if (
             this.strictKeyExchange &&
             this.strictInitialExchange &&
@@ -1762,29 +1777,7 @@ export default class Client extends EventEmitter<ClientEvents> {
                 break
 
             case PacketNameToType.SSH_MSG_EXT_INFO: {
-                const extension = (p as ExtInfo).data.extensions.find(
-                    ({ name }) => name === "server-sig-algs",
-                )
-                if (extension) {
-                    this.serverSignatureAlgorithms = Object.freeze(
-                        extension.value
-                            .toString("ascii")
-                            .split(",")
-                            .filter((name) => name.length > 0),
-                    )
-                }
-                const ping = (p as ExtInfo).data.extensions.find(
-                    ({ name }) => name === "ping@openssh.com",
-                )
-                if (ping?.value.equals(Buffer.from("0", "ascii"))) {
-                    this.transportPingSupported = true
-                }
-                const hostbound = (p as ExtInfo).data.extensions.find(
-                    ({ name }) => name === "publickey-hostbound@openssh.com",
-                )
-                if (hostbound?.value.equals(Buffer.from("0", "ascii"))) {
-                    this.hostboundAuthenticationSupported = true
-                }
+                this.applyServerExtensions((p as ExtInfo).data.extensions)
                 break
             }
 
@@ -1828,6 +1821,10 @@ export default class Client extends EventEmitter<ClientEvents> {
                 )
                 this.installInboundCompression()
                 if (this.strictKeyExchange) this.packetDecoder.resetSequenceNumber()
+                if (!this.initialServerNewKeysReceived) {
+                    this.initialServerNewKeysReceived = true
+                    this.serverExtInfoAfterNewKeys = true
+                }
                 this.emit("serverNewKeys")
                 break
 
@@ -1852,6 +1849,50 @@ export default class Client extends EventEmitter<ClientEvents> {
         if (this.packetDecoder.bufferedLength > 0) {
             this.scheduleMessageProcessing(Buffer.alloc(0))
         }
+    }
+
+    private validateServerExtInfoPosition(packetType: PacketType): void {
+        if (this.serverExtInfoMustPrecedeSuccess) {
+            this.serverExtInfoMustPrecedeSuccess = false
+            if (packetType !== PacketNameToType.SSH_MSG_USERAUTH_SUCCESS) {
+                throw new Error("Server EXT_INFO was not immediately followed by USERAUTH_SUCCESS")
+            }
+        }
+        if (packetType === PacketNameToType.SSH_MSG_EXT_INFO) {
+            if (this.serverExtInfoAfterNewKeys) {
+                this.serverExtInfoAfterNewKeys = false
+                return
+            }
+            if (this.initialServerNewKeysReceived && !this.hasAuthenticated) {
+                this.serverExtInfoMustPrecedeSuccess = true
+                return
+            }
+            throw new Error("Server EXT_INFO arrived outside an RFC 8308 opportunity")
+        }
+        this.serverExtInfoAfterNewKeys = false
+    }
+
+    private applyServerExtensions(extensions: readonly SSHExtension[]): void {
+        this.negotiatedServerExtensions = copySSHExtensions(extensions)
+        this.serverSignatureAlgorithms = undefined
+        this.transportPingSupported = false
+        this.hostboundAuthenticationSupported = false
+
+        const signatureAlgorithms = extensions.find(({ name }) => name === "server-sig-algs")
+        if (signatureAlgorithms) {
+            this.serverSignatureAlgorithms = Object.freeze(
+                signatureAlgorithms.value
+                    .toString("ascii")
+                    .split(",")
+                    .filter((name) => name.length > 0),
+            )
+        }
+        const ping = extensions.find(({ name }) => name === "ping@openssh.com")
+        this.transportPingSupported = ping?.value.equals(Buffer.from("0", "ascii")) === true
+        const hostbound = extensions.find(({ name }) => name === "publickey-hostbound@openssh.com")
+        this.hostboundAuthenticationSupported =
+            hostbound?.value.equals(Buffer.from("0", "ascii")) === true
+        this.emit("serverExtensions", this.serverExtensions)
     }
 
     private packetForDebug(packet: Packet): unknown {

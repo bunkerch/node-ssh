@@ -11,12 +11,22 @@ import {
 } from "../utils/Buffer.js"
 
 export interface SSHExtension {
-    name: string
-    value: Buffer
+    readonly name: string
+    readonly value: Buffer
 }
 
 export interface ExtInfoData {
-    extensions: SSHExtension[]
+    readonly extensions: readonly SSHExtension[]
+}
+
+export function copySSHExtensions(
+    extensions: readonly SSHExtension[],
+): readonly Readonly<SSHExtension>[] {
+    return Object.freeze(
+        extensions.map((extension) =>
+            Object.freeze({ name: extension.name, value: Buffer.from(extension.value) }),
+        ),
+    )
 }
 
 export default class ExtInfo implements Packet {
@@ -31,7 +41,7 @@ export default class ExtInfo implements Packet {
             assert(!names.has(extension.name), `Duplicate SSH extension: ${extension.name}`)
             names.add(extension.name)
         }
-        this.data = data
+        this.data = Object.freeze({ extensions: copySSHExtensions(data.extensions) })
     }
 
     serialize(): Buffer {

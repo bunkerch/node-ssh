@@ -30,4 +30,15 @@ describe("RFC 8308 extension information vectors", () => {
                 }),
         ).toThrow("Duplicate SSH extension")
     })
+
+    test("copies opaque extension values supplied by the caller", () => {
+        const value = Buffer.from([0x00, 0xff, 0x41])
+        const packet = new ExtInfo({
+            extensions: [{ name: "binary@example.test", value }],
+        })
+        value.fill(0)
+        expect(packet.data.extensions).toEqual([
+            { name: "binary@example.test", value: Buffer.from([0x00, 0xff, 0x41]) },
+        ])
+    })
 })

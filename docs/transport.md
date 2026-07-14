@@ -141,6 +141,18 @@ explicitly. Initial key exchange also advertises RFC 8308 extension negotiation;
 `server-sig-algs` immediately after `NEWKEYS` so clients can select an accepted user-authentication
 signature without guessing.
 
+RFC 8308 extension messages are position-checked. A client message is accepted only immediately
+after its first `NEWKEYS`; the client sends an empty message at that point when the server offered
+`ext-info-s`. A server message is accepted immediately after its first `NEWKEYS` and/or immediately
+before `USERAUTH_SUCCESS`. A second server message replaces the complete first set, so capabilities
+omitted from it stop being active. Messages outside these opportunities terminate the connection.
+
+`client.serverExtensions` and `serverConnection.clientExtensions` expose deep-copied snapshots that
+preserve unknown binary values. Their corresponding `serverExtensions` and `clientExtensions`
+events fire whenever a valid complete set arrives. Mutating a returned value cannot change internal
+negotiation state. Unknown names remain observable but have no effect unless the application
+implements their specification.
+
 Initial key exchange also offers strict key-exchange markers under both the standardized names and
 the widely deployed vendor-qualified names. Strict mode is enabled only when client and server
 offer a matching pair. It requires each peer's KEXINIT to be binary packet zero, rejects non-KEX

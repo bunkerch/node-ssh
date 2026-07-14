@@ -111,6 +111,10 @@ meaningful wire-level behavior.
   echoed string. Never send it without the RFC 8308 advertisement, preserve FIFO reply ordering,
   reject mismatched echoes, settle pending calls on close, and queue pings and pongs across rekey.
   Cover its codec with literal vectors and keep older OpenSSH peers as a negative negotiation case.
+- RFC 8308 client EXT_INFO is valid only immediately after the client's first NEWKEYS. Server
+  EXT_INFO is valid immediately after its first NEWKEYS and immediately before USERAUTH_SUCCESS;
+  the second set replaces the first. Preserve unknown binary values, expose deep-copied complete
+  sets in both roles, clear omitted capabilities on replacement, and reject messages elsewhere.
 - Client readiness deadlines cover TCP connection, identification, key exchange, and
   authentication, including supplied duplex transports. Clear the timer on authentication and
   every terminal path; test expiry against a real silent TCP peer rather than a mocked transport.

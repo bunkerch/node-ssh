@@ -90,6 +90,7 @@ describe("client/server integration", () => {
         let serverRekeys = 0
         const serverHandshakes: unknown[] = []
         const serverExchangeEvents: string[] = []
+        const receivedClientExtensions: string[][] = []
         let configuredSession: SessionChannel | undefined
         let configuredShell: Shell | undefined
         const breakDurations: number[] = []
@@ -148,6 +149,9 @@ describe("client/server integration", () => {
                 serverExchangeEvents.push("handshake")
             })
             peer.on("rekey", () => serverExchangeEvents.push("rekey"))
+            peer.on("clientExtensions", (extensions) => {
+                receivedClientExtensions.push(extensions.map(({ name }) => name))
+            })
             peer.on("channel", (channel) => {
                 if (!(channel instanceof SessionChannel)) return
                 channel.hooker.hook("ptyRequest", (_hook, _pty, controller) => {
@@ -232,6 +236,7 @@ describe("client/server integration", () => {
         const clientHandshakes: unknown[] = []
         const clientExchangeEvents: string[] = []
         const greetings: string[] = []
+        const receivedServerExtensions: string[][] = []
         client.on("error", (error) => clientErrors.push(error))
         client.on("greeting", (greeting) => greetings.push(greeting))
         client.on("connect", () => connectEvents++)
@@ -241,6 +246,9 @@ describe("client/server integration", () => {
             clientExchangeEvents.push("handshake")
         })
         client.on("rekey", () => clientExchangeEvents.push("rekey"))
+        client.on("serverExtensions", (extensions) => {
+            receivedServerExtensions.push(extensions.map(({ name }) => name))
+        })
         const clientGlobalRequests: string[] = []
         client.hooker.hook("globalRequest", async (_hook, context, controller) => {
             clientGlobalRequests.push(context.name)
@@ -258,6 +266,16 @@ describe("client/server integration", () => {
 
         try {
             await client.connect()
+
+            expect(receivedClientExtensions).toEqual([[]])
+            expect(serverPeer!.clientExtensions).toEqual([])
+            expect(receivedServerExtensions).toEqual([["server-sig-algs", "ping@openssh.com"]])
+            const serverExtensionSnapshot = client.serverExtensions
+            serverExtensionSnapshot[1]!.value.fill(0)
+            expect(client.serverExtensions[1]).toEqual({
+                name: "ping@openssh.com",
+                value: Buffer.from("0", "ascii"),
+            })
 
             expect(
                 await Promise.all([

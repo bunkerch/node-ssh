@@ -120,6 +120,7 @@ export type {
     ServerOptions,
 } from "./Server.js"
 export type { UserAuthPrompt } from "./packets/UserAuthInfoRequest.js"
+export type { SSHExtension } from "./packets/ExtInfo.js"
 export { default as ServerClient } from "./ServerClient.js"
 export {
     ServerGlobalRequestError,

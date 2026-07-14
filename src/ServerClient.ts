@@ -58,7 +58,7 @@ import KexDHGexRequest from "./packets/KexDHGexRequest.js"
 import KexDHGexRequestOld from "./packets/KexDHGexRequestOld.js"
 import { DiffieHellmanGroupExchange } from "./algorithms/kex/diffie-hellman-group-exchange.js"
 import NewKeys from "./packets/NewKeys.js"
-import ExtInfo from "./packets/ExtInfo.js"
+import ExtInfo, { copySSHExtensions, type SSHExtension } from "./packets/ExtInfo.js"
 import Ping from "./packets/Ping.js"
 import Pong from "./packets/Pong.js"
 import { KeyExchangeError } from "./algorithms/kex/key-exchange.js"
@@ -152,6 +152,8 @@ export interface ServerClientEvents {
     serverNewKeys: []
     handshake: [negotiated: Readonly<NegotiatedAlgorithms>]
     rekey: []
+    /** Complete client extension set received at the RFC 8308 opportunity. */
+    clientExtensions: [extensions: readonly Readonly<SSHExtension>[]]
 
     channelOpenRequest: [packet: ChannelOpen]
     channelRequest: [packet: ChannelRequest]
@@ -215,6 +217,9 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     private strictKeyExchange = false
     private strictInitialExchange = false
     private readonly strictInitialPackets = new Set<PacketType>()
+    private negotiatedClientExtensions: readonly Readonly<SSHExtension>[] = Object.freeze([])
+    private initialClientNewKeysReceived = false
+    private clientExtInfoAfterNewKeys = false
     private keyExchangeInProgress = false
     private readonly packetsQueuedDuringKeyExchange: Packet[] = []
 
@@ -263,6 +268,10 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
 
     get noMoreSessions(): boolean {
         return this.noMoreSessionsRequested
+    }
+
+    get clientExtensions(): readonly Readonly<SSHExtension>[] {
+        return copySSHExtensions(this.negotiatedClientExtensions)
     }
 
     state = SocketState.Closed
@@ -1709,6 +1718,8 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         const packetType = payload[0] as PacketType
         this.debug("Receiving packet:", packetType)
 
+        this.validateClientExtInfoPosition(packetType)
+
         if (
             this.strictKeyExchange &&
             this.strictInitialExchange &&
@@ -1784,6 +1795,12 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 break
             }
 
+            case PacketNameToType.SSH_MSG_EXT_INFO: {
+                this.negotiatedClientExtensions = copySSHExtensions((p as ExtInfo).data.extensions)
+                this.emit("clientExtensions", this.clientExtensions)
+                break
+            }
+
             case PacketNameToType.SSH_MSG_PING: {
                 const ping = p as Ping
                 this.sendPacket(new Pong({ data: ping.data.data }))
@@ -1839,6 +1856,10 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 )
                 this.installInboundCompression()
                 if (this.strictKeyExchange) this.packetDecoder.resetSequenceNumber()
+                if (!this.initialClientNewKeysReceived) {
+                    this.initialClientNewKeysReceived = true
+                    this.clientExtInfoAfterNewKeys = true
+                }
                 this.emit("clientNewKeys")
                 break
 
@@ -1929,6 +1950,17 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         if (this.packetDecoder.bufferedLength > 0) {
             this.scheduleMessageProcessing(Buffer.alloc(0))
         }
+    }
+
+    private validateClientExtInfoPosition(packetType: PacketType): void {
+        if (packetType === PacketNameToType.SSH_MSG_EXT_INFO) {
+            if (!this.clientExtInfoAfterNewKeys) {
+                throw new Error("Client EXT_INFO arrived outside its RFC 8308 opportunity")
+            }
+            this.clientExtInfoAfterNewKeys = false
+            return
+        }
+        this.clientExtInfoAfterNewKeys = false
     }
 
     private packetForDebug(packet: Packet): unknown {
