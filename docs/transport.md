@@ -193,13 +193,30 @@ returned buffer cannot alter the internal values later used for hashing or trans
 The two optional language preference name-lists use RFC 3066 syntax rather than algorithm-name
 rules. Their order and repeated tags are preserved; malformed tags are rejected in both directions.
 
-The default key-exchange preference starts with RFC 9941 `sntrup761x25519-sha512` and its
-wire-equivalent `sntrup761x25519-sha512@openssh.com` alias. This hybrid combines a Streamlined NTRU
-Prime sntrup761 KEM secret with an X25519 secret through SHA-512. The client sends a 1158-byte KEM
-public key followed by its 32-byte X25519 public key; the server replies with a 1039-byte KEM
-ciphertext followed by its 32-byte X25519 public key. Incorrect role-specific lengths and an
-all-zero X25519 output terminate key exchange. The resulting 64-byte secret is encoded as an SSH
-string for both the exchange hash and transport-key derivation, avoiding secret-dependent mpint
+The default key-exchange preference starts with the three registered ML-KEM hybrids from the
+[IETF SSHM specification](https://datatracker.ietf.org/doc/draft-ietf-sshm-mlkem-hybrid-kex/):
+`mlkem768x25519-sha256`, `mlkem768nistp256-sha256`, and
+`mlkem1024nistp384-sha384`. Each uses a fresh FIPS 203 ML-KEM key pair and encapsulation together
+with fresh X25519 or NIST ECDH keys. The client sends the ML-KEM public key followed by its
+classical public key; the server sends the ML-KEM ciphertext followed by its classical public key.
+The implementation emits uncompressed NIST points and accepts both compressed and uncompressed
+SEC1 points as required by the method definitions.
+
+The established secret is `HASH(K_PQ || K_CL)`, with both inputs kept at their fixed 32- or 48-byte
+length. That hash output is encoded as an SSH string in the exchange hash and transport-key
+derivation. Exact role-specific lengths are checked before ML-KEM processing, non-canonical
+ML-KEM encapsulation keys are rejected, NIST points are validated, and an all-zero X25519 result
+terminates key exchange. FIPS 203 implicit rejection supplies a pseudorandom secret for a modified
+same-length ciphertext, which makes the server host-key signature fail instead of exposing a
+decapsulation oracle. Ephemeral ML-KEM, ECDH, and X25519 secret material is erased after use.
+
+RFC 9941 `sntrup761x25519-sha512` and its wire-equivalent
+`sntrup761x25519-sha512@openssh.com` alias follow the ML-KEM methods. This hybrid combines a
+Streamlined NTRU Prime sntrup761 KEM secret with an X25519 secret through SHA-512. The client sends
+a 1158-byte KEM public key followed by its 32-byte X25519 public key; the server replies with a
+1039-byte KEM ciphertext followed by its 32-byte X25519 public key. Incorrect role-specific lengths
+and an all-zero X25519 output terminate key exchange. The resulting 64-byte secret is encoded as an
+SSH string for both the exchange hash and transport-key derivation, avoiding secret-dependent mpint
 lengths. Decapsulation uses the KEM's implicit-rejection secret when a ciphertext is invalid.
 
 RFC 8731 `curve25519-sha256`, its wire-equivalent deployed alias

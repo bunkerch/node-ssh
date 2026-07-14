@@ -369,7 +369,7 @@ describe("package exports", () => {
                     if (curve448Client.algorithmOffer.kex[0] !== "curve448-sha512") process.exit(14)
                     const knownHosts = KnownHosts.parse("packed.example.test " + publicKey.toString())
                     if (knownHosts.check("packed.example.test", publicKey).status !== "trusted") process.exit(15)
-                    if (new Client({}).algorithmOffer.kex[0] !== "sntrup761x25519-sha512") process.exit(16)
+                    if (new Client({}).algorithmOffer.kex[0] !== "mlkem768x25519-sha256") process.exit(16)
                     if (typeof SSHAgentProtocolClient !== "function" || typeof SSHAgentProtocolServer !== "function" || typeof SSHAgentProtocolError !== "function") process.exit(17)
                     if (SSHAgentMessageType.SignResponse !== 14 || MAX_SSH_AGENT_MESSAGE_LENGTH !== 262144) process.exit(18)
                     if (typeof CygwinAgent !== "function" || typeof CygwinAgentError !== "function" || typeof createSocketAgent !== "function") process.exit(19)

@@ -104,6 +104,13 @@ through protected traffic and rekey. The system OpenSSH client then forces the a
 library server and initiates a low-limit rekey; a separate library client executes commands before
 and after an explicit rekey against the pinned OpenSSH server.
 
+The registered ML-KEM hybrid coverage checks ML-KEM-768 and ML-KEM-1024 key generation against
+fixed SHA-256 digests of NIST ACVP FIPS 203 test cases 26 and 51. Independent fixed inputs cover the
+specified SHA-256 and SHA-384 `K_PQ || K_CL` combiners. Tests exercise exact client/server message
+sizes, compressed and uncompressed NIST points, invalid ML-KEM and classical values, ciphertext
+implicit rejection, and defensive buffer ownership. In-process peers force all three registered
+method names through authenticated traffic and rekeys initiated by both roles.
+
 RFC 4250 name tests cover the 64-character boundary, extension-domain form, non-ASCII and control
 input, commas, empty entries, and duplicate name-list members. Packet tests separately prove that
 the validation is applied to services, extensions, channels, and requests rather than existing
