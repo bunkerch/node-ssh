@@ -62,6 +62,10 @@ import ExtInfo, { copySSHExtensions, type SSHExtension } from "./packets/ExtInfo
 import Ping from "./packets/Ping.js"
 import Pong from "./packets/Pong.js"
 import { KeyExchangeError } from "./algorithms/kex/key-exchange.js"
+import RSA2048SHA256 from "./algorithms/kex/rsa2048-sha256.js"
+import KexRSAPublicKey from "./packets/KexRSAPublicKey.js"
+import KexRSASecret from "./packets/KexRSASecret.js"
+import KexRSADone from "./packets/KexRSADone.js"
 import ServiceRequest from "./packets/ServiceRequest.js"
 import ServiceAccept from "./packets/ServiceAccept.js"
 import UserAuthRequest from "./packets/UserAuthRequest.js"
@@ -148,6 +152,7 @@ export interface ServerClientEvents {
     clientKexDHInit: [kexDHInit: KexDHInit]
     clientKexDHGexRequest: [request: KexDHGexRequest | KexDHGexRequestOld]
     clientKexDHGexInit: [init: KexDHGexInit]
+    clientKexRSASecret: [secret: KexRSASecret]
     clientNewKeys: []
     serverNewKeys: []
     handshake: [negotiated: Readonly<NegotiatedAlgorithms>]
@@ -550,6 +555,11 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
 
             const kexAlgorithm = this.kexAlgorithm
             assert(kexAlgorithm, "No key exchange algorithm was negotiated")
+            const hostKey = this.server.options.hostKeys.find(
+                (key) => key.data.alg === this.hostKeyAlgorithm!.key_format,
+            )
+            assert(hostKey, "No host key found for the negotiated algorithm")
+            const publicKey = hostKey.data.publicKey.serialize()
             if (kexAlgorithm instanceof DiffieHellmanGroupExchange) {
                 const [request] = await this.waitEvent("clientKexDHGexRequest")
                 if (request instanceof KexDHGexRequestOld) {
@@ -562,6 +572,17 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 this.sendPacket(new KexDHGexGroup(group))
                 const [init] = await this.waitEvent("clientKexDHGexInit")
                 kexAlgorithm.computeSharedSecret(init.data.e)
+            } else if (kexAlgorithm instanceof RSA2048SHA256) {
+                await kexAlgorithm.generateTransientKey()
+                kexAlgorithm.setHostKey(publicKey)
+                this.sendPacket(
+                    new KexRSAPublicKey({
+                        hostKey: publicKey,
+                        transientKey: kexAlgorithm.getTransientPublicKey(),
+                    }),
+                )
+                const [secret] = await this.waitEvent("clientKexRSASecret")
+                kexAlgorithm.decryptSecret(secret.data.encryptedSecret)
             } else {
                 const [clientKexDHInit] = await this.waitEvent("clientKexDHInit")
                 this.clientKexDHInit = clientKexDHInit
@@ -569,25 +590,27 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 kexAlgorithm.computeSharedSecret(clientKexDHInit.data.e)
             }
 
-            const hostKey = this.server.options.hostKeys.find(
-                (key) => key.data.alg === this.hostKeyAlgorithm!.key_format,
-            )
-            assert(hostKey, "No host key found for the negotiated algorithm")
-            const publicKey = hostKey.data.publicKey.serialize()
             const h = kexAlgorithm.computeHServer(this, clientKexInitBuffer, publicKey)
-            const reply = {
-                K_S: publicKey,
-                f: kexAlgorithm.getPublicKey(),
-                H_sig: hostKey.sign(h, this.hostKeyAlgorithm!.signature_algorithm).serialize(),
+            const hostSignature = hostKey
+                .sign(h, this.hostKeyAlgorithm!.signature_algorithm)
+                .serialize()
+            if (kexAlgorithm instanceof RSA2048SHA256) {
+                this.sendPacket(new KexRSADone({ signature: hostSignature }))
+            } else {
+                const reply = {
+                    K_S: publicKey,
+                    f: kexAlgorithm.getPublicKey(),
+                    H_sig: hostSignature,
+                }
+                this.sendPacket(
+                    kexAlgorithm instanceof DiffieHellmanGroupExchange
+                        ? new KexDHGexReply(reply)
+                        : new KexDHReply({
+                              ...reply,
+                              encoding: kexAlgorithm.exchangeValueEncoding,
+                          }),
+                )
             }
-            this.sendPacket(
-                kexAlgorithm instanceof DiffieHellmanGroupExchange
-                    ? new KexDHGexReply(reply)
-                    : new KexDHReply({
-                          ...reply,
-                          encoding: kexAlgorithm.exchangeValueEncoding,
-                      }),
-            )
 
             this.H = h
             this.sessionID ??= h
@@ -1778,10 +1801,13 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             return
         }
         const packet =
-            packetType === PacketNameToType.SSH_MSG_KEXDH_INIT &&
-            this.kexAlgorithm instanceof DiffieHellmanGroupExchange
-                ? KexDHGexRequestOld
-                : packets[packetName as keyof typeof packets]
+            packetType === PacketNameToType.SSH_MSG_KEXDH_REPLY &&
+            this.kexAlgorithm instanceof RSA2048SHA256
+                ? KexRSASecret
+                : packetType === PacketNameToType.SSH_MSG_KEXDH_INIT &&
+                    this.kexAlgorithm instanceof DiffieHellmanGroupExchange
+                  ? KexDHGexRequestOld
+                  : packets[packetName as keyof typeof packets]
 
         const p = packet.parse(payload)
         if (packetType === PacketNameToType.SSH_MSG_KEXINIT && this.strictInitialExchange) {
@@ -1860,6 +1886,14 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                     this.emit("clientKexDHInit", p as KexDHInit)
                     this.packetProcessingPaused = true
                 }
+                break
+
+            case PacketNameToType.SSH_MSG_KEXDH_REPLY:
+                if (!(this.kexAlgorithm instanceof RSA2048SHA256)) {
+                    throw new Error("Received an RSA secret for another key exchange")
+                }
+                this.emit("clientKexRSASecret", p as KexRSASecret)
+                this.packetProcessingPaused = true
                 break
 
             case PacketNameToType.SSH_MSG_KEX_DH_GEX_REQUEST:

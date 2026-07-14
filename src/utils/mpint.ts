@@ -7,8 +7,7 @@ export function serializeMpintBufferToBuffer(mpint: Buffer): Buffer {
     }
     const new_mpint = mpint.subarray(i)
     if (new_mpint.length === 0) {
-        // new_mpint[0] would return undefined, early return is best
-        return Buffer.alloc(1)
+        return Buffer.alloc(0)
     }
 
     if (new_mpint[0] & 0b1000_0000) {
@@ -24,6 +23,10 @@ export function parseBufferToMpintBuffer(raw: Buffer): Buffer {
     }
 
     assert((raw[0] & 0b1000_0000) === 0, "Undefined behavior, for negative mpint buffer")
+    assert(
+        raw[0] !== 0 || (raw.length > 1 && (raw[1] & 0b1000_0000) !== 0),
+        "Non-canonical mpint buffer",
+    )
 
     return raw
 }

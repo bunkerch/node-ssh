@@ -17,6 +17,7 @@ import {
     ECDHSHA2NISTP384,
     ECDHSHA2NISTP521,
 } from "./algorithms/kex/ecdh-sha2-nist.js"
+import RSA2048SHA256 from "./algorithms/kex/rsa2048-sha256.js"
 
 import AES128CTR from "./algorithms/encryption/aes128-ctr.js"
 import AES192CTR from "./algorithms/encryption/aes192-ctr.js"
@@ -171,6 +172,7 @@ export const kex_algorithms = new Map<string, typeof KexAlgorithm>([
     ["diffie-hellman-group17-sha512", DiffieHellmanGroup17SHA512],
     ["diffie-hellman-group15-sha512", DiffieHellmanGroup15SHA512],
     ["diffie-hellman-group14-sha256", DiffieHellmanGroup14SHA256],
+    ["rsa2048-sha256", RSA2048SHA256],
     ["diffie-hellman-group14-sha1", DiffieHellmanGroup14SHA1],
 
     // OpenSSH supports client method, but does not enable it by default because it

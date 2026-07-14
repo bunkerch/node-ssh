@@ -198,6 +198,11 @@ meaningful wire-level behavior.
   size. Enforce RFC 8270's 2048-to-8192-bit range, accept only canonical positive mpints and
   safe-prime groups, validate public values and shared secrets against p, and cover both hash
   variants with fixed frames plus OpenSSH in both roles across rekey. Keep SHA-1 last.
+- RFC 4432 `rsa2048-sha256` uses a fresh server-only transient RSA key, SHA-256 RSAES-OAEP over the
+  complete shared-secret mpint, and its distinct opcode 30/31/32 flow and exchange hash. Enforce the
+  2048-bit transient minimum, discard the private-key reference after decryption, disconnect on OAEP
+  failure, and keep this non-forward-secret RFC 9142 MAY method outside defaults. Cover exact frames,
+  an independent hash vector, malformed keys, and rekey from both initiator roles.
 - RFC 5656 ECDSA host keys preserve their SEC1 point encoding in the serialized key blob, validate
   points before use, encode signatures as canonical positive `r` and `s` mpints, and select
   SHA-256/384/512 by curve size. Cover every required NIST curve with authoritative fixed vectors

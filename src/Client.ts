@@ -51,6 +51,10 @@ import PublicKey, { SSHCertificatePublicKey } from "./utils/PublicKey.js"
 import { Hooker } from "./utils/Hooker.js"
 import NewKeys from "./packets/NewKeys.js"
 import { KeyExchangeError } from "./algorithms/kex/key-exchange.js"
+import RSA2048SHA256 from "./algorithms/kex/rsa2048-sha256.js"
+import KexRSAPublicKey from "./packets/KexRSAPublicKey.js"
+import KexRSASecret from "./packets/KexRSASecret.js"
+import KexRSADone from "./packets/KexRSADone.js"
 import UserAuthRequest from "./packets/UserAuthRequest.js"
 import Disconnect, { DisconnectReason } from "./packets/Disconnect.js"
 import ServiceRequest from "./packets/ServiceRequest.js"
@@ -211,6 +215,8 @@ export interface ClientEvents {
     serverKexDHReply: [serverKexDHReply: KexDHReply]
     serverKexDHGexGroup: [group: KexDHGexGroup]
     serverKexDHGexReply: [reply: KexDHGexReply]
+    serverKexRSAPublicKey: [publicKey: KexRSAPublicKey]
+    serverKexRSADone: [done: KexRSADone]
     clientNewKeys: []
     serverNewKeys: []
     handshake: [negotiated: Readonly<NegotiatedAlgorithms>]
@@ -1257,7 +1263,8 @@ export default class Client extends EventEmitter<ClientEvents> {
 
             const kexAlgorithm = this.kexAlgorithm
             assert(kexAlgorithm, "No key exchange algorithm was negotiated")
-            let reply: KexDHReply | KexDHGexReply
+            let hostKeyBlob: Buffer
+            let signatureBlob: Buffer
             if (kexAlgorithm instanceof DiffieHellmanGroupExchange) {
                 kexAlgorithm.setRequest(defaultGroupExchangeRequest)
                 this.sendPacket(new KexDHGexRequest(defaultGroupExchangeRequest))
@@ -1265,8 +1272,20 @@ export default class Client extends EventEmitter<ClientEvents> {
                 kexAlgorithm.acceptServerGroup(group.data.p, group.data.g)
                 kexAlgorithm.generateKeyPair()
                 this.sendPacket(new KexDHGexInit({ e: kexAlgorithm.getPublicKey() }))
-                reply = (await this.waitEvent("serverKexDHGexReply"))[0]
+                const reply = (await this.waitEvent("serverKexDHGexReply"))[0]
                 kexAlgorithm.setServerHostKey(reply.data.K_S)
+                kexAlgorithm.computeSharedSecret(reply.data.f)
+                hostKeyBlob = reply.data.K_S
+                signatureBlob = reply.data.H_sig
+            } else if (kexAlgorithm instanceof RSA2048SHA256) {
+                const [publicKey] = await this.waitEvent("serverKexRSAPublicKey")
+                kexAlgorithm.setServerKeys(publicKey.data.hostKey, publicKey.data.transientKey)
+                this.sendPacket(
+                    new KexRSASecret({ encryptedSecret: kexAlgorithm.generateSecret() }),
+                )
+                const [done] = await this.waitEvent("serverKexRSADone")
+                hostKeyBlob = publicKey.data.hostKey
+                signatureBlob = done.data.signature
             } else {
                 kexAlgorithm.generateKeyPair()
                 this.sendPacket(
@@ -1275,16 +1294,18 @@ export default class Client extends EventEmitter<ClientEvents> {
                         encoding: kexAlgorithm.exchangeValueEncoding,
                     }),
                 )
-                reply = (await this.waitEvent("serverKexDHReply"))[0]
+                const reply = (await this.waitEvent("serverKexDHReply"))[0]
                 this.serverKexDHReply = reply
+                kexAlgorithm.computeSharedSecret(reply.data.f)
+                hostKeyBlob = reply.data.K_S
+                signatureBlob = reply.data.H_sig
             }
-            kexAlgorithm.computeSharedSecret(reply.data.f)
-            const hostKey = PublicKey.parse(reply.data.K_S)
+            const hostKey = PublicKey.parse(hostKeyBlob)
             assert(
                 hostKey.data.alg === this.hostKeyAlgorithm!.key_format,
                 "Server did not use the negotiated host key algorithm",
             )
-            const signature = EncodedSignature.parse(reply.data.H_sig)
+            const signature = EncodedSignature.parse(signatureBlob)
             assert(
                 signature.data.alg === this.hostKeyAlgorithm!.signature_algorithm,
                 "Server did not use the negotiated signature algorithm",
@@ -1307,8 +1328,8 @@ export default class Client extends EventEmitter<ClientEvents> {
                 )
             }
 
-            await this.verifyConfiguredHostKey(reply.data.K_S)
-            this.negotiatedServerHostKey = Buffer.from(reply.data.K_S)
+            await this.verifyConfiguredHostKey(hostKeyBlob)
+            this.negotiatedServerHostKey = Buffer.from(hostKeyBlob)
 
             if (this.hooker.hasHooks("hostKey")) {
                 const controller: ClientHookerHostKeyController = { allowHostKey: false }
@@ -1761,6 +1782,16 @@ export default class Client extends EventEmitter<ClientEvents> {
         }
         let packet: typeof Packet
         if (
+            packetType === PacketNameToType.SSH_MSG_KEXDH_INIT &&
+            this.kexAlgorithm instanceof RSA2048SHA256
+        ) {
+            packet = KexRSAPublicKey
+        } else if (
+            packetType === PacketNameToType.SSH_MSG_KEX_DH_GEX_INIT &&
+            this.kexAlgorithm instanceof RSA2048SHA256
+        ) {
+            packet = KexRSADone
+        } else if (
             packetType === PacketNameToType.SSH_MSG_KEXDH_REPLY &&
             this.kexAlgorithm instanceof DiffieHellmanGroupExchange
         ) {
@@ -1884,6 +1915,13 @@ export default class Client extends EventEmitter<ClientEvents> {
                 this.emit("serverKexInit", p as KexInit, payload)
                 break
 
+            case PacketNameToType.SSH_MSG_KEXDH_INIT:
+                if (!(this.kexAlgorithm instanceof RSA2048SHA256)) {
+                    throw new Error("Received an RSA public key for another key exchange")
+                }
+                this.emit("serverKexRSAPublicKey", p as KexRSAPublicKey)
+                break
+
             case PacketNameToType.SSH_MSG_NEWKEYS:
                 this.hasReceivedNewKeys = true
                 this.packetDecoder.setProtection(
@@ -1918,6 +1956,14 @@ export default class Client extends EventEmitter<ClientEvents> {
                 }
                 this.packetProcessingPaused = true
                 this.emit("serverKexDHGexReply", p as KexDHGexReply)
+                break
+
+            case PacketNameToType.SSH_MSG_KEX_DH_GEX_INIT:
+                if (!(this.kexAlgorithm instanceof RSA2048SHA256)) {
+                    throw new Error("Received RSA key-exchange completion for another key exchange")
+                }
+                this.packetProcessingPaused = true
+                this.emit("serverKexRSADone", p as KexRSADone)
                 break
         }
 

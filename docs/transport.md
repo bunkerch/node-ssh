@@ -233,6 +233,19 @@ const client = new Client({
 })
 ```
 
+RFC 4432 `rsa2048-sha256` key exchange is available through explicit algorithm configuration. The
+server creates a fresh 2048-bit transient RSA key for every exchange, the client encrypts a random
+shared-secret mpint with RSAES-OAEP using SHA-256, and both sides include the host key, transient
+key, ciphertext, and secret in the exchange hash. Decryption failures terminate key exchange. This
+method is `MAY` in RFC 9142 and does not provide forward secrecy, so it is excluded from defaults:
+
+```ts
+const client = new Client({
+    hostname,
+    algorithms: { kex: ["rsa2048-sha256"] },
+})
+```
+
 `Client` and each accepted `ServerClient` emit `handshake` after both directions have activated the
 negotiated keys. The event fires for the initial exchange and every rekey, before the corresponding
 `rekey` event, and reports the `{ kex, srvHostKey, cs, sc }` structure with each
