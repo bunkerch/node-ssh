@@ -82,7 +82,28 @@ export default class KexInit implements Packet {
     data: KexInitData
     constructor(data: KexInitData) {
         validateKexInitData(data)
-        this.data = data
+        this.data = {
+            cookie: Buffer.from(data.cookie),
+            kex_algorithms: [...data.kex_algorithms],
+            server_host_key_algorithms: [...data.server_host_key_algorithms],
+            encryption_algorithms_client_to_server: [
+                ...data.encryption_algorithms_client_to_server,
+            ],
+            encryption_algorithms_server_to_client: [
+                ...data.encryption_algorithms_server_to_client,
+            ],
+            mac_algorithms_client_to_server: [...data.mac_algorithms_client_to_server],
+            mac_algorithms_server_to_client: [...data.mac_algorithms_server_to_client],
+            compression_algorithms_client_to_server: [
+                ...data.compression_algorithms_client_to_server,
+            ],
+            compression_algorithms_server_to_client: [
+                ...data.compression_algorithms_server_to_client,
+            ],
+            languages_client_to_server: [...data.languages_client_to_server],
+            languages_server_to_client: [...data.languages_server_to_client],
+            first_kex_packet_follows: data.first_kex_packet_follows,
+        }
     }
 
     serialize(): Buffer {

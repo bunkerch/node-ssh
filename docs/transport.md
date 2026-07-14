@@ -167,7 +167,9 @@ first default preference.
 
 `SSH_MSG_KEXINIT` parsing consumes its complete fixed layout: the cookie is exactly 16 bytes, all
 eight mandatory algorithm lists are non-empty, the reserved uint32 is zero, and trailing bytes are
-rejected before negotiation begins.
+rejected before negotiation begins. Constructed and parsed offers own their cookie and every
+name-list array, so mutation of configuration arrays or a received frame cannot rewrite a queued
+offer.
 
 Each peer snapshots its exact serialized local KEXINIT at the transport write boundary. Exchange
 hashes use that immutable wire payload, so later mutation of an inspected packet object cannot

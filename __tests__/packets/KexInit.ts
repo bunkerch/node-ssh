@@ -154,5 +154,32 @@ describe("Packets", () => {
             ])
             expect(() => KexInit.parse(malformedWire)).toThrow("not valid RFC 3066")
         })
+
+        test("owns constructor offers and parsed frame storage", () => {
+            const source = KexInit.parse(sample).data
+            const packet = new KexInit(source)
+            source.cookie.fill(0xff)
+            for (const key of [
+                "kex_algorithms",
+                "server_host_key_algorithms",
+                "encryption_algorithms_client_to_server",
+                "encryption_algorithms_server_to_client",
+                "mac_algorithms_client_to_server",
+                "mac_algorithms_server_to_client",
+                "compression_algorithms_client_to_server",
+                "compression_algorithms_server_to_client",
+            ] as const) {
+                source[key][0] = "changed@example.com"
+            }
+            source.languages_client_to_server.push("en")
+            source.languages_server_to_client.push("fr")
+            source.first_kex_packet_follows = true
+            expect(packet.serialize()).toEqual(sample)
+
+            const frame = Buffer.from(sample)
+            const parsed = KexInit.parse(frame)
+            frame.fill(0xff)
+            expect(parsed.serialize()).toEqual(sample)
+        })
     })
 })
