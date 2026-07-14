@@ -108,6 +108,58 @@ describe("RFC 8308 elevation integration", () => {
         }
     }, 15_000)
 
+    test("does not report an earlier elevation result after a later policy failure", async () => {
+        const server = new Server({
+            hostKeys: [await PrivateKey.generate("ssh-ed25519")],
+            sendAllHostKeys: false,
+        })
+        const hookErrors: Error[] = []
+        server.hooker.on("uncaughtException", (_event, error) => hookErrors.push(error))
+        server.hooker.hook("noneAuthentication", (_hook, _context, decision) => {
+            decision.allowLogin = true
+        })
+        server.hooker.hook("elevation", (_hook, _context, decision) => {
+            decision.elevated = true
+        })
+        server.hooker.hook("elevation", async () => {
+            await Promise.resolve()
+            throw new Error("elevation policy backend failed")
+        })
+        server.on("connection", (connection) => connection.on("error", () => undefined))
+        server.listen({ host: "127.0.0.1", port: 0 })
+        await once(server.server, "listening")
+
+        const client = new Client({
+            hostname: "127.0.0.1",
+            port: (server.address() as AddressInfo).port,
+            username: "failed-elevation-policy-user",
+            authenticationMethodsOrder: [SSHAuthenticationMethods.None],
+            elevation: "elevated",
+        })
+        client.on("error", () => undefined)
+        client.hooker.hook("hostKey", (_hook, decision) => {
+            decision.allowHostKey = true
+        })
+        let elevationEvents = 0
+        client.on("elevation", () => {
+            elevationEvents++
+        })
+
+        try {
+            await client.connect()
+            expect(client.hasAuthenticated).toBe(true)
+            expect(client.elevated).toBeUndefined()
+            expect(elevationEvents).toBe(0)
+            expect(hookErrors.map((error) => error.message)).toEqual([
+                "elevation policy backend failed",
+            ])
+        } finally {
+            client.destroy()
+            for (const connection of server.clients) connection.terminate()
+            await server.close()
+        }
+    }, 15_000)
+
     test("uses default policy without reporting a result when the client omits the extension", async () => {
         const server = new Server({
             hostKeys: [await PrivateKey.generate("ssh-ed25519")],

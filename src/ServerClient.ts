@@ -2165,12 +2165,22 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                     username: authRequest.data.username,
                 })
                 const controller: ServerHookerElevationController = {}
-                await this.server.hooker.triggerHook("elevation", context, controller, this)
+                const policyCompleted = await this.server.hooker.triggerHookChecked(
+                    "elevation",
+                    context,
+                    controller,
+                    this,
+                )
                 this.assertAuthenticationActive()
-                if (controller.elevated !== undefined && typeof controller.elevated !== "boolean") {
-                    throw new TypeError("SSH elevation policy result must be a boolean")
+                if (policyCompleted) {
+                    if (
+                        controller.elevated !== undefined &&
+                        typeof controller.elevated !== "boolean"
+                    ) {
+                        throw new TypeError("SSH elevation policy result must be a boolean")
+                    }
+                    elevationResult = controller.elevated
                 }
-                elevationResult = controller.elevated
             }
             this.sendPacket(new UserAuthSuccess({}))
             this.hasAuthenticated = true

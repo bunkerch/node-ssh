@@ -76,7 +76,9 @@ RFC 8308 elevation coverage fixes the complete extension packets for the registe
 `d` values and the exact post-authentication one-way global request. In-process peers prove that
 authentication waits for asynchronous server policy, both boolean outcomes reach the client, and
 an omitted advertisement uses server-default policy without sending an unsolicited result.
-Malformed result framing is rejected through the encrypted connection.
+Malformed result framing is rejected through the encrypted connection. A real encrypted session
+also proves that a later contained policy failure suppresses an earlier elevation result without
+undoing otherwise successful authentication.
 
 Session interoperability sends a BREAK from the modern client to a real OpenSSH PTY and delivers
 an `xon-xoff` notification from the modern server to the system OpenSSH client. In-process peers

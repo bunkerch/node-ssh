@@ -556,7 +556,9 @@ server.hooker.hook("elevation", async (_hook, context, decision) => {
 `context.preference` is `"elevated"`, `"unelevated"`, or `"default"`. RFC 8308 requires a client
 that omitted the extension to be treated as `"default"`, so the hook still runs in that case. The
 server reports `decision.elevated` only to a client that advertised the extension; leaving it
-undefined means no result is available.
+undefined means no result is available. Every elevation handler must complete without rejection
+before a result is retained. If a later handler fails after an earlier handler assigned a result,
+authentication still succeeds but the server suppresses the unproven elevation result.
 
 Register the client's synchronous observation handler before connecting. A supporting server sends
 the result as a one-way global request immediately after authentication:
