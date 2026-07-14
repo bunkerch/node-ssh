@@ -244,8 +244,9 @@ meaningful wire-level behavior.
   classify strict initial-KEX non-KEX traffic before this recovery path so it still disconnects.
   Cover the literal response frame, both encrypted peer directions, and a real OpenSSH peer.
 - Human-readable SSH fields use fatal UTF-8 decoding and RFC 3066 ASCII language tags; never allow
-  replacement decoding before authentication or policy. Preserve unknown uint32 disconnect reasons
-  so future and private-use assignments still produce a clean terminal disconnect.
+  replacement decoding before authentication or policy. Apply the same strict encoder to locally
+  configured identification comments and suffixes. Preserve unknown uint32 disconnect reasons so
+  future and private-use assignments still produce a clean terminal disconnect.
 - Configured diagnostic sinks and `debug` events receive the same semantic arguments. Route both
   through the existing redaction path; never expose passwords, prompt responses, passphrases,
   private key inputs, derived secrets, or transport keys in either surface.

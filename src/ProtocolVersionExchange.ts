@@ -1,4 +1,5 @@
 import { defaultProtocolVersionExchange } from "./constants.js"
+import { encodeSSHUTF8 } from "./utils/SSHText.js"
 
 const SOFTWARE_VERSION_PATTERN = /^[!-,.-~]+$/
 
@@ -26,6 +27,7 @@ export default class ProtocolVersionExchange {
                 "SSH identification comments must not be empty or contain NUL, CR, or LF",
             )
         }
+        if (comments !== undefined) encodeSSHUTF8(comments, "SSH identification comments")
 
         this.protocol_version = protocol_version
         this.protocol_software = protocol_software
@@ -37,7 +39,7 @@ export default class ProtocolVersionExchange {
     }
 
     static parse(raw: string | Buffer): ProtocolVersionExchange {
-        const encoded = Buffer.isBuffer(raw) ? raw : Buffer.from(raw, "utf8")
+        const encoded = Buffer.isBuffer(raw) ? raw : encodeSSHUTF8(raw, "SSH identification")
         if (encoded.length > MAX_IDENTIFICATION_LENGTH) {
             throw new Error(`SSH identification must not exceed ${MAX_IDENTIFICATION_LENGTH} bytes`)
         }
@@ -72,7 +74,9 @@ export default class ProtocolVersionExchange {
 
     /** Builds an SSH 2.0 identification from a software identifier and optional comment. */
     static fromIdent(ident: string | Buffer): ProtocolVersionExchange {
-        const suffix = Buffer.isBuffer(ident) ? Buffer.from(ident) : Buffer.from(ident, "utf8")
+        const suffix = Buffer.isBuffer(ident)
+            ? Buffer.from(ident)
+            : encodeSSHUTF8(ident, "SSH identification suffix")
         return ProtocolVersionExchange.parse(
             Buffer.concat([Buffer.from("SSH-2.0-"), suffix, Buffer.from("\r\n")]),
         )

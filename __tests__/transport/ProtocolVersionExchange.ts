@@ -56,4 +56,16 @@ describe("ProtocolVersionExchange", () => {
             "255 bytes",
         )
     })
+
+    test("rejects unpaired surrogates in every local identification entry point", () => {
+        expect(() => new ProtocolVersionExchange("2.0", "test", "\ud800")).toThrow(
+            "SSH identification comments is not valid UTF-8 text",
+        )
+        expect(() => ProtocolVersionExchange.parse("SSH-2.0-test \ud800\r\n")).toThrow(
+            "SSH identification is not valid UTF-8 text",
+        )
+        expect(() => ProtocolVersionExchange.fromIdent("test \ud800")).toThrow(
+            "SSH identification suffix is not valid UTF-8 text",
+        )
+    })
 })

@@ -15,7 +15,9 @@ SSH-2.0-software_version optional comments\r\n
 accepts SSH 2.0 and the RFC 4253 compatibility identifier `1.99`. It normally writes CRLF and also
 accepts an LF-only peer identifier for compatibility with older implementations. Identifiers are
 limited to 255 encoded bytes, may not contain NUL, and software versions must use the printable
-US-ASCII characters permitted by RFC 4253 section 4.2.
+US-ASCII characters permitted by RFC 4253 section 4.2. Optional comments are strict UTF-8 whether
+they come from the wire, a constructor, or the `ident` shorthand; invalid JavaScript surrogate text
+is rejected rather than replacement-encoded.
 
 Set the client `ident` option to a software identifier and optional comment,
 without the `SSH-2.0-` prefix. A `Buffer` is accepted for byte-exact configuration, but it is still
