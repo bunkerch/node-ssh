@@ -289,6 +289,10 @@ meaningful wire-level behavior.
   bidirectional CLOSE handshake. Reject active reuse with an RFC protocol-error disconnect, release
   rejected and fully closed identifiers, and keep fatal behavior independent of TCP fragmentation
   or coalescing by sharing the direct and deferred packet-processing error path.
+- Classify established-channel wire violations separately from local stream and application
+  failures. Send reason-code 2 for window overflow, data beyond window or EOF, oversized channel
+  packets, duplicate results, and unexpected replies in both roles; accept a zero window adjustment
+  as the RFC-compatible no-op that it is.
 - Bound server authentication with an absolute post-service deadline and a rejected-request
   ceiling. Do not count `none`, intermediate challenge messages, or `partialSuccess`; after expiry,
   an awaited policy hook must not admit the client. Clear and unref deadline timers, and flush the

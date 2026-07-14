@@ -9,6 +9,7 @@ import ChannelRequest from "../../src/packets/ChannelRequest.js"
 import ChannelWindowAdjust from "../../src/packets/ChannelWindowAdjust.js"
 import Packet from "../../src/packet.js"
 import { serializeBuffer } from "../../src/utils/Buffer.js"
+import { ProtocolError } from "../../src/packets/Disconnect.js"
 
 function createChannel(options: { initialWindowSize?: number; maximumPacketSize?: number } = {}) {
     const client = new Client({ hostname: "unused" })
@@ -51,6 +52,13 @@ describe("ClientChannel", () => {
                 .filter((packet): packet is ChannelData => packet instanceof ChannelData)
                 .map((packet) => packet.data.data.toString()),
         ).toEqual(["abc", "de", "fgh"])
+        channel.destroy()
+    })
+
+    test("accepts a zero window adjustment and rejects uint32 overflow", () => {
+        const { channel } = createChannel()
+        expect(() => channel.receiveWindowAdjust(0)).not.toThrow()
+        expect(() => channel.receiveWindowAdjust(0xffff_ffff)).toThrow(ProtocolError)
         channel.destroy()
     })
 

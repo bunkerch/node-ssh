@@ -60,6 +60,7 @@ import Disconnect, {
     DisconnectError,
     DisconnectReason,
     PeerDisconnectError,
+    ProtocolError,
     peerDisconnectInfo,
     type PeerDisconnectInfo,
 } from "./packets/Disconnect.js"
@@ -2191,7 +2192,7 @@ export default class Client extends EventEmitter<ClientEvents> {
         } else if (packet instanceof ChannelRequest) {
             void this.actionQueue
                 .queueAction(`channelRequest:${recipient}`, () => channel.receiveRequest(packet))
-                .catch((error: Error) => this.socket?.destroy(error))
+                .catch((error: Error) => this.handleMessageError(error))
         } else if (packet instanceof ChannelSuccess) {
             channel.receiveRequestSuccess()
         } else if (packet instanceof ChannelFailure) {
@@ -2575,7 +2576,9 @@ export default class Client extends EventEmitter<ClientEvents> {
 
     private getChannel(localId: number): ClientChannel {
         const channel = this.channels.get(localId)
-        if (!channel) throw new Error(`Received a packet for unknown SSH channel ${localId}`)
+        if (!channel) {
+            throw new ProtocolError(`Received a packet for unknown SSH channel ${localId}`)
+        }
         return channel
     }
 }

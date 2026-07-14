@@ -14,6 +14,7 @@ import ChannelRequest from "./packets/ChannelRequest.js"
 import ChannelWindowAdjust from "./packets/ChannelWindowAdjust.js"
 import { MAXIMUM_CHANNEL_WINDOW_SIZE } from "./constants.js"
 import { ServerHookerChannelRequestController } from "./Server.js"
+import { ProtocolError } from "./packets/Disconnect.js"
 
 export const DEFAULT_SERVER_CHANNEL_WINDOW_SIZE = 2 ** 21
 export const DEFAULT_SERVER_CHANNEL_PACKET_SIZE = 2 ** 15
@@ -102,7 +103,7 @@ export default class Channel {
 
     configureRemote(open: ChannelOpen): void {
         if (this.openSettled)
-            throw new Error(`SSH channel ${this.localId} was opened more than once`)
+            throw new ProtocolError(`SSH channel ${this.localId} was opened more than once`)
         this.remoteId = open.data.sender_channel_id
         this.remote_initial_window_size = open.data.initial_window_size
         this.remote_window_size = open.data.initial_window_size
@@ -114,7 +115,7 @@ export default class Channel {
 
     confirmOpen(confirmation: ChannelOpenConfirmation): void {
         if (this.openSettled)
-            throw new Error(`SSH channel ${this.localId} was opened more than once`)
+            throw new ProtocolError(`SSH channel ${this.localId} was opened more than once`)
         this.remoteId = confirmation.data.sender_channel_id
         this.remote_initial_window_size = confirmation.data.initial_window_size
         this.remote_window_size = confirmation.data.initial_window_size
@@ -125,7 +126,9 @@ export default class Channel {
     }
 
     failOpen(failure: ChannelOpenFailure): void {
-        if (this.openSettled) throw new Error(`SSH channel ${this.localId} open was settled twice`)
+        if (this.openSettled) {
+            throw new ProtocolError(`SSH channel ${this.localId} open was settled twice`)
+        }
         this.openSettled = true
         this.openReject(
             new ChannelOpenError(
@@ -264,19 +267,23 @@ export default class Channel {
 
     receiveRequestSuccess(): void {
         const request = this.pendingRequests.shift()
-        if (!request) throw new Error(`Unexpected success response for SSH channel ${this.localId}`)
+        if (!request) {
+            throw new ProtocolError(`Unexpected success response for SSH channel ${this.localId}`)
+        }
         request.resolve()
     }
 
     receiveRequestFailure(): void {
         const request = this.pendingRequests.shift()
-        if (!request) throw new Error(`Unexpected failure response for SSH channel ${this.localId}`)
+        if (!request) {
+            throw new ProtocolError(`Unexpected failure response for SSH channel ${this.localId}`)
+        }
         request.reject(new Error(`SSH channel ${this.localId} request failed (${request.type})`))
     }
 
     receiveWindowAdjust(bytesToAdd: number): void {
         if (bytesToAdd > MAXIMUM_CHANNEL_WINDOW_SIZE - this.remote_window_size) {
-            throw new Error(`SSH channel ${this.localId} window adjustment exceeds uint32`)
+            throw new ProtocolError(`SSH channel ${this.localId} window adjustment exceeds uint32`)
         }
         this.remote_window_size += bytesToAdd
         this.flushPendingWrites()
@@ -457,13 +464,13 @@ export default class Channel {
 
     private consumeLocalWindow(data: Buffer): void {
         if (this.receivedEOF) {
-            throw new Error(`SSH channel ${this.localId} received data after EOF`)
+            throw new ProtocolError(`SSH channel ${this.localId} received data after EOF`)
         }
         if (data.length > this.local_maximum_packet_size) {
-            throw new Error(`SSH channel ${this.localId} received an oversized data packet`)
+            throw new ProtocolError(`SSH channel ${this.localId} received an oversized data packet`)
         }
         if (data.length > this.local_window_size) {
-            throw new Error(`SSH channel ${this.localId} received data beyond its window`)
+            throw new ProtocolError(`SSH channel ${this.localId} received data beyond its window`)
         }
         this.local_window_size -= data.length
     }

@@ -20,6 +20,7 @@ import {
 import { Hooker } from "../utils/Hooker.js"
 import { normalizeSSHSignal } from "../utils/Signal.js"
 import { decodeSSHLanguageTag, decodeSSHUTF8 } from "../utils/SSHText.js"
+import { ProtocolError } from "../packets/Disconnect.js"
 
 export const DEFAULT_CHANNEL_WINDOW_SIZE = 2 ** 21
 export const DEFAULT_CHANNEL_PACKET_SIZE = 2 ** 15
@@ -191,7 +192,7 @@ export default class ClientChannel extends Duplex {
 
     confirmOpen(packet: ChannelOpenConfirmation): void {
         if (this.remoteId !== undefined) {
-            throw new Error(`SSH channel ${this.localId} was confirmed more than once`)
+            throw new ProtocolError(`SSH channel ${this.localId} was confirmed more than once`)
         }
         this.remoteId = packet.data.sender_channel_id
         this.remoteWindowSize = packet.data.initial_window_size
@@ -201,7 +202,7 @@ export default class ClientChannel extends Duplex {
 
     acceptOpen(packet: ChannelOpen): void {
         if (this.remoteId !== undefined) {
-            throw new Error(`SSH channel ${this.localId} was opened more than once`)
+            throw new ProtocolError(`SSH channel ${this.localId} was opened more than once`)
         }
         this.remoteId = packet.data.sender_channel_id
         this.remoteWindowSize = packet.data.initial_window_size
@@ -257,19 +258,23 @@ export default class ClientChannel extends Duplex {
 
     receiveRequestSuccess(): void {
         const request = this.pendingRequests.shift()
-        if (!request) throw new Error(`Unexpected success response for SSH channel ${this.localId}`)
+        if (!request) {
+            throw new ProtocolError(`Unexpected success response for SSH channel ${this.localId}`)
+        }
         request.resolve()
     }
 
     receiveRequestFailure(): void {
         const request = this.pendingRequests.shift()
-        if (!request) throw new Error(`Unexpected failure response for SSH channel ${this.localId}`)
+        if (!request) {
+            throw new ProtocolError(`Unexpected failure response for SSH channel ${this.localId}`)
+        }
         request.reject(new Error(`SSH channel ${this.localId} request failed (${request.type})`))
     }
 
     receiveWindowAdjust(bytesToAdd: number): void {
         if (bytesToAdd > MAXIMUM_CHANNEL_WINDOW_SIZE - this.remoteWindowSize) {
-            throw new Error(`SSH channel ${this.localId} window adjustment exceeds uint32`)
+            throw new ProtocolError(`SSH channel ${this.localId} window adjustment exceeds uint32`)
         }
         this.remoteWindowSize += bytesToAdd
         this.flushPendingWrite()
@@ -307,10 +312,10 @@ export default class ClientChannel extends Duplex {
     async receiveRequest(packet: ChannelRequest): Promise<void> {
         if (packet.data.request_type === "eow@openssh.com") {
             if (packet.data.want_reply || packet.data.args.length !== 0) {
-                throw new Error("Invalid end-of-write channel request")
+                throw new ProtocolError("Invalid end-of-write channel request")
             }
             if (this.type !== "session") {
-                throw new Error("End-of-write is only valid on session channels")
+                throw new ProtocolError("End-of-write is only valid on session channels")
             }
             if (this.receivedEndOfWrite) return
             this.receivedEndOfWrite = true
@@ -323,7 +328,9 @@ export default class ClientChannel extends Duplex {
         if (packet.data.request_type === "exit-status") {
             this.validateExitRequest(packet)
             const [exitCode, remaining] = readNextUint32(packet.data.args)
-            if (remaining.length !== 0) throw new Error("Invalid exit-status channel request")
+            if (remaining.length !== 0) {
+                throw new ProtocolError("Invalid exit-status channel request")
+            }
             this.exitCode = exitCode
             this.emit("exit", exitCode)
             this.replyToRequest(packet, true)
@@ -336,15 +343,17 @@ export default class ClientChannel extends Duplex {
             const [coreDumped, afterCoreDumped] = readNextBinaryBoolean(afterSignal)
             const [errorMessage, afterErrorMessage] = readNextBuffer(afterCoreDumped)
             const [languageTag, remaining] = readNextBuffer(afterErrorMessage)
-            if (remaining.length !== 0) throw new Error("Invalid exit-signal channel request")
+            if (remaining.length !== 0) {
+                throw new ProtocolError("Invalid exit-signal channel request")
+            }
 
             const signalName = signal.toString("ascii")
             if (signal.some((byte) => byte > 0x7f)) {
-                throw new Error("Invalid exit-signal signal name")
+                throw new ProtocolError("Invalid exit-signal signal name")
             }
             const normalizedSignal = normalizeSSHSignal(signalName)
             if (normalizedSignal !== signalName) {
-                throw new Error('SSH exit-signal names must omit the "SIG" prefix')
+                throw new ProtocolError('SSH exit-signal names must omit the "SIG" prefix')
             }
             const decodedErrorMessage = decodeSSHUTF8(errorMessage, "SSH exit-signal message")
             const decodedLanguageTag = decodeSSHLanguageTag(
@@ -380,10 +389,14 @@ export default class ClientChannel extends Duplex {
     }
 
     private validateExitRequest(packet: ChannelRequest): void {
-        if (this.type !== "session") throw new Error("Exit requests are only valid on sessions")
-        if (packet.data.want_reply) throw new Error("SSH exit requests must not request a reply")
+        if (this.type !== "session") {
+            throw new ProtocolError("Exit requests are only valid on sessions")
+        }
+        if (packet.data.want_reply) {
+            throw new ProtocolError("SSH exit requests must not request a reply")
+        }
         if (this.exitCode !== undefined || this.exitSignal !== undefined) {
-            throw new Error("SSH session received more than one exit result")
+            throw new ProtocolError("SSH session received more than one exit result")
         }
     }
 
@@ -492,13 +505,13 @@ export default class ClientChannel extends Duplex {
 
     protected consumeLocalWindow(data: Buffer): void {
         if (this.receivedEOF) {
-            throw new Error(`SSH channel ${this.localId} received data after EOF`)
+            throw new ProtocolError(`SSH channel ${this.localId} received data after EOF`)
         }
         if (data.length > this.localMaximumPacketSize) {
-            throw new Error(`SSH channel ${this.localId} received an oversized data packet`)
+            throw new ProtocolError(`SSH channel ${this.localId} received an oversized data packet`)
         }
         if (data.length > this.localWindowSize) {
-            throw new Error(`SSH channel ${this.localId} received data beyond its window`)
+            throw new ProtocolError(`SSH channel ${this.localId} received data beyond its window`)
         }
         this.localWindowSize -= data.length
     }

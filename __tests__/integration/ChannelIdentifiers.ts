@@ -7,6 +7,7 @@ import Server from "../../src/Server.js"
 import type ServerClient from "../../src/ServerClient.js"
 import ChannelOpen from "../../src/packets/ChannelOpen.js"
 import ChannelOpenConfirmation from "../../src/packets/ChannelOpenConfirmation.js"
+import ChannelWindowAdjust from "../../src/packets/ChannelWindowAdjust.js"
 import { DisconnectReason, type PeerDisconnectInfo } from "../../src/packets/Disconnect.js"
 import PrivateKey from "../../src/utils/PrivateKey.js"
 
@@ -52,6 +53,19 @@ function nextDisconnect(peer: Client | ServerClient): Promise<Readonly<PeerDisco
 }
 
 describe("RFC 4254 channel identifiers", () => {
+    async function openSession(server: Server, peer: ServerClient, client: Client) {
+        server.hooker.hook("channelOpenRequest", async (_hook, _channel, controller) => {
+            controller.allowOpen = true
+        })
+        peer.on("channel", (channel) => {
+            if (!(channel instanceof SessionChannel)) return
+            channel.hooker.hook("execRequest", async (_hook, _context, controller) => {
+                controller.success = true
+            })
+        })
+        return client.exec("flow-control-test")
+    }
+
     test("allows an identifier to be reused after both channel closes", async () => {
         const { server, peer, client } = await createConnectedPeers()
         server.hooker.hook("channelOpenRequest", async (_hook, _channel, controller) => {
@@ -141,6 +155,48 @@ describe("RFC 4254 channel identifiers", () => {
             })
         } finally {
             await closePeers(server, client)
+        }
+    }, 15_000)
+
+    test("sends protocol-error disconnects for channel window overflow in both roles", async () => {
+        {
+            const { server, peer, client } = await createConnectedPeers()
+            const session = await openSession(server, peer, client)
+            const disconnect = nextDisconnect(client)
+            try {
+                client.sendPacket(
+                    new ChannelWindowAdjust({
+                        recipient_channel_id: session.remoteId!,
+                        bytes_to_add: 0xffff_ffff,
+                    }),
+                )
+                await expect(disconnect).resolves.toMatchObject({
+                    reasonCode: DisconnectReason.SSH_DISCONNECT_PROTOCOL_ERROR,
+                    description: expect.stringContaining("window adjustment exceeds uint32"),
+                })
+            } finally {
+                await closePeers(server, client)
+            }
+        }
+
+        {
+            const { server, peer, client } = await createConnectedPeers()
+            const session = await openSession(server, peer, client)
+            const disconnect = nextDisconnect(peer)
+            try {
+                peer.sendPacket(
+                    new ChannelWindowAdjust({
+                        recipient_channel_id: session.localId,
+                        bytes_to_add: 0xffff_ffff,
+                    }),
+                )
+                await expect(disconnect).resolves.toMatchObject({
+                    reasonCode: DisconnectReason.SSH_DISCONNECT_PROTOCOL_ERROR,
+                    description: expect.stringContaining("window adjustment exceeds uint32"),
+                })
+            } finally {
+                await closePeers(server, client)
+            }
         }
     }, 15_000)
 })

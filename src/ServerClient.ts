@@ -2164,8 +2164,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 action(channel)
             })
             .catch((error: Error) => {
-                this.emit("error", error)
-                this.terminate()
+                this.handleMessageError(error)
             })
     }
 }

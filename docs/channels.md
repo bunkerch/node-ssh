@@ -153,7 +153,8 @@ The implementation follows RFC 4254 channel rules:
   reuse after the channel is fully closed is valid.
 - Outbound data is split to the peer's maximum packet size and paused when its window is empty.
 - Inbound stdout and stderr share the advertised receive window. Window adjustments are sent as
-  stream consumers make room.
+  stream consumers make room. A zero adjustment is a valid no-op; an adjustment that would raise
+  the current window above `2^32 - 1` causes an RFC protocol-error disconnect.
 - Request success and failure replies are matched in request order.
 - `exit-status` and `exit-signal` requests are exposed through the `exit` event and channel fields.
   Exit signals retain `exitSignal`, `exitCoreDumped`, `exitErrorMessage`, and `exitLanguageTag`.

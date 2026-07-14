@@ -6,6 +6,7 @@ import ChannelOpen from "../../src/packets/ChannelOpen.js"
 import ChannelWindowAdjust from "../../src/packets/ChannelWindowAdjust.js"
 import ChannelEOF from "../../src/packets/ChannelEOF.js"
 import ChannelRequest from "../../src/packets/ChannelRequest.js"
+import { ProtocolError } from "../../src/packets/Disconnect.js"
 
 function createChannel(remoteWindow = 5, remotePacketSize = 3) {
     const client = new Client({ hostname: "unused" })
@@ -77,6 +78,12 @@ describe("server Channel", () => {
         expect(completed).toBe(false)
         channel.receiveClose()
         expect(completed).toBe(true)
+    })
+
+    test("accepts a zero window adjustment and rejects uint32 overflow", () => {
+        const { channel } = createChannel()
+        expect(() => channel.receiveWindowAdjust(0)).not.toThrow()
+        expect(() => channel.receiveWindowAdjust(0xffff_ffff)).toThrow(ProtocolError)
     })
 
     test("stops outbound data after end-of-write without closing the channel", async () => {

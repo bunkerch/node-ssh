@@ -117,6 +117,14 @@ export class DisconnectError extends Error {
     }
 }
 
+export class ProtocolError extends DisconnectError {
+    readonly name = "ProtocolError"
+
+    constructor(message: string) {
+        super(DisconnectReason.SSH_DISCONNECT_PROTOCOL_ERROR, message)
+    }
+}
+
 export class PeerDisconnectError extends Error {
     readonly name = "PeerDisconnectError"
     readonly reasonCode: number
