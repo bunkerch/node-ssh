@@ -103,13 +103,14 @@ connection. `destroy()` immediately destroys the underlying connection. Both met
 client instance. `setNoDelay()` controls Nagle's algorithm on the underlying TCP socket and also
 returns the client.
 
-The `end` event reports peer transport EOF; terminal cleanup completes at the later `close` event.
-After `close`, `canConnect` becomes true and the same client may connect again. Each
-connection starts with fresh protocol parsers, sequence numbers, negotiated keys, extensions,
-authentication state, channels, and forwarding state; configured options, event listeners, and
-hooks remain installed. A client constructed with an already-connected `sock` cannot reuse that
-destroyed transport, so supply a new client for a new injected socket. Concurrent `connect()` calls
-are rejected.
+The `end` event reports peer transport EOF. Because SSH cannot continue without an inbound packet
+stream, the client then destroys even an `allowHalfOpen` injected transport; terminal cleanup and
+rejection of pending work complete at the later `close` event. After `close`, `canConnect` becomes
+true and the same client may connect again. Each connection starts with fresh protocol parsers,
+sequence numbers, negotiated keys, extensions, authentication state, channels, and forwarding
+state; configured options, event listeners, and hooks remain installed. A client constructed with
+an already-connected `sock` cannot reuse that destroyed transport, so supply a new client for a new
+injected socket. Concurrent `connect()` calls are rejected.
 
 When `keepaliveInterval` is greater than zero, the client sends
 `keepalive@openssh.com` global requests after authentication. Either success or failure is a valid

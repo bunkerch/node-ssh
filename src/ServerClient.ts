@@ -216,7 +216,7 @@ interface GSSAPIAuthenticationResult {
 
 export interface ServerClientEvents {
     error: [error: Error]
-    /** The peer half-closed its transport after sending all remaining data. */
+    /** The peer transport reached EOF; terminal close cleanup follows. */
     end: []
     close: []
     /** Terminal disconnect received from the peer. */
@@ -276,6 +276,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
 
         this.socket.on("end", () => {
             this.emit("end")
+            this.socket.destroy()
         })
 
         this.socket.on("close", () => {

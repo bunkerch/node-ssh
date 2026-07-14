@@ -77,12 +77,15 @@ Both `Client` and `ServerClient` emit `disconnect` with an immutable `PeerDiscon
 their subsequent `close` event. It contains `reasonCode`, `description`, and `languageTag` exactly
 as validated from the peer. `peerDisconnect` retains that snapshot after closure.
 
-Both roles also emit `end` when the readable side of the underlying transport reaches EOF. This is
-the peer's transport half-close, not terminal cleanup: `close` follows after the socket resource is
-fully closed and is the event applications should use to observe final channel and pending-operation
-cleanup. A graceful SSH shutdown normally produces `disconnect`, then `end`, then `close`; an
-abruptly destroyed transport can omit `disconnect` and `end`. EventEmitter listeners remain
-synchronous. Register one-shot waits before initiating shutdown so no event can be missed:
+Both roles also emit `end` when the readable side of the underlying transport reaches EOF. SSH has
+no transport half-close state in which a connection can continue without receiving packets, so the
+library then destroys the transport and emits `close`. This applies to injected transports even
+when their Node.js stream uses `allowHalfOpen`. The later `close` event observes final channel and
+pending-operation cleanup, and connection setup rejects immediately instead of waiting for its
+readiness or handshake deadline. A graceful SSH shutdown normally produces `disconnect`, then
+`end`, then `close`; an abruptly destroyed transport can omit `disconnect` and `end`. EventEmitter
+listeners remain synchronous. Register one-shot waits before initiating shutdown so no event can
+be missed:
 
 ```ts
 import { once } from "node:events"

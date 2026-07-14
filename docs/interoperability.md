@@ -141,7 +141,9 @@ Disconnect integration covers both peer directions over encrypted connections. I
 typed event precedes close, preserves immutable RFC metadata, rejects a pending request with the
 typed error, and interrupts connection setup immediately rather than waiting for the readiness
 deadline. Graceful shutdown tests independently verify that both public connection roles report
-transport EOF through `end` before terminal `close` cleanup.
+transport EOF through `end` before terminal `close` cleanup. Real half-open injected TCP transports
+also verify that EOF terminates both peer roles immediately rather than leaving setup pending until
+a readiness or handshake deadline.
 
 Server admission integration verifies that the public connection event receives an immutable
 snapshot of both TCP endpoints and retains it after the peer closes.
