@@ -66,6 +66,8 @@ literal `agent-forward` version `0` advertisement, and proves that `forwardAgent
 advertisement clears the capability instead of retaining stale negotiation state.
 Fixed public agent-protocol exchanges also prove that a contained later policy failure cannot
 release an earlier identity list or cryptographic signature.
+Management exchanges independently apply that failure ordering to identity and token additions,
+individual and bulk identity removal, and token removal.
 
 RFC 8308 no-flow-control coverage checks the literal `p` and `s` values and every bilateral
 preference outcome. In-process peers transfer data in both directions after their advertised

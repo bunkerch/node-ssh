@@ -1281,8 +1281,13 @@ export class SSHAgentProtocolServer {
     ): Promise<Buffer> {
         const context = parsePrivateKeyRequest(payload, constrained)
         const controller: SSHAgentServerSuccessController = { success: undefined }
-        await this.hooker.triggerHook("addIdentity", context, controller, connection.context)
-        return controller.success === true ? this.#success() : this.#failure()
+        const policyCompleted = await this.hooker.triggerHookChecked(
+            "addIdentity",
+            context,
+            controller,
+            connection.context,
+        )
+        return policyCompleted && controller.success === true ? this.#success() : this.#failure()
     }
 
     async #handleAddToken(
@@ -1304,8 +1309,15 @@ export class SSHAgentProtocolServer {
         })
         const controller: SSHAgentServerSuccessController = { success: undefined }
         try {
-            await this.hooker.triggerHook("addToken", context, controller, connection.context)
-            return controller.success === true ? this.#success() : this.#failure()
+            const policyCompleted = await this.hooker.triggerHookChecked(
+                "addToken",
+                context,
+                controller,
+                connection.context,
+            )
+            return policyCompleted && controller.success === true
+                ? this.#success()
+                : this.#failure()
         } finally {
             pinCopy.fill(0)
         }
@@ -1320,14 +1332,23 @@ export class SSHAgentProtocolServer {
             publicKey: PublicKey.parse(keyBlob),
         })
         const controller: SSHAgentServerSuccessController = { success: undefined }
-        await this.hooker.triggerHook("removeIdentity", context, controller, connection.context)
-        return controller.success === true ? this.#success() : this.#failure()
+        const policyCompleted = await this.hooker.triggerHookChecked(
+            "removeIdentity",
+            context,
+            controller,
+            connection.context,
+        )
+        return policyCompleted && controller.success === true ? this.#success() : this.#failure()
     }
 
     async #handleRemoveAllIdentities(connection: SSHAgentProtocolConnectionState): Promise<Buffer> {
         const controller: SSHAgentServerSuccessController = { success: undefined }
-        await this.hooker.triggerHook("removeAllIdentities", controller, connection.context)
-        return controller.success === true ? this.#success() : this.#failure()
+        const policyCompleted = await this.hooker.triggerHookChecked(
+            "removeAllIdentities",
+            controller,
+            connection.context,
+        )
+        return policyCompleted && controller.success === true ? this.#success() : this.#failure()
     }
 
     async #handleRemoveToken(
@@ -1345,8 +1366,15 @@ export class SSHAgentProtocolServer {
         const context: SSHAgentServerRemoveTokenContext = Object.freeze({ tokenId, pin: pinCopy })
         const controller: SSHAgentServerSuccessController = { success: undefined }
         try {
-            await this.hooker.triggerHook("removeToken", context, controller, connection.context)
-            return controller.success === true ? this.#success() : this.#failure()
+            const policyCompleted = await this.hooker.triggerHookChecked(
+                "removeToken",
+                context,
+                controller,
+                connection.context,
+            )
+            return policyCompleted && controller.success === true
+                ? this.#success()
+                : this.#failure()
         } finally {
             pinCopy.fill(0)
         }

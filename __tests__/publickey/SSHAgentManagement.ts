@@ -352,6 +352,134 @@ describe("SSH agent management protocol", () => {
         serverStream.destroy()
     })
 
+    test("server does not retain add-identity approval after a later policy failure", async () => {
+        const [clientStream, serverStream] = streamPair()
+        const server = new SSHAgentProtocolServer()
+        const hookErrors: Error[] = []
+        server.hooker.on("uncaughtException", (_event, error) => hookErrors.push(error))
+        server.hooker.hook("addIdentity", (_hook, _request, decision) => {
+            decision.success = true
+        })
+        server.hooker.hook("addIdentity", async () => {
+            await Promise.resolve()
+            throw new Error("identity storage backend failed")
+        })
+        const serving = server.serve(serverStream)
+        const client = new SSHAgentProtocolClient(clientStream)
+
+        await expect(client.addIdentity(fixedPrivateKey())).rejects.toThrow("refused")
+        expect(hookErrors.map((error) => error.message)).toEqual([
+            "identity storage backend failed",
+        ])
+
+        clientStream.end()
+        await serving
+        client.destroy()
+        serverStream.destroy()
+    })
+
+    test("server does not retain add-token approval after a later policy failure", async () => {
+        const [clientStream, serverStream] = streamPair()
+        const server = new SSHAgentProtocolServer()
+        const hookErrors: Error[] = []
+        server.hooker.on("uncaughtException", (_event, error) => hookErrors.push(error))
+        server.hooker.hook("addToken", (_hook, _request, decision) => {
+            decision.success = true
+        })
+        server.hooker.hook("addToken", async () => {
+            await Promise.resolve()
+            throw new Error("token storage backend failed")
+        })
+        const serving = server.serve(serverStream)
+        const client = new SSHAgentProtocolClient(clientStream)
+
+        await expect(client.addToken("provider", "1234")).rejects.toThrow("refused")
+        expect(hookErrors.map((error) => error.message)).toEqual(["token storage backend failed"])
+
+        clientStream.end()
+        await serving
+        client.destroy()
+        serverStream.destroy()
+    })
+
+    test("server does not retain remove-identity approval after a later policy failure", async () => {
+        const [clientStream, serverStream] = streamPair()
+        const server = new SSHAgentProtocolServer()
+        const hookErrors: Error[] = []
+        server.hooker.on("uncaughtException", (_event, error) => hookErrors.push(error))
+        server.hooker.hook("removeIdentity", (_hook, _request, decision) => {
+            decision.success = true
+        })
+        server.hooker.hook("removeIdentity", async () => {
+            await Promise.resolve()
+            throw new Error("identity removal backend failed")
+        })
+        const serving = server.serve(serverStream)
+        const client = new SSHAgentProtocolClient(clientStream)
+
+        await expect(client.removeIdentity(fixedPrivateKey().data.publicKey)).rejects.toThrow(
+            "refused",
+        )
+        expect(hookErrors.map((error) => error.message)).toEqual([
+            "identity removal backend failed",
+        ])
+
+        clientStream.end()
+        await serving
+        client.destroy()
+        serverStream.destroy()
+    })
+
+    test("server does not retain remove-all approval after a later policy failure", async () => {
+        const [clientStream, serverStream] = streamPair()
+        const server = new SSHAgentProtocolServer()
+        const hookErrors: Error[] = []
+        server.hooker.on("uncaughtException", (_event, error) => hookErrors.push(error))
+        server.hooker.hook("removeAllIdentities", (_hook, decision) => {
+            decision.success = true
+        })
+        server.hooker.hook("removeAllIdentities", async () => {
+            await Promise.resolve()
+            throw new Error("bulk identity removal backend failed")
+        })
+        const serving = server.serve(serverStream)
+        const client = new SSHAgentProtocolClient(clientStream)
+
+        await expect(client.removeAllIdentities()).rejects.toThrow("refused")
+        expect(hookErrors.map((error) => error.message)).toEqual([
+            "bulk identity removal backend failed",
+        ])
+
+        clientStream.end()
+        await serving
+        client.destroy()
+        serverStream.destroy()
+    })
+
+    test("server does not retain remove-token approval after a later policy failure", async () => {
+        const [clientStream, serverStream] = streamPair()
+        const server = new SSHAgentProtocolServer()
+        const hookErrors: Error[] = []
+        server.hooker.on("uncaughtException", (_event, error) => hookErrors.push(error))
+        server.hooker.hook("removeToken", (_hook, _request, decision) => {
+            decision.success = true
+        })
+        server.hooker.hook("removeToken", async () => {
+            await Promise.resolve()
+            throw new Error("token removal backend failed")
+        })
+        const serving = server.serve(serverStream)
+        const client = new SSHAgentProtocolClient(clientStream)
+
+        await expect(client.removeToken("provider", "1234")).rejects.toThrow("refused")
+        expect(hookErrors.map((error) => error.message)).toEqual(["token removal backend failed"])
+
+        clientStream.end()
+        await serving
+        client.destroy()
+        serverStream.destroy()
+    })
+
     test("round-trips every RFC 9987 private-key layout through the server", async () => {
         const keys = [
             fixedPrivateKey(),

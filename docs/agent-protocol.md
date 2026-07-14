@@ -180,7 +180,9 @@ have been written and answered. This does not clear buffers retained by the call
 `SSHAgentProtocolServer` exposes application-owned identities through awaited `Hooker` policy.
 Every security-sensitive decision is denied unless its hook explicitly supplies a valid result and
 every registered handler completes without rejection. In particular, a contained later identity or
-signing failure discards a result supplied by an earlier handler.
+signing failure discards a result supplied by an earlier handler. The same rule applies to identity
+and token additions and removals: the agent returns success only after the complete handler chain
+finishes, so an earlier approval cannot hide a later storage failure.
 
 ```ts
 import { SSHAgentProtocolServer } from "@bunkerch/modernssh"
@@ -255,7 +257,7 @@ after approval. The `locked` getter reports the current state.
 The server validates private and public key relationships, UTF-8 fields, key constraints,
 signature flags and algorithms, response bounds, and exact trailing data. It verifies policy
 signatures against the requested public key before returning them. Malformed input and missing,
-rejected, or invalid policy decisions receive the protocol failure response.
+rejected, invalid, or incompletely handled policy decisions receive the protocol failure response.
 
 RFC 9987 recommends honoring bulk identity and token removal even when restrictive policy would
 normally deny other operations, so applications should normally approve those hooks after their
