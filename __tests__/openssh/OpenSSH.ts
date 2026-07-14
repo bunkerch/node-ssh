@@ -1436,8 +1436,15 @@ describe("OpenSSH interoperability", () => {
         }
     }, 30_000)
 
-    test("OpenSSH client exchanges truncated HMAC-SHA1 traffic across rekey", async () => {
-        const macs = ["hmac-sha1-96-etm@openssh.com", "hmac-sha1-96"] as const
+    test("OpenSSH client exchanges legacy MAC traffic across rekey", async () => {
+        const macs = [
+            "hmac-sha1-96-etm@openssh.com",
+            "hmac-sha1-96",
+            "hmac-md5-etm@openssh.com",
+            "hmac-md5-96-etm@openssh.com",
+            "hmac-md5",
+            "hmac-md5-96",
+        ] as const
         const hostKey = await PrivateKey.generate("ssh-ed25519")
         const server = new Server({
             hostKeys: [hostKey],
@@ -2297,7 +2304,14 @@ describe("OpenSSH interoperability", () => {
                 await cbcClosed
             }
 
-            for (const mac of ["hmac-sha1-96-etm@openssh.com", "hmac-sha1-96"] as const) {
+            for (const mac of [
+                "hmac-sha1-96-etm@openssh.com",
+                "hmac-sha1-96",
+                "hmac-md5-etm@openssh.com",
+                "hmac-md5-96-etm@openssh.com",
+                "hmac-md5",
+                "hmac-md5-96",
+            ] as const) {
                 const macClient = new Client({
                     hostname: "127.0.0.1",
                     port,

@@ -9,6 +9,10 @@ import ChaCha20Poly1305OpenSSH from "../../src/algorithms/encryption/chacha20-po
 import HMACSHA2256 from "../../src/algorithms/mac/hmac-sha2-256.js"
 import HMACSHA196 from "../../src/algorithms/mac/hmac-sha1-96.js"
 import HMACSHA196ETM from "../../src/algorithms/mac/hmac-sha1-96-etm.js"
+import HMACMD5 from "../../src/algorithms/mac/hmac-md5.js"
+import HMACMD596 from "../../src/algorithms/mac/hmac-md5-96.js"
+import HMACMD5ETM from "../../src/algorithms/mac/hmac-md5-etm.js"
+import HMACMD596ETM from "../../src/algorithms/mac/hmac-md5-96-etm.js"
 
 const deterministicPadding = (size: number): Buffer => Buffer.alloc(size, 0xa5)
 
@@ -60,6 +64,30 @@ function createSHA196ProtectionPair(encryptThenMac: boolean) {
             blockSize: AES128CTR.block_size,
             macLength: MAC.digest_length,
             encryptThenMac,
+        },
+    }
+}
+
+function createMD5ProtectionPair(
+    MAC: typeof HMACMD5 | typeof HMACMD596 | typeof HMACMD5ETM | typeof HMACMD596ETM,
+) {
+    const key = Buffer.from("00112233445566778899aabbccddeeff", "hex")
+    const iv = Buffer.from("ffeeddccbbaa99887766554433221100", "hex")
+    const macKey = Buffer.alloc(MAC.key_length, 0x42)
+    return {
+        outbound: {
+            cipher: new AES128CTR(key, iv),
+            mac: new MAC(macKey),
+            blockSize: AES128CTR.block_size,
+            macLength: MAC.digest_length,
+            encryptThenMac: MAC.encrypt_then_mac,
+        },
+        inbound: {
+            cipher: new AES128CTR(key, iv),
+            mac: new MAC(macKey),
+            blockSize: AES128CTR.block_size,
+            macLength: MAC.digest_length,
+            encryptThenMac: MAC.encrypt_then_mac,
         },
     }
 }
@@ -121,6 +149,29 @@ describe("BinaryPacket", () => {
             modified[modified.length - 1] ^= 0x01
             const rejectingDecoder = new BinaryPacketDecoder()
             rejectingDecoder.setProtection(createSHA196ProtectionPair(encryptThenMac).inbound)
+            rejectingDecoder.push(modified)
+            expect(() => rejectingDecoder.read()).toThrow("MAC verification failed")
+        },
+    )
+
+    test.each([HMACMD5, HMACMD596, HMACMD5ETM, HMACMD596ETM])(
+        "authenticates and rejects tampering with %s packets",
+        (MAC) => {
+            const payload = Buffer.from("5e00000007000000046d643521", "hex")
+            const encoder = new BinaryPacketEncoder({ randomBytes: deterministicPadding })
+            encoder.setProtection(createMD5ProtectionPair(MAC).outbound)
+            const encoded = encoder.encode(payload).data
+            expect(encoded.subarray(-MAC.digest_length)).toHaveLength(MAC.digest_length)
+
+            const decoder = new BinaryPacketDecoder()
+            decoder.setProtection(createMD5ProtectionPair(MAC).inbound)
+            decoder.push(encoded)
+            expect(decoder.read()?.payload).toEqual(payload)
+
+            const modified = Buffer.from(encoded)
+            modified[modified.length - 1] ^= 0x01
+            const rejectingDecoder = new BinaryPacketDecoder()
+            rejectingDecoder.setProtection(createMD5ProtectionPair(MAC).inbound)
             rejectingDecoder.push(modified)
             expect(() => rejectingDecoder.read()).toThrow("MAC verification failed")
         },

@@ -104,6 +104,12 @@ RFC 4253's `hmac-sha1-96` uses a 20-byte key and the first 12 bytes of the HMAC-
 Both are ordered after SHA-2 and full-length alternatives and should be enabled only for legacy
 compatibility.
 
+RFC 4253's optional `hmac-md5` and `hmac-md5-96` methods use a 16-byte key and produce either the
+full 16-byte HMAC-MD5 result or its first 12 bytes. The deployed
+`hmac-md5-etm@openssh.com` and `hmac-md5-96-etm@openssh.com` variants apply those tags to the
+encrypt-then-MAC layout. All four appear last in the MAC preference list and exist only for explicit
+interoperability with legacy peers; new deployments should not select them.
+
 The `aes128-gcm@openssh.com` and `aes256-gcm@openssh.com` AEAD ciphers use the RFC 5647 AES-GCM
 packet construction. The four-byte packet length is clear authenticated data; the padding length,
 payload, and random padding are encrypted; and the complete 16-byte authentication tag terminates

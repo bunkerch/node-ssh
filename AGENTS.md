@@ -174,6 +174,10 @@ meaningful wire-level behavior.
   truncates it to the first 12 bytes. Its ETM form authenticates the clear length plus ciphertext
   and verifies before decryption. Keep both behind stronger choices and validate them with RFC 2202
   bytes plus OpenSSH in both peer roles across rekey.
+- RFC 4253 HMAC-MD5 uses a 16-byte key and either its full 16-byte digest or the first 12 bytes for
+  the `-96` method. Apply the same truncation only after computing the complete digest in ETM mode,
+  keep every MD5 method last for explicit legacy compatibility, and validate RFC 2202 bytes plus
+  OpenSSH in both peer roles across rekey.
 - RFC 5647 AES-GCM leaves the four-byte packet length clear as authenticated data, encrypts the
   block-aligned body, appends the full 16-byte tag, and uses no separate MAC key. Treat the IV's
   trailing eight bytes as a per-packet invocation counter, never permit it to wrap, and validate

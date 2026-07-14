@@ -1,6 +1,10 @@
 import HMACSHA2512 from "../../src/algorithms/mac/hmac-sha2-512.js"
 import HMACSHA196 from "../../src/algorithms/mac/hmac-sha1-96.js"
 import HMACSHA196ETM from "../../src/algorithms/mac/hmac-sha1-96-etm.js"
+import HMACMD5 from "../../src/algorithms/mac/hmac-md5.js"
+import HMACMD596 from "../../src/algorithms/mac/hmac-md5-96.js"
+import HMACMD5ETM from "../../src/algorithms/mac/hmac-md5-etm.js"
+import HMACMD596ETM from "../../src/algorithms/mac/hmac-md5-96-etm.js"
 
 describe("SSH MAC algorithms", () => {
     test("hmac-sha2-512 matches the RFC 4231 test case", () => {
@@ -24,5 +28,18 @@ describe("SSH MAC algorithms", () => {
         expect(HMACSHA196.digest_length).toBe(12)
         expect(HMACSHA196ETM.digest_length).toBe(12)
         expect(HMACSHA196ETM.encrypt_then_mac).toBe(true)
+    })
+
+    test("hmac-md5 and hmac-md5-96 match the RFC 2202 vector", () => {
+        const key = Buffer.alloc(16, 0x0b)
+        const expected = Buffer.from("9294727a3638bb1c13f48ef8158bfc9d", "hex")
+
+        // uint32(sequence_number) || packet forms RFC 2202's fixed message "Hi There".
+        expect(new HMACMD5(key).computeMAC(0x4869_2054, Buffer.from("here"))).toEqual(expected)
+        expect(new HMACMD596(key).computeMAC(0x4869_2054, Buffer.from("here"))).toEqual(
+            expected.subarray(0, 12),
+        )
+        expect(HMACMD5ETM.encrypt_then_mac).toBe(true)
+        expect(HMACMD596ETM.encrypt_then_mac).toBe(true)
     })
 })

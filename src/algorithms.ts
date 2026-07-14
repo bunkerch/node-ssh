@@ -38,6 +38,10 @@ import HMACSHA2512ETM from "./algorithms/mac/hmac-sha2-512-etm.js"
 import HMACSHA1ETM from "./algorithms/mac/hmac-sha1-etm.js"
 import HMACSHA196 from "./algorithms/mac/hmac-sha1-96.js"
 import HMACSHA196ETM from "./algorithms/mac/hmac-sha1-96-etm.js"
+import HMACMD5 from "./algorithms/mac/hmac-md5.js"
+import HMACMD596 from "./algorithms/mac/hmac-md5-96.js"
+import HMACMD5ETM from "./algorithms/mac/hmac-md5-etm.js"
+import HMACMD596ETM from "./algorithms/mac/hmac-md5-96-etm.js"
 
 import Client from "./Client.js"
 import ServerClient from "./ServerClient.js"
@@ -208,6 +212,10 @@ export const mac_algorithms = new Map<string, typeof MACAlgorithm>([
     ["hmac-sha2-512", HMACSHA2512],
     ["hmac-sha1", HMACSHA1],
     ["hmac-sha1-96", HMACSHA196],
+    ["hmac-md5-etm@openssh.com", HMACMD5ETM],
+    ["hmac-md5-96-etm@openssh.com", HMACMD596ETM],
+    ["hmac-md5", HMACMD5],
+    ["hmac-md5-96", HMACMD596],
 ])
 
 export interface CompressionAlgorithm {

@@ -167,6 +167,11 @@ Truncated HMAC-SHA1 interoperability forces both RFC 4253 `hmac-sha1-96` and the
 rekeys and executes a command, while fixed RFC 2202 bytes independently verify that the tag is the
 first 12 bytes of the complete HMAC-SHA1 result.
 
+Legacy HMAC-MD5 interoperability similarly forces the full and 96-bit RFC 4253 methods and both
+deployed encrypt-then-MAC forms with AES-128-CTR. OpenSSH and the modern client each transfer data
+and rekey for every name in both peer roles. An RFC 2202 vector independently verifies the full
+digest and first-12-byte truncation; these methods remain last and are not recommended for new use.
+
 Delayed-compression interoperability runs in both peer roles. OpenSSH and the modern client each
 force `zlib@openssh.com`, transfer repeated multi-packet data in both directions, and rekey while the
 compression streams are active. Handshake details confirm the selected method before traffic is
