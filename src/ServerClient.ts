@@ -13,6 +13,8 @@ import Server, {
     ServerHookerPublicKeyAuthenticationController,
     ServerHookerHostbasedAuthenticationContext,
     ServerHookerHostbasedAuthenticationController,
+    ServerHookerGSSAPIAuthenticationContext,
+    ServerHookerGSSAPIAuthenticationController,
     ServerHookerGlobalRequestContext,
     ServerHookerGlobalRequestController,
     ServerHookerStreamLocalForwardContext,
@@ -127,6 +129,23 @@ import UserAuthInfoResponse from "./packets/UserAuthInfoResponse.js"
 import UserAuthPasswordChangeRequest from "./packets/UserAuthPasswordChangeRequest.js"
 import UserAuthBanner from "./packets/UserAuthBanner.js"
 import { createHostKeysProofMessage } from "./utils/HostKeysProof.js"
+import GSSAPIWithMICAuthMethod from "./auth/gssapi-with-mic.js"
+import {
+    buildGSSAPIUserAuthMIC,
+    closeGSSAPIContext,
+    GSSAPIError,
+    normalizeGSSAPIContextStep,
+    type GSSAPIServerContext,
+} from "./GSSAPI.js"
+import {
+    UserAuthGSSAPIError,
+    UserAuthGSSAPIErrorToken,
+    UserAuthGSSAPIExchangeComplete,
+    UserAuthGSSAPIMIC,
+    UserAuthGSSAPIResponse,
+    UserAuthGSSAPIToken,
+} from "./packets/UserAuthGSSAPI.js"
+import PacketEventQueue from "./utils/PacketEventQueue.js"
 
 interface RemoteForwardListener {
     server: net.Server
@@ -140,6 +159,13 @@ interface PendingGlobalRequest {
     name: string
     resolve: (response: Buffer) => void
     reject: (error: Error) => void
+}
+
+interface GSSAPIAuthenticationResult {
+    allowLogin: boolean
+    continuation?: ServerHookerGSSAPIAuthenticationController
+    pendingRequest?: UserAuthRequest
+    abandoned?: boolean
 }
 
 export interface ServerClientEvents {
@@ -304,6 +330,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     private noMoreSessionsRequested = false
     private authenticationExpired = false
     private authenticationInProgress = false
+    private activeAuthenticationMethod?: string
     private readonly pendingGlobalRequests: PendingGlobalRequest[] = []
     private keepaliveTimer?: ReturnType<typeof setTimeout>
     private rekeyTimer?: ReturnType<typeof setTimeout>
@@ -1360,6 +1387,12 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         if (this.server.hooker.hasHooks("keyboardInteractiveAuthentication")) {
             authenticationMethods.push(SSHAuthenticationMethods.KeyboardInteractive)
         }
+        if (
+            this.server.options.gssapi.length > 0 &&
+            this.server.hooker.hasHooks("gssapiAuthentication")
+        ) {
+            authenticationMethods.push(SSHAuthenticationMethods.GSSAPIWithMIC)
+        }
         const userAuthFailure = new UserAuthFailure({
             auth_methods: authenticationMethods,
             partial_success: false,
@@ -1690,6 +1723,21 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                         }
                         break
                     }
+                    case SSHAuthenticationMethods.GSSAPIWithMIC: {
+                        const result = await this.performGSSAPIAuthentication(authRequest)
+                        this.assertAuthenticationActive()
+                        if (result.pendingRequest) pendingAuthRequest = result.pendingRequest
+                        if (result.abandoned) break
+                        if (result.allowLogin) {
+                            allowLogin = true
+                            break authentication
+                        }
+                        sendAuthenticationFailure(
+                            result.continuation,
+                            SSHAuthenticationMethods.GSSAPIWithMIC,
+                        )
+                        break
+                    }
                     default:
                         sendAuthenticationFailure()
                 }
@@ -1710,6 +1758,155 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 DisconnectReason.SSH_DISCONNECT_NO_MORE_AUTH_METHODS_AVAILABLE,
                 "No auth methods were successful.",
             )
+        }
+    }
+
+    private async performGSSAPIAuthentication(
+        authRequest: UserAuthRequest,
+    ): Promise<GSSAPIAuthenticationResult> {
+        const method = authRequest.data.method
+        assert(method instanceof GSSAPIWithMICAuthMethod)
+        const mechanism = method.data.mechanismOIDs
+            .map((oid) => this.server.options.gssapi.find((candidate) => candidate.oid.equals(oid)))
+            .find((candidate) => candidate !== undefined)
+        if (!mechanism) return { allowLogin: false }
+
+        const packets = new PacketEventQueue(
+            this,
+            () => new Error("SSH connection closed during GSS-API authentication"),
+        )
+        let context: GSSAPIServerContext | undefined
+        this.sendPacket(new UserAuthGSSAPIResponse(mechanism.oid))
+
+        try {
+            context = await mechanism.createContext(
+                Object.freeze({
+                    username: authRequest.data.username,
+                    service: authRequest.data.service_name,
+                    remoteAddress: this.socket.remoteAddress,
+                    remotePort: this.socket.remotePort,
+                }),
+            )
+            assertServerGSSAPIContext(context)
+            while (true) {
+                const packet = await waitForQueuedHigherLayerPacket(packets)
+                if (packet instanceof UserAuthRequest) {
+                    return { allowLogin: false, abandoned: true, pendingRequest: packet }
+                }
+                if (packet instanceof UserAuthGSSAPIErrorToken) {
+                    try {
+                        await context.step(packet.token)
+                    } catch (error) {
+                        this.debug("GSS-API mechanism rejected the client error token:", error)
+                    }
+                    const next = await waitForQueuedHigherLayerPacket(packets)
+                    if (!(next instanceof UserAuthRequest)) {
+                        throw new ProtocolError(
+                            "GSS-API client error token was not followed by a new authentication request",
+                        )
+                    }
+                    return { allowLogin: false, abandoned: true, pendingRequest: next }
+                }
+                if (
+                    packet instanceof UserAuthGSSAPIMIC ||
+                    packet instanceof UserAuthGSSAPIExchangeComplete
+                ) {
+                    return { allowLogin: false }
+                }
+                if (!(packet instanceof UserAuthGSSAPIToken)) {
+                    throw new ProtocolError(
+                        "Expected a GSS-API context token before context completion",
+                    )
+                }
+
+                const step = normalizeGSSAPIContextStep(await context.step(packet.token))
+                if (step.token) this.sendPacket(new UserAuthGSSAPIToken(step.token))
+                if (!step.complete) continue
+                const integrity = step.integrity!
+
+                const acknowledgement = await waitForQueuedHigherLayerPacket(packets)
+                if (acknowledgement instanceof UserAuthRequest) {
+                    return {
+                        allowLogin: false,
+                        abandoned: true,
+                        pendingRequest: acknowledgement,
+                    }
+                }
+                if (acknowledgement instanceof UserAuthGSSAPIErrorToken) {
+                    try {
+                        await context.step(acknowledgement.token)
+                    } catch (error) {
+                        this.debug("GSS-API mechanism rejected the client error token:", error)
+                    }
+                    const next = await waitForQueuedHigherLayerPacket(packets)
+                    if (!(next instanceof UserAuthRequest)) {
+                        throw new ProtocolError(
+                            "GSS-API client error token was not followed by a new authentication request",
+                        )
+                    }
+                    return { allowLogin: false, abandoned: true, pendingRequest: next }
+                }
+                if (integrity) {
+                    if (!(acknowledgement instanceof UserAuthGSSAPIMIC)) {
+                        return { allowLogin: false }
+                    }
+                    assert(this.sessionID, "SSH session identifier is unavailable")
+                    const micInput = buildGSSAPIUserAuthMIC(
+                        this.sessionID,
+                        authRequest.data.username,
+                        authRequest.data.service_name,
+                    )
+                    if (!(await context.verifyMIC(micInput, acknowledgement.mic))) {
+                        return { allowLogin: false }
+                    }
+                } else if (!(acknowledgement instanceof UserAuthGSSAPIExchangeComplete)) {
+                    return { allowLogin: false }
+                }
+
+                const policyContext: ServerHookerGSSAPIAuthenticationContext = Object.freeze({
+                    username: authRequest.data.username,
+                    service: authRequest.data.service_name,
+                    mechanismOID: Buffer.from(mechanism.oid),
+                    integrity,
+                    peerIdentity: step.peerIdentity,
+                    delegatedCredentials: step.delegatedCredentials,
+                })
+                const controller: ServerHookerGSSAPIAuthenticationController = {
+                    allowLogin: false,
+                }
+                await this.server.hooker.triggerHook(
+                    "gssapiAuthentication",
+                    policyContext,
+                    controller,
+                    this,
+                )
+                return { allowLogin: controller.allowLogin, continuation: controller }
+            }
+        } catch (error) {
+            if (error instanceof ProtocolError) throw error
+            if (error instanceof GSSAPIError) {
+                this.sendPacket(
+                    new UserAuthGSSAPIError({
+                        majorStatus: error.majorStatus,
+                        minorStatus: error.minorStatus,
+                        message: error.message,
+                        languageTag: error.languageTag,
+                    }),
+                )
+                if (error.token) this.sendPacket(new UserAuthGSSAPIErrorToken(error.token))
+            } else {
+                this.debug("GSS-API authentication mechanism failed:", error)
+            }
+            return { allowLogin: false }
+        } finally {
+            packets.close()
+            if (context) {
+                try {
+                    await closeGSSAPIContext(context)
+                } catch (error) {
+                    this.debug("Could not close the GSS-API server context:", error)
+                }
+            }
         }
     }
 
@@ -1924,9 +2121,15 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 : packetType === PacketNameToType.SSH_MSG_KEXDH_INIT &&
                     this.kexAlgorithm instanceof DiffieHellmanGroupExchange
                   ? KexDHGexRequestOld
-                  : packets[packetName as keyof typeof packets]
+                  : packetType === PacketNameToType.SSH_MSG_USERAUTH_INFO_RESPONSE &&
+                      this.activeAuthenticationMethod === SSHAuthenticationMethods.GSSAPIWithMIC
+                    ? UserAuthGSSAPIToken
+                    : packets[packetName as keyof typeof packets]
 
         const p = packet.parse(payload)
+        if (p instanceof UserAuthRequest) {
+            this.activeAuthenticationMethod = p.data.method.method_name
+        }
         if (p instanceof KexInit) this.#clientKexInitPayload = Buffer.from(payload)
         if (p instanceof KexInit) this.peerKexInitReceived = true
         if (packetType === PacketNameToType.SSH_MSG_KEXINIT && this.strictInitialExchange) {
@@ -2260,7 +2463,13 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             }
             if (
                 packetType !== PacketNameToType.SSH_MSG_USERAUTH_REQUEST &&
-                packetType !== PacketNameToType.SSH_MSG_USERAUTH_INFO_RESPONSE
+                packetType !== PacketNameToType.SSH_MSG_USERAUTH_INFO_RESPONSE &&
+                !(
+                    this.activeAuthenticationMethod === SSHAuthenticationMethods.GSSAPIWithMIC &&
+                    (packetType === PacketNameToType.SSH_MSG_USERAUTH_GSSAPI_EXCHANGE_COMPLETE ||
+                        packetType === PacketNameToType.SSH_MSG_USERAUTH_GSSAPI_ERRTOK ||
+                        packetType === PacketNameToType.SSH_MSG_USERAUTH_GSSAPI_MIC)
+                )
             ) {
                 throw new DisconnectError(
                     DisconnectReason.SSH_DISCONNECT_PROTOCOL_ERROR,
@@ -2413,6 +2622,16 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 responses: "<redacted>",
             }
         }
+        if (
+            packet instanceof UserAuthGSSAPIToken ||
+            packet instanceof UserAuthGSSAPIErrorToken ||
+            packet instanceof UserAuthGSSAPIMIC
+        ) {
+            return {
+                type: packet.constructor.name,
+                token: "<redacted>",
+            }
+        }
         return packet
     }
 
@@ -2431,5 +2650,31 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             .catch((error: Error) => {
                 this.handleMessageError(error)
             })
+    }
+}
+
+function assertServerGSSAPIContext(context: unknown): asserts context is GSSAPIServerContext {
+    if (
+        typeof context !== "object" ||
+        context === null ||
+        typeof (context as { step?: unknown }).step !== "function" ||
+        typeof (context as { verifyMIC?: unknown }).verifyMIC !== "function"
+    ) {
+        throw new TypeError("Invalid SSH server GSS-API context")
+    }
+}
+
+async function waitForQueuedHigherLayerPacket(packets: PacketEventQueue): Promise<Packet> {
+    while (true) {
+        const packet = await packets.next()
+        const type = (packet.constructor as typeof Packet).type
+        if (
+            type <= PacketNameToType.SSH_MSG_DEBUG ||
+            type === PacketNameToType.SSH_MSG_EXT_INFO ||
+            (type >= PacketNameToType.SSH_MSG_KEXINIT && type < 50)
+        ) {
+            continue
+        }
+        return packet
     }
 }

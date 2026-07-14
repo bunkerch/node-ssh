@@ -113,6 +113,12 @@ import UserAuthPKOK from "./packets/UserAuthPKOK.js"
 import UserAuthPasswordChangeRequest from "./packets/UserAuthPasswordChangeRequest.js"
 import UserAuthInfoRequest, { UserAuthPrompt } from "./packets/UserAuthInfoRequest.js"
 import UserAuthInfoResponse from "./packets/UserAuthInfoResponse.js"
+import {
+    UserAuthGSSAPIErrorToken,
+    UserAuthGSSAPIMIC,
+    UserAuthGSSAPIResponse,
+    UserAuthGSSAPIToken,
+} from "./packets/UserAuthGSSAPI.js"
 import SFTPClient from "./sftp/SFTPClient.js"
 import {
     resolveClientAlgorithmOptions,
@@ -127,6 +133,8 @@ import PrivateKeyAgent from "./publickey/PrivateKeyAgent.js"
 import SSHAgent from "./publickey/SSHAgent.js"
 import { parseKey } from "./KeyParsing.js"
 import { encodeSSHUTF8 } from "./utils/SSHText.js"
+import { normalizeGSSAPIClientMechanisms, type GSSAPIClientMechanism } from "./GSSAPI.js"
+import type { UserAuthGSSAPIErrorData } from "./packets/UserAuthGSSAPI.js"
 import {
     DEFAULT_REKEY_BYTES,
     DEFAULT_REKEY_INTERVAL,
@@ -176,6 +184,10 @@ export interface ClientOptions {
     passphrase?: string | Buffer
     /** RFC 4252 host-based authentication identity. */
     hostbased?: ClientHostbasedOptions
+    /** RFC 4462 GSS-API mechanisms, in preference order. */
+    gssapi?: readonly GSSAPIClientMechanism[]
+    /** Request credential delegation during RFC 4462 context establishment. */
+    gssapiDelegateCredentials?: boolean
     protocolVersionExchange?: ProtocolVersionExchange
     serverClient?: boolean
     authenticationMethodsOrder?: SSHAuthenticationMethods[]
@@ -218,6 +230,7 @@ export interface ClientOptionsRequired
     hostHash?: string
     hostVerifier?: ClientHostVerifier
     hostbased?: ClientHostbasedOptions
+    gssapi: readonly GSSAPIClientMechanism[]
     ident?: string | Buffer
     algorithms?: ClientAlgorithmOptions
     privateKey?: PrivateKey | string | Buffer
@@ -257,6 +270,8 @@ export interface ClientEvents {
     /** Complete server pre-identification greeting, including its line endings. */
     greeting: [greeting: string]
     banner: [message: string, languageTag: string]
+    /** Diagnostic status sent by the server during RFC 4462 context establishment. */
+    gssapiError: [error: Readonly<UserAuthGSSAPIErrorData>]
     /** Complete replacement set from the latest valid server EXT_INFO message. */
     serverExtensions: [extensions: readonly Readonly<SSHExtension>[]]
     "tcp connection": [
@@ -406,6 +421,8 @@ export default class Client extends EventEmitter<ClientEvents> {
             throw new TypeError("SSH debug option must be a function")
         }
         this.options.agentForward ??= false
+        this.options.gssapi = normalizeGSSAPIClientMechanisms(this.options.gssapi ?? [])
+        this.options.gssapiDelegateCredentials ??= false
         if (typeof this.options.agent === "string") {
             this.options.agent = new SSHAgent(this.options.agent)
         }
@@ -462,6 +479,7 @@ export default class Client extends EventEmitter<ClientEvents> {
                 : ProtocolVersionExchange.fromIdent(this.options.ident)
         this.options.authenticationMethodsOrder ??= [
             SSHAuthenticationMethods.None,
+            ...(this.options.gssapi.length > 0 ? [SSHAuthenticationMethods.GSSAPIWithMIC] : []),
             SSHAuthenticationMethods.PublicKey,
             SSHAuthenticationMethods.Password,
             SSHAuthenticationMethods.Hostbased,
@@ -525,6 +543,7 @@ export default class Client extends EventEmitter<ClientEvents> {
                 certificate: undefined,
                 passphrase: undefined,
                 agent: this.options.agent.constructor.name,
+                gssapi: `${this.options.gssapi.length} configured mechanism(s)`,
                 debug: this.options.debug ? "<configured>" : undefined,
             })
         })
@@ -1959,6 +1978,9 @@ export default class Client extends EventEmitter<ClientEvents> {
             packet = KexDHGexGroup
         } else if (packetType === PacketNameToType.SSH_MSG_USERAUTH_PK_OK) {
             switch (this.activeAuthenticationMethod) {
+                case SSHAuthenticationMethods.GSSAPIWithMIC:
+                    packet = UserAuthGSSAPIResponse
+                    break
                 case SSHAuthenticationMethods.Password:
                     packet = UserAuthPasswordChangeRequest
                     break
@@ -1968,6 +1990,11 @@ export default class Client extends EventEmitter<ClientEvents> {
                 default:
                     packet = UserAuthPKOK
             }
+        } else if (
+            packetType === PacketNameToType.SSH_MSG_USERAUTH_INFO_RESPONSE &&
+            this.activeAuthenticationMethod === SSHAuthenticationMethods.GSSAPIWithMIC
+        ) {
+            packet = UserAuthGSSAPIToken
         } else {
             packet = packets[packetName as keyof typeof packets]
         }
@@ -2262,7 +2289,13 @@ export default class Client extends EventEmitter<ClientEvents> {
                 packetType !== PacketNameToType.SSH_MSG_USERAUTH_FAILURE &&
                 packetType !== PacketNameToType.SSH_MSG_USERAUTH_SUCCESS &&
                 packetType !== PacketNameToType.SSH_MSG_USERAUTH_BANNER &&
-                packetType !== PacketNameToType.SSH_MSG_USERAUTH_PK_OK
+                packetType !== PacketNameToType.SSH_MSG_USERAUTH_PK_OK &&
+                !(
+                    this.activeAuthenticationMethod === SSHAuthenticationMethods.GSSAPIWithMIC &&
+                    (packetType === PacketNameToType.SSH_MSG_USERAUTH_INFO_RESPONSE ||
+                        packetType === PacketNameToType.SSH_MSG_USERAUTH_GSSAPI_ERROR ||
+                        packetType === PacketNameToType.SSH_MSG_USERAUTH_GSSAPI_ERRTOK)
+                )
             ) {
                 throw new DisconnectError(
                     DisconnectReason.SSH_DISCONNECT_PROTOCOL_ERROR,
@@ -2315,6 +2348,16 @@ export default class Client extends EventEmitter<ClientEvents> {
                 type: "SSH_MSG_USERAUTH_INFO_RESPONSE",
                 responseCount: packet.data.responses.length,
                 responses: "<redacted>",
+            }
+        }
+        if (
+            packet instanceof UserAuthGSSAPIToken ||
+            packet instanceof UserAuthGSSAPIErrorToken ||
+            packet instanceof UserAuthGSSAPIMIC
+        ) {
+            return {
+                type: packet.constructor.name,
+                token: "<redacted>",
             }
         }
         return packet

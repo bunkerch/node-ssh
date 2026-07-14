@@ -151,6 +151,16 @@ meaningful wire-level behavior.
   unconfigured, already-failed, or unadvertised choice. Keep at most one keyboard-interactive
   request outstanding, and test prompts, banners, and password changes with fixed vectors plus
   OpenSSH.
+- RFC 4462 `gssapi-with-mic` is a mechanism-neutral Promise API. Validate complete canonical DER
+  mechanism OIDs, select the first client-preferred supported mechanism, preserve every adjacent
+  context packet with a scoped async queue, and send any final output token before the MIC or
+  exchange-complete acknowledgement. Build the MIC over the exact session identifier, username,
+  service, and method fields; require verified MIC integrity when available and the explicit
+  exchange-complete message otherwise. A premature MIC or completion fails authentication. A new
+  user-auth request abandons the context, while an error token must be followed by that new request.
+  Await application authorization only after context completion and MIC verification, expose
+  delegated credentials only to that policy, and close contexts on success, rejection,
+  abandonment, mechanism failure, and transport failure.
 - Authentication reply envelopes validate algorithm fields as SSH names and snapshot caller-owned
   metadata. Preserve advertised failure method order and repetitions exactly so multi-step method
   selection follows the peer's wire message.

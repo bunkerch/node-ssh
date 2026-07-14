@@ -1,6 +1,6 @@
 import assert from "assert"
 import { PacketNameToType } from "../constants.js"
-import Packet from "../packet.js"
+import type Packet from "../packet.js"
 import { readNextUint8, serializeUint8 } from "../utils/Buffer.js"
 
 export type UserAuthSuccessData = Record<never, never>

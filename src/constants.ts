@@ -34,6 +34,10 @@ export const PacketNameToType = {
     // not my fault
     SSH_MSG_USERAUTH_PK_OK: 60,
     SSH_MSG_USERAUTH_INFO_RESPONSE: 61,
+    SSH_MSG_USERAUTH_GSSAPI_EXCHANGE_COMPLETE: 63,
+    SSH_MSG_USERAUTH_GSSAPI_ERROR: 64,
+    SSH_MSG_USERAUTH_GSSAPI_ERRTOK: 65,
+    SSH_MSG_USERAUTH_GSSAPI_MIC: 66,
 
     SSH_MSG_GLOBAL_REQUEST: 80,
     SSH_MSG_REQUEST_SUCCESS: 81,
@@ -75,6 +79,7 @@ export enum SSHAuthenticationMethods {
     Hostbased = "hostbased",
     Password = "password",
     KeyboardInteractive = "keyboard-interactive",
+    GSSAPIWithMIC = "gssapi-with-mic",
     HostboundPublicKey = "publickey-hostbound-v00@openssh.com",
 }
 

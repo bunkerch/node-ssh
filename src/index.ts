@@ -26,6 +26,24 @@ export type {
     ClientSessionOptions,
 } from "./Client.js"
 export {
+    buildGSSAPIUserAuthMIC,
+    GSSAPIError,
+    GSSAPI_WITH_MIC,
+    KERBEROS_V5_GSSAPI_OID,
+    normalizeGSSAPIOID,
+} from "./GSSAPI.js"
+export type {
+    GSSAPIClientContext,
+    GSSAPIClientContextOptions,
+    GSSAPIClientMechanism,
+    GSSAPIContextStep,
+    GSSAPIErrorOptions,
+    GSSAPIServerContext,
+    GSSAPIServerContextOptions,
+    GSSAPIServerMechanism,
+} from "./GSSAPI.js"
+export type { UserAuthGSSAPIErrorData as GSSAPIErrorStatus } from "./packets/UserAuthGSSAPI.js"
+export {
     default as SFTPClient,
     flagsToString,
     OPEN_MODE,
@@ -104,6 +122,8 @@ export type {
     ServerHookerChannelRequestController,
     ServerHookerGlobalRequestContext,
     ServerHookerGlobalRequestController,
+    ServerHookerGSSAPIAuthenticationContext,
+    ServerHookerGSSAPIAuthenticationController,
     ServerHookerNoneAuthenticationContext,
     ServerHookerNoneAuthenticationController,
     ServerHookerKeyboardInteractiveAuthenticationContext,

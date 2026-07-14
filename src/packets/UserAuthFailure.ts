@@ -1,6 +1,6 @@
 import assert from "assert"
 import { SSHAuthenticationMethods, PacketNameToType } from "../constants.js"
-import Packet from "../packet.js"
+import type Packet from "../packet.js"
 import { readNextBinaryBoolean, readNextUint8, serializeUint8 } from "../utils/Buffer.js"
 import { readNextNameList, serializeNameList } from "../utils/NameList.js"
 import { serializeBinaryBoolean } from "../utils/BinaryBoolean.js"

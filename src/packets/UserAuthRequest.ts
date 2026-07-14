@@ -1,6 +1,6 @@
 import assert from "assert"
 import { PacketNameToType } from "../constants.js"
-import Packet from "../packet.js"
+import type Packet from "../packet.js"
 import { readNextBuffer, readNextUint8, serializeBuffer, serializeUint8 } from "../utils/Buffer.js"
 import NoneAuthMethod from "../auth/none.js"
 import PasswordAuthMethod from "../auth/password.js"
@@ -10,6 +10,7 @@ import type ServerClient from "../ServerClient.js"
 import KeyboardInteractiveAuthMethod from "../auth/keyboard-interactive.js"
 import AuthMethod from "../auth/AuthMethod.js"
 import HostbasedAuthMethod from "../auth/hostbased.js"
+import GSSAPIWithMICAuthMethod from "../auth/gssapi-with-mic.js"
 import type { AuthMethodClass } from "../auth/AuthMethod.js"
 import { decodeSSHUTF8, encodeSSHUTF8 } from "../utils/SSHText.js"
 import { decodeSSHName, encodeSSHName } from "../utils/SSHName.js"
@@ -49,6 +50,7 @@ export default class UserAuthRequest implements Packet {
             HostbasedAuthMethod,
             PasswordAuthMethod,
             KeyboardInteractiveAuthMethod,
+            GSSAPIWithMICAuthMethod,
         ].map((method) => [method.method_name, method]),
     )
 

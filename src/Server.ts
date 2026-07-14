@@ -33,6 +33,7 @@ import {
     validateRekeyBytes,
     validateRekeyInterval,
 } from "./RekeyLimits.js"
+import { normalizeGSSAPIServerMechanisms, type GSSAPIServerMechanism } from "./GSSAPI.js"
 
 export interface ServerOptions {
     protocolVersionExchange?: ProtocolVersionExchange
@@ -67,6 +68,8 @@ export interface ServerOptions {
     rekeyBytes?: number
     /** Milliseconds a transport key may remain active. Zero disables this limit. */
     rekeyInterval?: number
+    /** RFC 4462 GSS-API mechanisms accepted by this server. */
+    gssapi?: readonly GSSAPIServerMechanism[]
     /** Receive the same diagnostic arguments as the `debug` event. */
     debug?: (...message: unknown[]) => void
 }
@@ -193,6 +196,18 @@ export interface ServerHookerKeyboardInteractiveAuthenticationController
     languageTag?: string
     prompts?: ServerKeyboardInteractivePrompt[]
 }
+export type ServerHookerGSSAPIAuthenticationContext = Readonly<{
+    username: string
+    service: string
+    mechanismOID: Buffer
+    integrity: boolean
+    peerIdentity?: unknown
+    delegatedCredentials?: unknown
+}>
+export interface ServerHookerGSSAPIAuthenticationController
+    extends ServerAuthenticationContinuation {
+    allowLogin: boolean
+}
 export interface ServerHookerChannelOpenRequestController {
     allowOpen: boolean
 }
@@ -251,6 +266,11 @@ export type ServerHooker = {
     keyboardInteractiveAuthentication: [
         keyboardInteractiveAuthenticationContext: ServerHookerKeyboardInteractiveAuthenticationContext,
         keyboardInteractiveAuthenticationController: ServerHookerKeyboardInteractiveAuthenticationController,
+        client: ServerClient,
+    ]
+    gssapiAuthentication: [
+        gssapiAuthenticationContext: ServerHookerGSSAPIAuthenticationContext,
+        gssapiAuthenticationController: ServerHookerGSSAPIAuthenticationController,
         client: ServerClient,
     ]
     channelOpenRequest: [
@@ -340,6 +360,7 @@ export default class Server extends EventEmitter<ServerEvents> {
         }
         this.options.hostCertificates = undefined
         this.options.sendAllHostKeys ??= true
+        this.options.gssapi = normalizeGSSAPIServerMechanisms(this.options.gssapi ?? [])
         this.options.banner ??= ""
         this.options.handshakeTimeout ??= 20_000
         this.options.authenticationTimeout ??= 600_000

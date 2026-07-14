@@ -35,6 +35,12 @@ import UserAuthRequest from "./packets/UserAuthRequest.js"
 import UserAuthSuccess from "./packets/UserAuthSuccess.js"
 import UserAuthBanner from "./packets/UserAuthBanner.js"
 import UserAuthInfoResponse from "./packets/UserAuthInfoResponse.js"
+import {
+    UserAuthGSSAPIError,
+    UserAuthGSSAPIErrorToken,
+    UserAuthGSSAPIExchangeComplete,
+    UserAuthGSSAPIMIC,
+} from "./packets/UserAuthGSSAPI.js"
 import { ValueOf } from "./utils/types.js"
 
 export default abstract class Packet {
@@ -89,6 +95,10 @@ export const packets = {
 
     SSH_MSG_USERAUTH_PK_OK: UserAuthPKOK,
     SSH_MSG_USERAUTH_INFO_RESPONSE: UserAuthInfoResponse,
+    SSH_MSG_USERAUTH_GSSAPI_EXCHANGE_COMPLETE: UserAuthGSSAPIExchangeComplete,
+    SSH_MSG_USERAUTH_GSSAPI_ERROR: UserAuthGSSAPIError,
+    SSH_MSG_USERAUTH_GSSAPI_ERRTOK: UserAuthGSSAPIErrorToken,
+    SSH_MSG_USERAUTH_GSSAPI_MIC: UserAuthGSSAPIMIC,
 
     SSH_MSG_GLOBAL_REQUEST: GlobalRequest,
     SSH_MSG_REQUEST_FAILURE: RequestFailure,

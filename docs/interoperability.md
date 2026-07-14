@@ -34,6 +34,14 @@ image makes the operating-system fixture reproducible, while installing the dist
 
 ## Deterministic protocol vectors
 
+RFC 4462 GSS-API authentication is covered by literal packet bytes for mechanism negotiation, every
+context-exchange message, canonical DER OID rejection, and the exact session-bound MIC input. An
+independent HMAC-backed test mechanism drives both library roles through multi-round context
+establishment, adjacent final-token/MIC delivery, integrity and no-integrity completion, mechanism
+status and error tokens, client abandonment followed by a fresh authentication request, context
+cleanup, and rejection of an invalid MIC before application policy. This validates the SSH state
+machine without claiming interoperability for any particular external GSS-API provider.
+
 Wire codecs are tested independently of OpenSSH with fixed byte strings derived from the protocol
 formats. The channel vector suites cover `direct-tcpip`, `forwarded-tcpip`, TCP forwarding global
 requests, all four OpenSSH stream-local forwarding messages, allocated-port responses, PTY and

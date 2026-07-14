@@ -1,10 +1,10 @@
 # User authentication
 
-`modernssh` implements the RFC 4252 `none`, public-key, host-based, and password methods plus RFC 4256
-`keyboard-interactive` authentication. The client uses the configured order, but only attempts
-methods that the server advertises. When a factor returns partial success, selection starts a new
-stage using the server's new continuation list; this supports multi-factor policies without
-hard-coding a particular sequence.
+`modernssh` implements the RFC 4252 `none`, public-key, host-based, and password methods, RFC 4256
+`keyboard-interactive` authentication, and RFC 4462 `gssapi-with-mic` authentication. The client
+uses the configured order, but only attempts methods that the server advertises. When a factor
+returns partial success, selection starts a new stage using the server's new continuation list;
+this supports multi-factor policies without hard-coding a particular sequence.
 
 Request usernames are strict UTF-8, while service and method identifiers use strict RFC 4250 SSH
 names. Constructors copy caller-owned envelope metadata, unknown-method payloads are copied as
@@ -130,6 +130,81 @@ client.hooker.hook("passwordChange", async (_hook, context, decision) => {
 
 Do not log prompt responses, passwords, or replacement passwords. Password and keyboard-interactive
 authentication should only be used over an authenticated, encrypted transport.
+
+### GSS-API authentication
+
+GSS-API support is mechanism-neutral. The library implements RFC 4462 negotiation, token exchange,
+status messages, context completion, and the session-bound MIC; an application supplies one or more
+mechanism adapters that perform the actual security-context operations. Each `oid` is the complete
+canonical ASN.1 DER object-identifier encoding. `KERBEROS_V5_GSSAPI_OID` is provided for Kerberos V5
+adapters.
+
+```ts
+import {
+    Client,
+    KERBEROS_V5_GSSAPI_OID,
+    SSHAuthenticationMethods,
+    type GSSAPIClientMechanism,
+} from "modernssh"
+
+const kerberosMechanism: GSSAPIClientMechanism = {
+    oid: KERBEROS_V5_GSSAPI_OID,
+    async createContext(options) {
+        const mechanismContext = await kerberosProvider.initiate({
+            target: `host@${options.hostname}`,
+            delegateCredentials: options.delegateCredentials,
+        })
+        return {
+            step: (inputToken) => mechanismContext.step(inputToken),
+            getMIC: (message) => mechanismContext.getMIC(message),
+            close: () => mechanismContext.close(),
+        }
+    },
+}
+
+const client = new Client({
+    hostname: "ssh.example.com",
+    username: "deploy",
+    gssapi: [kerberosMechanism],
+    gssapiDelegateCredentials: false,
+    authenticationMethodsOrder: [
+        SSHAuthenticationMethods.GSSAPIWithMIC,
+        SSHAuthenticationMethods.PublicKey,
+    ],
+})
+```
+
+`createContext`, `step`, `getMIC`, and `close` may return either direct values or promises. A
+completed `step` must state whether per-message integrity is available. When it is available, the
+client sends a MIC over the exact session identifier, username, service, and method fields. Without
+integrity, it sends the RFC exchange-complete message instead. Any final output token is always sent
+before that acknowledgement.
+
+Server adapters expose the authenticated mechanism identity and optional delegated credentials only
+after context establishment and MIC verification. Authorization remains an awaited, deny-by-default
+application decision:
+
+```ts
+const server = new Server({
+    hostKeys,
+    gssapi: [kerberosServerMechanism],
+})
+
+server.hooker.hook("gssapiAuthentication", async (_hook, context, decision) => {
+    decision.allowLogin = await authorizeIdentity({
+        username: context.username,
+        peerIdentity: context.peerIdentity,
+        delegatedCredentials: context.delegatedCredentials,
+        integrity: context.integrity,
+    })
+})
+```
+
+Credential delegation is disabled by default and should be enabled only when the remote host is
+trusted to act with the delegated identity. Mechanism contexts are closed after success, rejection,
+abandonment, or failure. Throw `GSSAPIError` from an adapter to attach RFC major/minor status and an
+optional mechanism error token. The client reports peer status through the synchronous
+`gssapiError` observation event; perform asynchronous follow-up outside the EventEmitter handler.
 
 RSA identities use RFC 8332 SHA-2 signatures by preference: `rsa-sha2-512`, then
 `rsa-sha2-256`. The public key blob remains in the `ssh-rsa` format. When a server supplies the RFC

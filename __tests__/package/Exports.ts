@@ -26,8 +26,10 @@ import {
     ForwardedX11Channel,
     generateKeyPair,
     generateKeyPairSync,
+    GSSAPIError,
     HTTPAgent,
     HTTPSAgent,
+    KERBEROS_V5_GSSAPI_OID,
     OnePasswordAgent,
     OPEN_MODE,
     parseKey,
@@ -92,8 +94,10 @@ describe("package exports", () => {
             ForwardedX11Channel,
             generateKeyPair,
             generateKeyPairSync,
+            GSSAPIError,
             HTTPAgent,
             HTTPSAgent,
+            KERBEROS_V5_GSSAPI_OID,
             OnePasswordAgent,
             parseKey,
             parseKeys,
@@ -109,9 +113,11 @@ describe("package exports", () => {
             SSHAgent,
             SSHHTTPAgent,
             SSHHTTPSAgent,
-        ]).toHaveLength(36)
+        ]).toHaveLength(38)
         expect(SSHAuthenticationMethods.PublicKey).toBe("publickey")
         expect(SSHAuthenticationMethods.KeyboardInteractive).toBe("keyboard-interactive")
+        expect(SSHAuthenticationMethods.GSSAPIWithMIC).toBe("gssapi-with-mic")
+        expect(KERBEROS_V5_GSSAPI_OID.toString("hex")).toBe("06092a864886f712010202")
         expect(TerminalMode.ECHO).toBe(53)
         expect(TerminalModes).toBe(TerminalMode)
         expect(encodeSFTPPacket).toBeFunction()
@@ -144,6 +150,8 @@ describe("package exports", () => {
         expect(entry.HTTPSAgent).toBe(entry.SSHHTTPSAgent)
         expect(entry.generateKeyPair).toBeFunction()
         expect(entry.generateKeyPairSync).toBeFunction()
+        expect(entry.GSSAPIError).toBeFunction()
+        expect(entry.KERBEROS_V5_GSSAPI_OID).toBeInstanceOf(Buffer)
         expect(entry.parseKeys).toBeFunction()
         expect(entry.DirectTCPIPChannel).toBeDefined()
         expect(entry.DirectStreamLocalChannel).toBeDefined()
