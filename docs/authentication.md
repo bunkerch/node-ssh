@@ -32,7 +32,7 @@ explicit `authenticationMethodsOrder` is a strict allow-list and is never broade
 resolved per-connection strategy does not mutate `client.options.authenticationMethodsOrder`.
 
 ```ts
-import { Client, SSHAuthenticationMethods } from "modernssh"
+import { Client, SSHAuthenticationMethods } from "@bunkerch/modernssh"
 
 const client = new Client({
     hostname: "ssh.example.com",
@@ -149,7 +149,7 @@ import {
     KERBEROS_V5_GSSAPI_OID,
     SSHAuthenticationMethods,
     type GSSAPIClientMechanism,
-} from "modernssh"
+} from "@bunkerch/modernssh"
 
 const kerberosMechanism: GSSAPIClientMechanism = {
     oid: KERBEROS_V5_GSSAPI_OID,
@@ -383,7 +383,7 @@ Set `banner` to send a login notice once after the user-authentication service s
 authentication succeeds.
 
 ```ts
-import { Server, SSHAuthenticationMethods } from "modernssh"
+import { Server, SSHAuthenticationMethods } from "@bunkerch/modernssh"
 
 const server = new Server({
     hostKeys,

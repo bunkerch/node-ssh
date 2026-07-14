@@ -7,7 +7,7 @@ before authentication begins.
 ```ts
 import { homedir } from "node:os"
 import { join } from "node:path"
-import { Client, KnownHosts } from "modernssh"
+import { Client, KnownHosts } from "@bunkerch/modernssh"
 
 const hostname = "ssh.example.com"
 const port = 22

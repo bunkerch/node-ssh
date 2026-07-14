@@ -33,7 +33,7 @@ later requests.
 import { once } from "node:events"
 import https from "node:https"
 import { finished } from "node:stream/promises"
-import { HTTPSAgent } from "modernssh"
+import { HTTPSAgent } from "@bunkerch/modernssh"
 
 const agent = new HTTPSAgent(
     {
@@ -67,7 +67,7 @@ avoid turning an SSH service into an unrestricted network proxy.
 
 ```ts
 import net from "node:net"
-import { DirectTCPIPChannel } from "modernssh"
+import { DirectTCPIPChannel } from "@bunkerch/modernssh"
 
 server.hooker.hook("channelOpenRequest", (_hook, channel, decision) => {
     decision.allowOpen =
@@ -251,7 +251,7 @@ are also denied by default. Inspect the exact destination before connecting it t
 
 ```ts
 import net from "node:net"
-import { DirectStreamLocalChannel } from "modernssh"
+import { DirectStreamLocalChannel } from "@bunkerch/modernssh"
 
 server.hooker.hook("channelOpenRequest", (_hook, channel, decision) => {
     decision.allowOpen =

@@ -10,7 +10,7 @@ operations and for deciding which authenticated peers may open a tunnel.
 Open a point-to-point (layer-3) channel and request automatic interface-unit selection:
 
 ```ts
-import { Client, TunnelMode } from "modernssh"
+import { Client, TunnelMode } from "@bunkerch/modernssh"
 
 const tunnel = await client.openssh_openTunnel(TunnelMode.PointToPoint)
 
@@ -34,7 +34,7 @@ Incoming tunnels use `TunnelChannel`. Authorize them with the server's awaited
 `channelOpenRequest` hook; they are denied unless the hook explicitly allows them.
 
 ```ts
-import { TunnelChannel, TunnelMode } from "modernssh"
+import { TunnelChannel, TunnelMode } from "@bunkerch/modernssh"
 
 server.hooker.hook("channelOpenRequest", async (_hook, channel, controller) => {
     if (channel instanceof TunnelChannel && channel.mode === TunnelMode.PointToPoint) {

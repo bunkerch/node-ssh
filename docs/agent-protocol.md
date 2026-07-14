@@ -14,7 +14,7 @@ otherwise be mistaken for the reply to a later request.
 ```ts
 import { createConnection } from "node:net"
 import { once } from "node:events"
-import { SSHAgentProtocolClient } from "modernssh"
+import { SSHAgentProtocolClient } from "@bunkerch/modernssh"
 
 const socket = createConnection(process.env.SSH_AUTH_SOCK!)
 await once(socket, "connect")
@@ -147,7 +147,7 @@ private scalar. Load one with its published provider constraint:
 
 ```ts
 import { readFile } from "node:fs/promises"
-import { PrivateKey } from "modernssh"
+import { PrivateKey } from "@bunkerch/modernssh"
 
 const privateKey = PrivateKey.fromString(await readFile("./id_ed25519_sk", "utf8"))
 await agent.addIdentity(privateKey, {
@@ -181,7 +181,7 @@ have been written and answered. This does not clear buffers retained by the call
 Every security-sensitive decision is denied unless its hook explicitly supplies a valid result.
 
 ```ts
-import { SSHAgentProtocolServer } from "modernssh"
+import { SSHAgentProtocolServer } from "@bunkerch/modernssh"
 
 const server = new SSHAgentProtocolServer()
 

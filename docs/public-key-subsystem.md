@@ -14,7 +14,7 @@ Open the subsystem after connecting, then use its Promise-only operations:
 
 ```ts
 import { readFile } from "node:fs/promises"
-import { Client, PublicKey } from "modernssh"
+import { Client, PublicKey } from "@bunkerch/modernssh"
 
 const client = new Client({ hostname: "keys.example.com", username: "alice" })
 // Configure host-key verification and authentication before connecting.
@@ -49,7 +49,7 @@ with `PublicKeySubsystemStatusCode`, while `message` and `languageTag` preserve 
 text:
 
 ```ts
-import { PublicKeySubsystemStatusCode, PublicKeySubsystemStatusError } from "modernssh"
+import { PublicKeySubsystemStatusCode, PublicKeySubsystemStatusError } from "@bunkerch/modernssh"
 
 try {
     await publicKeys.remove(key)
@@ -81,7 +81,7 @@ installs awaited Hooker handlers for operations that may perform asynchronous st
 work:
 
 ```ts
-import { PublicKeySubsystemStatusCode, SessionChannel } from "modernssh"
+import { PublicKeySubsystemStatusCode, SessionChannel } from "@bunkerch/modernssh"
 
 server.hooker.hook("channelOpenRequest", (_hook, channel, decision) => {
     decision.allowOpen = channel instanceof SessionChannel

@@ -50,7 +50,7 @@ For PTY, environment, resize, signal, or subsystem setup, open a session explici
 requests in protocol order:
 
 ```ts
-import { TerminalMode } from "modernssh"
+import { TerminalMode } from "@bunkerch/modernssh"
 
 const channel = await client.openSession()
 await channel.requestPty({
@@ -155,7 +155,7 @@ Agent forwarding is disabled by default. Configure a forwardable `SSHAgent` or `
 For a single manually opened session, request forwarding before starting its program:
 
 ```ts
-import { Client, SSHAgent } from "modernssh"
+import { Client, SSHAgent } from "@bunkerch/modernssh"
 
 const client = new Client({ hostname, username, agent: new SSHAgent() })
 await client.connect()
@@ -197,7 +197,7 @@ connection carries no request identifiers, so operations are serialized and each
 10-second deadline by default:
 
 ```ts
-import { SSHAgentProtocolClient } from "modernssh"
+import { SSHAgentProtocolClient } from "@bunkerch/modernssh"
 
 const channel = await connection.forwardAgent()
 const agent = new SSHAgentProtocolClient(channel.stream)
@@ -218,7 +218,7 @@ identity, signing, management, lock, and extension hooks. It is useful for expos
 restricted agent rather than forwarding an entire local socket:
 
 ```ts
-import { SSHAgentProtocolServer } from "modernssh"
+import { SSHAgentProtocolServer } from "@bunkerch/modernssh"
 
 const agentServer = new SSHAgentProtocolServer()
 

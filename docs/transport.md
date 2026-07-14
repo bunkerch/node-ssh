@@ -100,7 +100,7 @@ or a numeric fallback when that description is empty. Local socket closure witho
 disconnect continues to use an ordinary contextual `Error`.
 
 ```ts
-import { PeerDisconnectError } from "modernssh"
+import { PeerDisconnectError } from "@bunkerch/modernssh"
 
 client.on("disconnect", ({ reasonCode, description, languageTag }) => {
     auditPeerShutdown({ reasonCode, description, languageTag })
@@ -427,7 +427,7 @@ A server may delay its offer until account policy is known. Include the exported
 single authentication-time replacement extension set:
 
 ```ts
-import { delayCompressionExtension } from "modernssh"
+import { delayCompressionExtension } from "@bunkerch/modernssh"
 
 server.hooker.hook("passwordAuthentication", async (_hook, context, decision, connection) => {
     const account = await accounts.verifyPassword(context.username, context.password)

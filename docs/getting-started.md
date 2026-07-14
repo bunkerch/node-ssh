@@ -8,7 +8,7 @@ connections or install global patches.
 
 ```ts
 import { once } from "node:events"
-import { Client } from "modernssh"
+import { Client } from "@bunkerch/modernssh"
 
 const client = new Client({
     hostname: "ssh.example.com",
@@ -69,7 +69,7 @@ with keys whose signatures verify:
 ```ts
 import { homedir } from "node:os"
 import { join } from "node:path"
-import { KnownHosts } from "modernssh"
+import { KnownHosts } from "@bunkerch/modernssh"
 
 const knownHosts = await KnownHosts.load(join(homedir(), ".ssh", "known_hosts"))
 
@@ -166,7 +166,7 @@ cannot be reused for another connection.
 
 ```ts
 import { readFile } from "node:fs/promises"
-import { Server } from "modernssh"
+import { Server } from "@bunkerch/modernssh"
 
 const server = new Server({
     hostKeys: [
@@ -224,7 +224,7 @@ default.
 
 ```ts
 import { writeFile } from "node:fs/promises"
-import { generateKeyPair } from "modernssh"
+import { generateKeyPair } from "@bunkerch/modernssh"
 
 const { privateKey, publicKey } = await generateKeyPair("ed25519", {
     comment: "deploy@build01",
@@ -237,7 +237,7 @@ await writeFile("./id_ed25519.pub", `${publicKey.toString()}\n`)
 ordinary control flow continues:
 
 ```ts
-import { generateKeyPairSync } from "modernssh"
+import { generateKeyPairSync } from "@bunkerch/modernssh"
 
 const hostIdentity = generateKeyPairSync("ecdsa", {
     bits: 384,
@@ -290,7 +290,7 @@ rather than silently ignored.
 
 ```ts
 import { readFile } from "node:fs/promises"
-import { parseKey, PrivateKey } from "modernssh"
+import { parseKey, PrivateKey } from "@bunkerch/modernssh"
 
 const key = parseKey(await readFile("./deploy_key"), process.env.SSH_KEY_PASSPHRASE)
 if (!(key instanceof PrivateKey)) throw new Error("A private key is required")
@@ -360,7 +360,7 @@ when the secret comes from an application credential store and should only be fe
 signature is requested:
 
 ```ts
-import { Client, DiskAgent } from "modernssh"
+import { Client, DiskAgent } from "@bunkerch/modernssh"
 
 const agent = new DiskAgent("/home/deploy/.ssh", {
     passphrase: async (privateKeyPath) => secretStore.read(privateKeyPath),
@@ -404,7 +404,7 @@ to the root exports as its implementation and tests become library-ready.
 reading private key material.
 
 ```ts
-import { Client } from "modernssh"
+import { Client } from "@bunkerch/modernssh"
 
 const client = new Client({
     hostname: "ssh.example.com",

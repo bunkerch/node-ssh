@@ -10,7 +10,7 @@ separate layers.
 Open and negotiate a session after connecting:
 
 ```ts
-import { Client } from "modernssh"
+import { Client } from "@bunkerch/modernssh"
 
 const client = new Client({ hostname: "files.example.com", username: "deploy" })
 // Configure the host-key hook and authentication before connecting.

@@ -7,7 +7,7 @@ feature surface. Transport identification, binary packet framing, key exchange, 
 verification, host keys, and core authentication flows are implemented today.
 
 Until the first registry release, build a local installable archive with `pnpm pack` and add the
-resulting `modernssh-1.0.0.tgz` file to an application with its package manager.
+resulting `bunkerch-modernssh-1.0.0.tgz` file to an application with its package manager.
 
 See [Getting started](docs/getting-started.md) for client and server examples and
 [SSH transport behavior](docs/transport.md) for protocol-level details. The
