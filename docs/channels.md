@@ -140,9 +140,9 @@ requests correctly. The same gate applies to agent forwarding and stream-local f
 
 ## Agent forwarding
 
-Agent forwarding is disabled by default. Configure a forwardable `SSHAgent` or `OnePasswordAgent`,
-open a session, request the OpenSSH-compatible forwarding extension before starting its program,
-and then start the command:
+Agent forwarding is disabled by default. Configure a forwardable `SSHAgent` or `OnePasswordAgent`.
+For a single manually opened session, request the OpenSSH-compatible forwarding extension before
+starting its program:
 
 ```ts
 import { Client, SSHAgent } from "modernssh"
@@ -153,6 +153,22 @@ await client.connect()
 const channel = await client.openSession()
 await channel.openssh_forwardAgent()
 await channel.exec("ssh-add -L")
+```
+
+Set `agentForward: true` on the client to request forwarding automatically before every `exec()` or
+`shell()` program request. A session may override the connection default in either direction.
+
+```ts
+const client = new Client({
+    hostname,
+    username,
+    agent: process.env.SSH_AUTH_SOCK,
+    agentForward: true,
+})
+await client.connect()
+
+const forwarded = await client.exec("ssh-add -L")
+const isolated = await client.exec("deploy", { agentForward: false })
 ```
 
 After the server accepts the request, each `auth-agent@openssh.com` channel is connected directly

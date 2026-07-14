@@ -158,6 +158,8 @@ export interface ClientOptions {
     password?: string
     /** Signing agent object, or a UNIX-domain agent socket path. */
     agent?: Agent | string
+    /** Request agent forwarding by default for exec and shell sessions. */
+    agentForward?: boolean
     /** Private key object or encoded private-key container used for public-key authentication. */
     privateKey?: PrivateKey | string | Buffer
     /** Certificate public key paired with `privateKey` for certificate authentication. */
@@ -396,6 +398,7 @@ export default class Client extends EventEmitter<ClientEvents> {
         this.options.strictVendor ??= true
         this.options.username ??= "root"
         this.options.password ??= ""
+        this.options.agentForward ??= false
         if (typeof this.options.agent === "string") {
             this.options.agent = new SSHAgent(this.options.agent)
         }
@@ -1030,7 +1033,9 @@ export default class Client extends EventEmitter<ClientEvents> {
         defaultPty: boolean,
     ): Promise<void> {
         channel.allowHalfOpen = options.allowHalfOpen !== false
-        if (options.agentForward) await channel.openssh_forwardAgent()
+        if (options.agentForward ?? this.options.agentForward) {
+            await channel.openssh_forwardAgent()
+        }
         for (const [name, value] of Object.entries(options.env ?? {})) {
             await channel.setEnv(name, value, false)
         }

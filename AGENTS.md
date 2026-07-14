@@ -58,6 +58,9 @@ meaningful wire-level behavior.
   validate it with fixed frames plus the system `ssh-agent`, never another JavaScript SSH library.
   Client agent socket-path shorthand must normalize eagerly to the same `SSHAgent` implementation;
   an omitted option must remain disabled instead of implicitly consulting the environment.
+- Connection-wide agent forwarding remains opt-in, is applied before each high-level session
+  program request, and may be explicitly disabled or enabled per session. It must still require a
+  forwardable agent and the normal vendor capability gate.
 - OpenSSH private-key encryption follows upstream `PROTOCOL.key`. Keep passphrase and derived-key
   buffers short-lived, validate authenticated modes before parsing plaintext, compare the public
   envelope with the private key, and exercise both decryption and serialization for every supported
