@@ -10,6 +10,7 @@ import {
 } from "./utils/Buffer.js"
 import { parseBufferToMpintBuffer } from "./utils/mpint.js"
 import PublicKey, { SSHCertificatePublicKey } from "./utils/PublicKey.js"
+import EncodedSignature from "./utils/Signature.js"
 import { decodeSSHName } from "./utils/SSHName.js"
 import { decodeSSHUTF8 } from "./utils/SSHText.js"
 
@@ -18,6 +19,7 @@ const FORMAT_VERSION = 1
 const CERTIFICATE_SECTION = 1
 const EXPLICIT_KEY_SECTION = 2
 const SHA1_FINGERPRINT_SECTION = 3
+const SIGNATURE_SECTION = 4
 const SHA256_FINGERPRINT_SECTION = 5
 const EXTENSION_SECTION = 0xff
 const CERTIFICATE_SERIAL_LIST = 0x20
@@ -47,6 +49,7 @@ interface ParsedKeyRevocationList {
     readonly explicitKeys: readonly Buffer[]
     readonly sha1Fingerprints: readonly Buffer[]
     readonly sha256Fingerprints: readonly Buffer[]
+    readonly signatureKeys: readonly Buffer[]
 }
 
 export default class KeyRevocationList {
@@ -60,6 +63,7 @@ export default class KeyRevocationList {
     private readonly explicitKeys: readonly Buffer[]
     private readonly sha1Fingerprints: readonly Buffer[]
     private readonly sha256Fingerprints: readonly Buffer[]
+    private readonly signatureKeys: readonly Buffer[]
 
     private constructor(parsed: ParsedKeyRevocationList) {
         this.version = parsed.version
@@ -69,6 +73,7 @@ export default class KeyRevocationList {
         this.explicitKeys = parsed.explicitKeys
         this.sha1Fingerprints = parsed.sha1Fingerprints
         this.sha256Fingerprints = parsed.sha256Fingerprints
+        this.signatureKeys = parsed.signatureKeys
     }
 
     static parse(content: Buffer): KeyRevocationList {
@@ -118,6 +123,12 @@ export default class KeyRevocationList {
         return this.isPlainKeyRevoked(publicKey)
     }
 
+    /** Returns whether an embedded, cryptographically verified signature uses this exact key. */
+    isSignedBy(key: PublicKey | Buffer): boolean {
+        const serialized = (Buffer.isBuffer(key) ? PublicKey.parse(key) : key).serialize()
+        return this.signatureKeys.some((signer) => signer.equals(serialized))
+    }
+
     private isPlainKeyRevoked(publicKey: PublicKey): boolean {
         const serialized = publicKey.serialize()
         return (
@@ -151,10 +162,30 @@ function parseKeyRevocationList(content: Buffer): ParsedKeyRevocationList {
     const explicitKeys: Buffer[] = []
     const sha1Fingerprints: Buffer[] = []
     const sha256Fingerprints: Buffer[] = []
+    const signatureKeys: Buffer[] = []
+    let signaturesStarted = false
     while (remaining.length > 0) {
         let sectionType: number
-        let section: Buffer
         ;[sectionType, remaining] = readNextUint8(remaining)
+        if (sectionType === SIGNATURE_SECTION) {
+            signaturesStarted = true
+            let signatureKeyRaw: Buffer
+            ;[signatureKeyRaw, remaining] = readNextBuffer(remaining)
+            const signedLength = content.length - remaining.length
+            let signatureRaw: Buffer
+            ;[signatureRaw, remaining] = readNextBuffer(remaining)
+            const signatureKey = PublicKey.parse(signatureKeyRaw)
+            const signature = EncodedSignature.parse(signatureRaw)
+            if (!signatureKey.verifySignature(content.subarray(0, signedLength), signature)) {
+                throw new Error("Invalid key revocation list signature")
+            }
+            signatureKeys.push(Buffer.from(signatureKeyRaw))
+            continue
+        }
+        if (signaturesStarted) {
+            throw new Error("Key revocation list signature sections must be final")
+        }
+        let section: Buffer
         ;[section, remaining] = readNextBuffer(remaining)
         if (sectionType === CERTIFICATE_SECTION) {
             certificates.push(parseCertificateRevocations(section))
@@ -178,6 +209,7 @@ function parseKeyRevocationList(content: Buffer): ParsedKeyRevocationList {
         explicitKeys,
         sha1Fingerprints,
         sha256Fingerprints,
+        signatureKeys,
     }
 }
 

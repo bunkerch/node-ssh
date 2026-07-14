@@ -53,17 +53,37 @@ place to perform host trust decisions because EventEmitter does not await return
 
 The parser supports explicit keys, SHA-1 and SHA-256 fingerprints, certificate serial lists,
 serial ranges, compact serial bitmaps, certificate key identifiers, authority-specific and
-all-authority certificate sections, and optional extensions. Certificate checks also cover the
-plain embedded key and signing authority, matching `ssh-keygen -Q` behavior.
+all-authority certificate sections, optional extensions, and consecutive signature sections at
+the end of a KRL. Certificate checks also cover the plain embedded key and signing authority,
+matching `ssh-keygen -Q` behavior.
 
-Unknown critical extensions, unknown sections, signatures, nonzero format flags, serial zero,
-wrapped serial bitmaps, malformed keys, invalid lengths, non-canonical integers, NUL text, and
-trailing data fail during parsing. Optional unknown extensions are ignored. Input is copied before
-it is retained, and files larger than 16 MiB are rejected.
+Unknown critical extensions, unknown sections, nonzero format flags, serial zero, wrapped serial
+bitmaps, malformed keys, invalid lengths, non-canonical integers, NUL text, and trailing data fail
+during parsing. Optional unknown extensions are ignored. Input is copied before it is retained,
+and files larger than 16 MiB are rejected.
 
-KRL signature sections are deliberately rejected because current OpenSSH does not support them.
-Distribute KRLs through a channel that already provides authenticity and integrity. If a KRL is
-retrieved from an untrusted location, authenticate it separately before parsing it.
+Every embedded KRL signature is verified over its exact required prefix while parsing. Invalid
+signatures, a non-signature section after the first signature, or a malformed signing key fail the
+complete KRL. Cryptographic validity does not establish trust: an attacker can create a different
+KRL and sign it with their own key. When loading from an untrusted location, require an exact
+trusted signer explicitly:
+
+```ts
+import { KeyRevocationList, PublicKey } from "@bunkerch/modernssh"
+
+const revocations = await KeyRevocationList.load(downloadedPath)
+const trustedSigner = PublicKey.parseString(configuredSigningKey)
+
+if (!revocations.isSignedBy(trustedSigner)) {
+    throw new Error("KRL is not signed by the configured authority")
+}
+```
+
+`isSignedBy()` returns true only for a key whose embedded signature was already verified. Requiring
+it also detects an attacker who strips every signature. The published format notes that current
+OpenSSH versions refuse signature sections and recommends separately authenticated SSHSIG files,
+so signed KRLs may not be consumable by system tools. Unsigned KRLs distributed through an already
+authenticated and integrity-protected channel remain supported.
 
 ## Rollback policy
 

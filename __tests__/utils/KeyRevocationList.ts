@@ -10,6 +10,26 @@ import PublicKey from "../../src/utils/PublicKey.js"
 
 const execFileAsync = promisify(execFile)
 
+// Literal PROTOCOL.krl framing signed by the first two RFC 8032 Ed25519 test keys.
+const fixedSignedKRL = Buffer.from(
+    "5353484b524c0a00000000010000000000000007000000006553f100000000000000000000000000000000106669786564207369676e6564204b524c05000000240000002066402c9468c58941dd19ffd650bf2b42f9226f83d3bd06ad515d0e5104a7702004000000330000000b7373682d6564323535313900000020d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a000000530000000b7373682d65643235353139000000408f55d92be0f96b273e333825a05634741071c40057da9e7b4858b74d787cadd58ea7973b14f0894cfd77ac583bd153fac574f346dd58bb525d1a9a47a75be50604000000330000000b7373682d65643235353139000000203d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c000000530000000b7373682d6564323535313900000040e870d2b9996c52851dbf3701a8b3ac20368ba5bfd15c09f3605d06ec28f6dad797e0584b31721266276778a0ea1051b29027c6c56327b3ff8130ba062ec0390a",
+    "hex",
+)
+const fixedRevokedKey = Buffer.from(
+    "0000000b7373682d6564323535313900000020000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+    "hex",
+)
+const fixedKRLSigners = [
+    Buffer.from(
+        "0000000b7373682d6564323535313900000020d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+        "hex",
+    ),
+    Buffer.from(
+        "0000000b7373682d65643235353139000000203d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+        "hex",
+    ),
+]
+
 describe("key revocation lists", () => {
     test("recognizes an explicit key revoked by ssh-keygen", async () => {
         const directory = await mkdtemp(join(tmpdir(), "modernssh-krl-explicit-"))
@@ -55,6 +75,40 @@ describe("key revocation lists", () => {
             generatedAt: 0n,
             comment: "fixed SHA-256",
         })
+    })
+
+    test("verifies consecutive fixed signature sections and exposes signer trust", () => {
+        const content = Buffer.from(fixedSignedKRL)
+        const krl = KeyRevocationList.parse(content)
+        content.fill(0)
+
+        expect(krl.isRevoked(fixedRevokedKey)).toBe(true)
+        expect(fixedKRLSigners.map((signer) => krl.isSignedBy(signer))).toEqual([true, true])
+        expect(krl.isSignedBy(generateKeyPairSync("ed25519").publicKey)).toBe(false)
+        expect({
+            version: krl.version,
+            generatedAt: krl.generatedAt,
+            comment: krl.comment,
+        }).toEqual({
+            version: 7n,
+            generatedAt: 1_700_000_000n,
+            comment: "fixed signed KRL",
+        })
+    })
+
+    test("rejects invalid or non-final KRL signatures", () => {
+        const changedRecord = Buffer.from(fixedSignedKRL)
+        changedRecord[69] ^= 1
+        expect(() => KeyRevocationList.parse(changedRecord)).toThrow("signature")
+
+        const changedSignature = Buffer.from(fixedSignedKRL)
+        changedSignature[changedSignature.length - 1] ^= 1
+        expect(() => KeyRevocationList.parse(changedSignature)).toThrow("signature")
+
+        const sectionAfterSignature = Buffer.concat([fixedSignedKRL, Buffer.from([5, 0, 0, 0, 0])])
+        expect(() => KeyRevocationList.parse(sectionAfterSignature)).toThrow(
+            "signature sections must be final",
+        )
     })
 
     test("recognizes a certificate serial revoked by its authority", async () => {
