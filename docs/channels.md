@@ -106,6 +106,10 @@ hook. Its request packet is the fifth argument; set `handled = true` and set `su
 application work has completed. Unknown requests fail by default. One-way requests still invoke the
 hook but never receive a protocol reply.
 
+Generic request policy fails closed in both directions: every registered handler must complete
+without rejection before `success` or the server's `handled` override is honored. A contained later
+failure discards decisions made by earlier handlers.
+
 Request hooks are awaited before their decisions change channel state or produce application
 events. A peer CLOSE remains terminal and is acknowledged immediately even while a hook is pending;
 any decision that finishes after the channel closes is discarded. Pending writes and outbound
@@ -321,6 +325,10 @@ server.on("connection", (connection) => {
     })
 })
 ```
+
+Program requests consume a session only after their policy succeeds. In particular, every
+`shellRequest` handler must complete without rejection; a contained later failure discards an
+earlier success and does not activate or publish a shell stream.
 
 The `Shell` passed to `exec` and `shell` events is a Node.js `Duplex`. It is also available through
 the `stdin` and `stdout` aliases, and has a separate writable `stderr`. Await `writeStdout()` or

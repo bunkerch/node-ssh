@@ -152,6 +152,8 @@ the connection. Encrypted client/server tests apply the same multi-handler failu
 and user authentication, proving that a contained later rejection cannot retain an earlier allow
 decision. The same real transport seam verifies channel admission, TCP and stream-local listener
 creation, and application global requests in both peer directions.
+Private channel requests are exercised in both directions, while a session-shell request separately
+proves that a later policy failure cannot activate the program stream.
 
 Server shell integration verifies RFC 4254 directional half-close semantics: ending stdout sends
 EOF without CLOSE, the client sends additional stdin afterward, and explicit close then completes

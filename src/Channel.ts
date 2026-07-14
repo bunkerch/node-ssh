@@ -183,7 +183,7 @@ export default class Channel {
 
         const controller: ServerHookerChannelRequestController = { deny: false }
         const serverClient = this.client as ServerClient
-        await serverClient.server.hooker.triggerHook(
+        const policyCompleted = await serverClient.server.hooker.triggerHookChecked(
             "channelRequest",
             this,
             controller,
@@ -191,7 +191,7 @@ export default class Channel {
             request,
         )
         if (!this.isOpen) return true
-        if (controller.deny) {
+        if (!policyCompleted || controller.deny) {
             await Channel.prototype.handleChannelRequest.call(this, request)
             return true
         }

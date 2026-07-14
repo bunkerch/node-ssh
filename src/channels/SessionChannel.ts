@@ -307,10 +307,13 @@ export default class SessionChannel extends Channel {
                 const controller: SessionChannelHookerShellRequestController = {
                     success: false,
                 }
-                await this.hooker.triggerHook("shellRequest", controller)
+                const policyCompleted = await this.hooker.triggerHookChecked(
+                    "shellRequest",
+                    controller,
+                )
                 if (!this.isOpen) return
 
-                if (controller.success) {
+                if (policyCompleted && controller.success) {
                     this.consumed = true
                     const shell = this.activateShell()
                     this.sendRequestSuccess(request)

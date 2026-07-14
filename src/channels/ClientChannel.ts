@@ -395,8 +395,8 @@ export default class ClientChannel extends Duplex {
             wantReply: packet.data.want_reply,
         })
         const controller: ClientChannelRequestController = { success: false }
-        await this.hooker.triggerHook("request", context, controller)
-        this.replyToRequest(packet, controller.success)
+        const policyCompleted = await this.hooker.triggerHookChecked("request", context, controller)
+        this.replyToRequest(packet, policyCompleted && controller.success)
     }
 
     private validateExitRequest(packet: ChannelRequest): void {
