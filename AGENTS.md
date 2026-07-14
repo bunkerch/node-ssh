@@ -324,6 +324,11 @@ meaningful wire-level behavior.
   ceiling. Do not count `none`, intermediate challenge messages, or `partialSuccess`; after expiry,
   an awaited policy hook must not admit the client. Clear and unref deadline timers, and flush the
   RFC disconnect packet before closing the transport.
+- After awaited preconnect admission, bound every accepted server socket through identification,
+  initial key exchange, and exact user-auth service acceptance with a separate unreferenced
+  handshake timer. Clear it before authentication policy begins, clear it on all terminal paths,
+  and destroy silent pre-identification peers because binary disconnect framing is not yet
+  available.
 - High-level session helpers must issue setup requests before the program request: agent forwarding,
   environment, PTY, X11, then exec/shell/subsystem. Treat automatic environment requests as
   best-effort without replies, but require replies for security- or terminal-sensitive setup.

@@ -208,10 +208,18 @@ import { Server, SSHAuthenticationMethods } from "modernssh"
 const server = new Server({
     hostKeys,
     banner: "Authorized access only. Activity may be monitored.\r\n",
+    handshakeTimeout: 20_000,
     authenticationTimeout: 10 * 60 * 1000,
     maxAuthenticationAttempts: 20,
 })
 ```
+
+`handshakeTimeout` bounds each admitted socket after the awaited `preconnect` policy, through
+identification, initial key exchange, and acceptance of the `ssh-userauth` service. It defaults to
+20 seconds; `0` disables it. Before identification completes the server cannot safely send a binary
+disconnect, so expiry destroys the socket and emits `Timed out while waiting for SSH handshake`
+through that `ServerClient`'s `error` event. Accepting the service clears this timer before any
+authentication policy runs.
 
 `authenticationTimeout` bounds the whole authentication phase in milliseconds after the service is
 accepted; its RFC-recommended default is ten minutes, and `0` disables this deadline.

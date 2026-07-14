@@ -47,6 +47,8 @@ export interface ServerOptions {
     sendAllHostKeys?: boolean
     /** RFC 4252 banner sent once before authentication begins. */
     banner?: string
+    /** Milliseconds allowed through key exchange and user-auth service acceptance. Zero disables. */
+    handshakeTimeout?: number
     /** Milliseconds allowed after accepting the user-authentication service. Zero disables. */
     authenticationTimeout?: number
     /** Maximum rejected non-`none` authentication requests per connection. */
@@ -306,10 +308,14 @@ export default class Server extends EventEmitter<ServerEvents> {
         this.options.hostCertificates = undefined
         this.options.sendAllHostKeys ??= true
         this.options.banner ??= ""
+        this.options.handshakeTimeout ??= 20_000
         this.options.authenticationTimeout ??= 600_000
         this.options.maxAuthenticationAttempts ??= 20
         this.options.keepaliveInterval ??= 0
         this.options.keepaliveCountMax ??= 3
+        if (!Number.isFinite(this.options.handshakeTimeout) || this.options.handshakeTimeout < 0) {
+            throw new RangeError("SSH handshake timeout must be a non-negative number")
+        }
         if (
             !Number.isFinite(this.options.authenticationTimeout) ||
             this.options.authenticationTimeout < 0

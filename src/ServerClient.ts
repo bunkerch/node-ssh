@@ -204,6 +204,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         })
 
         this.socket.on("close", () => {
+            this.clearHandshakeTimeout()
             this.clearKeepalive()
             this.state = SocketState.Disconnected
             const closeError = this.connectionClosedError("SSH connection closed")
@@ -291,6 +292,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     private readonly pendingGlobalRequests: PendingGlobalRequest[] = []
     private keepaliveTimer?: ReturnType<typeof setTimeout>
     private unansweredKeepalives = 0
+    private handshakeTimer?: ReturnType<typeof setTimeout>
 
     get noMoreSessions(): boolean {
         return this.noMoreSessionsRequested
@@ -731,6 +733,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     }
 
     async connect(): Promise<void> {
+        this.startHandshakeTimeout()
         this.state = SocketState.Connecting
         const clientProtocolVersionPromise = this.waitEvent("clientProtocolVersion")
 
@@ -772,6 +775,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 service_name: SSHServiceNames.UserAuth,
             }),
         )
+        this.clearHandshakeTimeout()
 
         if (this.server.options.banner) {
             this.sendPacket(
@@ -2188,6 +2192,19 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         this.clearKeepalive()
         this.unansweredKeepalives = 0
         this.scheduleKeepalive()
+    }
+
+    private clearHandshakeTimeout(): void {
+        if (this.handshakeTimer !== undefined) clearTimeout(this.handshakeTimer)
+        this.handshakeTimer = undefined
+    }
+
+    private startHandshakeTimeout(): void {
+        if (this.server.options.handshakeTimeout === 0) return
+        this.handshakeTimer = setTimeout(() => {
+            this.socket.destroy(new Error("Timed out while waiting for SSH handshake"))
+        }, this.server.options.handshakeTimeout)
+        this.handshakeTimer.unref()
     }
 
     private scheduleKeepalive(): void {
