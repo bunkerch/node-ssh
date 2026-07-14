@@ -80,6 +80,8 @@ the cumulative bytes, completed chunk size, and total size. `fastPut` also accep
 `fastGet` snapshots a Buffer remote path and its transfer options before its separate `STAT` and
 `OPEN` requests.
 `fastPut` snapshots its remote path and options before opening or inspecting the local file.
+Both helpers require their public `maxReadLength` or `maxWriteLength` metadata to remain a positive
+safe integer and reject an invalid value before opening the remote file or starting chunk workers.
 All workers settle before either handle is closed, and an operation error is preserved over a
 secondary close failure.
 

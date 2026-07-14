@@ -1324,6 +1324,9 @@ function transferChunkSize(requested: number | undefined, maximum: number): numb
     if (!Number.isSafeInteger(chunkSize) || chunkSize <= 0) {
         throw new RangeError("SFTP transfer chunkSize must be a positive safe integer")
     }
+    if (!Number.isSafeInteger(maximum) || maximum <= 0) {
+        throw new RangeError("SFTP maximum transfer length must be a positive safe integer")
+    }
     return Math.min(chunkSize, maximum)
 }
 

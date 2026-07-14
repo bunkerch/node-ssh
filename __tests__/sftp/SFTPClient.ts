@@ -79,6 +79,56 @@ describe("SFTP client request engine", () => {
         fixture.destroy()
     })
 
+    test("rejects an invalid fast-transfer limit before opening the remote file", async () => {
+        const requests: SFTPPacketType[] = []
+        const fixture = new SFTPServerFixture((packet) => {
+            if (packet.type === SFTPPacketType.Init) {
+                fixture.send({ type: SFTPPacketType.Version, version: 3, extensions: [] })
+                return
+            }
+            requests.push(packet.type)
+            if (packet.type === SFTPPacketType.Stat) {
+                fixture.send({
+                    type: SFTPPacketType.Attrs,
+                    requestId: packet.requestId,
+                    attributes: { size: 4n },
+                })
+            } else if (packet.type === SFTPPacketType.Open) {
+                fixture.send({
+                    type: SFTPPacketType.Handle,
+                    requestId: packet.requestId,
+                    handle: Buffer.from("handle"),
+                })
+            } else if (packet.type === SFTPPacketType.Close) {
+                fixture.send({
+                    type: SFTPPacketType.Status,
+                    requestId: packet.requestId,
+                    code: SFTPStatusCode.Ok,
+                    message: "",
+                    languageTag: "",
+                })
+            }
+        })
+
+        const client = await SFTPClient.connect(asClientChannel(fixture))
+        client.maxReadLength = 0
+        let error: unknown
+        try {
+            await client.fastGet("remote", "")
+        } catch (caught) {
+            error = caught
+        }
+
+        expect({
+            error: error instanceof Error ? `${error.name}: ${error.message}` : error,
+            requests,
+        }).toEqual({
+            error: "RangeError: SFTP maximum transfer length must be a positive safe integer",
+            requests: [SFTPPacketType.Stat],
+        })
+        fixture.destroy()
+    })
+
     test("rejects invalid UTF-8 string paths before writing a request", async () => {
         let requests = 0
         const fixture = new SFTPServerFixture((packet) => {
