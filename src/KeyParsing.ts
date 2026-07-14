@@ -1,5 +1,6 @@
 import PrivateKey from "./utils/PrivateKey.js"
 import PublicKey from "./utils/PublicKey.js"
+import { parseRFC4716PublicKey, RFC4716_BEGIN_MARKER } from "./utils/RFC4716.js"
 
 export type ParsedKey = PrivateKey | PublicKey
 
@@ -22,6 +23,12 @@ export function parseKeys(data: string | Buffer, passphrase?: string | Buffer): 
     }
 
     const text = Buffer.isBuffer(data) ? data.toString("utf8") : data
+    if (text.startsWith(RFC4716_BEGIN_MARKER)) {
+        if (passphrase !== undefined) {
+            throw new TypeError("A passphrase is only valid for private keys")
+        }
+        return [parseRFC4716PublicKey(data)]
+    }
     if (/^-----BEGIN (?:[A-Z0-9 ]+ )?PRIVATE KEY-----/m.test(text)) {
         return PrivateKey.fromStringAll(text, passphrase)
     }

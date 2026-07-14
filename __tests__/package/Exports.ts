@@ -241,6 +241,8 @@ describe("package exports", () => {
                     if (explicitLegacy.algorithmOffer.serverHostKey[0] !== "ssh-dss") process.exit(8)
                     const synchronous = generateKeyPairSync("ecdsa", { bits: 256 })
                     if (!synchronous.publicKey.verifySignature(message, synchronous.privateKey.sign(message))) process.exit(9)
+                    const rfc4716 = "---- BEGIN SSH" + "2 PUBLIC KEY ----\\n" + publicKey.serialize().toString("base64") + "\\n---- END SSH" + "2 PUBLIC KEY ----\\n"
+                    if (!parseKey(rfc4716).equals(publicKey)) process.exit(10)
                     process.stdout.write(publicKey.toString())
                 `,
                 ],

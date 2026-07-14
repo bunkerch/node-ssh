@@ -1,5 +1,5 @@
 import { generateKeyPairSync } from "node:crypto"
-import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { execFile } from "node:child_process"
@@ -7,10 +7,124 @@ import { promisify } from "node:util"
 import { parseKey, parseKeys } from "../../src/KeyParsing.js"
 import PrivateKey from "../../src/utils/PrivateKey.js"
 import PublicKey from "../../src/utils/PublicKey.js"
+import { parseRFC4716PublicKey } from "../../src/utils/RFC4716.js"
 
 const execFileAsync = promisify(execFile)
 
+const rfc4716KeyLabel = ["SSH", "2 PUBLIC KEY"].join("")
+const rfc4716RSA = `---- BEGIN ${rfc4716KeyLabel} ----
+Comment: "1024-bit RSA, converted from OpenSSH by me@example.com"
+x-command: /home/me/bin/lock-in-guest.sh
+AAAAB3NzaC1yc2EAAAABIwAAAIEA1on8gxCGJJWSRT4uOrR13mUaUk0hRf4RzxSZ1zRb
+YYFw8pfGesIFoEuVth4HKyF8k1y4mRUnYHP1XNMNMJl1JcEArC2asV8sHf6zSPVffozZ
+5TT4SfsUu/iKy9lUcCfXzwre4WWZSXXcPff+EHtWshahu3WzBdnGxm5Xoi89zcE=
+---- END ${rfc4716KeyLabel} ----
+`
+
+const rfc4716RSABody =
+    "AAAAB3NzaC1yc2EAAAABIwAAAIEA1on8gxCGJJWSRT4uOrR13mUaUk0hRf4RzxSZ1zRb" +
+    "YYFw8pfGesIFoEuVth4HKyF8k1y4mRUnYHP1XNMNMJl1JcEArC2asV8sHf6zSPVffozZ" +
+    "5TT4SfsUu/iKy9lUcCfXzwre4WWZSXXcPff+EHtWshahu3WzBdnGxm5Xoi89zcE="
+const rfc4716RSAWrappedBody = rfc4716RSABody.match(/.{1,72}/gu)!.join("\n")
+
 describe("key parsing", () => {
+    test("imports the fixed RFC 4716 RSA public-key example", () => {
+        const parsed = parseKey(rfc4716RSA) as PublicKey
+
+        expect(parsed).toBeInstanceOf(PublicKey)
+        expect(parsed.data.alg).toBe("ssh-rsa")
+        expect(parsed.data.comment).toBe("1024-bit RSA, converted from OpenSSH by me@example.com")
+        expect(parsed.serialize().toString("base64")).toBe(rfc4716RSABody)
+        expect(
+            (parseKey(Buffer.from(rfc4716RSA.replaceAll("\n", "\r"))) as PublicKey).equals(parsed),
+        ).toBe(true)
+        const continued = rfc4716RSA.replace(
+            'Comment: "1024-bit RSA, converted from OpenSSH by me@example.com"\n',
+            "cOmMeNt: This key is used on \\\nproduction servers\nSubject: example\n",
+        )
+        expect((parseKey(continued) as PublicKey).data.comment).toBe(
+            "This key is used on production servers",
+        )
+        expect(() => parseKey(rfc4716RSA, "not-applicable")).toThrow("only valid for private keys")
+    })
+
+    test("strictly validates RFC 4716 framing, headers, text, and base64", () => {
+        const wrap = (content: string) =>
+            `---- BEGIN ${rfc4716KeyLabel} ----\n${content}\n---- END ${rfc4716KeyLabel} ----\n`
+        const oversizedValue = [
+            `Comment: ${"a".repeat(62)}\\`,
+            ...Array<string>(13).fill(`${"a".repeat(71)}\\`),
+            "a".repeat(40),
+        ].join("\n")
+        const invalidUTF8 = Buffer.concat([
+            Buffer.from(`---- BEGIN ${rfc4716KeyLabel} ----\nComment: `, "ascii"),
+            Buffer.from([0xff]),
+            Buffer.from(`\n${rfc4716RSABody}\n---- END ${rfc4716KeyLabel} ----\n`, "ascii"),
+        ])
+
+        expect(() => parseRFC4716PublicKey(`${rfc4716RSA}trailing`)).toThrow("end marker")
+        expect(() =>
+            parseRFC4716PublicKey(wrap(`Comment: ${"a".repeat(64)}\n${rfc4716RSAWrappedBody}`)),
+        ).toThrow("line exceeds 72 bytes")
+        expect(() =>
+            parseRFC4716PublicKey(wrap(`${"a".repeat(65)}: x\n${rfc4716RSAWrappedBody}`)),
+        ).toThrow("tag exceeds 64 bytes")
+        expect(() =>
+            parseRFC4716PublicKey(wrap(`Cömment: value\n${rfc4716RSAWrappedBody}`)),
+        ).toThrow("printable US-ASCII")
+        expect(() =>
+            parseRFC4716PublicKey(wrap(`Comment:value\n${rfc4716RSAWrappedBody}`)),
+        ).toThrow("header field")
+        expect(() => parseRFC4716PublicKey(wrap(oversizedValue))).toThrow(
+            "value exceeds 1024 bytes",
+        )
+        expect(() => parseRFC4716PublicKey(wrap("Comment: dangling\\"))).toThrow(
+            "dangling continuation",
+        )
+        expect(() => parseRFC4716PublicKey(wrap(`\n${rfc4716RSAWrappedBody}`))).toThrow(
+            "blank line",
+        )
+        expect(() => parseRFC4716PublicKey(wrap(`${rfc4716RSAWrappedBody.slice(0, -1)}!`))).toThrow(
+            "Invalid RFC 4716 public key base64",
+        )
+        expect(() => parseRFC4716PublicKey(wrap(rfc4716RSAWrappedBody.slice(0, -1)))).toThrow(
+            "base64 length",
+        )
+        expect(() => parseRFC4716PublicKey(invalidUTF8)).toThrow("not valid UTF-8 text")
+    })
+
+    test("imports RFC 4716 public keys exchanged with ssh-keygen", async () => {
+        const directory = await mkdtemp(join(tmpdir(), "modernssh-rfc4716-"))
+        try {
+            const keyPath = join(directory, "id_ed25519")
+            const fixedPath = join(directory, "rfc-example.pub")
+            await execFileAsync("ssh-keygen", ["-q", "-t", "ed25519", "-N", "", "-f", keyPath])
+            const expected = PublicKey.parseString(await readFile(`${keyPath}.pub`, "utf8"))
+            const { stdout: exported } = await execFileAsync("ssh-keygen", [
+                "-e",
+                "-m",
+                "RFC4716",
+                "-f",
+                `${keyPath}.pub`,
+            ])
+            expect((parseKey(exported) as PublicKey).equals(expected)).toBe(true)
+
+            await writeFile(fixedPath, rfc4716RSA)
+            const { stdout: imported } = await execFileAsync("ssh-keygen", [
+                "-i",
+                "-m",
+                "RFC4716",
+                "-f",
+                fixedPath,
+            ])
+            expect(PublicKey.parseString(imported).equals(parseKey(rfc4716RSA) as PublicKey)).toBe(
+                true,
+            )
+        } finally {
+            await rm(directory, { recursive: true, force: true })
+        }
+    })
+
     test.each([
         ["Ed25519", {}],
         ["RSA", { modulusLength: 2048 }],

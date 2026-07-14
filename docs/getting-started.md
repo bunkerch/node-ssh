@@ -275,10 +275,10 @@ buffers after encryption; callers remain responsible for clearing their original
 
 Use `parseKey()` when input may contain either a private or public key. It routes raw OpenSSH
 private containers, armored private keys, SSH public-key blobs, authorized-key lines, generic
-SubjectPublicKeyInfo public PEM, and PKCS#1 RSA public PEM by their explicit framing. The return
-type is `PrivateKey | PublicKey`; a passphrase is accepted only when the input is private.
-Authorized-key blobs require canonical standard base64; malformed characters and noncanonical pad
-bits are rejected rather than silently ignored.
+SubjectPublicKeyInfo public PEM, PKCS#1 RSA public PEM, and RFC 4716 public-key files by their
+explicit framing. The return type is `PrivateKey | PublicKey`; a passphrase is accepted only when
+the input is private. Authorized-key and RFC 4716 blobs require canonical standard base64;
+malformed characters and noncanonical pad bits are rejected rather than silently ignored.
 
 ```ts
 import { readFile } from "node:fs/promises"
@@ -287,6 +287,12 @@ import { parseKey, PrivateKey } from "modernssh"
 const key = parseKey(await readFile("./deploy_key"), process.env.SSH_KEY_PASSPHRASE)
 if (!(key instanceof PrivateKey)) throw new Error("A private key is required")
 ```
+
+RFC 4716 import accepts CR, LF, and CRLF files, preserves the case-insensitive `Comment` header on
+the returned `PublicKey`, joins backslash-continued headers, and ignores unrecognized headers as
+required by the format. It enforces the exact begin/end markers, 72-byte physical-line limit,
+64-byte ASCII header tags, 1,024-byte UTF-8 header values, and a body containing one canonical SSH
+public-key blob. No blank PEM-style separator or CRC is accepted.
 
 The private-key container format can hold more than one key. Use `parseKeys()`,
 `PrivateKey.parseAll()`, or `PrivateKey.fromStringAll()` when such a container is allowed; these

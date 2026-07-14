@@ -142,6 +142,11 @@ Public PEM interoperability covers generic SubjectPublicKeyInfo for Ed25519, RSA
 from its independently imported private half, and `ssh-keygen` accepts and fingerprints the
 canonical SSH public-key output. Unsupported X25519 public keys are rejected explicitly.
 
+RFC 4716 public-key import is checked against the document's literal RSA example and strict
+malformed framing, continuation, line-length, UTF-8, and base64 cases. A generated Ed25519 key is
+exported in RFC 4716 form by `ssh-keygen` and parsed through the package's unified key router;
+`ssh-keygen` also imports the fixed RFC example and produces the same canonical SSH key.
+
 Ed448 coverage uses RFC 8032's empty-message key and signature vector, wrapped in the exact RFC
 8709 SSH public-key and signature encodings. A native Node subprocess independently generates an
 Ed448 PKCS#8 and SubjectPublicKeyInfo pair, imports both, and verifies a signature; generated
