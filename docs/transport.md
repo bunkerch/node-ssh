@@ -375,7 +375,9 @@ Both `ClientOptions` and `ServerOptions` accept an `algorithms` object with `kex
 `cipher`, `hmac`, and `compress` categories. Server values are exact ordered arrays. Client values
 may be exact arrays or `{ remove, prepend, append }` changes whose entries are names or regular
 expressions. Unknown names and empty resolved lists are rejected during construction, defaults are
-copied rather than mutated, and the same configured offer is used for every rekey. Exact arrays can
+copied rather than mutated, and the same configured offer is used for every rekey. Modifier values
+must be non-empty strings or regular expressions; malformed objects are rejected rather than
+silently ignored. Exact arrays can
 select supported legacy methods. Client `{ append }` changes can add them after modern defaults;
 SHA-1 key exchange and host signatures, DSS, CBC/3DES, and MD5/SHA-1 MACs are not offered unless
 configured.

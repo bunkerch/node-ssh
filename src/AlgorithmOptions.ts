@@ -89,16 +89,25 @@ function resolveList(
 ): readonly string[] {
     validateDefaults(defaults, supported)
     if (Array.isArray(configured)) return resolveExactList(configured, supported, defaults)
-    if (!configured) return Object.freeze([...defaults])
+    if (configured === undefined) return Object.freeze([...defaults])
+    const prototype =
+        configured !== null && typeof configured === "object"
+            ? Object.getPrototypeOf(configured)
+            : undefined
+    if (
+        configured === null ||
+        typeof configured !== "object" ||
+        (prototype !== Object.prototype && prototype !== null)
+    ) {
+        throw new TypeError("SSH algorithm modifiers must be an object")
+    }
 
     let result = [...defaults]
     for (const [operation, configuredMatchers] of Object.entries(configured)) {
         if (operation !== "remove" && operation !== "prepend" && operation !== "append") {
             throw new Error(`Invalid SSH algorithm list operation: ${operation}`)
         }
-        const matchers = Array.isArray(configuredMatchers)
-            ? configuredMatchers
-            : [configuredMatchers]
+        const matchers = normalizeMatchers(configuredMatchers)
         if (operation === "remove") {
             result = result.filter((name) => !matchers.some((matcher) => matches(matcher, name)))
             continue
@@ -124,7 +133,10 @@ function resolveExactList(
     defaults: readonly string[],
 ): readonly string[] {
     validateDefaults(defaults, supported)
-    if (!configured) return Object.freeze([...defaults])
+    if (configured === undefined) return Object.freeze([...defaults])
+    if (!Array.isArray(configured)) {
+        throw new TypeError("SSH exact algorithm configuration must be an array")
+    }
     if (configured.length === 0) throw new Error("SSH algorithm list must not be empty")
     for (const name of configured) {
         if (!supported.includes(name)) throw new Error(`Unsupported algorithm: ${name}`)
@@ -142,4 +154,20 @@ function matches(matcher: AlgorithmMatcher, name: string): boolean {
     if (typeof matcher === "string") return matcher === name
     matcher.lastIndex = 0
     return matcher.test(name)
+}
+
+function normalizeMatchers(value: unknown): readonly AlgorithmMatcher[] {
+    const matchers = Array.isArray(value) ? value : [value]
+    for (const matcher of matchers) {
+        if (typeof matcher === "string") {
+            if (matcher.length === 0) {
+                throw new TypeError("SSH algorithm matcher strings must not be empty")
+            }
+            continue
+        }
+        if (!(matcher instanceof RegExp)) {
+            throw new TypeError("SSH algorithm matchers must be strings or regular expressions")
+        }
+    }
+    return matchers
 }

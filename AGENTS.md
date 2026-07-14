@@ -357,7 +357,8 @@ meaningful wire-level behavior.
   instead of retaining rekey state, and validate supported compression explicitly.
 - Algorithm configuration resolves once per client or server without mutating global registries,
   rejects unsupported names and empty offers, preserves exact preference order, filters server host
-  key offers to keys actually present, and remains stable across rekeys.
+  key offers to keys actually present, and remains stable across rekeys. Reject malformed modifier
+  objects and matcher values at construction instead of silently retaining defaults.
 - Emit negotiated handshake details only after inbound and outbound NEWKEYS are active. Report both
   directions on initial exchange and rekey, and emit `handshake` before the corresponding `rekey`.
 - RFC 8731 Curve25519 messages use raw 32-byte SSH strings for ephemeral public keys, not mpints.

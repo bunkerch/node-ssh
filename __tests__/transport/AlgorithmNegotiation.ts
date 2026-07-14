@@ -54,6 +54,32 @@ describe("RFC 4253 algorithm negotiation", () => {
         expect(() =>
             resolveClientAlgorithmOptions({ hmac: { append: "unknown-mac" } }, catalog),
         ).toThrow("Unsupported algorithm: unknown-mac")
+        expect(() => resolveClientAlgorithmOptions({ cipher: /aes/u } as never, catalog)).toThrow(
+            "modifiers must be an object",
+        )
+        expect(() =>
+            resolveClientAlgorithmOptions({ cipher: new Date() } as never, catalog),
+        ).toThrow("modifiers must be an object")
+        expect(() =>
+            resolveClientAlgorithmOptions({ cipher: { append: [42] } } as never, catalog),
+        ).toThrow("matchers must be strings or regular expressions")
+        expect(() => resolveClientAlgorithmOptions({ cipher: { remove: "" } }, catalog)).toThrow(
+            "matcher strings must not be empty",
+        )
+        expect(() => resolveServerAlgorithmOptions({ cipher: null } as never, catalog)).toThrow(
+            "exact algorithm configuration must be an array",
+        )
+
+        expect(
+            resolveClientAlgorithmOptions(
+                { cipher: { append: [/^legacy-/gu] } },
+                {
+                    ...catalog,
+                    cipher: [...catalog.cipher, "legacy-one", "legacy-two"],
+                },
+                catalog,
+            ).cipher,
+        ).toEqual(["aes128-ctr", "aes192-ctr", "aes256-ctr", "legacy-one", "legacy-two"])
     })
 
     test("keeps legacy algorithms supported but outside the default offer", () => {
