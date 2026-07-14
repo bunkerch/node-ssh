@@ -141,4 +141,27 @@ describe("RFC 4253 peer disconnects", () => {
             await closePeers(server, client)
         }
     }, 15_000)
+
+    test("gracefully ends a server connection with an application disconnect", async () => {
+        const { server, peer, client } = await createConnectedPeers()
+        const disconnect = new Promise<Readonly<PeerDisconnectInfo>>((resolve) => {
+            client.once("disconnect", resolve)
+        })
+        const closed = new Promise<void>((resolve) => client.once("close", resolve))
+
+        try {
+            expect(peer.end()).toBe(peer)
+            await expect(disconnect).resolves.toEqual({
+                reasonCode: DisconnectReason.SSH_DISCONNECT_BY_APPLICATION,
+                description: "",
+                languageTag: "",
+            })
+            await closed
+            expect(client.peerDisconnect?.reasonCode).toBe(
+                DisconnectReason.SSH_DISCONNECT_BY_APPLICATION,
+            )
+        } finally {
+            await closePeers(server, client)
+        }
+    }, 15_000)
 })

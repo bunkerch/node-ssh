@@ -407,7 +407,14 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         return this.socket.remoteAddress
     }
 
-    disconnect(error?: DisconnectError) {
+    /** Gracefully close the connection with an application disconnect. */
+    end(): this {
+        return this.disconnect(
+            new DisconnectError(DisconnectReason.SSH_DISCONNECT_BY_APPLICATION, ""),
+        )
+    }
+
+    disconnect(error?: DisconnectError): this {
         if (error && this.socket.writable) {
             this.sendPacket(
                 new Disconnect({
@@ -419,11 +426,13 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         }
         this.socket.end()
         this.state = SocketState.Disconnected
+        return this
     }
 
-    terminate() {
+    terminate(): this {
         this.socket.destroy()
         this.state = SocketState.Disconnected
+        return this
     }
 
     setNoDelay(noDelay = true): this {

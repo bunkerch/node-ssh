@@ -352,6 +352,9 @@ meaningful wire-level behavior.
 - Injected server sockets must pass through the same `preconnect`, client tracking, authentication,
   error cleanup, and close cleanup as listener-accepted sockets. Keep ownership of the outer
   listener with the injector and ownership of the connected socket with `ServerClient`.
+- Graceful shutdown is symmetric: `Client.end()` and `ServerClient.end()` must send an RFC 4253
+  `BY_APPLICATION` disconnect before ending their transports. Reserve immediate destruction for
+  `destroy()`/`terminate()` and explicit protocol failures for `disconnect(error)`.
 - A client-supplied duplex transport is already connected and is owned by the `Client` after
   `connect()`. Apply the same data/error/close cleanup as TCP sockets, never wait for a synthetic
   `connect` event, reject destroyed transports, and validate hopping through a real SSH channel.

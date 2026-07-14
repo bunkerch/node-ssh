@@ -192,7 +192,9 @@ every restart.
 `Server` mirrors the useful Node TCP-server controls: `address()`, `getConnections()`, `close()`,
 `ref()`, and `unref()` all operate without reaching into an internal socket and return the server
 where Node supports chaining. `ServerClient.setNoDelay()` controls Nagle's algorithm per accepted
-connection.
+connection. Call `ServerClient.end()` for a graceful application shutdown: it sends an RFC 4253
+`BY_APPLICATION` disconnect before ending the socket. `terminate()` destroys the socket
+immediately, while `disconnect(error)` sends a caller-selected protocol reason.
 
 An application that already owns an accepted `net.Socket` can pass it through the same admission
 and handshake path with `server.injectSocket(socket)`. Injected sockets still run the `preconnect`
