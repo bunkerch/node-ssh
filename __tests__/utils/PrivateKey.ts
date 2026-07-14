@@ -61,6 +61,78 @@ function tamperWithAuthenticationTag(privateKey: string): string {
 }
 
 describe("OpenSSH private keys", () => {
+    test("imports standard PEM private-key containers", async () => {
+        const directory = await mkdtemp(join(tmpdir(), "modernssh-pem-import-"))
+        const fixtures = [
+            {
+                name: "ed25519-pkcs8",
+                algorithm: "ssh-ed25519",
+                command: ["genpkey", "-algorithm", "ED25519"],
+            },
+            {
+                name: "rsa-pkcs8",
+                algorithm: "ssh-rsa",
+                command: ["genpkey", "-algorithm", "RSA", "-pkeyopt", "rsa_keygen_bits:2048"],
+            },
+            {
+                name: "rsa-pkcs1",
+                algorithm: "ssh-rsa",
+                command: ["genrsa", "-traditional"],
+            },
+            {
+                name: "ecdsa-sec1",
+                algorithm: "ecdsa-sha2-nistp256",
+                command: ["ecparam", "-name", "prime256v1", "-genkey", "-noout"],
+            },
+        ] as const
+        try {
+            for (const fixture of fixtures) {
+                const path = join(directory, fixture.name)
+                await execFileAsync("openssl", [...fixture.command, "-out", path])
+                const parsed = PrivateKey.fromString(await readFile(path, "utf8"))
+                const message = Buffer.from(`PEM import ${fixture.name}`)
+                expect(parsed.data.alg).toBe(fixture.algorithm)
+                expect(parsed.data.publicKey.verifySignature(message, parsed.sign(message))).toBe(
+                    true,
+                )
+
+                const convertedPath = `${path}.openssh`
+                await writeFile(convertedPath, `${parsed.toString()}\n`, { mode: 0o600 })
+                const { stdout } = await execFileAsync("ssh-keygen", ["-y", "-f", convertedPath])
+                expect(PublicKey.parseString(stdout).equals(parsed.data.publicKey)).toBe(true)
+            }
+
+            const source = join(directory, "ecdsa-sec1")
+            const encrypted = join(directory, "ecdsa-encrypted-pkcs8")
+            await execFileAsync("openssl", [
+                "pkcs8",
+                "-topk8",
+                "-v2",
+                "aes-256-cbc",
+                "-in",
+                source,
+                "-passout",
+                `pass:${passphrase}`,
+                "-out",
+                encrypted,
+            ])
+            const encryptedText = await readFile(encrypted, "utf8")
+            expect(() => PrivateKey.fromString(encryptedText)).toThrow()
+            expect(() => PrivateKey.fromString(encryptedText, "incorrect")).toThrow()
+            const parsed = PrivateKey.fromString(encryptedText, Buffer.from(passphrase))
+            expect(parsed.data.alg).toBe("ecdsa-sha2-nistp256")
+
+            const unsupported = join(directory, "x25519-pkcs8")
+            await execFileAsync("openssl", ["genpkey", "-algorithm", "X25519", "-out", unsupported])
+            const unsupportedText = await readFile(unsupported, "utf8")
+            expect(() => PrivateKey.fromString(unsupportedText)).toThrow(
+                "Unsupported PEM private key type",
+            )
+        } finally {
+            await rm(directory, { recursive: true, force: true })
+        }
+    }, 30_000)
+
     test("encrypts generated keys with every cipher accepted by OpenSSH", async () => {
         const directory = await mkdtemp(join(tmpdir(), "modernssh-encrypted-output-"))
         const privateKey = await PrivateKey.generate("ssh-ed25519")

@@ -103,6 +103,11 @@ to decrypt and derive its public key. Those outputs must match the generated pub
 Repeated encryption proves fresh salt generation, while incorrect passphrases, modified output,
 empty secrets, and invalid bcrypt round counts are rejected.
 
+PEM import interoperability uses OpenSSL to create Ed25519 and RSA PKCS#8, traditional PKCS#1 RSA,
+SEC1 ECDSA, and encrypted ECDSA PKCS#8 inputs. Each imported key signs data and is converted to an
+OpenSSH private-key container whose derived public key is checked by `ssh-keygen`. An unsupported
+X25519 PKCS#8 key is rejected explicitly.
+
 OpenSSH private-key tests also generate every required ECDSA curve and prove parsing, public-key
 matching, signing, and verification. An RFC 6979 P-256/SHA-256 signature is independently encoded as
 the RFC 5656 pair of SSH mpints and verified as a fixed cryptographic vector.

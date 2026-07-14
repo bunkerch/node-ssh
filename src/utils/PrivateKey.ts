@@ -213,6 +213,9 @@ export default class PrivateKey {
     }
 
     static fromString(data: string, passphrase?: string | Buffer): PrivateKey {
+        if (!data.trimStart().startsWith("-----BEGIN OPENSSH PRIVATE KEY-----")) {
+            return PrivateKey.fromPEM(data, passphrase)
+        }
         const lines = data
             .trim()
             .split(/[\n\r]+/)
@@ -227,12 +230,87 @@ export default class PrivateKey {
         return PrivateKey.parse(raw, passphrase)
     }
 
+    static fromPEM(data: string, passphrase?: string | Buffer): PrivateKey {
+        const key = createPrivateKey({ key: data, format: "pem", passphrase })
+        return privateKeyFromKeyObject(key)
+    }
+
     static generate(alg: string): Promise<PrivateKey> {
         const algo = PrivateKey.algorithms.get(alg)
         assert(algo, `Unsupported algorithm: ${alg}`)
 
         return algo.generate()
     }
+}
+
+function jwkBuffer(jwk: JsonWebKey, name: keyof JsonWebKey): Buffer {
+    const value = jwk[name]
+    assert(typeof value === "string" && value.length > 0, `Private JWK is missing ${String(name)}`)
+    return Buffer.from(value, "base64url")
+}
+
+function positiveMpint(value: Buffer): Buffer {
+    assert(value.length > 0, "Private key integer must be positive")
+    return (value[0] & 0x80) !== 0 ? Buffer.concat([Buffer.from([0]), value]) : value
+}
+
+function privateKeyFromKeyObject(key: KeyObject): PrivateKey {
+    const jwk = key.export({ format: "jwk" })
+    if (jwk.kty === "OKP" && jwk.crv === "Ed25519") {
+        const publicKey = jwkBuffer(jwk, "x")
+        const seed = jwkBuffer(jwk, "d")
+        assert(publicKey.length === 32 && seed.length === 32, "Invalid Ed25519 JWK")
+        const algorithm = new SSHED25519PrivateKey({
+            publicKey,
+            privateKey: Buffer.concat([seed, publicKey]),
+        })
+        seed.fill(0)
+        return new PrivateKey({
+            alg: SSHED25519PrivateKey.alg_name,
+            publicKey: algorithm.getPublicKey(),
+            algorithm,
+        })
+    }
+    if (jwk.kty === "RSA") {
+        const algorithm = new SSHRSAPrivateKey({
+            modulus: positiveMpint(jwkBuffer(jwk, "n")),
+            publicExponent: positiveMpint(jwkBuffer(jwk, "e")),
+            privateExponent: positiveMpint(jwkBuffer(jwk, "d")),
+            p: positiveMpint(jwkBuffer(jwk, "p")),
+            q: positiveMpint(jwkBuffer(jwk, "q")),
+            iqmp: positiveMpint(jwkBuffer(jwk, "qi")),
+        })
+        return new PrivateKey({
+            alg: SSHRSAPrivateKey.alg_name,
+            publicKey: algorithm.getPublicKey(),
+            algorithm,
+        })
+    }
+    if (jwk.kty === "EC") {
+        const curve = ECDSA_CURVES.find(({ jwkName }) => jwkName === jwk.crv)
+        assert(curve, `Unsupported PEM ECDSA curve: ${jwk.crv}`)
+        const x = jwkBuffer(jwk, "x")
+        const y = jwkBuffer(jwk, "y")
+        assert(
+            x.length === curve.coordinateLength && y.length === curve.coordinateLength,
+            `Invalid ${curve.identifier} JWK point`,
+        )
+        const RegisteredAlgorithm = PrivateKey.algorithms.get(curve.algorithm)
+        assert(RegisteredAlgorithm, `Unsupported algorithm: ${curve.algorithm}`)
+        const Algorithm = RegisteredAlgorithm as unknown as new (
+            data: SSHECDSAPrivateKeyData,
+        ) => PrivateKeyAlgorithm
+        const algorithm = new Algorithm({
+            publicKey: Buffer.concat([Buffer.from([4]), x, y]),
+            privateKey: jwkBuffer(jwk, "d"),
+        })
+        return new PrivateKey({
+            alg: curve.algorithm,
+            publicKey: algorithm.getPublicKey(),
+            algorithm,
+        })
+    }
+    throw new Error(`Unsupported PEM private key type: ${jwk.kty ?? key.asymmetricKeyType}`)
 }
 
 export abstract class PrivateKeyAlgorithm {

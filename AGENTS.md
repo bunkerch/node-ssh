@@ -61,6 +61,10 @@ meaningful wire-level behavior.
   P-256 defaults, restricts ECDSA to the three RFC 5656 curves, and propagates a line-safe comment to
   both returned key objects. Validate every family with signing plus real `ssh-keygen` derivation
   and fingerprinting, including the documented RSA default.
+- Private-key PEM import delegates PKCS#8, PKCS#1, SEC1, and their encrypted forms to Node's native
+  parser, then converts only Ed25519, RSA, and the three RFC 5656 ECDSA curves into validated SSH
+  key objects. Reject unsupported families and prove every accepted container with OpenSSL input,
+  signing, OpenSSH serialization, and `ssh-keygen` public-key derivation.
 - User authentication follows RFC 4252 and RFC 4256. Decode method-specific opcode 60 from the
   active authentication context, never as a globally fixed packet. Honor advertised continuation
   lists and partial success, keep at most one keyboard-interactive request outstanding, and test

@@ -208,6 +208,12 @@ passphrase. They read the `openssh-key-v1` format produced by `ssh-keygen`, incl
 and ECDSA keys encrypted with any cipher accepted by current OpenSSH: 3DES-CBC, AES-CBC, AES-CTR,
 AES-GCM, and `chacha20-poly1305@openssh.com`.
 
+`PrivateKey.fromString()` also accepts standard unencrypted PKCS#8 PEM for Ed25519, RSA, and the
+three supported ECDSA curves; PKCS#1 RSA PEM; and SEC1 EC PEM. Encrypted PKCS#8 and traditional PEM
+use the same optional passphrase argument and are decrypted by Node's native key parser before
+conversion into the library's validated SSH representation. Unsupported key families and curves
+are rejected rather than silently coerced.
+
 ```ts
 import { readFile } from "node:fs/promises"
 import { PrivateKey } from "modernssh"
