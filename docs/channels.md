@@ -9,15 +9,20 @@ the transport frame that carried them. Channel open results and scalar control p
 snapshot their metadata before they can be queued or observed asynchronously.
 
 ```ts
+import { once } from "node:events"
+
 const channel = await client.exec("node --version")
 
 channel.pipe(process.stdout)
 channel.stderr.pipe(process.stderr)
 
-channel.on("exit", (code, signal) => {
-    console.log({ code, signal })
-})
+await once(channel, "close")
+console.log({ code: channel.exitCode, signal: channel.exitSignal })
 ```
+
+`exitCode` and `exitSignal` retain the terminal result after close. The channel also emits an
+observational `exit` event when that result arrives, but durable state is preferable when code
+attaches after starting a short-lived command.
 
 `client.shell()` opens the same kind of stream and requests an interactive shell. `openSession()`
 opens a session without choosing a program, so callers can issue lower-level channel requests.

@@ -2915,17 +2915,13 @@ describe("OpenSSH interoperability", () => {
             )
             const output: Buffer[] = []
             const stderr: Buffer[] = []
-            let exitCode: number | null | undefined
             channel.on("data", (data: Buffer) => output.push(data))
             channel.stderr.on("data", (data: Buffer) => stderr.push(data))
-            channel.on("exit", (code: number | null) => {
-                exitCode = code
-            })
-            await new Promise<void>((resolve) => channel.once("close", resolve))
+            await once(channel, "close")
 
             expect(Buffer.concat(output).toString()).toBe("openssh server stdout\n")
             expect(Buffer.concat(stderr).toString()).toBe("openssh server stderr\n")
-            expect(exitCode).toBe(23)
+            expect(channel.exitCode).toBe(23)
             expect(errors).toEqual([])
 
             const agentSession = await client.openSession()
