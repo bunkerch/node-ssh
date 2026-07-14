@@ -2,6 +2,8 @@ import UserAuthBanner from "../../src/packets/UserAuthBanner.js"
 import UserAuthInfoRequest from "../../src/packets/UserAuthInfoRequest.js"
 import UserAuthInfoResponse from "../../src/packets/UserAuthInfoResponse.js"
 import UserAuthPasswordChangeRequest from "../../src/packets/UserAuthPasswordChangeRequest.js"
+import UserAuthFailure from "../../src/packets/UserAuthFailure.js"
+import UserAuthPKOK from "../../src/packets/UserAuthPKOK.js"
 import UserAuthRequest, { UnknownAuthMethod } from "../../src/packets/UserAuthRequest.js"
 import PublicKeyAuthMethod, { HostboundPublicKeyAuthMethod } from "../../src/auth/publickey.js"
 import HostbasedAuthMethod from "../../src/auth/hostbased.js"
@@ -39,6 +41,12 @@ const rsaSha512Request = Buffer.from(
         "000000097075626c69636b6579010000000c7273612d736861322d353132" +
         "0000001b000000077373682d727361000000030100010000000500deadbeef" +
         "000000180000000c7273612d736861322d3531320000000401020304",
+    "hex",
+)
+const authFailure = Buffer.from("33000000127075626c69636b65792c70617373776f726401", "hex")
+const publicKeyOK = Buffer.from(
+    "3c0000000c7273612d736861322d353132" +
+        "0000001b000000077373682d727361000000030100010000000500deadbeef",
     "hex",
 )
 const hostbasedRequest = Buffer.from(
@@ -81,6 +89,43 @@ const hostboundSignatureMessage = Buffer.from(
 )
 
 describe("RFC 4252 and RFC 4256 authentication vectors", () => {
+    test("parses and serializes fixed authentication reply packets", () => {
+        const failure = UserAuthFailure.parse(authFailure)
+        expect(failure.data).toEqual({
+            auth_methods: ["publickey", "password"],
+            partial_success: true,
+        })
+        expect(failure.serialize()).toEqual(authFailure)
+
+        const acceptedKey = UserAuthPKOK.parse(publicKeyOK)
+        expect(acceptedKey.data.algorithm).toBe("rsa-sha2-512")
+        expect(acceptedKey.data.publicKey.data.alg).toBe("ssh-rsa")
+        expect(acceptedKey.serialize()).toEqual(publicKeyOK)
+    })
+
+    test("rejects malformed public-key acceptance algorithm names", () => {
+        const malformed = Buffer.from(publicKeyOK)
+        malformed[5] = 0xff
+        expect(() => UserAuthPKOK.parse(malformed)).toThrow(
+            "SSH public-key acceptance algorithm must be US-ASCII",
+        )
+    })
+
+    test("does not retain authentication reply constructor metadata", () => {
+        const methods = ["publickey", "password"] as const
+        const failureInput = { auth_methods: [...methods], partial_success: false }
+        const failure = new UserAuthFailure(failureInput)
+        failureInput.auth_methods[0] = "none"
+        failureInput.partial_success = true
+        expect(failure.data).toEqual({ auth_methods: [...methods], partial_success: false })
+
+        const parsed = UserAuthPKOK.parse(publicKeyOK)
+        const acceptedInput = { publicKey: parsed.data.publicKey, algorithm: "rsa-sha2-512" }
+        const acceptedKey = new UserAuthPKOK(acceptedInput)
+        acceptedInput.algorithm = "ssh-rsa"
+        expect(acceptedKey.data.algorithm).toBe("rsa-sha2-512")
+    })
+
     test("parses and serializes a fixed user authentication banner", () => {
         const packet = UserAuthBanner.parse(banner)
         expect(packet.data).toEqual({

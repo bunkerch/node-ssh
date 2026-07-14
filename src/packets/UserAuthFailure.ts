@@ -14,7 +14,10 @@ export default class UserAuthFailure implements Packet {
 
     data: UserAuthFailureData
     constructor(data: UserAuthFailureData) {
-        this.data = data
+        this.data = {
+            auth_methods: [...data.auth_methods],
+            partial_success: data.partial_success,
+        }
     }
 
     serialize(): Buffer {

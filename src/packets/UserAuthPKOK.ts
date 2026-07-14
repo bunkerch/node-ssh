@@ -3,6 +3,7 @@ import { PacketNameToType } from "../constants.js"
 import Packet from "../packet.js"
 import { readNextBuffer, readNextUint8, serializeBuffer, serializeUint8 } from "../utils/Buffer.js"
 import PublicKey from "../utils/PublicKey.js"
+import { decodeSSHName, encodeSSHName } from "../utils/SSHName.js"
 
 export interface UserAuthPKOKData {
     publicKey: PublicKey
@@ -13,9 +14,10 @@ export default class UserAuthPKOK implements Packet {
 
     data: UserAuthPKOKData
     constructor(data: UserAuthPKOKData) {
-        this.data = data
-        this.data.algorithm ??= this.data.publicKey.data.alg
-        assert(this.data.publicKey.supportsSignatureAlgorithm(this.data.algorithm))
+        const algorithm = data.algorithm ?? data.publicKey.data.alg
+        encodeSSHName(algorithm, "SSH public-key acceptance algorithm")
+        assert(data.publicKey.supportsSignatureAlgorithm(algorithm))
+        this.data = { publicKey: data.publicKey, algorithm }
     }
 
     serialize(): Buffer {
@@ -23,7 +25,11 @@ export default class UserAuthPKOK implements Packet {
 
         buffers.push(serializeUint8(UserAuthPKOK.type))
 
-        buffers.push(serializeBuffer(Buffer.from(this.data.algorithm!, "utf-8")))
+        buffers.push(
+            serializeBuffer(
+                encodeSSHName(this.data.algorithm!, "SSH public-key acceptance algorithm"),
+            ),
+        )
         buffers.push(serializeBuffer(this.data.publicKey.serialize()))
 
         return Buffer.concat(buffers)
@@ -43,7 +49,7 @@ export default class UserAuthPKOK implements Packet {
         assert(raw.length === 0)
 
         const publicKey = PublicKey.parse(data)
-        const algorithm = alg.toString("utf-8")
+        const algorithm = decodeSSHName(alg, "SSH public-key acceptance algorithm")
         assert(publicKey.supportsSignatureAlgorithm(algorithm))
 
         return new UserAuthPKOK({

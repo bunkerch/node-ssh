@@ -137,6 +137,9 @@ meaningful wire-level behavior.
   unconfigured, already-failed, or unadvertised choice. Keep at most one keyboard-interactive
   request outstanding, and test prompts, banners, and password changes with fixed vectors plus
   OpenSSH.
+- Authentication reply envelopes validate algorithm fields as SSH names and snapshot caller-owned
+  metadata. Preserve advertised failure method order and repetitions exactly so multi-step method
+  selection follows the peer's wire message.
 - An awaited client keyboard-interactive hook enables that method only when the caller did not
   provide an explicit authentication order. Resolve this at connect time without mutating retained
   options; explicit orders remain strict allow-lists across every partial-success stage.
