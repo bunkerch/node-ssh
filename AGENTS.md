@@ -57,6 +57,10 @@ meaningful wire-level behavior.
   envelope with the private key, and exercise both decryption and serialization for every supported
   cipher with real `ssh-keygen` output. Serialization copies caller passphrases, uses fresh salts,
   validates bcrypt rounds, and clears derived material plus temporary plaintext key buffers.
+- Private-key containers may contain multiple ordered public/private entries. Keep singular parsers
+  explicit about rejecting them; use the `parseAll`/`fromStringAll`/`parseKeys` surfaces when a
+  collection is expected, validate every public envelope against its private entry, and apply one
+  integrity check plus one final padding sequence to the complete private section.
 - Public key generation accepts semantic Ed25519, Ed448, RSA, and ECDSA family names, uses 3072-bit RSA and
   P-256 defaults, restricts ECDSA to the three RFC 5656 curves, and propagates a line-safe comment to
   both returned key objects. Validate every family with signing plus real `ssh-keygen` derivation

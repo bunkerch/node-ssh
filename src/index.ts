@@ -195,7 +195,7 @@ export type {
 } from "./utils/PublicKey.js"
 export { default as PrivateKey, PrivateKeyAlgorithm } from "./utils/PrivateKey.js"
 export type { PrivateKeyData } from "./utils/PrivateKey.js"
-export { parseKey } from "./KeyParsing.js"
+export { parseKey, parseKeys } from "./KeyParsing.js"
 export type { ParsedKey } from "./KeyParsing.js"
 export type {
     OpenSSHPrivateKeyCipher,

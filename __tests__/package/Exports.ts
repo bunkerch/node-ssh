@@ -30,6 +30,7 @@ import {
     OnePasswordAgent,
     OPEN_MODE,
     parseKey,
+    parseKeys,
     PrivateKey,
     PrivateKeyAgent,
     ProtocolVersionExchange,
@@ -91,6 +92,7 @@ describe("package exports", () => {
             HTTPSAgent,
             OnePasswordAgent,
             parseKey,
+            parseKeys,
             PrivateKey,
             PrivateKeyAgent,
             ProtocolVersionExchange,
@@ -103,7 +105,7 @@ describe("package exports", () => {
             SSHAgent,
             SSHHTTPAgent,
             SSHHTTPSAgent,
-        ]).toHaveLength(34)
+        ]).toHaveLength(35)
         expect(SSHAuthenticationMethods.PublicKey).toBe("publickey")
         expect(SSHAuthenticationMethods.KeyboardInteractive).toBe("keyboard-interactive")
         expect(encodeSFTPPacket).toBeFunction()
@@ -135,6 +137,7 @@ describe("package exports", () => {
         expect(entry.HTTPAgent).toBe(entry.SSHHTTPAgent)
         expect(entry.HTTPSAgent).toBe(entry.SSHHTTPSAgent)
         expect(entry.generateKeyPair).toBeFunction()
+        expect(entry.parseKeys).toBeFunction()
         expect(entry.DirectTCPIPChannel).toBeDefined()
         expect(entry.DirectStreamLocalChannel).toBeDefined()
         expect(entry.ForwardedTCPIPChannel).toBeDefined()

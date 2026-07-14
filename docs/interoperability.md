@@ -103,6 +103,10 @@ to decrypt and derive its public key. Those outputs must match the generated pub
 Repeated encryption proves fresh salt generation, while incorrect passphrases, modified output,
 empty secrets, and invalid bcrypt round counts are rejected.
 
+Multi-key private-container tests combine Ed25519, ECDSA, and Ed448 entries in independently
+parsed raw and armored envelopes, with and without authenticated encryption. They verify order,
+comments, signing, public/private matching, singular-API rejection, count bounds, and padding.
+
 PEM import interoperability uses OpenSSL to create Ed25519 and RSA PKCS#8, traditional PKCS#1 RSA,
 SEC1 ECDSA, and encrypted ECDSA PKCS#8 inputs. Each imported key signs data and is converted to an
 OpenSSH private-key container whose derived public key is checked by `ssh-keygen`. An unsupported

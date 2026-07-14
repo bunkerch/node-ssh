@@ -220,6 +220,13 @@ const key = parseKey(await readFile("./deploy_key"), process.env.SSH_KEY_PASSPHR
 if (!(key instanceof PrivateKey)) throw new Error("A private key is required")
 ```
 
+The private-key container format can hold more than one key. Use `parseKeys()`,
+`PrivateKey.parseAll()`, or `PrivateKey.fromStringAll()` when such a container is allowed; these
+return entries in wire order and verify every public envelope against its private entry. Singular
+parsers reject a multi-key container rather than choosing one implicitly. Create one with
+`PrivateKey.serializeMany(keys)` or `PrivateKey.toStringMany(keys)`, passing the same encryption
+options accepted by a single key.
+
 `PrivateKey.fromString()` and `PrivateKey.parse()` accept an optional string or `Buffer`
 passphrase. They read the `openssh-key-v1` format produced by `ssh-keygen`, including Ed25519, RSA,
 and ECDSA keys encrypted with any cipher accepted by current OpenSSH: 3DES-CBC, AES-CBC, AES-CTR,

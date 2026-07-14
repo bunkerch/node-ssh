@@ -85,21 +85,36 @@ export default class PrivateKey {
     }
 
     serialize(options?: OpenSSHPrivateKeyEncryptionOptions): Buffer {
-        assert(
-            !(this.data.publicKey.data.algorithm instanceof SSHCertificatePublicKey),
-            "Serialize the underlying private key separately from its certificate",
-        )
+        return PrivateKey.serializeMany([this], options)
+    }
+
+    static serializeMany(
+        keys: readonly PrivateKey[],
+        options?: OpenSSHPrivateKeyEncryptionOptions,
+    ): Buffer {
+        assert(keys.length > 0, "At least one private key is required")
+        assert(keys.length <= 0xffffffff, "Too many private keys")
         const cipherName = options?.cipher ?? "aes256-ctr"
         const blockLength = options ? getOpenSSHPrivateKeyCipherBlockLength(cipherName) : 8
-        const algorithmPayload = this.data.algorithm.serialize()
-        const prv = []
+        const prv: Buffer[] = []
+        const algorithmPayloads: Buffer[] = []
         const rnd = randomBytes(4)
         prv.push(rnd, rnd)
-        prv.push(serializeBuffer(Buffer.from(this.data.alg, "utf8")))
-        prv.push(algorithmPayload)
-        prv.push(serializeBuffer(Buffer.from(this.data.comment ?? "", "utf8")))
+        for (const key of keys) {
+            assert(
+                !(key.data.publicKey.data.algorithm instanceof SSHCertificatePublicKey),
+                "Serialize the underlying private key separately from its certificate",
+            )
+            const algorithmPayload = key.data.algorithm.serialize()
+            prv.push(serializeBuffer(Buffer.from(key.data.alg, "utf8")))
+            prv.push(algorithmPayload)
+            prv.push(serializeBuffer(Buffer.from(key.data.comment ?? "", "utf8")))
+            algorithmPayloads.push(algorithmPayload)
+        }
         let prvPayload = Buffer.concat(prv)
-        if (options) algorithmPayload.fill(0)
+        if (options) {
+            for (const payload of algorithmPayloads) payload.fill(0)
+        }
         if (prvPayload.length % blockLength !== 0) {
             const pad_len = blockLength - (prvPayload.length % blockLength)
             const pad = Buffer.alloc(pad_len, pad_len)
@@ -135,14 +150,20 @@ export default class PrivateKey {
             serializeBuffer(Buffer.from(serializedCipherName)),
             serializeBuffer(Buffer.from(kdfName)),
             serializeBuffer(kdfOptions),
-            serializeUint32(1),
-            serializeBuffer(this.data.publicKey.serialize()),
+            serializeUint32(keys.length),
+            ...keys.map((key) => serializeBuffer(key.data.publicKey.serialize())),
             serializeBuffer(privatePayload),
             authenticationTag,
         ])
     }
 
     static parse(raw: Buffer, passphrase?: string | Buffer): PrivateKey {
+        const keys = PrivateKey.parseAll(raw, passphrase)
+        assert(keys.length === 1, "Private key container contains multiple keys; use parseAll()")
+        return keys[0]
+    }
+
+    static parseAll(raw: Buffer, passphrase?: string | Buffer): PrivateKey[] {
         let authMagic: Buffer
         ;[authMagic, raw] = readNextCString(raw)
 
@@ -168,11 +189,15 @@ export default class PrivateKey {
 
         let numKeys: number
         ;[numKeys, raw] = readNextUint32(raw)
-        assert(numKeys === 1, "Multiple keys found (Unsupported)")
+        assert(numKeys > 0, "Private key container must contain at least one key")
+        assert(numKeys <= Math.floor(raw.length / 4), "Invalid private key count")
 
-        let sshpubkey: Buffer
-        ;[sshpubkey, raw] = readNextBuffer(raw)
-        const publicKey = PublicKey.parse(sshpubkey)
+        const publicKeys: PublicKey[] = []
+        for (let index = 0; index < numKeys; index++) {
+            let sshpubkey: Buffer
+            ;[sshpubkey, raw] = readNextBuffer(raw)
+            publicKeys.push(PublicKey.parse(sshpubkey))
+        }
 
         let privatePayload: Buffer
         ;[privatePayload, raw] = readNextBuffer(raw)
@@ -204,41 +229,53 @@ export default class PrivateKey {
         ;[rnd2, raw] = readNextUint32(raw)
         assert(rnd1 === rnd2, "OpenSSH key integrity check failed; wrong passphrase?")
 
-        let alg: Buffer
-        ;[alg, raw] = readNextBuffer(raw)
-        assert(
-            alg.toString("utf8") === publicKey.data.alg,
-            "Private key algorithm does not match public key algorithm",
-        )
+        const keys: PrivateKey[] = []
+        for (const publicKey of publicKeys) {
+            let alg: Buffer
+            ;[alg, raw] = readNextBuffer(raw)
+            const algorithmName = alg.toString("utf8")
+            assert(
+                algorithmName === publicKey.data.alg,
+                "Private key algorithm does not match public key algorithm",
+            )
 
-        const algorithm = PrivateKey.algorithms.get(alg.toString("utf8"))
-        assert(algorithm, `Unsupported algorithm: ${alg.toString("utf8")}`)
+            const algorithm = PrivateKey.algorithms.get(algorithmName)
+            assert(algorithm, `Unsupported algorithm: ${algorithmName}`)
 
-        let prv: PrivateKeyAlgorithm
-        ;[prv, raw] = algorithm.parse(raw)
+            let prv: PrivateKeyAlgorithm
+            ;[prv, raw] = algorithm.parse(raw)
+            assert(publicKey.equals(prv.getPublicKey()), "Private and public key data do not match")
 
-        const privatePublicKey = prv.getPublicKey()
-        assert(publicKey.equals(privatePublicKey), "Private and public key data do not match")
-
-        let comment: Buffer
-        ;[comment, raw] = readNextBuffer(raw)
+            let comment: Buffer
+            ;[comment, raw] = readNextBuffer(raw)
+            keys.push(
+                new PrivateKey({
+                    publicKey,
+                    alg: algorithmName,
+                    algorithm: prv,
+                    comment: comment.length > 0 ? comment.toString("utf8") : undefined,
+                }),
+            )
+        }
 
         // check padding
         for (let i = 0; i < raw.length; i++) {
             assert(raw[i] === i + 1, "Invalid padding byte at index " + i)
         }
 
-        return new PrivateKey({
-            publicKey,
-            alg: alg.toString("utf8"),
-            algorithm: prv,
-            comment: comment.length > 0 ? comment.toString("utf8") : undefined,
-        })
+        return keys
     }
 
     toString(options?: OpenSSHPrivateKeyEncryptionOptions): string {
+        return PrivateKey.toStringMany([this], options)
+    }
+
+    static toStringMany(
+        keys: readonly PrivateKey[],
+        options?: OpenSSHPrivateKeyEncryptionOptions,
+    ): string {
         const lines = [`-----BEGIN OPENSSH PRIVATE KEY-----`]
-        const b64 = this.serialize(options).toString("base64")
+        const b64 = PrivateKey.serializeMany(keys, options).toString("base64")
         for (let i = 0; i < b64.length; i += 70) {
             lines.push(b64.slice(i, i + 70))
         }
@@ -248,8 +285,17 @@ export default class PrivateKey {
     }
 
     static fromString(data: string, passphrase?: string | Buffer): PrivateKey {
+        const keys = PrivateKey.fromStringAll(data, passphrase)
+        assert(
+            keys.length === 1,
+            "Private key container contains multiple keys; use fromStringAll()",
+        )
+        return keys[0]
+    }
+
+    static fromStringAll(data: string, passphrase?: string | Buffer): PrivateKey[] {
         if (!data.trimStart().startsWith("-----BEGIN OPENSSH PRIVATE KEY-----")) {
-            return PrivateKey.fromPEM(data, passphrase)
+            return [PrivateKey.fromPEM(data, passphrase)]
         }
         const lines = data
             .trim()
@@ -262,7 +308,7 @@ export default class PrivateKey {
         const base64 = lines.slice(1, -1).join("")
         const raw = Buffer.from(base64, "base64")
 
-        return PrivateKey.parse(raw, passphrase)
+        return PrivateKey.parseAll(raw, passphrase)
     }
 
     static fromPEM(data: string, passphrase?: string | Buffer): PrivateKey {

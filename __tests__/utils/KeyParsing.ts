@@ -4,7 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { execFile } from "node:child_process"
 import { promisify } from "node:util"
-import { parseKey } from "../../src/KeyParsing.js"
+import { parseKey, parseKeys } from "../../src/KeyParsing.js"
 import PrivateKey from "../../src/utils/PrivateKey.js"
 import PublicKey from "../../src/utils/PublicKey.js"
 
@@ -91,6 +91,81 @@ describe("key parsing", () => {
         expect(() => parseKey(privateKey.data.publicKey.toString(), "secret")).toThrow(
             "only valid for private keys",
         )
+    })
+
+    test("parses ordered multi-key private containers without ambiguity", async () => {
+        const keys = await Promise.all([
+            PrivateKey.generate("ssh-ed25519"),
+            PrivateKey.generate("ecdsa-sha2-nistp256"),
+            PrivateKey.generate("ssh-ed448"),
+        ])
+        keys.forEach((key, index) => {
+            key.data.comment = `key-${index + 1}`
+        })
+
+        for (const encrypted of [false, true]) {
+            const options = encrypted ? { passphrase: "multi-secret", rounds: 1 } : undefined
+            const raw = PrivateKey.serializeMany(keys, options)
+            const armored = PrivateKey.toStringMany(keys, options)
+            const passphrase = encrypted ? "multi-secret" : undefined
+            for (const parsed of [
+                PrivateKey.parseAll(raw, passphrase),
+                PrivateKey.fromStringAll(armored, passphrase),
+                parseKeys(raw, passphrase) as PrivateKey[],
+                parseKeys(armored, passphrase) as PrivateKey[],
+            ]) {
+                expect(parsed.map((key) => key.data.comment)).toEqual(["key-1", "key-2", "key-3"])
+                parsed.forEach((key, index) => {
+                    expect(key.data.publicKey.equals(keys[index].data.publicKey)).toBe(true)
+                    const message = Buffer.from(`multi-key-${index}`)
+                    expect(key.data.publicKey.verifySignature(message, key.sign(message))).toBe(
+                        true,
+                    )
+                })
+            }
+        }
+
+        const raw = PrivateKey.serializeMany(keys)
+        expect(() => PrivateKey.parse(raw)).toThrow("use parseAll()")
+        expect(() => PrivateKey.fromString(PrivateKey.toStringMany(keys))).toThrow(
+            "use fromStringAll()",
+        )
+        expect(() => parseKey(raw)).toThrow("use parseKeys()")
+    })
+
+    test("rejects invalid multi-key counts, envelopes, and padding", async () => {
+        const first = await PrivateKey.generate("ssh-ed25519")
+        const second = await PrivateKey.generate("ssh-ed25519")
+        const raw = PrivateKey.serializeMany([first, second])
+
+        const empty = Buffer.from(raw)
+        empty.writeUInt32BE(0, 35)
+        expect(() => PrivateKey.parseAll(empty)).toThrow("at least one key")
+
+        const excessive = Buffer.from(raw)
+        excessive.writeUInt32BE(0xffffffff, 35)
+        expect(() => PrivateKey.parseAll(excessive)).toThrow("Invalid private key count")
+
+        const swapped = Buffer.from(raw)
+        const firstFrame = Buffer.concat([
+            Buffer.from([0, 0, 0, first.data.publicKey.serialize().length]),
+            first.data.publicKey.serialize(),
+        ])
+        const secondFrame = Buffer.concat([
+            Buffer.from([0, 0, 0, second.data.publicKey.serialize().length]),
+            second.data.publicKey.serialize(),
+        ])
+        const firstOffset = swapped.indexOf(firstFrame, 39)
+        const secondOffset = swapped.indexOf(secondFrame, firstOffset + firstFrame.length)
+        expect(firstOffset).toBeGreaterThan(0)
+        expect(secondOffset).toBeGreaterThan(firstOffset)
+        firstFrame.copy(swapped, secondOffset)
+        secondFrame.copy(swapped, firstOffset)
+        expect(() => PrivateKey.parseAll(swapped)).toThrow("do not match")
+
+        const badPadding = Buffer.from(raw)
+        badPadding[badPadding.length - 1] ^= 0xff
+        expect(() => PrivateKey.parseAll(badPadding)).toThrow("Invalid padding byte")
     })
 
     test("rejects unsupported public-key families", () => {
