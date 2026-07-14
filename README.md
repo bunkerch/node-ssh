@@ -16,6 +16,8 @@ banners, and multi-factor flows. The [client channel guide](docs/channels.md) co
 stream behavior, the [SFTP guide](docs/sftp.md) covers remote file operations, and the
 [TCP/IP forwarding guide](docs/forwarding.md) covers direct and remote forwarding, while the
 [packet tunnel guide](docs/tunnels.md) covers layer-3 and layer-2 tunnel channels. The
+[SSH agent protocol guide](docs/agent-protocol.md) covers identity management, constraints,
+locking, extensions, and restricted agent endpoints. The
 [global request guide](docs/global-requests.md) covers connection-wide application extensions. The
 [known-hosts guide](docs/known-hosts.md) covers persistent host verification, host certificates,
 revocation, and key rotation. The

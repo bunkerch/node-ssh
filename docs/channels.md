@@ -204,8 +204,8 @@ try {
 ```
 
 `SSHAgentProtocolServer` serves an already-connected `Duplex` with awaited, deny-by-default
-`identities` and `sign` hooks. It is useful for exposing a deliberately restricted agent rather
-than forwarding an entire local socket:
+identity, signing, management, lock, and extension hooks. It is useful for exposing a deliberately
+restricted agent rather than forwarding an entire local socket:
 
 ```ts
 import { SSHAgentProtocolServer } from "modernssh"
@@ -233,6 +233,8 @@ untagged late response cannot safely be matched to a later request. Call `serve(
 stream and await it through peer closure or failure.
 Forwarding still gives the remote host an interface capable of requesting signatures as your local
 identity, so expose only the identities and destinations that host is trusted to use.
+See [SSH agent protocol](agent-protocol.md) for management methods, constraints, extension results,
+lock semantics, and the complete server hook surface.
 
 ## Protocol behavior
 

@@ -214,19 +214,35 @@ export type { CygwinAgentOptions } from "./publickey/CygwinAgent.js"
 export { createSocketAgent } from "./publickey/SocketAgent.js"
 export {
     MAX_SSH_AGENT_MESSAGE_LENGTH,
+    SSHAgentConstraintType,
+    SSHAgentExtensionFailureError,
     SSHAgentMessageType,
     SSHAgentProtocolClient,
     SSHAgentProtocolError,
     SSHAgentProtocolServer,
 } from "./publickey/SSHAgentProtocol.js"
 export type {
+    SSHAgentAddIdentityOptions,
+    SSHAgentAddTokenOptions,
+    SSHAgentConstraint,
+    SSHAgentExtensionResult,
     SSHAgentIdentity,
     SSHAgentProtocolOptions,
     SSHAgentProtocolServerOptions,
     SSHAgentServerHooker,
+    SSHAgentServerAddIdentityContext,
+    SSHAgentServerAddTokenContext,
+    SSHAgentServerExtensionContext,
+    SSHAgentServerExtensionController,
+    SSHAgentServerExtensionResult,
     SSHAgentServerIdentitiesController,
+    SSHAgentServerPassphraseContext,
+    SSHAgentServerQueryExtensionsController,
+    SSHAgentServerRemoveIdentityContext,
+    SSHAgentServerRemoveTokenContext,
     SSHAgentServerSignContext,
     SSHAgentServerSignController,
+    SSHAgentServerSuccessController,
 } from "./publickey/SSHAgentProtocol.js"
 export { default as OnePasswordAgent, OnePasswordAgentError } from "./publickey/OnePasswordAgent.js"
 export { default as PrivateKeyAgent, PrivateKeyAgentError } from "./publickey/PrivateKeyAgent.js"

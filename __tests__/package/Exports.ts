@@ -60,6 +60,8 @@ import {
     STATUS_CODE,
     stringToFlags,
     SSHAgent,
+    SSHAgentConstraintType,
+    SSHAgentExtensionFailureError,
     SSHAgentMessageType,
     SSHAgentProtocolClient,
     SSHAgentProtocolError,
@@ -75,6 +77,7 @@ import {
     type GSSAPIKeyExchangeClientContextOptions,
     type SSHAgentProtocolOptions,
     type SSHAgentProtocolServerOptions,
+    type SSHAgentConstraint,
     type ServerOptions,
 } from "../../src/index.js"
 
@@ -102,6 +105,7 @@ describe("package exports", () => {
         const agentProtocolServerOptions: SSHAgentProtocolServerOptions = {
             maxMessageLength: 2048,
         }
+        const agentConstraint: SSHAgentConstraint = { type: "confirm" }
         const cygwinAgentOptions: CygwinAgentOptions = {
             handshakeTimeout: 500,
             maxSocketFileLength: 512,
@@ -113,6 +117,7 @@ describe("package exports", () => {
         expect(keyExchangeOptions.service).toBe("host")
         expect(agentProtocolOptions.requestTimeout).toBe(250)
         expect(agentProtocolServerOptions.maxMessageLength).toBe(2048)
+        expect(agentConstraint.type).toBe("confirm")
         expect(cygwinAgentOptions.handshakeTimeout).toBe(500)
         expect([
             Agent,
@@ -181,7 +186,10 @@ describe("package exports", () => {
         expect(SSHAgentProtocolClient).toBeFunction()
         expect(SSHAgentProtocolServer).toBeFunction()
         expect(SSHAgentProtocolError).toBeFunction()
+        expect(SSHAgentExtensionFailureError).toBeFunction()
         expect(SSHAgentMessageType.SignRequest).toBe(13)
+        expect(SSHAgentMessageType.ExtensionResponse).toBe(29)
+        expect(SSHAgentConstraintType.Extension).toBe(255)
         expect(MAX_SSH_AGENT_MESSAGE_LENGTH).toBe(256 * 1024)
         expect(CygwinAgent).toBeFunction()
         expect(CygwinAgentError).toBeFunction()
@@ -270,6 +278,10 @@ describe("package exports", () => {
         expect(serverClient).toContain("forwardAgent(): Promise<ForwardedAgentChannel>")
         expect(server).toContain("getConnections(): Promise<number>")
         expect(server).toContain("close(): Promise<void>")
+        expect(agentProtocol).toContain("addIdentity(")
+        expect(agentProtocol).toContain("removeAllIdentities(): Promise<void>")
+        expect(agentProtocol).toContain("queryExtensions(): Promise<readonly string[]>")
+        expect(agentProtocol).not.toContain("callback")
         expect(streams.match(/close\(\): Promise<void>/gu)).toHaveLength(2)
         expect(shell).toContain("writeStdout(data: Buffer | string")
         expect(shell).toContain("writeStderr(data: Buffer | string")
@@ -301,7 +313,7 @@ describe("package exports", () => {
                     "--input-type=module",
                     "--eval",
                     `
-                    const { Client, createSocketAgent, CygwinAgent, CygwinAgentError, generateKeyPair, generateKeyPairSync, KnownHosts, MAX_SSH_AGENT_MESSAGE_LENGTH, parseKey, PrivateKey, PrivateKeyAgent, SSHAgentMessageType, SSHAgentProtocolClient, SSHAgentProtocolError, SSHAgentProtocolServer } = await import("modernssh")
+                    const { Client, createSocketAgent, CygwinAgent, CygwinAgentError, generateKeyPair, generateKeyPairSync, KnownHosts, MAX_SSH_AGENT_MESSAGE_LENGTH, parseKey, PrivateKey, PrivateKeyAgent, SSHAgentConstraintType, SSHAgentExtensionFailureError, SSHAgentMessageType, SSHAgentProtocolClient, SSHAgentProtocolError, SSHAgentProtocolServer } = await import("modernssh")
                     const { privateKey, publicKey } = await generateKeyPair("ed25519", {
                         comment: "packed@example.test",
                     })
@@ -336,6 +348,7 @@ describe("package exports", () => {
                     if (typeof SSHAgentProtocolClient !== "function" || typeof SSHAgentProtocolServer !== "function" || typeof SSHAgentProtocolError !== "function") process.exit(17)
                     if (SSHAgentMessageType.SignResponse !== 14 || MAX_SSH_AGENT_MESSAGE_LENGTH !== 262144) process.exit(18)
                     if (typeof CygwinAgent !== "function" || typeof CygwinAgentError !== "function" || typeof createSocketAgent !== "function") process.exit(19)
+                    if (SSHAgentMessageType.ExtensionResponse !== 29 || SSHAgentConstraintType.Extension !== 255 || typeof SSHAgentExtensionFailureError !== "function") process.exit(21)
                     const originalPlatform = process.platform
                     Object.defineProperty(process, "platform", { configurable: true, value: "win32" })
                     const selectedAgent = createSocketAgent("C:/cygwin/tmp/agent.socket")

@@ -387,7 +387,8 @@ The package root currently exports:
 - `ClientChannel`, `ClientSessionChannel`, `Channel`, `SessionChannel`, and `Shell`.
 - `Agent`, `PrivateKeyAgent`, `DiskAgent`, `SSHAgent`, `CygwinAgent`, `createSocketAgent`,
   `SSHAgentProtocolClient`, `SSHAgentProtocolServer`, `OnePasswordAgent`, and their option, hook,
-  error, and agent-type definitions.
+  constraint, management, extension, error, and agent-type definitions. See
+  [SSH agent protocol](agent-protocol.md) for the complete Promise API and awaited hook surface.
 - `PublicKey`, `PrivateKey`, `EncodedSignature`, `ProtocolVersionExchange`, `generateKeyPair()`,
   `generateKeyPairSync()`, `parseKey()`, and `parseKeys()`.
 - Public service, authentication, connection-state, and extended-data enums.
