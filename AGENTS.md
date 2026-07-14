@@ -340,7 +340,9 @@ meaningful wire-level behavior.
 - Reserve each peer channel identifier before asynchronous open policy and across the full
   bidirectional CLOSE handshake. Reject active reuse with an RFC protocol-error disconnect, release
   rejected and fully closed identifiers, and keep fatal behavior independent of TCP fragmentation
-  or coalescing by sharing the direct and deferred packet-processing error path.
+  or coalescing by sharing the direct and deferred packet-processing error path. Settle every
+  channel open exactly once; a confirmation followed by a failure (or the reverse) is fatal in both
+  roles and must not silently remove an established channel.
 - Classify established-channel wire violations separately from local stream and application
   failures. Send reason-code 2 for window overflow, data beyond window or EOF, oversized channel
   packets, duplicate results, and unexpected replies in both roles; accept a zero window adjustment

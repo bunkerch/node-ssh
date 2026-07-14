@@ -192,9 +192,10 @@ The implementation follows RFC 4254 channel rules:
   Exit signals retain `exitSignal`, `exitCoreDumped`, `exitErrorMessage`, and `exitLanguageTag`.
   These one-way results are accepted only once on a session channel; signal names, UTF-8 messages,
   language tags, reply flags, and trailing data are validated before the event is emitted.
-- Data after EOF, oversized data, window overruns, duplicate confirmations or peer identifiers, and
-  packets for unknown channels are treated as protocol errors. Protocol-error disconnects are sent
-  consistently whether the triggering packet arrived alone, fragmented, or in a coalesced read.
+- Data after EOF, oversized data, window overruns, duplicate or contradictory open outcomes,
+  duplicate peer identifiers, and packets for unknown channels are treated as protocol errors.
+  Protocol-error disconnects are sent consistently whether the triggering packet arrived alone,
+  fragmented, or in a coalesced read.
 
 The interoperability suite exercises session opening, `exec`, stdin, stdout, stderr, exit status,
 EOF, CLOSE, end-of-write, and OpenSSH's `no-more-sessions@openssh.com` extension against OpenSSH.

@@ -7,6 +7,9 @@ import Server from "../../src/Server.js"
 import type ServerClient from "../../src/ServerClient.js"
 import ChannelOpen from "../../src/packets/ChannelOpen.js"
 import ChannelOpenConfirmation from "../../src/packets/ChannelOpenConfirmation.js"
+import ChannelOpenFailure, {
+    ChannelOpenFailureReasonCodes,
+} from "../../src/packets/ChannelOpenFailure.js"
 import ChannelWindowAdjust from "../../src/packets/ChannelWindowAdjust.js"
 import { DisconnectReason, type PeerDisconnectInfo } from "../../src/packets/Disconnect.js"
 import PrivateKey from "../../src/utils/PrivateKey.js"
@@ -157,6 +160,53 @@ describe("RFC 4254 channel identifiers", () => {
             await closePeers(server, client)
         }
     }, 15_000)
+
+    test.each(["client", "server"] as const)(
+        "rejects contradictory channel-open outcomes sent by the %s",
+        async (sender) => {
+            const { server, peer, client } = await createConnectedPeers()
+            const channel =
+                sender === "server"
+                    ? new ClientSessionChannel(client)
+                    : new SessionChannel(peer, "session")
+            const packetSender = sender === "server" ? peer : client
+            if (channel instanceof ClientSessionChannel) {
+                client.channels.set(channel.localId, channel)
+            } else {
+                peer.channels.set(channel.localId, channel)
+            }
+            const disconnect = nextDisconnect(packetSender)
+
+            try {
+                packetSender.sendPacket(
+                    new ChannelOpenConfirmation({
+                        recipient_channel_id: channel.localId,
+                        sender_channel_id: 91,
+                        initial_window_size: 1024,
+                        maximum_packet_size: 1024,
+                        args: Buffer.alloc(0),
+                    }),
+                )
+                await channel.waitUntilOpen()
+                packetSender.sendPacket(
+                    new ChannelOpenFailure({
+                        recipient_channel_id: channel.localId,
+                        reason_code:
+                            ChannelOpenFailureReasonCodes.SSH_OPEN_ADMINISTRATIVELY_PROHIBITED,
+                        description: "contradictory outcome",
+                        language_tag: "",
+                    }),
+                )
+                await expect(disconnect).resolves.toMatchObject({
+                    reasonCode: DisconnectReason.SSH_DISCONNECT_PROTOCOL_ERROR,
+                    description: `SSH channel ${channel.localId} open was settled twice`,
+                })
+            } finally {
+                await closePeers(server, client)
+            }
+        },
+        15_000,
+    )
 
     test("sends protocol-error disconnects for channel window overflow in both roles", async () => {
         {

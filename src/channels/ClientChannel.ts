@@ -96,6 +96,7 @@ export default class ClientChannel extends Duplex {
     private openResolve!: () => void
     private openReject!: (error: Error) => void
     private readonly openPromise: Promise<void>
+    private openSettled = false
     private pendingWrite?: PendingWrite
     private readonly pendingRequests: PendingRequest[] = []
     private stdoutBlocked = false
@@ -184,16 +185,18 @@ export default class ClientChannel extends Duplex {
     abort(error: Error | null = null): void {
         this.transportClosed = true
         this.transportCloseError = error ?? undefined
-        if (this.remoteId === undefined) {
+        if (!this.openSettled) {
+            this.openSettled = true
             this.openReject(error ?? new Error(`SSH channel ${this.localId} closed before opening`))
         }
         this.destroy()
     }
 
     confirmOpen(packet: ChannelOpenConfirmation): void {
-        if (this.remoteId !== undefined) {
-            throw new ProtocolError(`SSH channel ${this.localId} was confirmed more than once`)
+        if (this.openSettled) {
+            throw new ProtocolError(`SSH channel ${this.localId} open was settled twice`)
         }
+        this.openSettled = true
         this.remoteId = packet.data.sender_channel_id
         this.remoteWindowSize = packet.data.initial_window_size
         this.remoteMaximumPacketSize = packet.data.maximum_packet_size
@@ -201,9 +204,10 @@ export default class ClientChannel extends Duplex {
     }
 
     acceptOpen(packet: ChannelOpen): void {
-        if (this.remoteId !== undefined) {
-            throw new ProtocolError(`SSH channel ${this.localId} was opened more than once`)
+        if (this.openSettled) {
+            throw new ProtocolError(`SSH channel ${this.localId} open was settled twice`)
         }
+        this.openSettled = true
         this.remoteId = packet.data.sender_channel_id
         this.remoteWindowSize = packet.data.initial_window_size
         this.remoteMaximumPacketSize = packet.data.maximum_packet_size
@@ -211,6 +215,10 @@ export default class ClientChannel extends Duplex {
     }
 
     failOpen(packet: ChannelOpenFailure): void {
+        if (this.openSettled) {
+            throw new ProtocolError(`SSH channel ${this.localId} open was settled twice`)
+        }
+        this.openSettled = true
         this.openReject(
             new ChannelOpenError(
                 packet.data.reason_code,
