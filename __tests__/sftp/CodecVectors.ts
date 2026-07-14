@@ -219,6 +219,48 @@ describe("SFTP v3 fixed packet vectors", () => {
         expect(encodeSFTPPacket(decodeSFTPPacket(request))).toEqual(request)
         expect(encodeSFTPPacket(decodeSFTPPacket(reply))).toEqual(reply)
     })
+
+    test("validates textual fields while preserving opaque filename bytes", () => {
+        expect(() =>
+            decodeSFTPPacket(hex(`00000012 65 00000001 00000004 00000001 ff 00000000`)),
+        ).toThrow("SFTP status message is not valid UTF-8 text")
+        expect(() =>
+            decodeSFTPPacket(hex(`00000012 65 00000001 00000004 00000000 00000001 ff`)),
+        ).toThrow("SFTP status language tag is not valid RFC 3066")
+        expect(() => decodeSFTPPacket(hex(`0000000e 01 00000003 00000001 ff 00000000`))).toThrow(
+            "SFTP extension name must be US-ASCII",
+        )
+        expect(() => decodeSFTPPacket(hex(`0000000a c8 00000001 00000001 ff`))).toThrow(
+            "SFTP extended request name must be US-ASCII",
+        )
+
+        expect(() =>
+            encodeSFTPPacket({
+                type: SFTPPacketType.Status,
+                requestId: 1,
+                code: SFTPStatusCode.Failure,
+                message: "\ud800",
+                languageTag: "",
+            }),
+        ).toThrow("SFTP status message is not valid UTF-8 text")
+        expect(() =>
+            encodeSFTPPacket({
+                type: SFTPPacketType.Status,
+                requestId: 1,
+                code: SFTPStatusCode.Failure,
+                message: "failure",
+                languageTag: "not_a_tag",
+            }),
+        ).toThrow("SFTP status language tag is not valid RFC 3066")
+
+        const opaqueName = hex(`00000017 68 00000001 00000001 00000001 ff 00000001 ff 00000000`)
+        const decodedName = decodeSFTPPacket(opaqueName)
+        expect(decodedName).toMatchObject({
+            type: SFTPPacketType.Name,
+            names: [{ filename: Buffer.from([0xff]), longname: Buffer.from([0xff]) }],
+        })
+        expect(encodeSFTPPacket(decodedName)).toEqual(opaqueName)
+    })
 })
 
 describe("SFTP v3 bounded stream parser", () => {

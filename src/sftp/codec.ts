@@ -12,6 +12,13 @@ import type {
     SFTPNameEntry,
     SFTPPacket,
 } from "./types.js"
+import { decodeSSHName, encodeSSHName } from "../utils/SSHName.js"
+import {
+    decodeSSHLanguageTag,
+    decodeSSHUTF8,
+    encodeSSHLanguageTag,
+    encodeSSHUTF8,
+} from "../utils/SSHText.js"
 
 const UINT32_MAX = 0xffff_ffff
 const UINT64_MAX = 0xffff_ffff_ffff_ffffn
@@ -100,7 +107,7 @@ function string(value: Buffer, name: string): Buffer {
 }
 
 function utf8(value: string, name: string): Buffer {
-    return string(Buffer.from(value, "utf8"), name)
+    return string(encodeSSHUTF8(value, `SFTP ${name}`), name)
 }
 
 function handle(value: Buffer): Buffer {
@@ -122,7 +129,7 @@ function readExtensions(reader: Reader): readonly SFTPExtension[] {
     const extensions: SFTPExtension[] = []
     while (reader.remaining > 0) {
         extensions.push({
-            name: reader.string("extension name").toString("utf8"),
+            name: decodeSSHName(reader.string("extension name"), "SFTP extension name"),
             data: reader.string("extension data"),
         })
     }
@@ -132,7 +139,7 @@ function readExtensions(reader: Reader): readonly SFTPExtension[] {
 function encodeExtensions(extensions: readonly SFTPExtension[]): Buffer {
     return Buffer.concat(
         extensions.flatMap((extension) => [
-            utf8(extension.name, "extension name"),
+            string(encodeSSHName(extension.name, "SFTP extension name"), "extension name"),
             string(extension.data, "extension data"),
         ]),
     )
@@ -323,8 +330,11 @@ export function decodeSFTPPacket(frame: Buffer): SFTPPacket {
                 type,
                 requestId: requestId(reader),
                 code: reader.uint32("status code"),
-                message: reader.string("status message").toString("utf8"),
-                languageTag: reader.string("status language tag").toString("ascii"),
+                message: decodeSSHUTF8(reader.string("status message"), "SFTP status message"),
+                languageTag: decodeSSHLanguageTag(
+                    reader.string("status language tag"),
+                    "SFTP status language tag",
+                ),
             }
             break
         case SFTPPacketType.Handle:
@@ -361,7 +371,10 @@ export function decodeSFTPPacket(frame: Buffer): SFTPPacket {
             packet = {
                 type,
                 requestId: requestId(reader),
-                request: reader.string("extended request name").toString("utf8"),
+                request: decodeSSHName(
+                    reader.string("extended request name"),
+                    "SFTP extended request name",
+                ),
                 data: reader.rest(),
             }
             break
@@ -448,7 +461,10 @@ export function encodeSFTPPacket(packet: SFTPPacket): Buffer {
                 uint32(packet.requestId, "request id"),
                 uint32(packet.code, "status code"),
                 utf8(packet.message, "status message"),
-                string(Buffer.from(packet.languageTag, "ascii"), "status language tag"),
+                string(
+                    encodeSSHLanguageTag(packet.languageTag, "SFTP status language tag"),
+                    "status language tag",
+                ),
             )
             break
         case SFTPPacketType.Handle:
@@ -477,7 +493,10 @@ export function encodeSFTPPacket(packet: SFTPPacket): Buffer {
         case SFTPPacketType.Extended:
             parts.push(
                 uint32(packet.requestId, "request id"),
-                utf8(packet.request, "extended request name"),
+                string(
+                    encodeSSHName(packet.request, "SFTP extended request name"),
+                    "extended request name",
+                ),
                 packet.data,
             )
             break

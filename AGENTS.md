@@ -148,7 +148,9 @@ meaningful wire-level behavior.
 - SFTP follows revision 3 of `draft-ietf-secsh-filexfer-02`, matching OpenSSH. Preserve uint64
   values as `bigint`, treat paths and handles as opaque bytes in the wire layer, bound messages to
   256 KiB and handles to 256 bytes, and test codecs with independently written vectors. Keep
-  OpenSSH extensions separate and gate every request on the advertised extension version.
+  OpenSSH extensions separate and gate every request on the advertised extension version. Validate
+  status messages as UTF-8, status language tags with the shared language codec, and extension
+  identifiers as SSH names without applying text decoding to filename or payload bytes.
 - Derive OpenSSH SFTP extension layouts and response types from upstream `PROTOCOL`; automatically
   negotiate advertised `limits@openssh.com` v1, retain exact limit values as `bigint`, and keep
   conservative sizes when the server rejects the request. Never accept a malformed successful
