@@ -38,6 +38,7 @@ import type {
     SFTPRequestPacketBase,
     SFTPStatusPacket,
 } from "./types.js"
+import { decodeSSHUTF8 } from "../utils/SSHText.js"
 
 export interface SFTPExtendedRequestOptions {
     /** Require this exact advertised extension version. */
@@ -137,6 +138,7 @@ interface PendingRequest {
 
 export type SFTPPath = string | Buffer
 export type SFTPPosition = number | bigint
+export type SFTPNameEncoding = "utf8" | "buffer"
 
 export interface SFTPReadFileOptions {
     encoding?: BufferEncoding | null
@@ -687,12 +689,16 @@ export default class SFTPClient {
         })
     }
 
-    realpath(path: SFTPPath): Promise<string> {
-        return this.singleName(SFTPPacketType.RealPath, path)
+    realpath(path: SFTPPath, encoding: "buffer"): Promise<Buffer>
+    realpath(path: SFTPPath, encoding?: "utf8"): Promise<string>
+    realpath(path: SFTPPath, encoding: SFTPNameEncoding = "utf8"): Promise<string | Buffer> {
+        return this.singleName(SFTPPacketType.RealPath, path, encoding)
     }
 
-    readlink(path: SFTPPath): Promise<string> {
-        return this.singleName(SFTPPacketType.ReadLink, path)
+    readlink(path: SFTPPath, encoding: "buffer"): Promise<Buffer>
+    readlink(path: SFTPPath, encoding?: "utf8"): Promise<string>
+    readlink(path: SFTPPath, encoding: SFTPNameEncoding = "utf8"): Promise<string | Buffer> {
+        return this.singleName(SFTPPacketType.ReadLink, path, encoding)
     }
 
     async symlink(targetPath: SFTPPath, linkPath: SFTPPath): Promise<void> {
@@ -786,16 +792,29 @@ export default class SFTPClient {
         return this.opensshLSetStat(path, attributes)
     }
 
-    opensshExpandPath(path: SFTPPath): Promise<string> {
+    opensshExpandPath(path: SFTPPath, encoding: "buffer"): Promise<Buffer>
+    opensshExpandPath(path: SFTPPath, encoding?: "utf8"): Promise<string>
+    opensshExpandPath(
+        path: SFTPPath,
+        encoding: SFTPNameEncoding = "utf8",
+    ): Promise<string | Buffer> {
         return this.extensionSingleName(
             "expand-path@openssh.com",
             "1",
             encodeSFTPExtensionString(pathBuffer(path)),
+            encoding,
         )
     }
 
-    ext_openssh_expandPath(path: SFTPPath): Promise<string> {
-        return this.opensshExpandPath(path)
+    ext_openssh_expandPath(path: SFTPPath, encoding: "buffer"): Promise<Buffer>
+    ext_openssh_expandPath(path: SFTPPath, encoding?: "utf8"): Promise<string>
+    ext_openssh_expandPath(
+        path: SFTPPath,
+        encoding: SFTPNameEncoding = "utf8",
+    ): Promise<string | Buffer> {
+        return encoding === "buffer"
+            ? this.opensshExpandPath(path, "buffer")
+            : this.opensshExpandPath(path, "utf8")
     }
 
     copyData(
@@ -836,12 +855,29 @@ export default class SFTPClient {
         )
     }
 
-    homeDirectory(username: string | Buffer = ""): Promise<string> {
-        return this.extensionSingleName("home-directory", "1", encodeSFTPExtensionString(username))
+    homeDirectory(username: string | Buffer, encoding: "buffer"): Promise<Buffer>
+    homeDirectory(username?: string | Buffer, encoding?: "utf8"): Promise<string>
+    homeDirectory(
+        username: string | Buffer = "",
+        encoding: SFTPNameEncoding = "utf8",
+    ): Promise<string | Buffer> {
+        return this.extensionSingleName(
+            "home-directory",
+            "1",
+            encodeSFTPExtensionString(username),
+            encoding,
+        )
     }
 
-    ext_home_dir(username: string | Buffer = ""): Promise<string> {
-        return this.homeDirectory(username)
+    ext_home_dir(username: string | Buffer, encoding: "buffer"): Promise<Buffer>
+    ext_home_dir(username?: string | Buffer, encoding?: "utf8"): Promise<string>
+    ext_home_dir(
+        username: string | Buffer = "",
+        encoding: SFTPNameEncoding = "utf8",
+    ): Promise<string | Buffer> {
+        return encoding === "buffer"
+            ? this.homeDirectory(username, "buffer")
+            : this.homeDirectory(username, "utf8")
     }
 
     async usersGroups(
@@ -972,7 +1008,8 @@ export default class SFTPClient {
     private async singleName(
         type: SFTPPacketType.RealPath | SFTPPacketType.ReadLink,
         path: SFTPPath,
-    ): Promise<string> {
+        encoding: SFTPNameEncoding,
+    ): Promise<string | Buffer> {
         const response = await this.request(
             { type, requestId: this.allocateRequestId(), path: pathBuffer(path) },
             SFTPPacketType.Name,
@@ -980,19 +1017,20 @@ export default class SFTPClient {
         if (response.type !== SFTPPacketType.Name || response.names.length !== 1) {
             throw new SFTPProtocolError("SFTP response must contain exactly one name")
         }
-        return response.names[0]!.filename.toString("utf8")
+        return decodeSFTPName(response.names[0]!.filename, encoding)
     }
 
     private async extensionSingleName(
         name: string,
         version: string,
         data: Buffer,
-    ): Promise<string> {
+        encoding: SFTPNameEncoding,
+    ): Promise<string | Buffer> {
         const response = await this.extensionRequest(name, version, data, SFTPPacketType.Name)
         if (response.type !== SFTPPacketType.Name || response.names.length !== 1) {
             throw new SFTPProtocolError("SFTP extension response must contain exactly one name")
         }
-        return response.names[0]!.filename.toString("utf8")
+        return decodeSFTPName(response.names[0]!.filename, encoding)
     }
 
     private async extensionStatus(name: string, version: string, data: Buffer): Promise<void> {
@@ -1176,6 +1214,12 @@ export default class SFTPClient {
 
 function pathBuffer(path: SFTPPath): Buffer {
     return Buffer.isBuffer(path) ? path : Buffer.from(path, "utf8")
+}
+
+function decodeSFTPName(value: Buffer, encoding: SFTPNameEncoding): string | Buffer {
+    return encoding === "buffer"
+        ? Buffer.from(value)
+        : decodeSSHUTF8(value, "SFTP returned filename")
 }
 
 function positionBigInt(position: SFTPPosition): bigint {

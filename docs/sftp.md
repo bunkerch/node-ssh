@@ -99,7 +99,9 @@ aborts it.
 
 String paths are encoded as UTF-8. Pass a `Buffer` when a server-side filename must be preserved as
 opaque bytes. File handles are always opaque `Buffer` values and are limited to the protocol's
-256-byte maximum.
+256-byte maximum. `realpath()`, `readlink()`, `opensshExpandPath()`, and `homeDirectory()` return a
+strict UTF-8 string by default; pass `"buffer"` as their final argument to receive the returned name
+as an owned `Buffer` without decoding it.
 
 Offsets and file sizes are unsigned 64-bit wire values. The API accepts `bigint` positions and
 returns `bigint` sizes so values larger than JavaScript's safe integer range remain exact. Numeric

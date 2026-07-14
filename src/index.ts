@@ -46,6 +46,7 @@ export type {
     SFTPFastGetOptions,
     SFTPFastPutOptions,
     SFTPExtendedRequestOptions,
+    SFTPNameEncoding,
     SFTPPath,
     SFTPPosition,
     SFTPReadFileOptions,

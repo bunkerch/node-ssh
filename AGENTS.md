@@ -150,7 +150,8 @@ meaningful wire-level behavior.
   256 KiB and handles to 256 bytes, and test codecs with independently written vectors. Keep
   OpenSSH extensions separate and gate every request on the advertised extension version. Validate
   status messages as UTF-8, status language tags with the shared language codec, and extension
-  identifiers as SSH names without applying text decoding to filename or payload bytes.
+  identifiers as SSH names without applying text decoding to filename or payload bytes. Path-return
+  helpers default to fatal UTF-8 but must offer an explicit owned-Buffer result for binary names.
 - Derive OpenSSH SFTP extension layouts and response types from upstream `PROTOCOL`; automatically
   negotiate advertised `limits@openssh.com` v1, retain exact limit values as `bigint`, and keep
   conservative sizes when the server rejects the request. Never accept a malformed successful

@@ -273,10 +273,48 @@ describe("SFTP client request engine", () => {
         const client = await SFTPClient.connect(asClientChannel(fixture))
         await client.opensshPosixRename("old", "new-name")
         expect(await client.opensshExpandPath("~")).toBe("/home/test")
+        expect(await client.opensshExpandPath("~", "buffer")).toEqual(Buffer.from("/home/test"))
         await expect(client.opensshFSync(Buffer.from("handle"))).rejects.toThrow(
             "does not advertise fsync@openssh.com version 1",
         )
-        expect(requests).toEqual(["posix-rename@openssh.com", "expand-path@openssh.com"])
+        expect(requests).toEqual([
+            "posix-rename@openssh.com",
+            "expand-path@openssh.com",
+            "expand-path@openssh.com",
+        ])
+        fixture.destroy()
+    })
+
+    test("preserves opaque canonical paths and symlink targets on request", async () => {
+        const fixture = new SFTPServerFixture((packet) => {
+            if (packet.type === SFTPPacketType.Init) {
+                fixture.send({ type: SFTPPacketType.Version, version: 3, extensions: [] })
+                return
+            }
+            if (
+                packet.type !== SFTPPacketType.RealPath &&
+                packet.type !== SFTPPacketType.ReadLink
+            ) {
+                return
+            }
+            fixture.send({
+                type: SFTPPacketType.Name,
+                requestId: packet.requestId,
+                names: [
+                    { filename: Buffer.from([0xff]), longname: Buffer.alloc(0), attributes: {} },
+                ],
+            })
+        })
+
+        const client = await SFTPClient.connect(asClientChannel(fixture))
+        await expect(client.realpath(".")).rejects.toThrow(
+            "SFTP returned filename is not valid UTF-8 text",
+        )
+        expect(await client.realpath(Buffer.from("."), "buffer")).toEqual(Buffer.from([0xff]))
+        await expect(client.readlink("link")).rejects.toThrow(
+            "SFTP returned filename is not valid UTF-8 text",
+        )
+        expect(await client.readlink(Buffer.from("link"), "buffer")).toEqual(Buffer.from([0xff]))
         fixture.destroy()
     })
 
