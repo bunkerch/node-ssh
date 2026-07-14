@@ -455,11 +455,21 @@ export interface SSHED25519PrivateKeyData {
 export class SSHED25519PrivateKey implements PrivateKeyAlgorithm {
     static alg_name = "ssh-ed25519"
 
-    data: SSHED25519PrivateKeyData
+    readonly data: SSHED25519PrivateKeyData
     constructor(data: SSHED25519PrivateKeyData) {
-        assert(data.publicKey.length == 32, "Invalid ed25519 public key length")
-        assert(data.privateKey.length == 64, "Invalid d25519 private key length")
-        this.data = data
+        assert(data.publicKey.length === 32, "Invalid Ed25519 public key length")
+        assert(data.privateKey.length === 64, "Invalid Ed25519 private key length")
+        const derived = Buffer.from(
+            nacl.sign.keyPair.fromSeed(data.privateKey.subarray(0, 32)).publicKey,
+        )
+        assert(
+            derived.equals(data.publicKey) && data.privateKey.subarray(32).equals(data.publicKey),
+            "Ed25519 private and public key data do not match",
+        )
+        this.data = {
+            publicKey: Buffer.from(data.publicKey),
+            privateKey: Buffer.from(data.privateKey),
+        }
     }
 
     sign(data: Buffer, algorithm = SSHED25519PrivateKey.alg_name): EncodedSignature {

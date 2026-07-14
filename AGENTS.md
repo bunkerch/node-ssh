@@ -78,7 +78,8 @@ meaningful wire-level behavior.
   than default, and is validated with RFC 8032 vectors. Use the portable curve primitive for core
   operations so Bun tests remain meaningful; validate PKCS#8/SPKI conversion in native Node.
 - RFC 8709 Ed25519 public keys are exactly 32 octets and signatures are exactly 64 octets. Validate
-  fixed wire widths at construction and parsing boundaries, and copy caller-owned key storage.
+  fixed wire widths at construction and parsing boundaries, verify that private seeds derive their
+  claimed public keys, and copy caller-owned key storage.
 - RFC 4253 DSS is legacy opt-in only: enforce 1024-bit `p`, 160-bit `q`, canonical positive mpints,
   prime and subgroup checks, matching private/public values, SHA-1, and fixed 20-byte `r` plus
   20-byte `s`. Validate the RFC 6979 vector and both signing roles with OpenSSH. Keep DSS, SHA-1 key

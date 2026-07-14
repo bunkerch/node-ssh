@@ -271,6 +271,11 @@ trailing fields and incorrect lengths, while verification rejects incorrect sign
 sizes before curve verification. Ed448 is registered for host-key and authentication use and can
 be selected explicitly, but is not part of the default offer.
 
+Ed25519 private containers hold the RFC 8032 seed followed by its public key. Import verifies both
+the repeated public bytes and the public key derived from the seed, then takes private copies of the
+key material. A malformed container therefore cannot publish one identity while signing with
+unrelated or subsequently mutated bytes.
+
 RFC 4253 `ssh-dss` host and user keys are supported only when explicitly configured. Their public
 blob contains the canonical positive `p`, `q`, `g`, and `y` mpints; private containers add `x`.
 The implementation enforces the historical 1024-bit `p` and 160-bit `q`, validates primes,
