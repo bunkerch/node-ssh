@@ -420,42 +420,47 @@ export default class Channel {
 
     private flushPendingWrites(): void {
         if (this.remoteId === undefined || this.sentClose) return
-
-        while (
-            this.pendingWrites.length > 0 &&
-            this.remote_window_size > 0 &&
-            this.remote_maximum_packet_size > 0
-        ) {
-            const pending = this.pendingWrites[0]
-            if (pending.atomic && this.remote_window_size < pending.data.length) return
-            const length = pending.atomic
-                ? pending.data.length
-                : Math.min(
-                      pending.data.length - pending.offset,
-                      this.remote_window_size,
-                      this.remote_maximum_packet_size,
-                      DEFAULT_SERVER_CHANNEL_PACKET_SIZE,
-                  )
-            const data = pending.data.subarray(pending.offset, pending.offset + length)
-            if (pending.extendedDataType === undefined) {
-                this.client.sendPacket(
-                    new ChannelData({ recipient_channel_id: this.remoteId, data }),
-                )
-            } else {
-                this.client.sendPacket(
-                    new ChannelExtendedData({
-                        recipient_channel_id: this.remoteId,
-                        data_type_code: pending.extendedDataType,
-                        data,
-                    }),
-                )
+        try {
+            while (
+                this.pendingWrites.length > 0 &&
+                this.remote_window_size > 0 &&
+                this.remote_maximum_packet_size > 0
+            ) {
+                const pending = this.pendingWrites[0]
+                if (pending.atomic && this.remote_window_size < pending.data.length) return
+                const length = pending.atomic
+                    ? pending.data.length
+                    : Math.min(
+                          pending.data.length - pending.offset,
+                          this.remote_window_size,
+                          this.remote_maximum_packet_size,
+                          DEFAULT_SERVER_CHANNEL_PACKET_SIZE,
+                      )
+                const data = pending.data.subarray(pending.offset, pending.offset + length)
+                if (pending.extendedDataType === undefined) {
+                    this.client.sendPacket(
+                        new ChannelData({ recipient_channel_id: this.remoteId, data }),
+                    )
+                } else {
+                    this.client.sendPacket(
+                        new ChannelExtendedData({
+                            recipient_channel_id: this.remoteId,
+                            data_type_code: pending.extendedDataType,
+                            data,
+                        }),
+                    )
+                }
+                pending.offset += length
+                this.remote_window_size -= length
+                if (pending.offset === pending.data.length) {
+                    this.pendingWrites.shift()
+                    pending.resolve()
+                }
             }
-            pending.offset += length
-            this.remote_window_size -= length
-            if (pending.offset === pending.data.length) {
-                this.pendingWrites.shift()
-                pending.resolve()
-            }
+        } catch (error) {
+            const writeError = error instanceof Error ? error : new Error(String(error))
+            this.failPendingWrites(writeError)
+            throw writeError
         }
     }
 

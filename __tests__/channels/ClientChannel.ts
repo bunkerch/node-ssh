@@ -126,6 +126,23 @@ describe("ClientChannel", () => {
         channel.destroy()
     })
 
+    test("rejects every queued send when packet emission fails", async () => {
+        const { channel } = createChannel()
+        channel.remoteWindowSize = 0
+        const first = channel.sendData("first").catch((error: Error) => error)
+        const second = channel.sendData("second").catch((error: Error) => error)
+        const sendPacket = channel.client.sendPacket
+        channel.client.sendPacket = () => {
+            throw new Error("transport write failed")
+        }
+
+        expect(() => channel.receiveWindowAdjust(16)).toThrow("transport write failed")
+        expect((await first).message).toBe("transport write failed")
+        expect((await second).message).toBe("transport write failed")
+        channel.client.sendPacket = sendPacket
+        channel.destroy()
+    })
+
     test("accepts a zero window adjustment and rejects uint32 overflow", () => {
         const { channel } = createChannel()
         expect(() => channel.receiveWindowAdjust(0)).not.toThrow()

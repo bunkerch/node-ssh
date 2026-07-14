@@ -134,6 +134,22 @@ describe("server Channel", () => {
         shell.destroy()
     })
 
+    test("rejects every queued output when packet emission fails", async () => {
+        const { channel } = createChannel(0, 3)
+        const first = channel.sendData(Buffer.from("first")).catch((error: Error) => error)
+        const second = channel.sendData(Buffer.from("second")).catch((error: Error) => error)
+        const sendPacket = channel.client.sendPacket
+        channel.client.sendPacket = () => {
+            throw new Error("transport write failed")
+        }
+
+        expect(() => channel.receiveWindowAdjust(16)).toThrow("transport write failed")
+        expect((await first).message).toBe("transport write failed")
+        expect((await second).message).toBe("transport write failed")
+        channel.client.sendPacket = sendPacket
+        channel.terminate()
+    })
+
     test("advertises more receive window after inbound data reaches the threshold", () => {
         const { channel, sent } = createChannel()
 

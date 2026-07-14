@@ -534,35 +534,41 @@ export default class ClientChannel extends Duplex {
 
     private flushPendingWrites(): void {
         if (this.remoteId === undefined) return
-        while (this.pendingWrites.length > 0) {
-            const pending = this.pendingWrites[0]!
-            if (pending.atomic && this.remoteWindowSize < pending.data.length) return
-            while (
-                pending.offset < pending.data.length &&
-                this.remoteWindowSize > 0 &&
-                this.remoteMaximumPacketSize > 0
-            ) {
-                const length = pending.atomic
-                    ? pending.data.length
-                    : Math.min(
-                          pending.data.length - pending.offset,
-                          this.remoteWindowSize,
-                          this.remoteMaximumPacketSize,
-                          DEFAULT_CHANNEL_PACKET_SIZE,
-                      )
-                const data = pending.data.subarray(pending.offset, pending.offset + length)
-                this.client.sendPacket(
-                    new ChannelData({
-                        recipient_channel_id: this.remoteId,
-                        data,
-                    }),
-                )
-                pending.offset += length
-                this.remoteWindowSize -= length
+        try {
+            while (this.pendingWrites.length > 0) {
+                const pending = this.pendingWrites[0]!
+                if (pending.atomic && this.remoteWindowSize < pending.data.length) return
+                while (
+                    pending.offset < pending.data.length &&
+                    this.remoteWindowSize > 0 &&
+                    this.remoteMaximumPacketSize > 0
+                ) {
+                    const length = pending.atomic
+                        ? pending.data.length
+                        : Math.min(
+                              pending.data.length - pending.offset,
+                              this.remoteWindowSize,
+                              this.remoteMaximumPacketSize,
+                              DEFAULT_CHANNEL_PACKET_SIZE,
+                          )
+                    const data = pending.data.subarray(pending.offset, pending.offset + length)
+                    this.client.sendPacket(
+                        new ChannelData({
+                            recipient_channel_id: this.remoteId,
+                            data,
+                        }),
+                    )
+                    pending.offset += length
+                    this.remoteWindowSize -= length
+                }
+                if (pending.offset !== pending.data.length) return
+                this.pendingWrites.shift()
+                pending.resolve()
             }
-            if (pending.offset !== pending.data.length) return
-            this.pendingWrites.shift()
-            pending.resolve()
+        } catch (error) {
+            const writeError = error instanceof Error ? error : new Error(String(error))
+            while (this.pendingWrites.length > 0) this.pendingWrites.shift()!.reject(writeError)
+            throw writeError
         }
     }
 
