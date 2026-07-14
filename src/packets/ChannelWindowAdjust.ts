@@ -13,7 +13,10 @@ export default class ChannelWindowAdjust implements Packet {
 
     data: ChannelWindowAdjustData
     constructor(data: ChannelWindowAdjustData) {
-        this.data = data
+        this.data = {
+            recipient_channel_id: data.recipient_channel_id,
+            bytes_to_add: data.bytes_to_add,
+        }
     }
 
     serialize(): Buffer {

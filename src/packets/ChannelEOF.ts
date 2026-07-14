@@ -12,7 +12,7 @@ export default class ChannelEOF implements Packet {
 
     data: ChannelEOFData
     constructor(data: ChannelEOFData) {
-        this.data = data
+        this.data = { recipient_channel_id: data.recipient_channel_id }
     }
 
     serialize(): Buffer {

@@ -33,7 +33,12 @@ export default class ChannelOpenFailure implements Packet {
 
     data: ChannelOpenFailureData
     constructor(data: ChannelOpenFailureData) {
-        this.data = data
+        this.data = {
+            recipient_channel_id: data.recipient_channel_id,
+            reason_code: data.reason_code,
+            description: data.description,
+            language_tag: data.language_tag,
+        }
     }
 
     serialize(): Buffer {

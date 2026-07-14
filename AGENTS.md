@@ -213,6 +213,8 @@ meaningful wire-level behavior.
   exit-signal diagnostic text before sending the result.
 - Channel data, extended data, open arguments, and request arguments are opaque owned buffers.
   Packet construction and parsing must not leave them aliased to caller or transport-frame storage.
+- Channel open results own type-specific reply bytes, and every scalar channel-control packet
+  snapshots its constructor metadata before queuing or asynchronous observation.
 - Global-request arguments and successful-response payloads follow the same owned-buffer rule;
   asynchronous request matching must never depend on mutable caller or parser-frame storage.
 - Parse SSH boolean fields as false only for zero; accept every nonzero byte as true, while emitting

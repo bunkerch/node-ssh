@@ -12,7 +12,7 @@ export default class ChannelFailure implements Packet {
 
     data: ChannelFailureData
     constructor(data: ChannelFailureData) {
-        this.data = data
+        this.data = { recipient_channel_id: data.recipient_channel_id }
     }
 
     serialize(): Buffer {

@@ -1,7 +1,9 @@
 import ClientForwardedTCPIPChannel from "../../src/channels/ClientForwardedTCPIPChannel.js"
 import ChannelOpen from "../../src/packets/ChannelOpen.js"
 import ChannelOpenConfirmation from "../../src/packets/ChannelOpenConfirmation.js"
-import ChannelOpenFailure from "../../src/packets/ChannelOpenFailure.js"
+import ChannelOpenFailure, {
+    ChannelOpenFailureReasonCodes,
+} from "../../src/packets/ChannelOpenFailure.js"
 import GlobalRequest from "../../src/packets/GlobalRequest.js"
 import RequestFailure from "../../src/packets/RequestFailure.js"
 import RequestSuccess from "../../src/packets/RequestSuccess.js"
@@ -173,5 +175,47 @@ describe("RFC 4254 TCP forwarding packet vectors", () => {
             language_tag: "",
         })
         expect(ChannelOpenFailure.parse(rejection).serialize()).toEqual(rejection)
+    })
+
+    test("channel open results snapshot metadata and own opaque reply bytes", () => {
+        const confirmationArgs = Buffer.from("details")
+        const confirmationInput = {
+            recipient_channel_id: 11,
+            sender_channel_id: 42,
+            initial_window_size: 2_097_152,
+            maximum_packet_size: 32_768,
+            args: confirmationArgs,
+        }
+        const confirmation = new ChannelOpenConfirmation(confirmationInput)
+        confirmationInput.recipient_channel_id = 12
+        confirmationArgs.fill(0xff)
+        expect(confirmation.data).toEqual({
+            recipient_channel_id: 11,
+            sender_channel_id: 42,
+            initial_window_size: 2_097_152,
+            maximum_packet_size: 32_768,
+            args: Buffer.from("details"),
+        })
+
+        const failureInput = {
+            recipient_channel_id: 11,
+            reason_code: ChannelOpenFailureReasonCodes.SSH_OPEN_CONNECT_FAILED,
+            description: "refused",
+            language_tag: "en",
+        }
+        const failure = new ChannelOpenFailure(failureInput)
+        failureInput.recipient_channel_id = 12
+        failureInput.description = "changed"
+        expect(failure.data).toEqual({
+            recipient_channel_id: 11,
+            reason_code: ChannelOpenFailureReasonCodes.SSH_OPEN_CONNECT_FAILED,
+            description: "refused",
+            language_tag: "en",
+        })
+
+        const frame = vector("5b 0000000b 0000002a 00200000 00008000 64657461696c73")
+        const parsed = ChannelOpenConfirmation.parse(frame)
+        frame.fill(0xff)
+        expect(parsed.data.args).toEqual(Buffer.from("details"))
     })
 })

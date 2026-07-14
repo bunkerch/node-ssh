@@ -15,7 +15,13 @@ export default class ChannelOpenConfirmation implements Packet {
 
     data: ChannelOpenConfirmationData
     constructor(data: ChannelOpenConfirmationData) {
-        this.data = data
+        this.data = {
+            recipient_channel_id: data.recipient_channel_id,
+            sender_channel_id: data.sender_channel_id,
+            initial_window_size: data.initial_window_size,
+            maximum_packet_size: data.maximum_packet_size,
+            args: Buffer.from(data.args),
+        }
     }
 
     serialize(): Buffer {

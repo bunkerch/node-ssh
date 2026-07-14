@@ -5,7 +5,8 @@ return a `ClientSessionChannel`, which is a Node.js `Duplex` stream. Its readabl
 output, its writable side is standard input, and `channel.stderr` is a separate readable stream.
 At the packet boundary, opaque channel data and request-detail buffers are copied; callers may
 safely reuse or clear input buffers after constructing a packet, and parsed details do not alias
-the transport frame that carried them.
+the transport frame that carried them. Channel open results and scalar control packets likewise
+snapshot their metadata before they can be queued or observed asynchronously.
 
 ```ts
 const channel = await client.exec("node --version")

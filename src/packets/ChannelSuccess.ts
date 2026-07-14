@@ -12,7 +12,7 @@ export default class ChannelSuccess implements Packet {
 
     data: ChannelSuccessData
     constructor(data: ChannelSuccessData) {
-        this.data = data
+        this.data = { recipient_channel_id: data.recipient_channel_id }
     }
 
     serialize(): Buffer {

@@ -5,6 +5,8 @@ import ChannelExtendedData from "../../src/packets/ChannelExtendedData.js"
 import ChannelOpen from "../../src/packets/ChannelOpen.js"
 import ChannelRequest from "../../src/packets/ChannelRequest.js"
 import ChannelWindowAdjust from "../../src/packets/ChannelWindowAdjust.js"
+import ChannelSuccess from "../../src/packets/ChannelSuccess.js"
+import ChannelFailure from "../../src/packets/ChannelFailure.js"
 import ClientX11Channel from "../../src/channels/ClientX11Channel.js"
 import SessionChannel from "../../src/channels/SessionChannel.js"
 
@@ -216,5 +218,22 @@ describe("RFC 4254 channel packet vectors", () => {
         for (const frame of frames) frame.fill(0xff)
 
         expect(packets.map((packet) => packet.serialize())).toEqual(serialized)
+    })
+
+    test("channel control packets snapshot caller metadata", () => {
+        const adjustInput = { recipient_channel_id: 3, bytes_to_add: 65_536 }
+        const adjust = new ChannelWindowAdjust(adjustInput)
+        adjustInput.recipient_channel_id = 4
+        adjustInput.bytes_to_add = 1
+        expect(adjust.serialize()).toEqual(vector("5d 00000003 00010000"))
+
+        const packetTypes = [ChannelEOF, ChannelClose, ChannelSuccess, ChannelFailure]
+        const packetCodes = ["60", "61", "63", "64"]
+        for (const [index, PacketType] of packetTypes.entries()) {
+            const input = { recipient_channel_id: 3 }
+            const packet = new PacketType(input)
+            input.recipient_channel_id = 4
+            expect(packet.serialize()).toEqual(vector(`${packetCodes[index]} 00000003`))
+        }
     })
 })

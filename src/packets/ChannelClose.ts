@@ -12,7 +12,7 @@ export default class ChannelClose implements Packet {
 
     data: ChannelCloseData
     constructor(data: ChannelCloseData) {
-        this.data = data
+        this.data = { recipient_channel_id: data.recipient_channel_id }
     }
 
     serialize(): Buffer {
