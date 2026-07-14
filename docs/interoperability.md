@@ -213,6 +213,11 @@ deployed encrypt-then-MAC forms with AES-128-CTR. OpenSSH and the modern client 
 and rekey for every name in both peer roles. An RFC 2202 vector independently verifies the full
 digest and first-12-byte truncation; these methods remain last and are not recommended for new use.
 
+UMAC coverage checks the RFC 4418 messages from empty through 32 MiB, including verified erratum
+3507 for the long-message polynomial transition, plus 32-, 64-, and 96-bit output iterations. The
+system SSH client then forces each deployed 64-/128-bit ordinary and encrypt-then-MAC variant and
+exchanges channel traffic in both directions across an explicit rekey.
+
 Delayed-compression interoperability runs in both peer roles. OpenSSH and the modern client each
 force `zlib@openssh.com`, transfer repeated multi-packet data in both directions, and rekey while the
 compression streams are active. Handshake details confirm the selected method before traffic is

@@ -43,6 +43,12 @@ import HMACMD5 from "./algorithms/mac/hmac-md5.js"
 import HMACMD596 from "./algorithms/mac/hmac-md5-96.js"
 import HMACMD5ETM from "./algorithms/mac/hmac-md5-etm.js"
 import HMACMD596ETM from "./algorithms/mac/hmac-md5-96-etm.js"
+import {
+    UMAC128ETMOpenSSH,
+    UMAC128OpenSSH,
+    UMAC64ETMOpenSSH,
+    UMAC64OpenSSH,
+} from "./algorithms/mac/umac.js"
 
 import Client from "./Client.js"
 import ServerClient from "./ServerClient.js"
@@ -259,10 +265,14 @@ export abstract class MACAlgorithm {
     }
 }
 export const mac_algorithms = new Map<string, typeof MACAlgorithm>([
+    ["umac-64-etm@openssh.com", UMAC64ETMOpenSSH],
+    ["umac-128-etm@openssh.com", UMAC128ETMOpenSSH],
     ["hmac-sha2-256-etm@openssh.com", HMACSHA2256ETM],
     ["hmac-sha2-512-etm@openssh.com", HMACSHA2512ETM],
     ["hmac-sha1-etm@openssh.com", HMACSHA1ETM],
     ["hmac-sha1-96-etm@openssh.com", HMACSHA196ETM],
+    ["umac-64@openssh.com", UMAC64OpenSSH],
+    ["umac-128@openssh.com", UMAC128OpenSSH],
     ["hmac-sha2-256", HMACSHA2256],
     ["hmac-sha2-512", HMACSHA2512],
     ["hmac-sha1", HMACSHA1],
@@ -325,6 +335,8 @@ export const default_algorithm_names: ResolvedAlgorithmOptions = Object.freeze({
         "aes128-ctr",
     ]),
     hmac: Object.freeze([
+        "umac-128-etm@openssh.com",
+        "umac-64-etm@openssh.com",
         "hmac-sha2-256-etm@openssh.com",
         "hmac-sha2-512-etm@openssh.com",
         "hmac-sha2-256",

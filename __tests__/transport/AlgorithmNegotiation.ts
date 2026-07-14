@@ -116,6 +116,10 @@ describe("RFC 4253 algorithm negotiation", () => {
         expect(standardClient.algorithmOffer.kex).not.toContain("diffie-hellman-group1-sha1")
         expect(standardClient.algorithmOffer.cipher).not.toContain("aes128-cbc")
         expect(standardClient.algorithmOffer.hmac).not.toContain("hmac-md5")
+        expect(standardClient.algorithmOffer.hmac.slice(0, 2)).toEqual([
+            "umac-128-etm@openssh.com",
+            "umac-64-etm@openssh.com",
+        ])
         const legacyClient = new Client({
             hostname: "unused.invalid",
             algorithms: { serverHostKey: { append: "ssh-dss" } },

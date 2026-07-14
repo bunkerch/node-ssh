@@ -99,6 +99,12 @@ four-byte packet length unencrypted, encrypt the remaining packet body, and auth
 sequence number followed by that header and ciphertext. Inbound ETM verifies the tag before any
 ciphertext is decrypted.
 
+RFC 4418 UMAC is available as `umac-64@openssh.com`, `umac-128@openssh.com`, and their
+encrypt-then-MAC variants. SSH encodes the uint32 packet sequence as a big-endian uint64 nonce and
+authenticates the packet itself rather than prepending the sequence number. The 128- and 64-bit ETM
+variants are in the default offer; ordinary variants remain explicit compatibility choices. A UMAC
+instance rejects a repeated or decreasing sequence number, requiring fresh keys before nonce wrap.
+
 RFC 4253's `hmac-sha1-96` uses a 20-byte key and the first 12 bytes of the HMAC-SHA1 result.
 `hmac-sha1-96-etm@openssh.com` applies the same truncation to the encrypt-then-MAC packet layout.
 Both are excluded from the default offer and should be enabled only for legacy compatibility.

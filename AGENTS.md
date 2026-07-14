@@ -73,6 +73,10 @@ meaningful wire-level behavior.
   20-byte `s`. Validate the RFC 6979 vector and both signing roles with OpenSSH. Keep DSS, SHA-1 key
   exchange/signatures, CBC/3DES, and MD5/SHA-1 MACs out of every default offer while retaining
   explicit configuration paths.
+- RFC 4418 UMAC derives its AES-128 subkeys once per traffic key, uses the SSH uint64 encoding of
+  the uint32 packet sequence as its nonce, and must reject nonce reuse before wrap. Cover every
+  universal-hash layer with the RFC vectors, including verified erratum 3507, and exercise all four
+  deployed ordinary/ETM variants with the system SSH client.
 - Direct client private-key authentication parses key objects or encoded containers during
   construction, rejects ambiguous agent configuration, and removes encoded keys and passphrases
   from retained client options. Keep multi-key in-memory signing in `PrivateKeyAgent`, and validate
