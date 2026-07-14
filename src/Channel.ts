@@ -25,6 +25,7 @@ interface PendingChannelWrite {
     offset: number
     extendedDataType?: number
     callback: WriteCallback
+    atomic: boolean
 }
 interface PendingChannelRequest {
     type: string
@@ -210,11 +211,15 @@ export default class Channel {
     }
 
     sendData(data: Buffer, callback: WriteCallback): void {
-        this.queueData(data, undefined, callback)
+        this.queueData(data, undefined, callback, false)
+    }
+
+    protected sendAtomicData(data: Buffer, callback: WriteCallback): void {
+        this.queueData(data, undefined, callback, true)
     }
 
     sendExtendedData(dataType: number, data: Buffer, callback: WriteCallback): void {
-        this.queueData(data, dataType, callback)
+        this.queueData(data, dataType, callback, false)
     }
 
     sendRequest(type: string, args: Buffer = Buffer.alloc(0), wantReply = false): void {
@@ -377,6 +382,7 @@ export default class Channel {
         data: Buffer,
         extendedDataType: number | undefined,
         callback: WriteCallback,
+        atomic: boolean,
     ): void {
         if (!this.isOpen) {
             callback(new Error(`SSH channel ${this.localId} is not open for writing`))
@@ -390,7 +396,21 @@ export default class Channel {
             callback()
             return
         }
-        this.pendingWrites.push({ data, offset: 0, extendedDataType, callback })
+        if (
+            atomic &&
+            (data.length > this.remote_maximum_packet_size ||
+                data.length > DEFAULT_SERVER_CHANNEL_PACKET_SIZE)
+        ) {
+            callback(new Error(`SSH channel ${this.localId} atomic packet exceeds peer limits`))
+            return
+        }
+        this.pendingWrites.push({
+            data: Buffer.from(data),
+            offset: 0,
+            extendedDataType,
+            callback,
+            atomic,
+        })
         this.flushPendingWrites()
     }
 
@@ -403,12 +423,15 @@ export default class Channel {
             this.remote_maximum_packet_size > 0
         ) {
             const pending = this.pendingWrites[0]
-            const length = Math.min(
-                pending.data.length - pending.offset,
-                this.remote_window_size,
-                this.remote_maximum_packet_size,
-                DEFAULT_SERVER_CHANNEL_PACKET_SIZE,
-            )
+            if (pending.atomic && this.remote_window_size < pending.data.length) return
+            const length = pending.atomic
+                ? pending.data.length
+                : Math.min(
+                      pending.data.length - pending.offset,
+                      this.remote_window_size,
+                      this.remote_maximum_packet_size,
+                      DEFAULT_SERVER_CHANNEL_PACKET_SIZE,
+                  )
             const data = pending.data.subarray(pending.offset, pending.offset + length)
             if (pending.extendedDataType === undefined) {
                 this.client.sendPacket(

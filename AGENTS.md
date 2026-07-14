@@ -150,6 +150,9 @@ meaningful wire-level behavior.
   empty arguments and false reply flag, await the dedicated hook before changing state, stop
   outbound writes while retaining the readable half, deduplicate it, and capability-gate sends to
   identified OpenSSH peers unless callers explicitly override detection.
+- Packet tunnel channels use the `tun@openssh.com` layout from upstream `PROTOCOL`. Preserve each
+  IP datagram or Ethernet frame in exactly one channel-data message, wait asynchronously for enough
+  remote window rather than splitting it, and validate mode-specific framing before emitting data.
 - SSH keepalives use reply-requesting `keepalive@openssh.com` global requests. Count both success
   and failure as liveness, bound consecutive unanswered requests, unref timers, and clear them on
   every connection shutdown path.

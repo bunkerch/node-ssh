@@ -14,7 +14,8 @@ See [Getting started](docs/getting-started.md) for client and server examples an
 [authentication guide](docs/authentication.md) covers passwords, keyboard-interactive prompts,
 banners, and multi-factor flows. The [client channel guide](docs/channels.md) covers commands and
 stream behavior, the [SFTP guide](docs/sftp.md) covers remote file operations, and the
-[TCP/IP forwarding guide](docs/forwarding.md) covers direct and remote tunnels. The
+[TCP/IP forwarding guide](docs/forwarding.md) covers direct and remote forwarding, while the
+[packet tunnel guide](docs/tunnels.md) covers layer-3 and layer-2 tunnel channels. The
 [global request guide](docs/global-requests.md) covers connection-wide application extensions. The
 [interoperability matrix](docs/interoperability.md) records cross-implementation coverage.
 

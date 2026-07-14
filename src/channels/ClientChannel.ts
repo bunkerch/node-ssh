@@ -29,6 +29,7 @@ interface PendingWrite {
     data: Buffer
     offset: number
     callback: WriteCallback
+    atomic: boolean
 }
 
 interface PendingRequest {
@@ -395,9 +396,7 @@ export default class ClientChannel extends Duplex {
             return
         }
 
-        const buffer = Buffer.isBuffer(data) ? data : Buffer.from(data, encoding)
-        this.pendingWrite = { data: buffer, offset: 0, callback }
-        this.flushPendingWrite()
+        this.writeChannelData(Buffer.isBuffer(data) ? data : Buffer.from(data, encoding), callback)
     }
 
     _final(callback: WriteCallback): void {
@@ -426,6 +425,27 @@ export default class ClientChannel extends Duplex {
         return serializeBuffer(Buffer.from(value, "utf8"))
     }
 
+    protected writeChannelData(data: Buffer, callback: WriteCallback, atomic = false): void {
+        if (!this.isOpen) {
+            callback(new Error(`SSH channel ${this.localId} is not open for writing`))
+            return
+        }
+        if (this.pendingWrite) {
+            callback(new Error(`SSH channel ${this.localId} already has a pending write`))
+            return
+        }
+        if (
+            atomic &&
+            (data.length > this.remoteMaximumPacketSize ||
+                data.length > DEFAULT_CHANNEL_PACKET_SIZE)
+        ) {
+            callback(new Error(`SSH channel ${this.localId} atomic packet exceeds peer limits`))
+            return
+        }
+        this.pendingWrite = { data: Buffer.from(data), offset: 0, callback, atomic }
+        this.flushPendingWrite()
+    }
+
     private replyToRequest(packet: ChannelRequest, success: boolean): void {
         if (!packet.data.want_reply || !this.isOpen || this.remoteId === undefined) return
         this.client.sendPacket(
@@ -435,7 +455,7 @@ export default class ClientChannel extends Duplex {
         )
     }
 
-    private consumeLocalWindow(data: Buffer): void {
+    protected consumeLocalWindow(data: Buffer): void {
         if (this.receivedEOF) {
             throw new Error(`SSH channel ${this.localId} received data after EOF`)
         }
@@ -448,7 +468,7 @@ export default class ClientChannel extends Duplex {
         this.localWindowSize -= data.length
     }
 
-    private adjustWindowIfNeeded(): void {
+    protected adjustWindowIfNeeded(): void {
         if (
             this.remoteId === undefined ||
             this.sentClose ||
@@ -474,17 +494,21 @@ export default class ClientChannel extends Duplex {
         const pending = this.pendingWrite
         if (!pending || this.remoteId === undefined) return
 
+        if (pending.atomic && this.remoteWindowSize < pending.data.length) return
+
         while (
             pending.offset < pending.data.length &&
             this.remoteWindowSize > 0 &&
             this.remoteMaximumPacketSize > 0
         ) {
-            const length = Math.min(
-                pending.data.length - pending.offset,
-                this.remoteWindowSize,
-                this.remoteMaximumPacketSize,
-                DEFAULT_CHANNEL_PACKET_SIZE,
-            )
+            const length = pending.atomic
+                ? pending.data.length
+                : Math.min(
+                      pending.data.length - pending.offset,
+                      this.remoteWindowSize,
+                      this.remoteMaximumPacketSize,
+                      DEFAULT_CHANNEL_PACKET_SIZE,
+                  )
             const data = pending.data.subarray(pending.offset, pending.offset + length)
             this.client.sendPacket(
                 new ChannelData({

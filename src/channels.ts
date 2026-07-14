@@ -6,11 +6,13 @@ import { ChannelOpenError, ChannelOpenFailureReasonCodes } from "./packets/Chann
 import ServerClient from "./ServerClient.js"
 import DirectTCPIPChannel from "./channels/DirectTCPIPChannel.js"
 import DirectStreamLocalChannel from "./channels/DirectStreamLocalChannel.js"
+import TunnelChannel from "./channels/TunnelChannel.js"
 
 export const channels = new Map<string, typeof Channel>([
     [SessionChannel.channel_type, SessionChannel],
     [DirectTCPIPChannel.channel_type, DirectTCPIPChannel],
     [DirectStreamLocalChannel.channel_type, DirectStreamLocalChannel],
+    [TunnelChannel.channel_type, TunnelChannel],
 ])
 
 export function channelFromChannelOpenPacket(packet: ChannelOpen, client: Client | ServerClient) {

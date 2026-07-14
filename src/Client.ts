@@ -83,6 +83,8 @@ import ClientForwardedStreamLocalChannel, {
     StreamLocalConnectionDetails,
 } from "./channels/ClientForwardedStreamLocalChannel.js"
 import ClientAgentChannel from "./channels/ClientAgentChannel.js"
+import ClientTunnelChannel from "./channels/ClientTunnelChannel.js"
+import { AUTOMATIC_TUNNEL_UNIT, type TunnelMode } from "./channels/Tunnel.js"
 import ClientX11Channel, { X11ConnectionDetails } from "./channels/ClientX11Channel.js"
 import type { TCPIPConnectionDetails } from "./channels/ClientTCPIPChannel.js"
 import ChannelOpen from "./packets/ChannelOpen.js"
@@ -904,6 +906,30 @@ export default class Client extends EventEmitter<ClientEvents> {
             new ClientDirectStreamLocalChannel(this, socketPath),
         )
         return this.withOptionalChannelCallback(operation, callback)
+    }
+
+    openssh_openTunnel(mode: TunnelMode, unit?: number): Promise<ClientTunnelChannel>
+    openssh_openTunnel(
+        mode: TunnelMode,
+        unit: number,
+        callback: ClientChannelCallback<ClientTunnelChannel>,
+    ): this
+    openssh_openTunnel(mode: TunnelMode, callback: ClientChannelCallback<ClientTunnelChannel>): this
+    openssh_openTunnel(
+        mode: TunnelMode,
+        unitOrCallback: number | ClientChannelCallback<ClientTunnelChannel> = AUTOMATIC_TUNNEL_UNIT,
+        callback?: ClientChannelCallback<ClientTunnelChannel>,
+    ): Promise<ClientTunnelChannel> | this {
+        const unit = typeof unitOrCallback === "number" ? unitOrCallback : AUTOMATIC_TUNNEL_UNIT
+        const resolvedCallback = typeof unitOrCallback === "function" ? unitOrCallback : callback
+        let operation: Promise<ClientTunnelChannel>
+        try {
+            this.assertOpenSSHVendor()
+            operation = this.openClientChannel(new ClientTunnelChannel(this, mode, unit))
+        } catch (error) {
+            operation = Promise.reject(error)
+        }
+        return this.withOptionalChannelCallback(operation, resolvedCallback)
     }
 
     openssh_forwardInStreamLocal(socketPath: string): Promise<void>

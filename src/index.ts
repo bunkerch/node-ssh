@@ -95,6 +95,7 @@ export { default as ClientDirectStreamLocalChannel } from "./channels/ClientDire
 export { default as ClientForwardedStreamLocalChannel } from "./channels/ClientForwardedStreamLocalChannel.js"
 export { default as ClientAgentChannel } from "./channels/ClientAgentChannel.js"
 export { default as ClientX11Channel } from "./channels/ClientX11Channel.js"
+export { default as ClientTunnelChannel } from "./channels/ClientTunnelChannel.js"
 export type { X11ConnectionDetails } from "./channels/ClientX11Channel.js"
 export type { StreamLocalConnectionDetails } from "./channels/ClientForwardedStreamLocalChannel.js"
 export type { TCPIPConnectionDetails } from "./channels/ClientTCPIPChannel.js"
@@ -148,6 +149,9 @@ export { default as DirectStreamLocalChannel } from "./channels/DirectStreamLoca
 export { default as ForwardedStreamLocalChannel } from "./channels/ForwardedStreamLocalChannel.js"
 export { default as ForwardedAgentChannel } from "./channels/ForwardedAgentChannel.js"
 export { default as ForwardedX11Channel } from "./channels/ForwardedX11Channel.js"
+export { default as TunnelChannel } from "./channels/TunnelChannel.js"
+export { AUTOMATIC_TUNNEL_UNIT, TunnelAddressFamily, TunnelMode } from "./channels/Tunnel.js"
+export type { TunnelEvents, TunnelIPPacket } from "./channels/Tunnel.js"
 export type {
     SessionChannelEvents,
     SessionChannelHooker,
