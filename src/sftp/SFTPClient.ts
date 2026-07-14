@@ -431,10 +431,11 @@ export default class SFTPClient {
         localPath: string,
         options: SFTPFastGetOptions = {},
     ): Promise<void> {
-        const total = transferFileSize((await this.stat(remotePath)).size)
+        const ownedRemotePath = Buffer.from(pathBuffer(remotePath))
+        const total = transferFileSize((await this.stat(ownedRemotePath)).size)
         const chunkSize = transferChunkSize(options.chunkSize, this.maxReadLength)
         const concurrency = transferConcurrency(options.concurrency)
-        const remoteHandle = await this.open(remotePath, "r")
+        const remoteHandle = await this.open(ownedRemotePath, "r")
         let localHandle: FileHandle | undefined
         let operationError: unknown
         try {
