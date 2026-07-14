@@ -110,6 +110,27 @@ describe("SSHAgent", () => {
         }
     })
 
+    test("rejects trailing fields in a generic failure response", async () => {
+        const directory = await mkdtemp(join(tmpdir(), "modernssh-agent-failure-"))
+        const socketPath = join(directory, "agent.sock")
+        const server = createServer((socket) => {
+            socket.once("data", () => socket.end(Buffer.from("000000020500", "hex")))
+        })
+        server.listen(socketPath)
+        await new Promise<void>((resolve) => server.once("listening", resolve))
+
+        try {
+            await expect(new SSHAgent(socketPath).getPublicKeys()).rejects.toThrow(
+                "malformed failure response",
+            )
+        } finally {
+            await new Promise<void>((resolve, reject) => {
+                server.close((error) => (error ? reject(error) : resolve()))
+            })
+            await rm(directory, { recursive: true, force: true })
+        }
+    })
+
     test("lists and signs with a real OpenSSH agent", async () => {
         const directory = await mkdtemp(join(tmpdir(), "modernssh-openssh-agent-"))
         const socketPath = join(directory, "agent.sock")

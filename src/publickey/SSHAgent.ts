@@ -183,6 +183,9 @@ export default class SSHAgent implements Agent<string> {
 
     private expectResponseType(response: Buffer, expected: number, operation: string): void {
         if (response[0] === SSH_AGENT_FAILURE) {
+            if (response.length !== 1) {
+                throw new SSHAgentError("SSH agent returned a malformed failure response")
+            }
             throw new SSHAgentError(`SSH agent refused to ${operation}`)
         }
         if (response[0] !== expected) {

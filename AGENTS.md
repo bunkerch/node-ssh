@@ -206,6 +206,8 @@ meaningful wire-level behavior.
   trailing padding, but reject ignored characters, misplaced padding, invalid lengths, and pad bits.
 - RFC 9987 agent identity comments use fatal UTF-8 decoding. Reject malformed response text rather
   than publishing replacement characters, while continuing to skip unsupported key algorithms.
+- Enforce the fixed one-byte payload of RFC 9987 generic agent failure replies; never treat trailing
+  fields on `SSH_AGENT_FAILURE` as an ordinary refusal.
 - Validate KEXINIT language preference entries as RFC 3066 tags, not algorithm identifiers. Preserve
   list order and repeats without imposing the 64-byte algorithm-name limit.
 - Packet tunnel channels use the `tun@openssh.com` layout from upstream `PROTOCOL`. Preserve each
