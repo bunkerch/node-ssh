@@ -202,6 +202,8 @@ meaningful wire-level behavior.
 - Disk-backed identity discovery and direct lookup use the same whitespace-tolerant public-key
   parser, including multiword comments. Normalize the configured directory and await diagnostics
   for malformed skipped identities.
+- Decode textual public-key blobs with strict canonical standard base64. Permit canonical omitted
+  trailing padding, but reject ignored characters, misplaced padding, invalid lengths, and pad bits.
 - Validate KEXINIT language preference entries as RFC 3066 tags, not algorithm identifiers. Preserve
   list order and repeats without imposing the 64-byte algorithm-name limit.
 - Packet tunnel channels use the `tun@openssh.com` layout from upstream `PROTOCOL`. Preserve each

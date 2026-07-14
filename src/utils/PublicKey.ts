@@ -162,7 +162,12 @@ export default class PublicKey {
         assert(match, "Invalid text public key")
         const [, alg, key, comment] = match
 
-        const publicKey = PublicKey.parse(Buffer.from(key, "base64"))
+        assert(/^[A-Za-z0-9+/]+={0,2}$/u.test(key), "Invalid public key base64")
+        assert(key.length % 4 !== 1, "Invalid public key base64 length")
+        const decoded = Buffer.from(key, "base64")
+        const padded = key.padEnd(Math.ceil(key.length / 4) * 4, "=")
+        assert(decoded.toString("base64") === padded, "Non-canonical public key base64")
+        const publicKey = PublicKey.parse(decoded)
         assert(
             alg === publicKey.data.alg,
             `blob public key algorithm does not match the text public key algorithm`,

@@ -256,6 +256,8 @@ Use `parseKey()` when input may contain either a private or public key. It route
 private containers, armored private keys, SSH public-key blobs, authorized-key lines, generic
 SubjectPublicKeyInfo public PEM, and PKCS#1 RSA public PEM by their explicit framing. The return
 type is `PrivateKey | PublicKey`; a passphrase is accepted only when the input is private.
+Authorized-key blobs require canonical standard base64; malformed characters and noncanonical pad
+bits are rejected rather than silently ignored.
 
 ```ts
 import { readFile } from "node:fs/promises"

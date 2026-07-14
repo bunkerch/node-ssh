@@ -60,6 +60,19 @@ describe("key parsing", () => {
         privateKey.data.publicKey.data.comment = "route@example.test"
         const publicLine = privateKey.data.publicKey.toString()
         expect((parseKey(publicLine) as PublicKey).equals(privateKey.data.publicKey)).toBe(true)
+        const [algorithm, encoded, comment] = publicLine.split(" ")
+        const unpadded = encoded.replace(/=+$/u, "")
+        expect(
+            PublicKey.parseString(`${algorithm} ${unpadded} ${comment}`).equals(
+                privateKey.data.publicKey,
+            ),
+        ).toBe(true)
+        expect(() =>
+            PublicKey.parseString(`${algorithm} ${encoded.slice(0, 4)}!${encoded.slice(4)}`),
+        ).toThrow("Invalid public key base64")
+        expect(() => PublicKey.parseString(`${algorithm} A`)).toThrow(
+            "Invalid public key base64 length",
+        )
         expect(
             (parseKey(Buffer.from(publicLine)) as PublicKey).equals(privateKey.data.publicKey),
         ).toBe(true)
