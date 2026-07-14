@@ -39,7 +39,8 @@ RUN apt-get update \
         >> /etc/ssh/sshd_config
 
 COPY entrypoint.sh /usr/local/bin/modernssh-openssh-entrypoint
-RUN chmod 0755 /usr/local/bin/modernssh-openssh-entrypoint
+COPY http-response.sh /usr/local/bin/modernssh-http-response
+RUN chmod 0755 /usr/local/bin/modernssh-openssh-entrypoint /usr/local/bin/modernssh-http-response
 
 EXPOSE 22
 

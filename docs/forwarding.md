@@ -19,6 +19,41 @@ The addresses are protocol metadata; the library does not create the destination
 The receiving server decides whether the request is allowed and connects or otherwise services the
 stream. Ports are validated as unsigned 16-bit TCP port numbers before a packet is sent.
 
+## HTTP and HTTPS agents
+
+`HTTPAgent` and `HTTPSAgent` integrate direct forwarding with Node's `http` and `https` clients.
+The explicit `SSHHTTPAgent` and `SSHHTTPSAgent` names are aliases for the same classes. Each HTTP
+socket establishes an authenticated SSH connection and then opens one `direct-tcpip` channel to the
+request destination. Standard agent pooling can keep that channel and its SSH connection alive for
+later requests.
+
+```ts
+import https from "node:https"
+import { HTTPSAgent } from "modernssh"
+
+const agent = new HTTPSAgent(
+    {
+        hostname: "gateway.example",
+        port: 22,
+        username: "deploy",
+        agent: signingAgent,
+        hostVerifier: verifyGatewayHostKey,
+    },
+    { keepAlive: true, sourceHost: "build-runner.example" },
+)
+
+https.get("https://service.internal/health", { agent }, (response) => {
+    response.pipe(process.stdout)
+})
+```
+
+For HTTPS, TLS is negotiated end-to-end over the SSH channel; the SSH server does not terminate or
+inspect TLS. `sourceHost` and `sourcePort` set the originator metadata in the forwarding request and
+default to `127.0.0.1` and zero. Per-request `localAddress` and `localPort` override that metadata;
+they do not bind a local interface on the HTTP caller. Call `agent.destroy()` to close pooled HTTP
+channels and every SSH connection owned by the agent. Apply the same host-key verification and
+destination allowlisting requirements as any other direct-forwarding client.
+
 ## Accepting direct connections
 
 Direct forwarding is denied by the server's default channel-open policy. Inspect both the source

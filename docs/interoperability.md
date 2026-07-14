@@ -24,6 +24,8 @@ establishes real TCP connections in both directions:
   The same test requests agent forwarding and runs `ssh-add -L` on OpenSSH to prove that the remote
   process sees the modern client's local OpenSSH agent. It also requests X11 forwarding, connects
   to the display allocated by sshd, and exchanges data through the resulting `x11` channel.
+  A Node subprocess also uses the packaged `HTTPAgent` with `http.get()` to reach an HTTP endpoint
+  through a forced `direct-tcpip` channel on the OpenSSH server.
 
 The OpenSSH server test requires Docker. The image is tagged locally as
 `modernssh-openssh-test:bookworm`; Docker reuses its build cache after the first run. The pinned base

@@ -19,6 +19,8 @@ import {
     ForwardedAgentChannel,
     ForwardedStreamLocalChannel,
     ForwardedX11Channel,
+    HTTPAgent,
+    HTTPSAgent,
     OnePasswordAgent,
     OPEN_MODE,
     PrivateKey,
@@ -39,6 +41,8 @@ import {
     STATUS_CODE,
     stringToFlags,
     SSHAgent,
+    SSHHTTPAgent,
+    SSHHTTPSAgent,
     SSHAuthenticationMethods,
     type ClientOptions,
     type ClientSessionOptions,
@@ -72,6 +76,8 @@ describe("package exports", () => {
             ForwardedAgentChannel,
             ForwardedStreamLocalChannel,
             ForwardedX11Channel,
+            HTTPAgent,
+            HTTPSAgent,
             OnePasswordAgent,
             PrivateKey,
             ProtocolVersionExchange,
@@ -82,7 +88,9 @@ describe("package exports", () => {
             SessionChannel,
             Shell,
             SSHAgent,
-        ]).toHaveLength(27)
+            SSHHTTPAgent,
+            SSHHTTPSAgent,
+        ]).toHaveLength(31)
         expect(SSHAuthenticationMethods.PublicKey).toBe("publickey")
         expect(SSHAuthenticationMethods.KeyboardInteractive).toBe("keyboard-interactive")
         expect(encodeSFTPPacket).toBeFunction()
@@ -109,6 +117,10 @@ describe("package exports", () => {
         expect(entry.ClientForwardedTCPIPChannel).toBeDefined()
         expect(entry.ClientTCPIPChannel).toBeDefined()
         expect(entry.ClientX11Channel).toBeDefined()
+        expect(entry.SSHHTTPAgent).toBeDefined()
+        expect(entry.SSHHTTPSAgent).toBeDefined()
+        expect(entry.HTTPAgent).toBe(entry.SSHHTTPAgent)
+        expect(entry.HTTPSAgent).toBe(entry.SSHHTTPSAgent)
         expect(entry.DirectTCPIPChannel).toBeDefined()
         expect(entry.DirectStreamLocalChannel).toBeDefined()
         expect(entry.ForwardedTCPIPChannel).toBeDefined()

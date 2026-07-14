@@ -1,4 +1,11 @@
 export { default as Client, GlobalRequestError } from "./Client.js"
+export {
+    SSHHTTPAgent,
+    SSHHTTPAgent as HTTPAgent,
+    SSHHTTPSAgent,
+    SSHHTTPSAgent as HTTPSAgent,
+} from "./HTTPAgents.js"
+export type { SSHAgentOptions, SSHHTTPAgentOptions, SSHHTTPSAgentOptions } from "./HTTPAgents.js"
 export type {
     ClientEvents,
     ClientEnvironment,

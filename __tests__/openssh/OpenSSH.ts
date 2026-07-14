@@ -2035,6 +2035,38 @@ describe("OpenSSH interoperability", () => {
                 "/etc/ssh/ssh_host_ed25519_key",
             ])
 
+            const { stdout: httpAgentOutput, stderr: httpAgentError } = await execFileAsync(
+                "node",
+                [
+                    "--input-type=module",
+                    "--eval",
+                    `
+                    import { get } from "node:http"
+                    import { SSHHTTPAgent } from "./dist/index.js"
+                    const agent = new SSHHTTPAgent({
+                        hostname: "127.0.0.1",
+                        port: ${port},
+                        username: "interop",
+                        password: "correct-horse-battery-staple",
+                    })
+                    try {
+                        const body = await new Promise((resolve, reject) => {
+                            get({ agent, host: "127.0.0.1", port: 18080 }, (response) => {
+                                const chunks = []
+                                response.on("data", (chunk) => chunks.push(chunk))
+                                response.on("end", () => resolve(Buffer.concat(chunks).toString()))
+                            }).on("error", reject)
+                        })
+                        process.stdout.write(body)
+                    } finally {
+                        agent.destroy()
+                    }
+                `,
+                ],
+            )
+            expect(httpAgentOutput).toBe("openssh-http\n")
+            expect(httpAgentError).toBe("")
+
             const keyboardClient = new Client({
                 hostname: "127.0.0.1",
                 port,

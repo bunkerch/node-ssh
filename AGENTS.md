@@ -224,6 +224,10 @@ meaningful wire-level behavior.
 - Direct client TCP options must reach Node's real socket connection: preserve explicit source
   address and port bindings, apply an address-family restriction only when exactly one force flag
   is set, and ignore all direct-connect options for supplied transports.
+- HTTP(S) agents create each pooled socket through an authenticated RFC 4254 `direct-tcpip` channel.
+  Treat configured source addresses as originator metadata rather than local binds, retain TLS
+  end-to-end for HTTPS, close each owned SSH client with its channel or agent, and exercise the
+  packaged API through Node's real HTTP client against OpenSSH.
 - Treat local and remote channel identifiers, windows, maximum packet sizes, EOF, and CLOSE state as
   independent protocol state. All channel streams must preserve bounded backpressure.
 - New public APIs and public types must be exported from `src/index.ts`, documented under `docs/`,
