@@ -1157,9 +1157,10 @@ export default class Client extends EventEmitter<ClientEvents> {
     }
 
     sftp(environment: ClientEnvironment = {}): Promise<SFTPClient> {
+        const sessionEnvironment = { ...environment }
         return this.openSessionChannel().then(async (channel) => {
             try {
-                for (const [name, value] of Object.entries(environment)) {
+                for (const [name, value] of Object.entries(sessionEnvironment)) {
                     await channel.setEnv(name, value, false)
                 }
                 await channel.subsystem("sftp")
