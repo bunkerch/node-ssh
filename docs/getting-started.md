@@ -435,5 +435,10 @@ POSIX-style path is resolved once through `cygpath -w`. The negotiated stream th
 bounded RFC 9987 protocol client and may be forwarded like another stream-capable agent.
 
 `OnePasswordAgent` uses the same protocol while discovering 1Password's default socket and
-marks signing as interactive. Access to an agent socket normally grants the ability to request
+marks signing as interactive. It discovers the application group socket on macOS,
+`~/.1password/agent.sock` on Linux, and 1Password's
+[documented system-wide pipe](https://www.1password.dev/ssh/get-started),
+`\\.\pipe\openssh-ssh-agent`, on Windows. Windows discovery does not probe the pipe at construction
+time, so a stopped or disabled agent rejects the later Promise-based operation. Passing an explicit
+path bypasses platform discovery. Access to an agent socket normally grants the ability to request
 signatures, so do not expose or forward it to untrusted processes or hosts.
