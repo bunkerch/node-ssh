@@ -108,17 +108,15 @@ describe("registered standalone ML-KEM key exchanges", () => {
         const sharedSecret = client.getSharedSecret()
         expect(sharedSecret[0] & 0x80).not.toBe(0)
 
-        const fakeClient = {
-            options: {
-                protocolVersionExchange: { toString: () => "SSH-2.0-client\r\n" },
-            },
-            serverProtocolVersion: { toString: () => "SSH-2.0-server\r\n" },
-            clientKexInitPayload: clientPublicKex,
-            serverKexDHReply: {
-                data: { K_S: hostKey, f: serverCiphertext },
-            },
-        } as unknown as Client
-        const actual = client.computeHClient(fakeClient, serverPublicKex)
+        const actual = client.computeExchangeHash({
+            clientVersion: "SSH-2.0-client",
+            serverVersion: "SSH-2.0-server",
+            clientKexInit: clientPublicKex,
+            serverKexInit: serverPublicKex,
+            serverHostKey: hostKey,
+            clientExchangeValue: clientPublicKey,
+            serverExchangeValue: serverCiphertext,
+        })
 
         const encodedFields = [
             Buffer.from("SSH-2.0-client"),

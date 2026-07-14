@@ -4,9 +4,7 @@ import { ml_kem1024, ml_kem768 } from "@noble/post-quantum/ml-kem.js"
 import type { KEM } from "@noble/post-quantum/utils.js"
 import nacl from "tweetnacl"
 
-import type Client from "../../Client.js"
-import type ServerClient from "../../ServerClient.js"
-import type { KeyExchangeRole } from "../../algorithms.js"
+import type { KeyExchangeHashContext, KeyExchangeRole } from "../../algorithms.js"
 import KeyExchange, { KeyExchangeError } from "./key-exchange.js"
 
 type HybridHash = "sha256" | "sha384"
@@ -206,30 +204,16 @@ abstract class MLKEMHybridKeyExchange extends KeyExchange {
         }
     }
 
-    computeHClient(client: Client, serverKexInit: Buffer): Buffer {
+    computeExchangeHash(context: Readonly<KeyExchangeHashContext>): Buffer {
         assert(this.localPublicKey, "Hybrid client public key is unavailable")
-        return this.computeExchangeHash([
-            client.options.protocolVersionExchange.toString().slice(0, -2),
-            client.serverProtocolVersion!.toString().slice(0, -2),
-            client.clientKexInitPayload!,
-            serverKexInit,
-            client.serverKexDHReply!.data.K_S,
-            this.localPublicKey,
-            client.serverKexDHReply!.data.f,
-            this.sharedSecret!,
-        ])
-    }
-
-    computeHServer(client: ServerClient, clientKexInit: Buffer, hostKey: Buffer): Buffer {
-        assert(this.localPublicKey, "Hybrid server public key is unavailable")
-        return this.computeExchangeHash([
-            client.clientProtocolVersion!.toString().slice(0, -2),
-            client.server.options.protocolVersionExchange!.toString().slice(0, -2),
-            clientKexInit,
-            client.serverKexInitPayload!,
-            hostKey,
-            client.clientKexDHInit!.data.e,
-            this.localPublicKey,
+        return this.hashFields([
+            context.clientVersion,
+            context.serverVersion,
+            context.clientKexInit,
+            context.serverKexInit,
+            context.serverHostKey,
+            this.requireExchangeValue(context, "client"),
+            this.requireExchangeValue(context, "server"),
             this.sharedSecret!,
         ])
     }

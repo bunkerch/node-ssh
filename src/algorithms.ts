@@ -75,8 +75,6 @@ import type { NegotiatedAlgorithms, ResolvedAlgorithmOptions } from "./Algorithm
 import type { InboundPacketProtection, OutboundPacketProtection } from "./BinaryPacket.js"
 import { MAXIMUM_BINARY_PACKET_SIZE } from "./BinaryPacket.js"
 import type { KexInitData } from "./packets/KexInit.js"
-import type Client from "./Client.js"
-import type ServerClient from "./ServerClient.js"
 
 export interface HostKeyAlgorithm {
     readonly alg_name: string
@@ -231,8 +229,7 @@ export abstract class KexAlgorithm {
     abstract getPublicKey(): Buffer
     abstract computeSharedSecret(peerPublicKey: Buffer): void
     abstract getSharedSecret(): Buffer
-    abstract computeHClient(client: Client, serverKexInit: Buffer): Buffer
-    abstract computeHServer(client: ServerClient, clientKexInit: Buffer, hostKey: Buffer): Buffer
+    abstract computeExchangeHash(context: Readonly<KeyExchangeHashContext>): Buffer
 
     deriveTransportKeys(
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -244,6 +241,15 @@ export abstract class KexAlgorithm {
     ): DerivedTransportKeys {
         throw new Error("Not implemented")
     }
+}
+export interface KeyExchangeHashContext {
+    readonly clientVersion: string
+    readonly serverVersion: string
+    readonly clientKexInit: Buffer
+    readonly serverKexInit: Buffer
+    readonly serverHostKey: Buffer
+    readonly clientExchangeValue?: Buffer
+    readonly serverExchangeValue?: Buffer
 }
 export interface TransportKeyLengths {
     readonly clientIV: number

@@ -1,8 +1,7 @@
 import assert from "assert"
 import { createECDH, type ECDH } from "crypto"
 
-import type Client from "../../Client.js"
-import type ServerClient from "../../ServerClient.js"
+import type { KeyExchangeHashContext } from "../../algorithms.js"
 import { serializeMpintBufferToBuffer } from "../../utils/mpint.js"
 import KeyExchange, { KeyExchangeError } from "./key-exchange.js"
 
@@ -45,28 +44,15 @@ export default abstract class ECDHSHA2NIST extends KeyExchange {
         return Buffer.from(this.sharedSecret)
     }
 
-    computeHClient(client: Client, serverKexInit: Buffer): Buffer {
-        return this.computeExchangeHash([
-            client.options.protocolVersionExchange.toString().slice(0, -2),
-            client.serverProtocolVersion!.toString().slice(0, -2),
-            client.clientKexInitPayload!,
-            serverKexInit,
-            client.serverKexDHReply!.data.K_S,
-            this.getPublicKey(),
-            client.serverKexDHReply!.data.f,
-            serializeMpintBufferToBuffer(this.sharedSecret!),
-        ])
-    }
-
-    computeHServer(client: ServerClient, clientKexInit: Buffer, hostKey: Buffer): Buffer {
-        return this.computeExchangeHash([
-            client.clientProtocolVersion!.toString().slice(0, -2),
-            client.server.options.protocolVersionExchange!.toString().slice(0, -2),
-            clientKexInit,
-            client.serverKexInitPayload!,
-            hostKey,
-            client.clientKexDHInit!.data.e,
-            this.getPublicKey(),
+    computeExchangeHash(context: Readonly<KeyExchangeHashContext>): Buffer {
+        return this.hashFields([
+            context.clientVersion,
+            context.serverVersion,
+            context.clientKexInit,
+            context.serverKexInit,
+            context.serverHostKey,
+            this.requireExchangeValue(context, "client"),
+            this.requireExchangeValue(context, "server"),
             serializeMpintBufferToBuffer(this.sharedSecret!),
         ])
     }

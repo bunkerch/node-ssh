@@ -362,6 +362,15 @@ describe("package exports", () => {
         expect(client).not.toContain("serverKexInit?: KexInit")
         expect(serverClient).not.toContain("clientKexInit?: KexInit")
         expect(serverClient).not.toContain("serverKexInit?: KexInit")
+        for (const transcriptState of [
+            "clientKexInitPayload",
+            "serverKexInitPayload",
+            "serverKexDHReply?: KexDHReply",
+            "clientKexDHInit?: KexDHInit",
+        ]) {
+            expect(client).not.toContain(transcriptState)
+            expect(serverClient).not.toContain(transcriptState)
+        }
         for (const exposedState of [
             "kexAlgorithm?: KexAlgorithm",
             "clientEncryption?: EncryptionAlgorithm",

@@ -1,9 +1,12 @@
 import { createHash } from "crypto"
 
-import type { DerivedTransportKeys, KexAlgorithm, TransportKeyLengths } from "../../algorithms.js"
+import type {
+    DerivedTransportKeys,
+    KexAlgorithm,
+    KeyExchangeHashContext,
+    TransportKeyLengths,
+} from "../../algorithms.js"
 import type { KeyExchangeRole } from "../../algorithms.js"
-import type Client from "../../Client.js"
-import type ServerClient from "../../ServerClient.js"
 import { serializeMpintBufferToBuffer } from "../../utils/mpint.js"
 
 export type ExchangeValueEncoding = "mpint" | "string"
@@ -25,8 +28,7 @@ export default abstract class KeyExchange implements KexAlgorithm {
     abstract generateKeyPair(role?: KeyExchangeRole): void
     abstract getPublicKey(): Buffer
     abstract computeSharedSecret(peerPublicKey: Buffer): void
-    abstract computeHClient(client: Client, serverKexInit: Buffer): Buffer
-    abstract computeHServer(client: ServerClient, clientKexInit: Buffer, hostKey: Buffer): Buffer
+    abstract computeExchangeHash(context: Readonly<KeyExchangeHashContext>): Buffer
 
     getSharedSecret(): Buffer {
         if (!this.sharedSecret) throw new KeyExchangeError("Shared secret has not been computed")
@@ -63,7 +65,7 @@ export default abstract class KeyExchange implements KexAlgorithm {
         }
     }
 
-    protected computeExchangeHash(fields: readonly (Buffer | string)[]): Buffer {
+    protected hashFields(fields: readonly (Buffer | string)[]): Buffer {
         const hash = createHash(this.hashName)
         const length = Buffer.allocUnsafe(4)
 
@@ -79,6 +81,15 @@ export default abstract class KeyExchange implements KexAlgorithm {
 
     protected encodeSharedSecret(): Buffer {
         return serializeMpintBufferToBuffer(this.sharedSecret!)
+    }
+
+    protected requireExchangeValue(
+        context: Readonly<KeyExchangeHashContext>,
+        role: "client" | "server",
+    ): Buffer {
+        const value = role === "client" ? context.clientExchangeValue : context.serverExchangeValue
+        if (!value) throw new KeyExchangeError(`${role} exchange value is unavailable`)
+        return value
     }
 
     private deriveKeys(H: Buffer, sessionID: Buffer, keyLengths: number[]): Buffer[] {

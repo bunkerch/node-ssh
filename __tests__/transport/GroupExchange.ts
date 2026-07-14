@@ -7,7 +7,6 @@ import {
 } from "../../src/algorithms/kex/diffie-hellman-group-exchange.js"
 import { decodeBigIntBE } from "../../src/utils/BigInt.js"
 import { serializeMpintBufferToBuffer } from "../../src/utils/mpint.js"
-import type Client from "../../src/Client.js"
 
 class InspectableGroupExchange extends DiffieHellmanGroupExchange {
     constructor() {
@@ -130,7 +129,7 @@ describe("RFC 4419 Diffie-Hellman group exchange", () => {
         ).toThrow("outside (1, p-1)")
     })
 
-    test("owns staged host-key and peer values used by the exchange hash", () => {
+    test("matches a normalized exchange-hash context after key agreement", () => {
         const server = new InspectableGroupExchange()
         server.setRequest(defaultGroupExchangeRequest)
         const group = server.selectServerGroup()
@@ -144,14 +143,8 @@ describe("RFC 4419 Diffie-Hellman group exchange", () => {
         const hostKey = Buffer.from("host key")
         const peerPublicKey = serializeMpintBufferToBuffer(server.getPublicKey())
         const retainedPeerPublicKey = Buffer.from(peerPublicKey)
-        client.setServerHostKey(hostKey)
         client.computeSharedSecret(peerPublicKey)
 
-        const fakeClient = {
-            options: { protocolVersionExchange: Buffer.from("SSH-2.0-client\r\n") },
-            serverProtocolVersion: Buffer.from("SSH-2.0-server\r\n"),
-            clientKexInitPayload: Buffer.from("1401", "hex"),
-        } as Client
         const serverKexInit = Buffer.from("1402", "hex")
         const expected = computeGroupExchangeHash({
             hashName: "sha256",
@@ -171,6 +164,16 @@ describe("RFC 4419 Diffie-Hellman group exchange", () => {
         hostKey.fill(0xff)
         peerPublicKey.fill(0xff)
 
-        expect(client.computeHClient(fakeClient, serverKexInit)).toEqual(expected)
+        expect(
+            client.computeExchangeHash({
+                clientVersion: "SSH-2.0-client",
+                serverVersion: "SSH-2.0-server",
+                clientKexInit: Buffer.from("1401", "hex"),
+                serverKexInit,
+                serverHostKey: Buffer.from("host key"),
+                clientExchangeValue: client.getPublicKey(),
+                serverExchangeValue: retainedPeerPublicKey,
+            }),
+        ).toEqual(expected)
     })
 })

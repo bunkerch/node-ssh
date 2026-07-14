@@ -8,8 +8,7 @@ import {
     randomBytes,
     type KeyObject,
 } from "node:crypto"
-import type Client from "../../Client.js"
-import type ServerClient from "../../ServerClient.js"
+import type { KeyExchangeHashContext } from "../../algorithms.js"
 import { readNextBuffer, serializeBuffer } from "../../utils/Buffer.js"
 import PublicKey, { SSHRSAPublicKey } from "../../utils/PublicKey.js"
 import { serializeMpintBufferToBuffer } from "../../utils/mpint.js"
@@ -159,22 +158,12 @@ export default class RSA2048SHA256 extends KeyExchange {
         this.sharedSecret = Buffer.from(secret)
     }
 
-    computeHClient(client: Client, serverKexInit: Buffer): Buffer {
+    computeExchangeHash(context: Readonly<KeyExchangeHashContext>): Buffer {
         return this.computeHash(
-            client.options.protocolVersionExchange.toString().slice(0, -2),
-            client.serverProtocolVersion!.toString().slice(0, -2),
-            client.clientKexInitPayload!,
-            serverKexInit,
-        )
-    }
-
-    computeHServer(client: ServerClient, clientKexInit: Buffer, hostKey: Buffer): Buffer {
-        this.setHostKey(hostKey)
-        return this.computeHash(
-            client.clientProtocolVersion!.toString().slice(0, -2),
-            client.server.options.protocolVersionExchange!.toString().slice(0, -2),
-            clientKexInit,
-            client.serverKexInitPayload!,
+            context.clientVersion,
+            context.serverVersion,
+            context.clientKexInit,
+            context.serverKexInit,
         )
     }
 

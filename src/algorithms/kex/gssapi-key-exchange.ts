@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto"
 
-import type Client from "../../Client.js"
 import type {
     GSSAPIClientMechanism,
     GSSAPIKeyExchangeClientContext,
@@ -9,11 +8,11 @@ import type {
     GSSAPIKeyExchangeServerContextOptions,
     GSSAPIServerMechanism,
 } from "../../GSSAPI.js"
-import type ServerClient from "../../ServerClient.js"
 import type {
     DerivedTransportKeys,
     KexAlgorithm,
     KexAlgorithmFactory,
+    KeyExchangeHashContext,
     KeyExchangeRole,
     TransportKeyLengths,
 } from "../../algorithms.js"
@@ -130,8 +129,6 @@ export default class GSSAPIKeyExchange extends KeyExchange {
     readonly #mechanism: GSSAPIKeyExchangeMechanism
     readonly #keyAgreement: KexAlgorithm
     #role?: KeyExchangeRole
-    #peerPublicKey?: Buffer
-    #serverHostKey?: Buffer
 
     constructor(
         methodName: string,
@@ -158,15 +155,10 @@ export default class GSSAPIKeyExchange extends KeyExchange {
 
     computeSharedSecret(peerPublicKey: Buffer): void {
         this.#keyAgreement.computeSharedSecret(peerPublicKey)
-        this.#peerPublicKey = Buffer.from(peerPublicKey)
     }
 
     getSharedSecret(): Buffer {
         return this.#keyAgreement.getSharedSecret()
-    }
-
-    setServerHostKey(hostKey: Buffer): void {
-        this.#serverHostKey = Buffer.from(hostKey)
     }
 
     createClientContext(
@@ -185,34 +177,16 @@ export default class GSSAPIKeyExchange extends KeyExchange {
         return create(options)
     }
 
-    computeHClient(client: Client, serverKexInit: Buffer): Buffer {
-        if (this.#role !== "client" || !this.#peerPublicKey || !this.#serverHostKey) {
-            throw new KeyExchangeError("GSS-API client key exchange is incomplete")
-        }
+    computeExchangeHash(context: Readonly<KeyExchangeHashContext>): Buffer {
+        if (!this.#role) throw new KeyExchangeError("GSS-API key exchange is incomplete")
         return this.#computeH(
-            client.options.protocolVersionExchange.toString().slice(0, -2),
-            client.serverProtocolVersion!.toString().slice(0, -2),
-            client.clientKexInitPayload!,
-            serverKexInit,
-            this.#serverHostKey,
-            this.getPublicKey(),
-            this.#peerPublicKey,
-        )
-    }
-
-    computeHServer(client: ServerClient, clientKexInit: Buffer, hostKey: Buffer): Buffer {
-        if (this.#role !== "server" || !this.#peerPublicKey) {
-            throw new KeyExchangeError("GSS-API server key exchange is incomplete")
-        }
-        this.#serverHostKey = Buffer.from(hostKey)
-        return this.#computeH(
-            client.clientProtocolVersion!.toString().slice(0, -2),
-            client.server.options.protocolVersionExchange!.toString().slice(0, -2),
-            clientKexInit,
-            client.serverKexInitPayload!,
-            hostKey,
-            this.#peerPublicKey,
-            this.getPublicKey(),
+            context.clientVersion,
+            context.serverVersion,
+            context.clientKexInit,
+            context.serverKexInit,
+            context.serverHostKey,
+            this.requireExchangeValue(context, "client"),
+            this.requireExchangeValue(context, "server"),
         )
     }
 
@@ -233,7 +207,7 @@ export default class GSSAPIKeyExchange extends KeyExchange {
         clientPublicKey: Buffer,
         serverPublicKey: Buffer,
     ): Buffer {
-        return this.computeExchangeHash([
+        return this.hashFields([
             clientVersion,
             serverVersion,
             clientKexInit,

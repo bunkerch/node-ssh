@@ -6,10 +6,9 @@ import {
 } from "node:crypto"
 import assert from "assert"
 
-import Client from "../../Client.js"
+import type { KeyExchangeHashContext } from "../../algorithms.js"
 import { serializeMpintBufferToBuffer } from "../../utils/mpint.js"
 import { decodeBigIntBE } from "../../utils/BigInt.js"
-import ServerClient from "../../ServerClient.js"
 import KeyExchange, { KeyExchangeError } from "./key-exchange.js"
 import {
     decodePositiveDHMPInt,
@@ -72,49 +71,25 @@ export default class DiffieHellmanGroupN extends KeyExchange {
         return Buffer.from(this.sharedSecret)
     }
 
-    computeHClient(client: Client, I_S: Buffer) {
-        return this.computeExchangeHash([
+    computeExchangeHash(context: Readonly<KeyExchangeHashContext>): Buffer {
+        return this.hashFields([
             // V_C
-            client.options.protocolVersionExchange.toString().slice(0, -2),
+            context.clientVersion,
             // V_S
-            client.serverProtocolVersion!.toString().slice(0, -2),
+            context.serverVersion,
 
             // I_C
-            client.clientKexInitPayload!,
+            context.clientKexInit,
             // I_S
-            I_S,
+            context.serverKexInit,
 
             // K_S
-            client.serverKexDHReply!.data.K_S,
+            context.serverHostKey,
 
             // e
-            serializeMpintBufferToBuffer(this.keyPair!.getPublicKey()),
+            serializeMpintBufferToBuffer(this.requireExchangeValue(context, "client")),
             // f
-            serializeMpintBufferToBuffer(client.serverKexDHReply!.data.f),
-            // K
-            serializeMpintBufferToBuffer(this.sharedSecret!),
-        ])
-    }
-
-    computeHServer(client: ServerClient, I_C: Buffer, K_S: Buffer) {
-        return this.computeExchangeHash([
-            // V_C
-            client.clientProtocolVersion!.toString().slice(0, -2),
-            // V_S
-            client.server.options.protocolVersionExchange!.toString().slice(0, -2),
-
-            // I_C
-            I_C,
-            // I_S
-            client.serverKexInitPayload!,
-
-            // K_S
-            K_S,
-
-            // e
-            serializeMpintBufferToBuffer(client.clientKexDHInit!.data.e),
-            // f
-            serializeMpintBufferToBuffer(this.keyPair!.getPublicKey()),
+            serializeMpintBufferToBuffer(this.requireExchangeValue(context, "server")),
             // K
             serializeMpintBufferToBuffer(this.sharedSecret!),
         ])

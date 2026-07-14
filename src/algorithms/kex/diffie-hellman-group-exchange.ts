@@ -7,8 +7,7 @@ import {
     type DiffieHellmanGroup,
 } from "node:crypto"
 
-import type Client from "../../Client.js"
-import type ServerClient from "../../ServerClient.js"
+import type { KeyExchangeHashContext } from "../../algorithms.js"
 import type { KexDHGexRequestData } from "../../packets/KexDHGexRequest.js"
 import { decodeBigIntBE } from "../../utils/BigInt.js"
 import { serializeBuffer, serializeUint32 } from "../../utils/Buffer.js"
@@ -82,8 +81,6 @@ export class DiffieHellmanGroupExchange extends KeyExchange {
     private keyPair: DiffieHellman | DiffieHellmanGroup | undefined
     private prime: Buffer | undefined
     private generator: Buffer | undefined
-    private peerPublicKey: Buffer | undefined
-    private serverHostKey: Buffer | undefined
 
     constructor(hashName: "sha1" | "sha256") {
         super(hashName)
@@ -154,10 +151,6 @@ export class DiffieHellmanGroupExchange extends KeyExchange {
         this.installKeyPair(keyPair)
     }
 
-    setServerHostKey(hostKey: Buffer): void {
-        this.serverHostKey = Buffer.from(hostKey)
-    }
-
     generateKeyPair(): void {
         if (!this.keyPair) throw new KeyExchangeError("Diffie-Hellman group was not selected")
         this.keyPair.generateKeys()
@@ -189,31 +182,17 @@ export class DiffieHellmanGroupExchange extends KeyExchange {
         if (sharedSecret <= 1n || sharedSecret >= prime - 1n) {
             throw new KeyExchangeError("Diffie-Hellman shared secret is outside (1, p-1)")
         }
-        this.peerPublicKey = Buffer.from(peerPublicKey)
     }
 
-    computeHClient(client: Client, serverKexInit: Buffer): Buffer {
-        if (!this.serverHostKey) throw new KeyExchangeError("Server host key is unavailable")
+    computeExchangeHash(context: Readonly<KeyExchangeHashContext>): Buffer {
         return this.computeGroupExchangeHash(
-            client.options.protocolVersionExchange.toString().slice(0, -2),
-            client.serverProtocolVersion!.toString().slice(0, -2),
-            client.clientKexInitPayload!,
-            serverKexInit,
-            this.serverHostKey,
-            this.getPublicKey(),
-            this.requirePeerPublicKey(),
-        )
-    }
-
-    computeHServer(client: ServerClient, clientKexInit: Buffer, hostKey: Buffer): Buffer {
-        return this.computeGroupExchangeHash(
-            client.clientProtocolVersion!.toString().slice(0, -2),
-            client.server.options.protocolVersionExchange!.toString().slice(0, -2),
-            clientKexInit,
-            client.serverKexInitPayload!,
-            hostKey,
-            this.requirePeerPublicKey(),
-            this.getPublicKey(),
+            context.clientVersion,
+            context.serverVersion,
+            context.clientKexInit,
+            context.serverKexInit,
+            context.serverHostKey,
+            this.requireExchangeValue(context, "client"),
+            this.requireExchangeValue(context, "server"),
         )
     }
 
@@ -255,11 +234,6 @@ export class DiffieHellmanGroupExchange extends KeyExchange {
     private requireRequest(): KexDHGexRequestData {
         if (!this.request) throw new KeyExchangeError("Diffie-Hellman group request is unavailable")
         return this.request
-    }
-
-    private requirePeerPublicKey(): Buffer {
-        if (!this.peerPublicKey) throw new KeyExchangeError("Peer public value is unavailable")
-        return this.peerPublicKey
     }
 }
 

@@ -30,6 +30,7 @@ import {
     kex_algorithms,
     mac_algorithm_names,
     type HostKeyAlgorithm,
+    type KeyExchangeHashContext,
     type KexAlgorithmFactory,
     type CompressionAlgorithm,
     default_algorithm_names,
@@ -767,18 +768,9 @@ export default class Client extends EventEmitter<ClientEvents> {
     private readonly strictInitialPackets = new Set<PacketType>()
 
     serverProtocolVersion?: ProtocolVersionExchange
-    serverKexDHReply?: KexDHReply
     #clientKexInit?: KexInit
     #clientKexInitPayload?: Buffer
     #serverKexInitPayload?: Buffer
-
-    get clientKexInitPayload(): Buffer | undefined {
-        return this.#clientKexInitPayload && Buffer.from(this.#clientKexInitPayload)
-    }
-
-    get serverKexInitPayload(): Buffer | undefined {
-        return this.#serverKexInitPayload && Buffer.from(this.#serverKexInitPayload)
-    }
     #kexAlgorithm?: KexAlgorithm
     hostKeyAlgorithm?: HostKeyAlgorithm
     serverSignatureAlgorithms?: readonly string[]
@@ -937,8 +929,9 @@ export default class Client extends EventEmitter<ClientEvents> {
         this.strictInitialPackets.clear()
 
         this.serverProtocolVersion = undefined
-        this.serverKexDHReply = undefined
         this.#clientKexInit = undefined
+        this.#clientKexInitPayload = undefined
+        this.#serverKexInitPayload = undefined
         this.#kexAlgorithm = undefined
         this.hostKeyAlgorithm = undefined
         this.serverSignatureAlgorithms = undefined
@@ -1612,9 +1605,27 @@ export default class Client extends EventEmitter<ClientEvents> {
         })
     }
 
+    private createKeyExchangeHashContext(
+        serverHostKey: Buffer,
+        clientExchangeValue?: Buffer,
+        serverExchangeValue?: Buffer,
+    ): Readonly<KeyExchangeHashContext> {
+        assert(this.serverProtocolVersion, "Missing server protocol version")
+        assert(this.#clientKexInitPayload, "Missing exact client KEXINIT payload")
+        assert(this.#serverKexInitPayload, "Missing exact server KEXINIT payload")
+        return {
+            clientVersion: this.options.protocolVersionExchange.toString().slice(0, -2),
+            serverVersion: this.serverProtocolVersion.toString().slice(0, -2),
+            clientKexInit: this.#clientKexInitPayload,
+            serverKexInit: this.#serverKexInitPayload,
+            serverHostKey,
+            ...(clientExchangeValue === undefined ? {} : { clientExchangeValue }),
+            ...(serverExchangeValue === undefined ? {} : { serverExchangeValue }),
+        }
+    }
+
     private async performGSSAPIKeyExchange(
         algorithm: GSSAPIKeyExchange,
-        serverKexInit: Buffer,
         retainContext: boolean,
     ): Promise<{
         hostKey: Buffer
@@ -1649,10 +1660,11 @@ export default class Client extends EventEmitter<ClientEvents> {
                 KexGSSAPIHostKey.type,
                 KexGSSAPIError.type,
             )
+            const clientExchangeValue = algorithm.getPublicKey()
             this.sendPacket(
                 new KexGSSAPIInit(
                     initialToken,
-                    algorithm.getPublicKey(),
+                    clientExchangeValue,
                     algorithm.exchangeValueEncoding,
                 ),
             )
@@ -1719,9 +1731,14 @@ export default class Client extends EventEmitter<ClientEvents> {
                     )
                 }
                 const authenticatedHostKey = hostKey ?? Buffer.alloc(0)
-                algorithm.setServerHostKey(authenticatedHostKey)
                 algorithm.computeSharedSecret(packet.publicKey)
-                const exchangeHash = algorithm.computeHClient(this, serverKexInit)
+                const exchangeHash = algorithm.computeExchangeHash(
+                    this.createKeyExchangeHashContext(
+                        authenticatedHostKey,
+                        clientExchangeValue,
+                        packet.publicKey,
+                    ),
+                )
                 if (!(await context.verifyMIC(exchangeHash, packet.mic))) {
                     throw new KeyExchangeError("Invalid GSS-API key-exchange MIC")
                 }
@@ -1777,7 +1794,7 @@ export default class Client extends EventEmitter<ClientEvents> {
             this.#clientKexInit = this.createKexInit()
             this.sendPacket(this.#clientKexInit)
             if (!peerInitiated) await this.waitEvent("serverKexInit")
-            const serverKexInitBuffer = this.serverKexInitPayload
+            const serverKexInitBuffer = this.#serverKexInitPayload
             assert(serverKexInitBuffer, "Missing exact server KEXINIT payload")
             const serverKexInit = KexInit.parse(serverKexInitBuffer)
             this.strictKeyExchange ||= negotiatesStrictKeyExchange(
@@ -1806,10 +1823,11 @@ export default class Client extends EventEmitter<ClientEvents> {
             let hostKeyBlob: Buffer
             let signatureBlob: Buffer | undefined
             let h: Buffer | undefined
+            let clientExchangeValue: Buffer | undefined
+            let serverExchangeValue: Buffer | undefined
             if (kexAlgorithm instanceof GSSAPIKeyExchange) {
                 const result = await this.performGSSAPIKeyExchange(
                     kexAlgorithm,
-                    serverKexInitBuffer,
                     !isRekey &&
                         this.options.authenticationMethodsOrder.includes(
                             SSHAuthenticationMethods.GSSAPIKeyExchange,
@@ -1825,11 +1843,12 @@ export default class Client extends EventEmitter<ClientEvents> {
                 const [group] = await this.waitEvent("serverKexDHGexGroup")
                 kexAlgorithm.acceptServerGroup(group.data.p, group.data.g)
                 kexAlgorithm.generateKeyPair()
-                this.sendPacket(new KexDHGexInit({ e: kexAlgorithm.getPublicKey() }))
+                clientExchangeValue = kexAlgorithm.getPublicKey()
+                this.sendPacket(new KexDHGexInit({ e: clientExchangeValue }))
                 this.expectInboundKeyExchange(PacketNameToType.SSH_MSG_KEX_DH_GEX_REPLY)
                 const reply = (await this.waitEvent("serverKexDHGexReply"))[0]
-                kexAlgorithm.setServerHostKey(reply.data.K_S)
                 kexAlgorithm.computeSharedSecret(reply.data.f)
+                serverExchangeValue = reply.data.f
                 hostKeyBlob = reply.data.K_S
                 signatureBlob = reply.data.H_sig
             } else if (kexAlgorithm instanceof RSA2048SHA256) {
@@ -1846,20 +1865,27 @@ export default class Client extends EventEmitter<ClientEvents> {
             } else {
                 this.expectInboundKeyExchange(PacketNameToType.SSH_MSG_KEXDH_REPLY)
                 kexAlgorithm.generateKeyPair("client")
+                clientExchangeValue = kexAlgorithm.getPublicKey()
                 this.sendPacket(
                     new KexDHInit({
-                        e: kexAlgorithm.getPublicKey(),
+                        e: clientExchangeValue,
                         encoding: kexAlgorithm.exchangeValueEncoding,
                     }),
                 )
                 const reply = (await this.waitEvent("serverKexDHReply"))[0]
-                this.serverKexDHReply = reply
                 kexAlgorithm.computeSharedSecret(reply.data.f)
+                serverExchangeValue = reply.data.f
                 hostKeyBlob = reply.data.K_S
                 signatureBlob = reply.data.H_sig
             }
             if (!(kexAlgorithm instanceof GSSAPIKeyExchange)) {
-                h = kexAlgorithm.computeHClient(this, serverKexInitBuffer)
+                h = kexAlgorithm.computeExchangeHash(
+                    this.createKeyExchangeHashContext(
+                        hostKeyBlob,
+                        clientExchangeValue,
+                        serverExchangeValue,
+                    ),
+                )
             }
             assert(h, "Key exchange hash was not computed")
             if (hostKeyBlob.length === 0) {
@@ -2762,7 +2788,7 @@ export default class Client extends EventEmitter<ClientEvents> {
                         this.socket?.destroy(error)
                     })
                 }
-                this.emit("serverKexInit", p as KexInit, this.serverKexInitPayload!)
+                this.emit("serverKexInit", p as KexInit, Buffer.from(this.#serverKexInitPayload!))
                 break
 
             case PacketNameToType.SSH_MSG_KEXDH_INIT:

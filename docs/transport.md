@@ -193,8 +193,9 @@ offer.
 
 Each peer snapshots its exact serialized local KEXINIT at the transport write boundary. Exchange
 hashes use that immutable wire payload, so later mutation of an inspected packet object cannot
-change the session transcript. Snapshot access returns a copy, and unrelated low-level KEXINIT
-objects cannot replace the active exchange transcript.
+change the session transcript. The active offers and exact transcript bytes remain internal. The
+role-specific `clientKexInit` and `serverKexInit` observation events receive a parsed packet and a
+copied wire payload; unrelated low-level KEXINIT objects cannot replace the active exchange.
 
 Inbound KEXINIT bytes are likewise copied before any packet event is published. Negotiation reparses
 the private snapshot, so observers may inspect or mutate their packet objects without changing the
@@ -710,7 +711,9 @@ After an exchange, `keyExchangeAlgorithm` contains the negotiated key-exchange n
 `exchangeHash` contains a defensive copy of that exchange's transcript hash. The latter changes on
 each rekey; `sessionID` remains the first exchange hash. Derived IVs, encryption keys, integrity
 keys, shared secrets, and live cipher, MAC, and key-exchange objects are internal transport state
-and are not exposed through either connection role.
+and are not exposed through either connection role. Raw KEXINIT transcripts and method-specific
+key-exchange packets are likewise internal; use the `handshake` event for negotiated algorithm
+metadata.
 
 ## Key re-exchange
 
