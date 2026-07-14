@@ -27,8 +27,8 @@ import {
     kex_algorithms,
     mac_algorithm_names,
     default_algorithm_names,
-    type KexAlgorithmFactory,
 } from "./algorithms.js"
+import { registerKeyExchanges } from "./KeyExchangeRegistry.js"
 import {
     DEFAULT_REKEY_BYTES,
     DEFAULT_REKEY_INTERVAL,
@@ -451,11 +451,14 @@ export default class Server extends EventEmitter<ServerEvents> {
         validateRekeyBytes(this.options.rekeyBytes)
         validateRekeyInterval(this.options.rekeyInterval)
         const gssapiKeyExchangeAlgorithms = createGSSAPIKeyExchangeAlgorithms(this.options.gssapi)
-        this.kexAlgorithms = new Map([...kex_algorithms, ...gssapiKeyExchangeAlgorithms])
+        const kexAlgorithms = registerKeyExchanges(this, [
+            ...kex_algorithms,
+            ...gssapiKeyExchangeAlgorithms,
+        ])
         this.algorithmOffer = resolveServerAlgorithmOptions(
             this.options.algorithms,
             {
-                kex: [...this.kexAlgorithms.keys()],
+                kex: [...kexAlgorithms.keys()],
                 serverHostKey: [...host_key_algorithms.keys()],
                 cipher: [...encryption_algorithms.keys()],
                 hmac: [...mac_algorithm_names],
@@ -502,7 +505,6 @@ export default class Server extends EventEmitter<ServerEvents> {
     server: net.Server
     clients = new Set<ServerClient>()
     readonly algorithmOffer: ResolvedAlgorithmOptions
-    readonly kexAlgorithms: ReadonlyMap<string, KexAlgorithmFactory>
     private readonly hostKeysReady: Promise<void>
     private maximumConnections = Infinity
     private readonly transports = new Set<ServerTransport>()

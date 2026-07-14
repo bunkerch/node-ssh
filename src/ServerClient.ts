@@ -81,6 +81,7 @@ import ExtInfo, {
 import Ping from "./packets/Ping.js"
 import Pong from "./packets/Pong.js"
 import { KeyExchangeError } from "./algorithms/kex/key-exchange.js"
+import { keyExchangesFor } from "./KeyExchangeRegistry.js"
 import RSA2048SHA256 from "./algorithms/kex/rsa2048-sha256.js"
 import KexRSAPublicKey from "./packets/KexRSAPublicKey.js"
 import KexRSASecret from "./packets/KexRSASecret.js"
@@ -922,7 +923,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             const algorithms = chooseAlgorithms({
                 clientOffer: clientKexInit.data,
                 serverOffer: this.#serverKexInit.data,
-                keyExchanges: this.server.kexAlgorithms,
+                keyExchanges: keyExchangesFor(this.server),
                 debug: this.debug.bind(this),
             })
             this.#kexAlgorithm = algorithms.keyExchange

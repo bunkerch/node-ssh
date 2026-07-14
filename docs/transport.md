@@ -673,8 +673,10 @@ may be exact arrays or `{ remove, prepend, append }` changes whose entries are n
 expressions. Unknown names and empty resolved lists are rejected during construction, defaults are
 copied rather than mutated, and the same configured offer is used for every rekey. Modifier values
 must be non-empty strings or regular expressions; malformed objects are rejected rather than
-silently ignored. Exact arrays can
-select supported legacy methods. Client `{ append }` changes can add them after modern defaults;
+silently ignored. `algorithmOffer` exposes the resulting frozen name lists for inspection; the
+factory registry behind those names remains internal so runtime map mutation cannot bypass
+construction-time validation. Exact arrays can select supported legacy methods. Client `{ append }`
+changes can add them after modern defaults;
 SHA-1 key exchange and host signatures, DSS, CBC/3DES, and MD5/SHA-1 MACs are not offered unless
 configured.
 

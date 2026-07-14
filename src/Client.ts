@@ -58,6 +58,7 @@ import { Hooker } from "./utils/Hooker.js"
 import NewKeys from "./packets/NewKeys.js"
 import NewCompress from "./packets/NewCompress.js"
 import { KeyExchangeError } from "./algorithms/kex/key-exchange.js"
+import { registerKeyExchanges } from "./KeyExchangeRegistry.js"
 import RSA2048SHA256 from "./algorithms/kex/rsa2048-sha256.js"
 import KexRSAPublicKey from "./packets/KexRSAPublicKey.js"
 import KexRSASecret from "./packets/KexRSASecret.js"
@@ -709,11 +710,14 @@ export default class Client extends EventEmitter<ClientEvents> {
             }
         }
         const gssapiKeyExchangeAlgorithms = createGSSAPIKeyExchangeAlgorithms(this.options.gssapi)
-        this.kexAlgorithms = new Map([...kex_algorithms, ...gssapiKeyExchangeAlgorithms])
+        this.#kexAlgorithms = registerKeyExchanges(this, [
+            ...kex_algorithms,
+            ...gssapiKeyExchangeAlgorithms,
+        ])
         this.algorithmOffer = resolveClientAlgorithmOptions(
             this.options.algorithms,
             {
-                kex: [...this.kexAlgorithms.keys()],
+                kex: [...this.#kexAlgorithms.keys()],
                 serverHostKey: [...host_key_algorithms.keys()],
                 cipher: [...encryption_algorithms.keys()],
                 hmac: [...mac_algorithm_names],
@@ -759,7 +763,7 @@ export default class Client extends EventEmitter<ClientEvents> {
     private identificationParser = new IdentificationParser({ allowPreamble: true })
     private readonly greetingChunks: Buffer[] = []
     readonly algorithmOffer: ResolvedAlgorithmOptions
-    readonly kexAlgorithms: ReadonlyMap<string, KexAlgorithmFactory>
+    readonly #kexAlgorithms: ReadonlyMap<string, KexAlgorithmFactory>
     private packetDecoder = new BinaryPacketDecoder()
     private packetEncoder = new BinaryPacketEncoder()
     private packetProcessingPaused = false
@@ -1830,7 +1834,7 @@ export default class Client extends EventEmitter<ClientEvents> {
             const algorithms = chooseAlgorithms({
                 clientOffer: this.#clientKexInit.data,
                 serverOffer: serverKexInit.data,
-                keyExchanges: this.kexAlgorithms,
+                keyExchanges: this.#kexAlgorithms,
                 debug: this.debug.bind(this),
             })
             this.#kexAlgorithm = algorithms.keyExchange

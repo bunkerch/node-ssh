@@ -368,6 +368,8 @@ describe("package exports", () => {
         expect(client).not.toContain("serverKexInit?: KexInit")
         expect(serverClient).not.toContain("clientKexInit?: KexInit")
         expect(serverClient).not.toContain("serverKexInit?: KexInit")
+        expect(client).not.toContain("kexAlgorithms")
+        expect(server).not.toContain("kexAlgorithms")
         for (const transcriptState of [
             "clientKexInitPayload",
             "serverKexInitPayload",
