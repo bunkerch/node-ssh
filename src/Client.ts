@@ -274,7 +274,7 @@ export interface ClientOptions {
     /** Passphrase for an encoded `privateKey`. */
     passphrase?: string | Buffer
     /** RFC 4252 host-based authentication identity. */
-    hostbased?: ClientHostbasedOptions
+    hostbased?: Readonly<ClientHostbasedOptions>
     /** RFC 4462 GSS-API mechanisms, in preference order. */
     gssapi?: readonly GSSAPIClientMechanism[]
     /** Request credential delegation during RFC 4462 context establishment. */
@@ -322,7 +322,7 @@ export interface ClientOptionsRequired
     localPort?: number
     hostHash?: string
     hostVerifier?: ClientHostVerifier
-    hostbased?: ClientHostbasedOptions
+    hostbased?: Readonly<ClientHostbasedOptions>
     gssapi: readonly GSSAPIClientMechanism[]
     ident?: string | Buffer
     algorithms?: ClientAlgorithmOptions
@@ -527,6 +527,9 @@ export default class Client extends EventEmitter<ClientEvents> {
         this.options.gssapi = normalizeGSSAPIClientMechanisms(this.options.gssapi ?? [])
         this.options.gssapiDelegateCredentials ??= false
         this.options.gssapiKeyExchangeAuthentication ??= true
+        if (this.options.hostbased !== undefined) {
+            this.options.hostbased = Object.freeze({ ...this.options.hostbased })
+        }
         if (typeof this.options.agent === "string") {
             this.options.agent = createSocketAgent(this.options.agent)
         }

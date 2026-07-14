@@ -701,7 +701,7 @@ describe("RFC 4252 multi-method authentication", () => {
         }
     }, 15_000)
 
-    test("authenticates a client host through an awaited server policy hook", async () => {
+    test("owns client host identity before awaited hostbased authentication", async () => {
         const serverHostKey = await PrivateKey.generate("ssh-ed25519")
         const clientHostKey = await PrivateKey.generate("ssh-ed25519")
         const server = new Server({ hostKeys: [serverHostKey], sendAllHostKeys: false })
@@ -724,15 +724,16 @@ describe("RFC 4252 multi-method authentication", () => {
         await new Promise<void>((resolve) => server.server!.once("listening", resolve))
         const port = (server.server!.address() as AddressInfo).port
 
+        const hostbased = {
+            key: clientHostKey,
+            localHostname: "client.example",
+            localUsername: "alice",
+        }
         const client = new Client({
             hostname: "127.0.0.1",
             port,
             username: "remote",
-            hostbased: {
-                key: clientHostKey,
-                localHostname: "client.example",
-                localUsername: "alice",
-            },
+            hostbased,
             authenticationMethodsOrder: [
                 SSHAuthenticationMethods.None,
                 SSHAuthenticationMethods.Hostbased,
@@ -742,6 +743,8 @@ describe("RFC 4252 multi-method authentication", () => {
         client.hooker.hook("hostKey", (_hook, decision) => {
             decision.allowHostKey = true
         })
+        hostbased.localHostname = "changed.example"
+        hostbased.localUsername = "mallory"
 
         try {
             await client.connect()
