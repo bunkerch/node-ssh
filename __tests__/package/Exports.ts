@@ -360,6 +360,8 @@ describe("package exports", () => {
         )
         expect(server).toContain("getConnections(): Promise<number>")
         expect(server).toContain("delayCompression?: DelayCompressionConfiguration")
+        expect(server).toContain("injectSocket(socket: ServerTransport): this")
+        expect(server).toContain("export interface ServerTransport extends Duplex")
         expect(server).toContain("close(): Promise<void>")
         expect(agentProtocol).toContain("addIdentity(")
         expect(agentProtocol).toContain("removeAllIdentities(): Promise<void>")

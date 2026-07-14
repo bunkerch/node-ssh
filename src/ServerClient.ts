@@ -21,6 +21,7 @@ import Server, {
     ServerHookerElevationController,
     ServerHookerStreamLocalForwardContext,
     ServerHookerTCPIPForwardContext,
+    type ServerTransport,
 } from "./Server.js"
 import ProtocolVersionExchange from "./ProtocolVersionExchange.js"
 import crypto from "node:crypto"
@@ -248,14 +249,14 @@ export interface ServerClientEvents {
 }
 
 export default class ServerClient extends EventEmitter<ServerClientEvents> {
-    private socket: Socket
+    private socket: ServerTransport
     connectionId: string
     peerDisconnect?: Readonly<PeerDisconnectInfo>
     server: Server
 
     queue = new ActionQueue<string>()
 
-    constructor(socket: Socket, server: Server) {
+    constructor(socket: ServerTransport, server: Server) {
         super()
         this.socket = socket
         this.server = server
@@ -601,7 +602,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     }
 
     setNoDelay(noDelay = true): this {
-        this.socket.setNoDelay(noDelay)
+        this.socket.setNoDelay?.(noDelay)
         return this
     }
 

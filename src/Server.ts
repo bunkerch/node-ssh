@@ -3,6 +3,7 @@
 import EventEmitter from "node:events"
 import ProtocolVersionExchange from "./ProtocolVersionExchange.js"
 import net from "net"
+import type { Duplex } from "node:stream"
 import ServerClient from "./ServerClient.js"
 import { Hooker } from "./utils/Hooker.js"
 import PrivateKey from "./utils/PrivateKey.js"
@@ -99,6 +100,17 @@ export interface ServerConnectionInfo {
     readonly localAddress?: string
     readonly localFamily?: string
     readonly localPort?: number
+}
+
+/** Connected duplex transport accepted by an SSH server. */
+export interface ServerTransport extends Duplex {
+    readonly remoteAddress?: string
+    readonly remoteFamily?: string
+    readonly remotePort?: number
+    readonly localAddress?: string
+    readonly localFamily?: string
+    readonly localPort?: number
+    setNoDelay?(noDelay?: boolean): unknown
 }
 
 export interface ServerOptionsRequired
@@ -509,7 +521,7 @@ export default class Server extends EventEmitter<ServerEvents> {
         return this
     }
 
-    injectSocket(socket: net.Socket): this {
+    injectSocket(socket: ServerTransport): this {
         void this.hostKeysReady.then(() => this.acceptSocket(socket))
         return this
     }
@@ -538,7 +550,7 @@ export default class Server extends EventEmitter<ServerEvents> {
         return this
     }
 
-    private async acceptSocket(socket: net.Socket): Promise<void> {
+    private async acceptSocket(socket: ServerTransport): Promise<void> {
         this.debug(`Connection from ${socket.remoteAddress?.toString() ?? "unknown"}`)
         const connectionInfo: Readonly<ServerConnectionInfo> = Object.freeze({
             remoteAddress: socket.remoteAddress,

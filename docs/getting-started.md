@@ -159,9 +159,28 @@ command.pipe(process.stdout)
 ```
 
 When `sock` is supplied, `hostname` is optional and no new TCP connection is created. The client
-installs the same framing, error, end, close, keepalive, rekey, and channel cleanup handlers used for a
-normal socket. `end()` and `destroy()` own and close the supplied transport; a destroyed transport
-cannot be reused for another connection.
+installs the same framing, error, end, close, keepalive, rekey, and channel cleanup handlers used
+for a normal socket. `end()` and `destroy()` own and close the supplied transport; a destroyed
+transport cannot be reused for another connection.
+
+`Server.injectSocket()` accepts the same kind of connected `Duplex`, so an application can run a
+nested SSH server directly over an accepted channel without creating a loopback TCP listener:
+
+```ts
+import { DirectTCPIPChannel, Server } from "@bunkerch/modernssh"
+
+const nested = new Server({ hostKeys: [nestedHostKey] })
+
+gateway.on("connection", (connection) => {
+    connection.on("channel", (channel) => {
+        if (channel instanceof DirectTCPIPChannel) nested.injectSocket(channel.stream)
+    })
+})
+```
+
+The outer server must still authorize the `direct-tcpip` channel through its awaited
+`channelOpenRequest` Hooker policy. The nested server owns the injected stream after acceptance
+and applies its ordinary `preconnect`, key-exchange, authentication, channel, and cleanup paths.
 
 ## Server connection
 
@@ -207,18 +226,21 @@ every restart.
 The `connection` event's immutable endpoint snapshot retains the remote and local address, family,
 and port after the socket closes. Fields may be undefined for an injected or non-IP transport that
 does not expose them.
-`ServerClient.setNoDelay()` controls Nagle's algorithm per accepted
-connection. Call `ServerClient.end()` for a graceful application shutdown: it sends an RFC 4253
-`BY_APPLICATION` disconnect before ending the socket. `terminate()` destroys the socket
-immediately, while `disconnect(error)` sends a caller-selected protocol reason.
+`ServerClient.setNoDelay()` controls Nagle's algorithm when the transport exposes that TCP
+capability and is a safe no-op for other duplex transports. Call `ServerClient.end()` for a
+graceful application shutdown: it sends an RFC 4253 `BY_APPLICATION` disconnect before ending the
+transport. `terminate()` destroys the transport immediately, while `disconnect(error)` sends a
+caller-selected protocol reason.
 
-An application that already owns an accepted `net.Socket` can pass it through the same admission
-and handshake path with `server.injectSocket(socket)`. Injected sockets still run the `preconnect`
-policy hook, appear in `server.clients` and `getConnections()`, and are removed on close. The
-injecting application retains responsibility for the outer listener; the SSH server owns the
-injected connected socket after acceptance. When `preconnect` hooks are present, they must complete
-without rejection and explicitly set `allowConnection = true`; denial happens before the public
-`connection` event.
+An application that already owns an accepted `net.Socket`, SSH channel, or custom connected
+`Duplex` can pass it through the same admission and handshake path with
+`server.injectSocket(transport)`. The exported `ServerTransport` interface requires duplex stream
+behavior and makes TCP endpoint metadata and `setNoDelay()` optional. Injected transports still
+run the `preconnect` policy hook, appear in `server.clients` and `getConnections()`, and are removed
+on close. The injecting application retains responsibility for the outer listener; the SSH server
+owns the injected transport after acceptance. When `preconnect` hooks are present, they must
+complete without rejection and explicitly set `allowConnection = true`; denial happens before the
+public `connection` event.
 
 ## Passphrase-protected private keys
 

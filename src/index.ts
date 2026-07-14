@@ -170,6 +170,7 @@ export type {
     ServerHookerTCPIPForwardController,
     ServerHostKeyInput,
     ServerOptions,
+    ServerTransport,
 } from "./Server.js"
 export type { UserAuthPrompt } from "./packets/UserAuthInfoRequest.js"
 export { PeerDisconnectError } from "./packets/Disconnect.js"
