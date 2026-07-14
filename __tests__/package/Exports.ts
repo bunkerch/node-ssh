@@ -358,6 +358,12 @@ describe("package exports", () => {
         expect(serverClient).toContain("get exchangeHash(): Buffer | undefined")
         expect(client).toContain("get keyExchangeAlgorithm(): string | undefined")
         expect(serverClient).toContain("get keyExchangeAlgorithm(): string | undefined")
+        expect(client).toContain(
+            "get negotiatedAlgorithms(): Readonly<NegotiatedAlgorithms> | undefined",
+        )
+        expect(serverClient).toContain(
+            "get negotiatedAlgorithms(): Readonly<NegotiatedAlgorithms> | undefined",
+        )
         expect(client).not.toContain("clientKexInit?: KexInit")
         expect(client).not.toContain("serverKexInit?: KexInit")
         expect(serverClient).not.toContain("clientKexInit?: KexInit")
@@ -373,6 +379,13 @@ describe("package exports", () => {
         }
         for (const exposedState of [
             "kexAlgorithm?: KexAlgorithm",
+            "hostKeyAlgorithm?: HostKeyAlgorithm",
+            "clientEncryptionAlgorithm?: typeof EncryptionAlgorithm",
+            "serverEncryptionAlgorithm?: typeof EncryptionAlgorithm",
+            "clientMacAlgorithm?: typeof MACAlgorithm",
+            "serverMacAlgorithm?: typeof MACAlgorithm",
+            "clientCompressionAlgorithm?: CompressionAlgorithm",
+            "serverCompressionAlgorithm?: CompressionAlgorithm",
             "clientEncryption?: EncryptionAlgorithm",
             "serverEncryption?: EncryptionAlgorithm",
             "clientMac?: MACAlgorithm",

@@ -411,10 +411,13 @@ describe("client/server integration", () => {
                 new ProtocolVersionExchange("2.0", "modernssh_integration", "fixed-comment"),
             )
             expect(client.keyExchangeAlgorithm).toBe("curve25519-sha256")
-            expect(client.clientEncryptionAlgorithm?.alg_name).toBe("aes128-ctr")
-            expect(client.clientMacAlgorithm?.alg_name).toBe("hmac-sha2-256-etm@openssh.com")
-            expect(serverPeer?.serverEncryptionAlgorithm?.alg_name).toBe("aes128-ctr")
-            expect(serverPeer?.serverMacAlgorithm?.alg_name).toBe("hmac-sha2-256-etm@openssh.com")
+            expect(client.negotiatedAlgorithms?.cs.cipher).toBe("aes128-ctr")
+            expect(client.negotiatedAlgorithms?.cs.mac).toBe("hmac-sha2-256-etm@openssh.com")
+            expect(serverPeer?.negotiatedAlgorithms?.sc.cipher).toBe("aes128-ctr")
+            expect(serverPeer?.negotiatedAlgorithms?.sc.mac).toBe("hmac-sha2-256-etm@openssh.com")
+            expect(Object.isFrozen(client.negotiatedAlgorithms)).toBe(true)
+            expect(Object.isFrozen(client.negotiatedAlgorithms?.cs)).toBe(true)
+            expect(Object.isFrozen(client.negotiatedAlgorithms?.sc)).toBe(true)
             const expectedNegotiated = {
                 kex: "curve25519-sha256",
                 srvHostKey: "ssh-ed25519",
@@ -849,8 +852,8 @@ describe("client/server integration", () => {
 
             try {
                 await client.connect()
-                expect(client.clientCompressionAlgorithm?.alg_name).toBe(compression)
-                expect(client.serverCompressionAlgorithm?.alg_name).toBe(compression)
+                expect(client.negotiatedAlgorithms?.cs.compress).toBe(compression)
+                expect(client.negotiatedAlgorithms?.sc.compress).toBe(compression)
                 await client.rekey()
 
                 const session = await client.exec("compression-roundtrip")

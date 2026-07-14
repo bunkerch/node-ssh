@@ -71,7 +71,7 @@ export default class PasswordAuthMethod implements AuthMethod {
     }
 
     static async handleAuthentication(client: Client): Promise<boolean> {
-        if (client.clientEncryptionAlgorithm?.alg_name === "none") {
+        if (client.negotiatedAlgorithms?.cs.cipher === "none") {
             // we do not want to send the password
             // in clear text over the network
             client.debug(

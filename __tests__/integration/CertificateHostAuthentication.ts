@@ -152,7 +152,7 @@ describe("certificate host authentication", () => {
                 await client.connect()
 
                 expect(policyCalls).toBe(1)
-                expect(client.hostKeyAlgorithm?.alg_name).toBe(
+                expect(client.negotiatedAlgorithms?.srvHostKey).toBe(
                     type === "rsa" ? "rsa-sha2-512-cert-v01@openssh.com" : certificate.data.alg,
                 )
                 expect(client.serverHostKey).toEqual(certificate.serialize())

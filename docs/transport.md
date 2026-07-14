@@ -709,13 +709,17 @@ direction's cipher, MAC, compression, and language.
 
 After an exchange, `keyExchangeAlgorithm` contains the negotiated key-exchange name and
 `exchangeHash` contains a defensive copy of that exchange's transcript hash. The latter changes on
-each rekey; `sessionID` remains the first exchange hash. Derived IVs, encryption keys, integrity
-keys, shared secrets, and live cipher, MAC, and key-exchange objects are internal transport state
-and are not exposed through either connection role. Raw KEXINIT transcripts and method-specific
-key-exchange packets are likewise internal; use the `handshake` event for negotiated algorithm
-metadata. Completed and failed exchanges explicitly zero retained shared-secret and software
-private-scalar buffers, release native ephemeral key objects, and discard derived key buffers after
-constructing packet protection.
+each rekey; `sessionID` remains the first exchange hash. `negotiatedAlgorithms` returns a deeply
+frozen `{ kex, srvHostKey, cs, sc }` value containing the currently active algorithm names. It
+reflects direction-specific delayed-compression activation without exposing cipher constructors or
+mutable negotiation descriptors.
+
+Derived IVs, encryption keys, integrity keys, shared secrets, and live cipher, MAC, and key-exchange
+objects are internal transport state and are not exposed through either connection role. Raw
+KEXINIT transcripts and method-specific key-exchange packets are likewise internal; use the
+`handshake` event for exchange-completion observations. Completed and failed exchanges explicitly
+zero retained shared-secret and software private-scalar buffers, release native ephemeral key
+objects, and discard derived key buffers after constructing packet protection.
 
 ## Key re-exchange
 

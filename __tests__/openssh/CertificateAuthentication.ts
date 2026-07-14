@@ -118,7 +118,7 @@ describe("OpenSSH certificate authentication interoperability", () => {
             session.on("data", (data: Buffer) => output.push(data))
             await new Promise<void>((resolve) => session.once("close", resolve))
             expect(Buffer.concat(output).toString()).toBe("openssh-host-certificate-ok")
-            expect(client.hostKeyAlgorithm?.alg_name).toBe("ssh-ed25519-cert-v01@openssh.com")
+            expect(client.negotiatedAlgorithms?.srvHostKey).toBe("ssh-ed25519-cert-v01@openssh.com")
             expect(policyCalls).toBe(1)
         } finally {
             client?.destroy()

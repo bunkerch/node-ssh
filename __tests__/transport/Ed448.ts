@@ -105,7 +105,7 @@ describe("RFC 8709 Ed448 host keys", () => {
         })
         try {
             await client.connect()
-            expect(client.hostKeyAlgorithm?.alg_name).toBe(certificateType)
+            expect(client.negotiatedAlgorithms?.srvHostKey).toBe(certificateType)
             expect(client.serverHostKey).toEqual(certificate.serialize())
         } finally {
             client.destroy()

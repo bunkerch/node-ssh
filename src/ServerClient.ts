@@ -362,17 +362,17 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     #serverKexInit?: KexInit
     #serverKexInitPayload?: Buffer
     #kexAlgorithm?: KexAlgorithm
-    hostKeyAlgorithm?: HostKeyAlgorithm
-    clientEncryptionAlgorithm?: typeof EncryptionAlgorithm
-    serverEncryptionAlgorithm?: typeof EncryptionAlgorithm
+    #hostKeyAlgorithm?: HostKeyAlgorithm
+    #clientEncryptionAlgorithm?: typeof EncryptionAlgorithm
+    #serverEncryptionAlgorithm?: typeof EncryptionAlgorithm
     #clientEncryption?: EncryptionAlgorithm
     #serverEncryption?: EncryptionAlgorithm
-    clientMacAlgorithm?: typeof MACAlgorithm
-    serverMacAlgorithm?: typeof MACAlgorithm
+    #clientMacAlgorithm?: typeof MACAlgorithm
+    #serverMacAlgorithm?: typeof MACAlgorithm
     #clientMac?: MACAlgorithm
     #serverMac?: MACAlgorithm
-    clientCompressionAlgorithm?: CompressionAlgorithm
-    serverCompressionAlgorithm?: CompressionAlgorithm
+    #clientCompressionAlgorithm?: CompressionAlgorithm
+    #serverCompressionAlgorithm?: CompressionAlgorithm
 
     #exchangeHash?: Buffer
     #sessionID?: Buffer
@@ -386,6 +386,30 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     get keyExchangeAlgorithm(): string | undefined {
         const kex = this.#kexAlgorithm
         return kex && (kex.constructor as typeof KexAlgorithm).alg_name
+    }
+
+    /** The currently active transport algorithm names. */
+    get negotiatedAlgorithms(): Readonly<NegotiatedAlgorithms> | undefined {
+        if (
+            !this.#kexAlgorithm ||
+            !this.#hostKeyAlgorithm ||
+            !this.#clientEncryptionAlgorithm ||
+            !this.#serverEncryptionAlgorithm ||
+            !this.#clientCompressionAlgorithm ||
+            !this.#serverCompressionAlgorithm
+        ) {
+            return undefined
+        }
+        return describeNegotiatedAlgorithms({
+            keyExchange: this.#kexAlgorithm,
+            hostKey: this.#hostKeyAlgorithm,
+            clientEncryption: this.#clientEncryptionAlgorithm,
+            serverEncryption: this.#serverEncryptionAlgorithm,
+            clientMac: this.#clientMacAlgorithm,
+            serverMac: this.#serverMacAlgorithm,
+            clientCompression: this.#clientCompressionAlgorithm,
+            serverCompression: this.#serverCompressionAlgorithm,
+        })
     }
 
     get sessionID(): Buffer | undefined {
@@ -902,23 +926,23 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 debug: this.debug.bind(this),
             })
             this.#kexAlgorithm = algorithms.keyExchange
-            this.hostKeyAlgorithm = algorithms.hostKey
-            this.clientEncryptionAlgorithm = algorithms.clientEncryption
-            this.serverEncryptionAlgorithm = algorithms.serverEncryption
-            this.clientMacAlgorithm = algorithms.clientMac
-            this.serverMacAlgorithm = algorithms.serverMac
-            this.clientCompressionAlgorithm = algorithms.clientCompression
-            this.serverCompressionAlgorithm = algorithms.serverCompression
+            this.#hostKeyAlgorithm = algorithms.hostKey
+            this.#clientEncryptionAlgorithm = algorithms.clientEncryption
+            this.#serverEncryptionAlgorithm = algorithms.serverEncryption
+            this.#clientMacAlgorithm = algorithms.clientMac
+            this.#serverMacAlgorithm = algorithms.serverMac
+            this.#clientCompressionAlgorithm = algorithms.clientCompression
+            this.#serverCompressionAlgorithm = algorithms.serverCompression
             this.discardNextGuessedKeyExchangePacket =
                 this.shouldDiscardGuessedPacket(clientKexInit)
 
             const kexAlgorithm = this.#kexAlgorithm
             assert(kexAlgorithm, "No key exchange algorithm was negotiated")
             const hostKey =
-                this.hostKeyAlgorithm!.alg_name === "null"
+                this.#hostKeyAlgorithm!.alg_name === "null"
                     ? undefined
                     : this.server.options.hostKeys.find(
-                          (key) => key.data.alg === this.hostKeyAlgorithm!.key_format,
+                          (key) => key.data.alg === this.#hostKeyAlgorithm!.key_format,
                       )
             const publicKey = hostKey?.data.publicKey.serialize() ?? Buffer.alloc(0)
             let h: Buffer | undefined
@@ -986,7 +1010,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                     ),
                 )
                 const hostSignature = hostKey
-                    .sign(h, this.hostKeyAlgorithm!.signature_algorithm)
+                    .sign(h, this.#hostKeyAlgorithm!.signature_algorithm)
                     .serialize()
                 if (kexAlgorithm instanceof RSA2048SHA256) {
                     this.sendPacket(new KexRSADone({ signature: hostSignature }))
@@ -1022,9 +1046,9 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             this.hasSentNewKeys = true
             this.packetEncoder.setProtection(
                 createOutboundPacketProtection(
-                    this.serverEncryptionAlgorithm!,
+                    this.#serverEncryptionAlgorithm!,
                     this.#serverEncryption,
-                    this.serverMacAlgorithm,
+                    this.#serverMacAlgorithm,
                     this.#serverMac,
                 ),
             )
@@ -1882,7 +1906,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                         let boundServerHostKey: PublicKey | undefined
                         if (hostbound) {
                             const hostKey = this.server.options.hostKeys.find(
-                                (key) => key.data.alg === this.hostKeyAlgorithm!.key_format,
+                                (key) => key.data.alg === this.#hostKeyAlgorithm!.key_format,
                             )
                             assert(hostKey, "Negotiated server host key is unavailable")
                             if (
@@ -2539,27 +2563,27 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
 
     private installDerivedTransportKeys(kex: KexAlgorithm, exchangeHash: Buffer): void {
         assert(this.#sessionID, "SSH session identifier is unavailable")
-        assert(this.clientEncryptionAlgorithm && this.serverEncryptionAlgorithm)
+        assert(this.#clientEncryptionAlgorithm && this.#serverEncryptionAlgorithm)
         let keys: ReturnType<KexAlgorithm["deriveTransportKeys"]> | undefined
         try {
             keys = kex.deriveTransportKeys(exchangeHash, this.#sessionID, {
-                clientIV: this.clientEncryptionAlgorithm.iv_length,
-                serverIV: this.serverEncryptionAlgorithm.iv_length,
-                clientEncryption: this.clientEncryptionAlgorithm.key_length,
-                serverEncryption: this.serverEncryptionAlgorithm.key_length,
-                clientIntegrity: this.clientMacAlgorithm?.key_length ?? 0,
-                serverIntegrity: this.serverMacAlgorithm?.key_length ?? 0,
+                clientIV: this.#clientEncryptionAlgorithm.iv_length,
+                serverIV: this.#serverEncryptionAlgorithm.iv_length,
+                clientEncryption: this.#clientEncryptionAlgorithm.key_length,
+                serverEncryption: this.#serverEncryptionAlgorithm.key_length,
+                clientIntegrity: this.#clientMacAlgorithm?.key_length ?? 0,
+                serverIntegrity: this.#serverMacAlgorithm?.key_length ?? 0,
             })
-            this.#clientEncryption = this.clientEncryptionAlgorithm.instantiate(
+            this.#clientEncryption = this.#clientEncryptionAlgorithm.instantiate(
                 keys.clientEncryption,
                 keys.clientIV,
             )
-            this.#serverEncryption = this.serverEncryptionAlgorithm.instantiate(
+            this.#serverEncryption = this.#serverEncryptionAlgorithm.instantiate(
                 keys.serverEncryption,
                 keys.serverIV,
             )
-            this.#clientMac = this.clientMacAlgorithm?.instantiate(keys.clientIntegrity)
-            this.#serverMac = this.serverMacAlgorithm?.instantiate(keys.serverIntegrity)
+            this.#clientMac = this.#clientMacAlgorithm?.instantiate(keys.clientIntegrity)
+            this.#serverMac = this.#serverMacAlgorithm?.instantiate(keys.serverIntegrity)
         } finally {
             if (keys) for (const key of Object.values(keys)) key.fill(0)
             kex.dispose()
@@ -2567,27 +2591,27 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     }
 
     private installOutboundCompression(): void {
-        assert(this.serverCompressionAlgorithm, "Server compression algorithm not selected")
+        assert(this.#serverCompressionAlgorithm, "Server compression algorithm not selected")
         this.packetEncoder.setCompression(
-            createPacketCompressor(this.serverCompressionAlgorithm, this.hasAuthenticated),
+            createPacketCompressor(this.#serverCompressionAlgorithm, this.hasAuthenticated),
         )
     }
 
     private installInboundCompression(): void {
-        assert(this.clientCompressionAlgorithm, "Client compression algorithm not selected")
+        assert(this.#clientCompressionAlgorithm, "Client compression algorithm not selected")
         this.packetDecoder.setCompression(
-            createPacketDecompressor(this.clientCompressionAlgorithm, this.hasAuthenticated),
+            createPacketDecompressor(this.#clientCompressionAlgorithm, this.hasAuthenticated),
         )
     }
 
     private activateAuthenticatedServerCompression(): void {
         if (this.pendingDelayCompression) {
-            this.serverCompressionAlgorithm = compression_algorithms.get(
+            this.#serverCompressionAlgorithm = compression_algorithms.get(
                 this.pendingDelayCompression.serverToClient,
             )
-            assert(this.serverCompressionAlgorithm)
+            assert(this.#serverCompressionAlgorithm)
             this.installOutboundCompression()
-        } else if (this.serverCompressionAlgorithm?.delayed) {
+        } else if (this.#serverCompressionAlgorithm?.delayed) {
             this.installOutboundCompression()
         }
         this.delayCompressionRekeyBlocked = false
@@ -2597,7 +2621,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         if (this.pendingDelayCompression) {
             this.awaitingClientNewCompress = true
             this.messagesBeforeNewCompress = 0
-        } else if (this.clientCompressionAlgorithm?.delayed) {
+        } else if (this.#clientCompressionAlgorithm?.delayed) {
             this.installInboundCompression()
         }
     }
@@ -2606,10 +2630,10 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         if (!this.awaitingClientNewCompress || !this.pendingDelayCompression) {
             throw new ProtocolError("SSH client sent an unexpected NEWCOMPRESS message")
         }
-        this.clientCompressionAlgorithm = compression_algorithms.get(
+        this.#clientCompressionAlgorithm = compression_algorithms.get(
             this.pendingDelayCompression.clientToServer,
         )
-        assert(this.clientCompressionAlgorithm)
+        assert(this.#clientCompressionAlgorithm)
         this.installInboundCompression()
         this.awaitingClientNewCompress = false
         this.messagesBeforeNewCompress = 0
@@ -2884,9 +2908,9 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 this.inboundNewKeysReady = false
                 this.packetDecoder.setProtection(
                     createInboundPacketProtection(
-                        this.clientEncryptionAlgorithm!,
+                        this.#clientEncryptionAlgorithm!,
                         this.#clientEncryption!,
-                        this.clientMacAlgorithm,
+                        this.#clientMacAlgorithm,
                         this.#clientMac,
                     ),
                 )
@@ -3070,7 +3094,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         const negotiatedKex = (this.#kexAlgorithm!.constructor as typeof KexAlgorithm).alg_name
         return (
             peerKexInit.data.kex_algorithms[0] !== negotiatedKex ||
-            peerKexInit.data.server_host_key_algorithms[0] !== this.hostKeyAlgorithm!.alg_name
+            peerKexInit.data.server_host_key_algorithms[0] !== this.#hostKeyAlgorithm!.alg_name
         )
     }
 

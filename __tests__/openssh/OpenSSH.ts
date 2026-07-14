@@ -2215,7 +2215,7 @@ describe("OpenSSH interoperability", () => {
                 decision.allowHostKey = true
             })
             await dsaClient.connect()
-            expect(dsaClient.hostKeyAlgorithm?.alg_name).toBe("ssh-dss")
+            expect(dsaClient.negotiatedAlgorithms?.srvHostKey).toBe("ssh-dss")
             const dsaSession = await dsaClient.exec("printf legacy-dss-ok")
             const dsaOutput: Buffer[] = []
             dsaSession.on("data", (data: Buffer) => dsaOutput.push(data))
@@ -2440,7 +2440,7 @@ describe("OpenSSH interoperability", () => {
                     decision.allowHostKey = true
                 })
                 await ecdsaClient.connect()
-                expect(ecdsaClient.hostKeyAlgorithm?.alg_name).toBe(hostKeyAlgorithm)
+                expect(ecdsaClient.negotiatedAlgorithms?.srvHostKey).toBe(hostKeyAlgorithm)
                 await ecdsaClient.rekey()
                 const ecdsaSession = await ecdsaClient.exec("printf ecdsa-client-ok")
                 const ecdsaOutput: Buffer[] = []
@@ -2481,8 +2481,8 @@ describe("OpenSSH interoperability", () => {
                     decision.allowHostKey = true
                 })
                 await aeadClient.connect()
-                expect(aeadClient.clientMacAlgorithm).toBeUndefined()
-                expect(aeadClient.serverMacAlgorithm).toBeUndefined()
+                expect(aeadClient.negotiatedAlgorithms?.cs.mac).toBe("")
+                expect(aeadClient.negotiatedAlgorithms?.sc.mac).toBe("")
                 await aeadClient.rekey()
                 const aeadSession = await aeadClient.exec("printf aead-client-ok")
                 const aeadOutput: Buffer[] = []
@@ -2686,9 +2686,9 @@ describe("OpenSSH interoperability", () => {
                 "SSH global request unknown-request@example.test failed",
             )
             expect(client.keyExchangeAlgorithm).toBe("curve25519-sha256")
-            expect(client.hostKeyAlgorithm?.alg_name).toBe("rsa-sha2-512")
-            expect(client.clientEncryptionAlgorithm?.alg_name).toBe("aes128-ctr")
-            expect(client.clientMacAlgorithm?.alg_name).toBe("hmac-sha2-256")
+            expect(client.negotiatedAlgorithms?.srvHostKey).toBe("rsa-sha2-512")
+            expect(client.negotiatedAlgorithms?.cs.cipher).toBe("aes128-ctr")
+            expect(client.negotiatedAlgorithms?.cs.mac).toBe("hmac-sha2-256")
             const expectedNegotiated = {
                 kex: "curve25519-sha256",
                 srvHostKey: "rsa-sha2-512",
