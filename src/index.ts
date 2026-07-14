@@ -13,6 +13,8 @@ export type {
     ClientForwardCallback,
     ClientForwardInCallback,
     ClientHooker,
+    ClientHookerAuthenticationMethodContext,
+    ClientHookerAuthenticationMethodController,
     ClientGlobalRequestCallback,
     ClientHostbasedOptions,
     ClientHookerGlobalRequestContext,

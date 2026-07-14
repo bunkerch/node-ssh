@@ -377,6 +377,12 @@ describe("RFC 4252 multi-method authentication", () => {
         })
         const passwordCompleted = new WeakSet<ServerClient>()
         const attempts: string[] = []
+        const selections: {
+            attemptedMethods: readonly SSHAuthenticationMethods[]
+            defaultMethod: SSHAuthenticationMethods
+            methodsRemaining: readonly SSHAuthenticationMethods[] | undefined
+            partialSuccess: boolean
+        }[] = []
         const errors: Error[] = []
         const debugOutput: unknown[] = []
 
@@ -423,6 +429,15 @@ describe("RFC 4252 multi-method authentication", () => {
         client.hooker.hook("hostKey", (_hook, decision) => {
             decision.allowHostKey = true
         })
+        client.hooker.hook("authenticationMethod", async (_hook, context, decision) => {
+            await Promise.resolve()
+            expect(Object.isFrozen(context)).toBe(true)
+            expect(Object.isFrozen(context.attemptedMethods)).toBe(true)
+            if (context.methodsRemaining)
+                expect(Object.isFrozen(context.methodsRemaining)).toBe(true)
+            selections.push(context)
+            if (!context.methodsRemaining) decision.method = SSHAuthenticationMethods.Password
+        })
         client.hooker.hook("keyboardInteractive", (_hook, context, decision) => {
             decision.responses = context.prompts.map(() => "654321")
         })
@@ -434,13 +449,70 @@ describe("RFC 4252 multi-method authentication", () => {
                 SSHAuthenticationMethods.KeyboardInteractive,
             ])
             expect(client.partialAuthenticationSuccess).toBe(true)
-            expect(attempts).toEqual(["keyboard:0", "password", "keyboard:0", "keyboard:1"])
+            expect(attempts).toEqual(["password", "keyboard:0", "keyboard:1"])
+            expect(selections).toEqual([
+                {
+                    attemptedMethods: [],
+                    defaultMethod: SSHAuthenticationMethods.None,
+                    methodsRemaining: undefined,
+                    partialSuccess: false,
+                },
+                {
+                    attemptedMethods: [],
+                    defaultMethod: SSHAuthenticationMethods.KeyboardInteractive,
+                    methodsRemaining: [SSHAuthenticationMethods.KeyboardInteractive],
+                    partialSuccess: true,
+                },
+            ])
             expect(errors).toEqual([])
             const serializedDebug = JSON.stringify(debugOutput)
             expect(serializedDebug).not.toContain("first-factor")
             expect(serializedDebug).not.toContain("654321")
             expect(serializedDebug).not.toContain("sharedSecret")
             expect(serializedDebug).not.toContain("encryptionKeyClientToServer")
+        } finally {
+            client.destroy()
+            for (const connection of server.clients) connection.terminate()
+            await new Promise<void>((resolve, reject) => {
+                server.server!.close((error) => (error ? reject(error) : resolve()))
+            })
+        }
+    }, 15_000)
+
+    test("rejects a selected method outside the server continuation list", async () => {
+        const hostKey = await PrivateKey.generate("ssh-ed25519")
+        const server = new Server({ hostKeys: [hostKey], sendAllHostKeys: false })
+        let passwordPolicyCalls = 0
+        server.hooker.hook("passwordAuthentication", () => {
+            passwordPolicyCalls += 1
+        })
+        server.listen({ host: "127.0.0.1", port: 0 })
+        await new Promise<void>((resolve) => server.server!.once("listening", resolve))
+
+        const client = new Client({
+            hostname: "127.0.0.1",
+            port: (server.server!.address() as AddressInfo).port,
+            username: "selection-policy",
+            authenticationMethodsOrder: [
+                SSHAuthenticationMethods.None,
+                SSHAuthenticationMethods.Password,
+                SSHAuthenticationMethods.KeyboardInteractive,
+            ],
+        })
+        client.hooker.hook("hostKey", (_hook, decision) => {
+            decision.allowHostKey = true
+        })
+        client.hooker.hook("authenticationMethod", (_hook, context, decision) => {
+            if (context.methodsRemaining) {
+                decision.method = SSHAuthenticationMethods.KeyboardInteractive
+            }
+        })
+
+        try {
+            await expect(client.connect()).rejects.toThrow(
+                "Selected SSH authentication method was not advertised by the server: keyboard-interactive",
+            )
+            expect(passwordPolicyCalls).toBe(0)
         } finally {
             client.destroy()
             for (const connection of server.clients) connection.terminate()

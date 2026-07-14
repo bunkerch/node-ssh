@@ -108,8 +108,10 @@ meaningful wire-level behavior.
   OpenSSH.
 - User authentication follows RFC 4252 and RFC 4256. Decode method-specific opcode 60 from the
   active authentication context, never as a globally fixed packet. Honor advertised continuation
-  lists and partial success, keep at most one keyboard-interactive request outstanding, and test
-  prompts, banners, and password changes with fixed vectors plus OpenSSH.
+  lists and partial success, and await application method selection without permitting an
+  unconfigured, already-failed, or unadvertised choice. Keep at most one keyboard-interactive
+  request outstanding, and test prompts, banners, and password changes with fixed vectors plus
+  OpenSSH.
 - RFC 4252 host-based authentication signs the session identifier and complete request fields,
   including the claimed client hostname and username. Verify that signature before invoking the
   awaited server policy hook; the hook must separately authorize the target user, host key,

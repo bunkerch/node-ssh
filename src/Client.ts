@@ -294,6 +294,20 @@ export interface ClientHookerGlobalRequestController {
     success: boolean
     response?: Buffer
 }
+export type ClientHookerAuthenticationMethodContext = Readonly<{
+    /** Configured methods that have already failed during the current authentication stage. */
+    attemptedMethods: readonly SSHAuthenticationMethods[]
+    /** Method the configured order would select when the hook does not override it. */
+    defaultMethod: SSHAuthenticationMethods
+    /** The latest server continuation list, or undefined before the first failure. */
+    methodsRemaining: readonly SSHAuthenticationMethods[] | undefined
+    /** Whether the server accepted a factor before entering the current stage. */
+    partialSuccess: boolean
+}>
+export interface ClientHookerAuthenticationMethodController {
+    /** Select the next method, or set undefined to stop authentication. */
+    method: SSHAuthenticationMethods | undefined
+}
 // eslint-disable-next-line @typescript-eslint/consistent-type-definitions
 export type ClientHooker = {
     // `serverPublicKey` is the second argument because
@@ -311,6 +325,10 @@ export type ClientHooker = {
     keyboardInteractive: [
         keyboardInteractiveContext: ClientHookerKeyboardInteractiveContext,
         keyboardInteractiveController: ClientHookerKeyboardInteractiveController,
+    ]
+    authenticationMethod: [
+        authenticationMethodContext: ClientHookerAuthenticationMethodContext,
+        authenticationMethodController: ClientHookerAuthenticationMethodController,
     ]
     globalRequest: [
         globalRequestContext: ClientHookerGlobalRequestContext,
@@ -1603,13 +1621,50 @@ export default class Client extends EventEmitter<ClientEvents> {
         const attemptedMethods = new Set<SSHAuthenticationMethods>()
         authentication: {
             while (true) {
-                const method = methodList.find(
+                const defaultMethod = methodList.find(
                     (candidate) =>
                         !attemptedMethods.has(candidate) &&
                         (!this.authenticationMethodsRemaining ||
                             this.authenticationMethodsRemaining.has(candidate)),
                 )
-                if (!method) throw new Error("All authentication methods failed.")
+                if (!defaultMethod) throw new Error("All authentication methods failed.")
+
+                const selection: ClientHookerAuthenticationMethodController = {
+                    method: defaultMethod,
+                }
+                if (this.hooker.hasHooks("authenticationMethod")) {
+                    const methodsRemaining = this.authenticationMethodsRemaining
+                        ? Object.freeze([...this.authenticationMethodsRemaining])
+                        : undefined
+                    const context: ClientHookerAuthenticationMethodContext = Object.freeze({
+                        attemptedMethods: Object.freeze([...attemptedMethods]),
+                        defaultMethod,
+                        methodsRemaining,
+                        partialSuccess: this.partialAuthenticationSuccess,
+                    })
+                    await this.hooker.triggerHook("authenticationMethod", context, selection)
+                }
+
+                const method = selection.method
+                if (method === undefined) throw new Error("Authentication was stopped by policy.")
+                if (!methodList.includes(method)) {
+                    throw new TypeError(
+                        `Selected SSH authentication method is not configured: ${method}`,
+                    )
+                }
+                if (attemptedMethods.has(method)) {
+                    throw new TypeError(
+                        `Selected SSH authentication method already failed in this stage: ${method}`,
+                    )
+                }
+                if (
+                    this.authenticationMethodsRemaining &&
+                    !this.authenticationMethodsRemaining.has(method)
+                ) {
+                    throw new TypeError(
+                        `Selected SSH authentication method was not advertised by the server: ${method}`,
+                    )
+                }
                 const m = UserAuthRequest.auth_methods.get(method)
                 if (!m) {
                     attemptedMethods.add(method)

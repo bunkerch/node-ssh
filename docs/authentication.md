@@ -30,6 +30,26 @@ const client = new Client({
 })
 ```
 
+For adaptive selection, register the awaited `authenticationMethod` hook. Its controller begins
+with the next choice from `authenticationMethodsOrder`, so a handler may leave it unchanged or
+replace it with another configured method. The context contains immutable snapshots of methods
+already attempted in this stage and the server's latest continuation list. After partial success,
+the attempted set is cleared and the hook runs for the new stage. A replacement must be configured,
+must not have failed in the current stage, and must appear in the continuation list when one is
+known. Set `decision.method` to `undefined` to stop authentication.
+
+```ts
+client.hooker.hook("authenticationMethod", async (_hook, context, decision) => {
+    if (context.methodsRemaining?.includes(SSHAuthenticationMethods.KeyboardInteractive)) {
+        const available = await secondFactorDevice.isAvailable()
+        if (available) decision.method = SSHAuthenticationMethods.KeyboardInteractive
+    }
+})
+```
+
+Method selection does not carry secrets. Configure keys through `privateKey` or `agent`, and supply
+interactive passwords and challenge responses through their dedicated awaited hooks.
+
 RFC 4252 banners are delivered independently of the active method:
 
 ```ts
