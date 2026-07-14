@@ -275,6 +275,59 @@ describe("RFC higher-layer message phases", () => {
     )
 
     test.each(["client", "server"] as const)(
+        "rejects higher-layer traffic sent by the %s after KEXINIT",
+        async (sender) => {
+            const hostKey = await PrivateKey.generate("ssh-ed25519")
+            const server = new Server({ hostKeys: [hostKey], sendAllHostKeys: false })
+            server.hooker.hook("noneAuthentication", (_hook, _context, decision) => {
+                decision.allowLogin = true
+            })
+            let connection!: ServerClient
+            server.once("connection", (peer) => {
+                connection = peer
+                peer.on("error", () => undefined)
+            })
+            const client = clientFor(await listen(server))
+            client.on("error", () => undefined)
+
+            try {
+                await client.connect()
+                const sendingPeer = sender === "client" ? client : connection
+                const transport = sendingPeer as unknown as {
+                    sendPacket: (packet: Packet) => number
+                    writePacket: (packet: Packet) => number
+                }
+                const sendPacket = transport.sendPacket.bind(sendingPeer)
+                const writePacket = transport.writePacket.bind(sendingPeer)
+                transport.sendPacket = (packet) => {
+                    const sequence = sendPacket(packet)
+                    if (packet instanceof KexInit) {
+                        writePacket(
+                            new GlobalRequest({
+                                request_name: "forbidden@example.test",
+                                want_reply: false,
+                                args: Buffer.from("after-kexinit"),
+                            }),
+                        )
+                    }
+                    return sequence
+                }
+
+                const disconnected = peerDisconnect(sendingPeer)
+                const rekey = sendingPeer.rekey().catch((error: Error) => error)
+                await expect(disconnected).resolves.toMatchObject({
+                    reasonCode: DisconnectReason.SSH_DISCONNECT_PROTOCOL_ERROR,
+                    description: `SSH ${sender} sent a non-key-exchange message after KEXINIT`,
+                })
+                expect(await rekey).toBeInstanceOf(Error)
+            } finally {
+                await close(server, client)
+            }
+        },
+        15_000,
+    )
+
+    test.each(["client", "server"] as const)(
         "rejects an authentication message from the %s after login",
         async (sender) => {
             const hostKey = await PrivateKey.generate("ssh-ed25519")

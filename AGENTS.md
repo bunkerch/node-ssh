@@ -292,6 +292,10 @@ meaningful wire-level behavior.
   `KEXINIT`, switch each direction exactly at its own `NEWKEYS`, preserve sequence numbers and open
   channels, and test both initiator roles against OpenSSH. Honor rekey initiation after the initial
   exchange during service negotiation and authentication as well as after login.
+- After receiving a peer's `KEXINIT`, accept only RFC 4253 generic transport messages other than
+  service messages, algorithm negotiation, and method-specific key-exchange messages until that
+  peer sends `NEWKEYS`. Preserve the separate allowance for application packets already in flight
+  before the peer's `KEXINIT` arrives.
 - Accept `NEWKEYS` and method-specific key-exchange messages only while an exchange is active.
   Reject late or unsolicited exchange packets with an RFC protocol-error disconnect before parsing
   their method-specific payload or changing packet protection.

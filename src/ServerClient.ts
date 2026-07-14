@@ -240,6 +240,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     private initialClientNewKeysReceived = false
     private clientExtInfoAfterNewKeys = false
     private keyExchangeInProgress = false
+    private peerKexInitReceived = false
     private inboundNewKeysReady = false
     private readonly expectedInboundKeyExchangePackets = new Set<PacketType>()
     private discardNextGuessedKeyExchangePacket = false
@@ -545,6 +546,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         this.strictInitialExchange = !isRekey
         if (!isRekey) this.strictInitialPackets.clear()
         this.keyExchangeInProgress = true
+        this.peerKexInitReceived = peerInitiated
         this.inboundNewKeysReady = false
         this.expectedInboundKeyExchangePackets.clear()
         this.discardNextGuessedKeyExchangePacket = false
@@ -1889,6 +1891,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             }
             return
         }
+        this.validateKeyExchangeMessageBoundary(packetType)
         this.validateHigherLayerPhase(packetType)
         const packet =
             packetType === PacketNameToType.SSH_MSG_KEXDH_REPLY &&
@@ -1901,6 +1904,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
 
         const p = packet.parse(payload)
         if (p instanceof KexInit) this.#clientKexInitPayload = Buffer.from(payload)
+        if (p instanceof KexInit) this.peerKexInitReceived = true
         if (packetType === PacketNameToType.SSH_MSG_KEXINIT && this.strictInitialExchange) {
             const clientAlgorithms = (p as KexInit).data.kex_algorithms
             const negotiated = negotiatesStrictKeyExchange(
@@ -2183,6 +2187,20 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 "SSH client sent an out-of-order key-exchange message",
             )
         }
+    }
+
+    private validateKeyExchangeMessageBoundary(packetType: PacketType): void {
+        if (!this.peerKexInitReceived || this.hasReceivedNewKeys) return
+        const genericTransport = packetType >= 1 && packetType <= 19
+        const serviceMessage =
+            packetType === PacketNameToType.SSH_MSG_SERVICE_REQUEST ||
+            packetType === PacketNameToType.SSH_MSG_SERVICE_ACCEPT
+        const keyExchangeMessage = packetType >= 20 && packetType <= 49
+        if ((genericTransport && !serviceMessage) || keyExchangeMessage) return
+        throw new DisconnectError(
+            DisconnectReason.SSH_DISCONNECT_PROTOCOL_ERROR,
+            "SSH client sent a non-key-exchange message after KEXINIT",
+        )
     }
 
     private expectInboundKeyExchange(...packetTypes: PacketType[]): void {

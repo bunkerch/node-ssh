@@ -616,6 +616,7 @@ export default class Client extends EventEmitter<ClientEvents> {
     private unansweredKeepalives = 0
     private readyTimer?: ReturnType<typeof setTimeout>
     private keyExchangeInProgress = false
+    private peerKexInitReceived = false
     private inboundNewKeysReady = false
     private readonly expectedInboundKeyExchangePackets = new Set<PacketType>()
     private discardNextGuessedKeyExchangePacket = false
@@ -1242,6 +1243,7 @@ export default class Client extends EventEmitter<ClientEvents> {
         this.strictInitialExchange = !isRekey
         if (!isRekey) this.strictInitialPackets.clear()
         this.keyExchangeInProgress = true
+        this.peerKexInitReceived = peerInitiated
         this.inboundNewKeysReady = false
         this.expectedInboundKeyExchangePackets.clear()
         this.discardNextGuessedKeyExchangePacket = false
@@ -1911,6 +1913,7 @@ export default class Client extends EventEmitter<ClientEvents> {
             }
             return
         }
+        this.validateKeyExchangeMessageBoundary(packetType)
         this.validateHigherLayerPhase(packetType)
         let packet: typeof Packet
         if (
@@ -1945,6 +1948,7 @@ export default class Client extends EventEmitter<ClientEvents> {
 
         const p = packet.parse(payload)
         if (p instanceof KexInit) this.#serverKexInitPayload = Buffer.from(payload)
+        if (p instanceof KexInit) this.peerKexInitReceived = true
         this.debug("Parsing packet:", this.packetForDebug(p))
 
         if (packetType === PacketNameToType.SSH_MSG_KEXINIT && this.strictInitialExchange) {
@@ -2181,6 +2185,20 @@ export default class Client extends EventEmitter<ClientEvents> {
                 "SSH server sent an out-of-order key-exchange message",
             )
         }
+    }
+
+    private validateKeyExchangeMessageBoundary(packetType: PacketType): void {
+        if (!this.peerKexInitReceived || this.hasReceivedNewKeys) return
+        const genericTransport = packetType >= 1 && packetType <= 19
+        const serviceMessage =
+            packetType === PacketNameToType.SSH_MSG_SERVICE_REQUEST ||
+            packetType === PacketNameToType.SSH_MSG_SERVICE_ACCEPT
+        const keyExchangeMessage = packetType >= 20 && packetType <= 49
+        if ((genericTransport && !serviceMessage) || keyExchangeMessage) return
+        throw new DisconnectError(
+            DisconnectReason.SSH_DISCONNECT_PROTOCOL_ERROR,
+            "SSH server sent a non-key-exchange message after KEXINIT",
+        )
     }
 
     private expectInboundKeyExchange(...packetTypes: PacketType[]): void {

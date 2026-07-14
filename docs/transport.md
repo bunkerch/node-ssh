@@ -423,6 +423,10 @@ completed, including during service negotiation or user authentication. `rekey()
 rule and resolves after the replacement keys are active; a concurrent exchange is rejected rather
 than starting a second state machine.
 
+Packets already in flight before the peer's `KEXINIT` remain processable as RFC 4253 requires.
+After that `KEXINIT` arrives, service, authentication, connection, and vendor transport messages
+are rejected until the peer's `NEWKEYS`; generic diagnostics and key-exchange packets remain valid.
+
 Both methods emit `rekey` after the new inbound and outbound protection is active. A re-exchange
 generates a fresh ephemeral key pair,
 exchange hash, IVs, encryption keys, and any separately required MAC keys. The session identifier
