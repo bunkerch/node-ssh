@@ -646,6 +646,75 @@ export default class Client extends EventEmitter<ClientEvents> {
         return this.state === SocketState.Closed
     }
 
+    private resetConnectionState(): void {
+        this.peerDisconnect = undefined
+        this.identificationParser = new IdentificationParser({ allowPreamble: true })
+        this.greetingChunks.length = 0
+        this.packetDecoder = new BinaryPacketDecoder()
+        this.packetEncoder = new BinaryPacketEncoder()
+        this.packetProcessingPaused = false
+        this.strictKeyExchange = false
+        this.strictInitialExchange = false
+        this.strictInitialPackets.clear()
+
+        this.serverProtocolVersion = undefined
+        this.serverKexDHReply = undefined
+        this.clientKexInit = undefined
+        this.serverKexInit = undefined
+        this.kexAlgorithm = undefined
+        this.hostKeyAlgorithm = undefined
+        this.serverSignatureAlgorithms = undefined
+        this.negotiatedServerHostKey = undefined
+        this.hostboundAuthenticationSupported = false
+        this.negotiatedServerExtensions = Object.freeze([])
+        this.initialServerNewKeysReceived = false
+        this.serverExtInfoAfterNewKeys = false
+        this.serverExtInfoMustPrecedeSuccess = false
+        this.clientEncryptionAlgorithm = undefined
+        this.serverEncryptionAlgorithm = undefined
+        this.clientEncryption = undefined
+        this.serverEncryption = undefined
+        this.clientMacAlgorithm = undefined
+        this.serverMacAlgorithm = undefined
+        this.clientMac = undefined
+        this.serverMac = undefined
+        this.clientCompressionAlgorithm = undefined
+        this.serverCompressionAlgorithm = undefined
+
+        this.H = undefined
+        this.sessionID = undefined
+        this.ivClientToServer = undefined
+        this.ivServerToClient = undefined
+        this.encryptionKeyClientToServer = undefined
+        this.encryptionKeyServerToClient = undefined
+        this.integrityKeyClientToServer = undefined
+        this.integrityKeyServerToClient = undefined
+        this.hasReceivedNewKeys = false
+        this.hasSentNewKeys = false
+        this.hasAuthenticated = false
+        this.activeAuthenticationMethod = undefined
+        this.authenticationMethodsRemaining = undefined
+        this.partialAuthenticationSuccess = false
+        this.authenticationFailureSequence = 0
+        this.awaitingServiceAccept = false
+        this.authenticationInProgress = false
+
+        this.localChannelIndex = 0
+        this.channels.clear()
+        this.remoteChannelIds.clear()
+        this.pendingGlobalRequests.length = 0
+        this.pendingPings.length = 0
+        this.transportPingSupported = false
+        this.remoteForwardings.clear()
+        this.remoteStreamLocalForwardings.clear()
+        this.x11Forwardings.clear()
+        this.agentForwardingEnabled = false
+        this.unansweredKeepalives = 0
+        this.keyExchangeInProgress = false
+        this.packetsQueuedDuringKeyExchange.length = 0
+        this.actionQueue.actionQueues.clear()
+    }
+
     debug(...message: unknown[]): void {
         this.options.debug?.(...message)
         this.emit("debug", ...message)
@@ -1522,8 +1591,8 @@ export default class Client extends EventEmitter<ClientEvents> {
         if (!this.canConnect) {
             throw new Error("Cannot initiate connection; client is not in a state to connect")
         }
+        this.resetConnectionState()
         this.state = SocketState.Connecting
-        this.peerDisconnect = undefined
         const suppliedSocket = this.options.sock
         if (suppliedSocket?.destroyed) {
             this.state = SocketState.Closed

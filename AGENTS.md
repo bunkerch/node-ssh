@@ -127,6 +127,10 @@ meaningful wire-level behavior.
   valid only during the negotiated authentication phase and only in their assigned peer direction;
   connection packets are valid only after authentication. Reject cross-phase traffic with reason 2
   while continuing to permit transport diagnostics and key exchange.
+- `Client.canConnect` promises reuse after `close`. Preserve configuration, event listeners, and
+  hooks across connections, but reset every transport parser, sequence, negotiated algorithm,
+  secret, extension, authentication continuation, channel, and forwarding field before opening the
+  next socket. Treat an injected `sock` as a one-connection transport and reject concurrent setup.
 - RFC 4252 host-based authentication signs the session identifier and complete request fields,
   including the claimed client hostname and username. Verify that signature before invoking the
   awaited server policy hook; the hook must separately authorize the target user, host key,

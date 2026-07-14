@@ -20,6 +20,7 @@ import Packet from "../../src/packet.js"
 import Unimplemented from "../../src/packets/Unimplemented.js"
 import { serializeBuffer, serializeUint32 } from "../../src/utils/Buffer.js"
 import { SFTPPacketType } from "../../src/sftp/constants.js"
+import { SSHAuthenticationMethods } from "../../src/constants.js"
 
 class UnsupportedPacket {
     static type = 200
@@ -1075,4 +1076,49 @@ describe("client/server integration", () => {
             "Unsupported SSH host hash algorithm: not-a-real-hash",
         )
     })
+
+    test("reuses a client with fresh transport state after a clean close", async () => {
+        const hostKey = await PrivateKey.generate("ssh-ed25519")
+        const server = new Server({ hostKeys: [hostKey], sendAllHostKeys: false })
+        server.hooker.hook("noneAuthentication", (_hook, _context, controller) => {
+            controller.allowLogin = true
+        })
+        server.listen({ host: "127.0.0.1", port: 0 })
+        await new Promise<void>((resolve) => server.server!.once("listening", resolve))
+
+        const client = new Client({
+            hostname: "127.0.0.1",
+            port: (server.address() as AddressInfo).port,
+            username: "reconnect-test",
+            authenticationMethodsOrder: [SSHAuthenticationMethods.None],
+        })
+        client.hooker.hook("hostKey", (_hook, controller) => {
+            controller.allowHostKey = true
+        })
+        let handshakes = 0
+        client.on("handshake", () => handshakes++)
+
+        try {
+            const firstConnection = client.connect()
+            await expect(client.connect()).rejects.toThrow("not in a state to connect")
+            await firstConnection
+            const firstSessionId = Buffer.from(client.sessionID!)
+
+            const firstClose = new Promise<void>((resolve) => client.once("close", resolve))
+            client.end()
+            await firstClose
+            expect(client.canConnect).toBe(true)
+
+            await client.connect()
+            expect(client.sessionID).toBeDefined()
+            expect(client.sessionID).not.toEqual(firstSessionId)
+            expect(client.hasAuthenticated).toBe(true)
+            expect(handshakes).toBe(2)
+            expect(server.clients.size).toBe(1)
+        } finally {
+            client.destroy()
+            for (const peer of server.clients) peer.terminate()
+            await new Promise<void>((resolve) => server.close(() => resolve()))
+        }
+    }, 15_000)
 })
