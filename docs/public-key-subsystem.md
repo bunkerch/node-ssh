@@ -174,6 +174,10 @@ algorithm must match the outer algorithm name. Malformed framing, invalid text, 
 metadata, unexpected response types, and responses without a pending request close the subsystem
 and reject pending work.
 
+EOF in the middle of a frame is also fatal. Both client and server close the public-key subsystem
+channel, reject pending client operations, and leave the authenticated SSH connection available for
+other channels.
+
 Transport rekeying preserves an active public-key subsystem. Packet codecs are also exported for
 applications that need RFC 4819 framing over another already-authenticated SSH session stream, but
 the high-level client and server APIs should normally be preferred.

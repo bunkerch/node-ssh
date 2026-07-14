@@ -1189,7 +1189,7 @@ export default class SFTPClient {
         try {
             this.parser.end()
         } catch (error) {
-            this.fail(error instanceof Error ? error : new Error(String(error)))
+            this.destroy(error instanceof Error ? error : new Error(String(error)))
             return
         }
         this.fail(

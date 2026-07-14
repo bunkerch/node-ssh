@@ -118,13 +118,13 @@ export default class PublicKeySubsystemServer extends EventEmitter<PublicKeySubs
             version: PUBLIC_KEY_SUBSYSTEM_VERSION,
         }).catch((error: unknown) => {
             const failure = error instanceof Error ? error : new Error(String(error))
-            this.fail(failure)
-            stream.destroy(failure)
+            this.destroy(failure)
         })
     }
 
     destroy(error?: Error): void {
-        if (!this.closed) this.stream.destroy(error)
+        if (!this.stream.writableEnded) this.stream.end()
+        if (!this.stream.destroyed) this.stream.destroy(error)
         this.fail(error ?? new Error("Public-key subsystem server session closed"))
     }
 
@@ -133,8 +133,7 @@ export default class PublicKeySubsystemServer extends EventEmitter<PublicKeySubs
             for (const packet of this.parser.push(data)) this.receivePacket(packet)
         } catch (error) {
             const failure = error instanceof Error ? error : new Error(String(error))
-            this.fail(failure)
-            this.stream.destroy(failure)
+            this.destroy(failure)
         }
     }
 
@@ -155,9 +154,9 @@ export default class PublicKeySubsystemServer extends EventEmitter<PublicKeySubs
                     description: error.message,
                     languageTag: "",
                 }).then(
-                    () => this.stream.destroy(),
+                    () => this.destroy(error),
                     (writeError: unknown) =>
-                        this.stream.destroy(
+                        this.destroy(
                             writeError instanceof Error
                                 ? writeError
                                 : new Error(String(writeError)),
@@ -193,8 +192,7 @@ export default class PublicKeySubsystemServer extends EventEmitter<PublicKeySubs
                 `Unsupported public-key subsystem request ${requestName}`,
             ).catch((error: unknown) => {
                 const failure = error instanceof Error ? error : new Error(String(error))
-                this.fail(failure)
-                this.stream.destroy(failure)
+                this.destroy(failure)
             })
             return
         }
@@ -209,8 +207,7 @@ export default class PublicKeySubsystemServer extends EventEmitter<PublicKeySubs
             this.dispatchScheduled = false
             void this.dispatch().catch((error: unknown) => {
                 const failure = error instanceof Error ? error : new Error(String(error))
-                this.fail(failure)
-                this.stream.destroy(failure)
+                this.destroy(failure)
             })
         })
     }
@@ -423,7 +420,7 @@ export default class PublicKeySubsystemServer extends EventEmitter<PublicKeySubs
         try {
             this.parser.end()
         } catch (error) {
-            this.fail(error instanceof Error ? error : new Error(String(error)))
+            this.destroy(error instanceof Error ? error : new Error(String(error)))
             return
         }
         this.closed = true

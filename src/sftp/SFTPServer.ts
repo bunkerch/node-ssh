@@ -212,7 +212,8 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
     }
 
     destroy(error?: Error): void {
-        if (!this.closed) this.stream.destroy(error)
+        if (!this.stream.writableEnded) this.stream.end()
+        if (!this.stream.destroyed) this.stream.destroy(error)
         this.fail(error ?? new Error("SFTP server session closed"))
     }
 
@@ -221,8 +222,7 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
             for (const packet of this.parser.push(data)) this.receivePacket(packet)
         } catch (error) {
             const protocolError = error instanceof Error ? error : new Error(String(error))
-            this.fail(protocolError)
-            this.stream.destroy(protocolError)
+            this.destroy(protocolError)
         }
     }
 
@@ -265,8 +265,7 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
             this.dispatchScheduled = false
             void this.dispatch().catch((error: unknown) => {
                 const failure = error instanceof Error ? error : new Error(String(error))
-                this.fail(failure)
-                this.stream.destroy(failure)
+                this.destroy(failure)
             })
         })
     }
@@ -329,8 +328,7 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
         const frame = encodeSFTPPacket(packet)
         this.stream.write(frame, (error) => {
             if (!error) return
-            this.fail(error)
-            this.stream.destroy(error)
+            this.destroy(error)
         })
     }
 
@@ -339,7 +337,7 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
         try {
             this.parser.end()
         } catch (error) {
-            this.fail(error instanceof Error ? error : new Error(String(error)))
+            this.destroy(error instanceof Error ? error : new Error(String(error)))
             return
         }
         this.closed = true
