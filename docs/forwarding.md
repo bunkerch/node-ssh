@@ -132,6 +132,8 @@ the requested bind and every connection's source metadata.
 Server-side remote forwarding is denied by default. The `tcpipForward` policy hook receives the
 requested bind before any TCP listener is created. Restrict both address and port; allowing a
 wildcard address grants the authenticated client network exposure through the SSH server.
+When several policy handlers run, the listener is created only if every handler completes without
+rejection and the final decision allows it; a contained later failure discards an earlier allow.
 
 ```ts
 server.hooker.hook("tcpipForward", (_hook, context, decision, connection) => {
@@ -240,6 +242,8 @@ After approval, `modernssh` owns the UNIX listener and opens a `ForwardedStreamL
 to the requesting client for each connection. A matching cancellation stops accepting new
 connections, and disconnecting SSH closes every listener owned by that connection. Existing paths
 are never unlinked to make room for a listener: a stale or occupied path makes the request fail.
+The policy chain must complete without a rejected handler before the listener is created, so an
+earlier allow cannot survive a contained backend failure.
 
 For an explicitly represented incoming UNIX connection, call
 `connection.openssh_forwardOutStreamLocal(socketPath)`. The path must exactly match a currently

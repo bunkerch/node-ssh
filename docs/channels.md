@@ -289,6 +289,8 @@ Fixed RFC and OpenSSH protocol byte vectors cover the exact request encodings.
 The server denies channel opens by default. Allow session channels at the server policy layer, then
 configure each accepted `SessionChannel`. Request hooks decide whether an individual operation is
 accepted; channel events provide its duplex stream after the success reply is sent.
+Channel admission also requires every registered `channelOpenRequest` handler to complete without
+rejection; a contained failure discards an allow decision made by an earlier handler.
 
 ```ts
 async function runStatusCommand(stream) {

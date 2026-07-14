@@ -1300,10 +1300,14 @@ export default class Client extends EventEmitter<ClientEvents> {
             wantReply: packet.data.want_reply,
         })
         const controller: ClientHookerGlobalRequestController = { success: false }
-        await this.hooker.triggerHook("globalRequest", context, controller)
+        const policyCompleted = await this.hooker.triggerHookChecked(
+            "globalRequest",
+            context,
+            controller,
+        )
         if (!this.isConnected) return
         if (!packet.data.want_reply) return
-        if (!controller.success) {
+        if (!policyCompleted || !controller.success) {
             this.sendPacket(new RequestFailure({}))
             return
         }

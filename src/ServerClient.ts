@@ -1216,10 +1216,15 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 allowOpen: false,
             }
 
-            await this.server.hooker.triggerHook("channelOpenRequest", channel, controller, this)
+            const policyCompleted = await this.server.hooker.triggerHookChecked(
+                "channelOpenRequest",
+                channel,
+                controller,
+                this,
+            )
             if (!this.isConnected) return
 
-            if (!controller.allowOpen) {
+            if (!policyCompleted || !controller.allowOpen) {
                 throw new ChannelOpenError(
                     ChannelOpenFailureReasonCodes.SSH_OPEN_ADMINISTRATIVELY_PROHIBITED,
                     packet.data.sender_channel_id,
@@ -1324,10 +1329,15 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             wantReply: packet.data.want_reply,
         })
         const controller: ServerHookerGlobalRequestController = { success: false }
-        await this.server.hooker.triggerHook("globalRequest", context, controller, this)
+        const policyCompleted = await this.server.hooker.triggerHookChecked(
+            "globalRequest",
+            context,
+            controller,
+            this,
+        )
         if (!this.isConnected) return
         if (!packet.data.want_reply) return
-        if (!controller.success) {
+        if (!policyCompleted || !controller.success) {
             this.sendPacket(new RequestFailure({}))
             return
         }
@@ -1387,9 +1397,14 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         try {
             const context = this.parseTCPIPForwardArgs(packet.data.args)
             const controller = { allow: false }
-            await this.server.hooker.triggerHook("tcpipForward", context, controller, this)
+            const policyCompleted = await this.server.hooker.triggerHookChecked(
+                "tcpipForward",
+                context,
+                controller,
+                this,
+            )
             if (!this.isConnected) return
-            if (!controller.allow) {
+            if (!policyCompleted || !controller.allow) {
                 if (packet.data.want_reply) this.sendPacket(new RequestFailure({}))
                 return
             }
@@ -1478,9 +1493,18 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         try {
             const context = this.parseStreamLocalForwardArgs(packet.data.args)
             const controller = { allow: false }
-            await this.server.hooker.triggerHook("streamLocalForward", context, controller, this)
+            const policyCompleted = await this.server.hooker.triggerHookChecked(
+                "streamLocalForward",
+                context,
+                controller,
+                this,
+            )
             if (!this.isConnected) return
-            if (!controller.allow || this.remoteStreamLocalListeners.has(context.socketPath)) {
+            if (
+                !policyCompleted ||
+                !controller.allow ||
+                this.remoteStreamLocalListeners.has(context.socketPath)
+            ) {
                 if (packet.data.want_reply) this.sendPacket(new RequestFailure({}))
                 return
             }

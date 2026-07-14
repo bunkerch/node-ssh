@@ -150,7 +150,8 @@ snapshot of both TCP endpoints and retains it after the peer closes. A separate 
 proves that a rejected async `preconnect` chain fails closed even when an earlier handler allowed
 the connection. Encrypted client/server tests apply the same multi-handler failure to host-key trust
 and user authentication, proving that a contained later rejection cannot retain an earlier allow
-decision.
+decision. The same real transport seam verifies channel admission, TCP and stream-local listener
+creation, and application global requests in both peer directions.
 
 Server shell integration verifies RFC 4254 directional half-close semantics: ending stdout sends
 EOF without CLOSE, the client sends additional stdin afterward, and explicit close then completes
