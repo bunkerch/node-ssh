@@ -77,6 +77,22 @@ Both `Client` and `ServerClient` emit `disconnect` with an immutable `PeerDiscon
 their subsequent `close` event. It contains `reasonCode`, `description`, and `languageTag` exactly
 as validated from the peer. `peerDisconnect` retains that snapshot after closure.
 
+Both roles also emit `end` when the readable side of the underlying transport reaches EOF. This is
+the peer's transport half-close, not terminal cleanup: `close` follows after the socket resource is
+fully closed and is the event applications should use to observe final channel and pending-operation
+cleanup. A graceful SSH shutdown normally produces `disconnect`, then `end`, then `close`; an
+abruptly destroyed transport can omit `disconnect` and `end`. EventEmitter listeners remain
+synchronous. Register one-shot waits before initiating shutdown so no event can be missed:
+
+```ts
+import { once } from "node:events"
+
+const ended = once(client, "end")
+const closed = once(client, "close")
+await ended
+await closed
+```
+
 An inbound disconnect immediately rejects connection setup, packet waits, pending global requests,
 transport pings, and channel operations with `PeerDisconnectError`. The error exposes the same
 metadata through `disconnect`, `reasonCode`, and `languageTag`; its message is the peer description

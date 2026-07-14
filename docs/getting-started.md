@@ -103,7 +103,8 @@ connection. `destroy()` immediately destroys the underlying connection. Both met
 client instance. `setNoDelay()` controls Nagle's algorithm on the underlying TCP socket and also
 returns the client.
 
-After the `close` event, `canConnect` becomes true and the same client may connect again. Each
+The `end` event reports peer transport EOF; terminal cleanup completes at the later `close` event.
+After `close`, `canConnect` becomes true and the same client may connect again. Each
 connection starts with fresh protocol parsers, sequence numbers, negotiated keys, extensions,
 authentication state, channels, and forwarding state; configured options, event listeners, and
 hooks remain installed. A client constructed with an already-connected `sock` cannot reuse that
@@ -157,7 +158,7 @@ command.pipe(process.stdout)
 ```
 
 When `sock` is supplied, `hostname` is optional and no new TCP connection is created. The client
-installs the same framing, error, close, keepalive, rekey, and channel cleanup handlers used for a
+installs the same framing, error, end, close, keepalive, rekey, and channel cleanup handlers used for a
 normal socket. `end()` and `destroy()` own and close the supplied transport; a destroyed transport
 cannot be reused for another connection.
 

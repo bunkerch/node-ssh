@@ -339,6 +339,8 @@ export type ClientHostVerifier = (key: Buffer | string) => boolean | Promise<boo
 export interface ClientEvents {
     debug: [...message: unknown[]]
     error: [error: Error]
+    /** The peer half-closed its transport after sending all remaining data. */
+    end: []
     close: []
     /** Authenticated or unauthenticated terminal disconnect received from the peer. */
     disconnect: [info: Readonly<PeerDisconnectInfo>]
@@ -1972,6 +1974,9 @@ export default class Client extends EventEmitter<ClientEvents> {
                 }
             }
             this.socket!.on("error", errorListener)
+            this.socket!.on("end", () => {
+                this.emit("end")
+            })
             const closeListener = () => {
                 this.clearReadyTimeout()
                 this.clearKeepalive()

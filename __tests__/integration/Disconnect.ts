@@ -171,6 +171,23 @@ describe("RFC 4253 peer disconnects", () => {
         }
     }, 15_000)
 
+    test("publishes peer EOF to the server connection before close", async () => {
+        const { server, peer, client } = await createConnectedPeers()
+        const lifecycle: string[] = []
+        peer.on("end", () => lifecycle.push("end"))
+        peer.on("close", () => lifecycle.push("close"))
+
+        try {
+            const closed = once(peer, "close")
+            client.end()
+            await closed
+
+            expect(lifecycle).toEqual(["end", "close"])
+        } finally {
+            await closePeers(server, client)
+        }
+    }, 15_000)
+
     test("gracefully ends a server connection with an application disconnect", async () => {
         const { server, peer, client } = await createConnectedPeers()
         const disconnect = new Promise<Readonly<PeerDisconnectInfo>>((resolve) => {
@@ -189,6 +206,23 @@ describe("RFC 4253 peer disconnects", () => {
             expect(client.peerDisconnect?.reasonCode).toBe(
                 DisconnectReason.SSH_DISCONNECT_BY_APPLICATION,
             )
+        } finally {
+            await closePeers(server, client)
+        }
+    }, 15_000)
+
+    test("publishes peer EOF to the client before close", async () => {
+        const { server, peer, client } = await createConnectedPeers()
+        const lifecycle: string[] = []
+        client.on("end", () => lifecycle.push("end"))
+        client.on("close", () => lifecycle.push("close"))
+
+        try {
+            const closed = once(client, "close")
+            peer.end()
+            await closed
+
+            expect(lifecycle).toEqual(["end", "close"])
         } finally {
             await closePeers(server, client)
         }

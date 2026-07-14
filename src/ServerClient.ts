@@ -216,6 +216,8 @@ interface GSSAPIAuthenticationResult {
 
 export interface ServerClientEvents {
     error: [error: Error]
+    /** The peer half-closed its transport after sending all remaining data. */
+    end: []
     close: []
     /** Terminal disconnect received from the peer. */
     disconnect: [info: Readonly<PeerDisconnectInfo>]
@@ -270,6 +272,10 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
 
         this.socket.on("error", (error) => {
             this.emit("error", error)
+        })
+
+        this.socket.on("end", () => {
+            this.emit("end")
         })
 
         this.socket.on("close", () => {
