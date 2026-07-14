@@ -55,6 +55,7 @@ import Pong from "./packets/Pong.js"
 import PublicKey, { SSHCertificatePublicKey } from "./utils/PublicKey.js"
 import { Hooker } from "./utils/Hooker.js"
 import NewKeys from "./packets/NewKeys.js"
+import NewCompress from "./packets/NewCompress.js"
 import { KeyExchangeError } from "./algorithms/kex/key-exchange.js"
 import RSA2048SHA256 from "./algorithms/kex/rsa2048-sha256.js"
 import KexRSAPublicKey from "./packets/KexRSAPublicKey.js"
@@ -183,6 +184,15 @@ import {
     type ElevationPreference,
 } from "./Elevation.js"
 import {
+    delayCompressionExtension,
+    findDelayCompressionOffers,
+    negotiateDelayCompression,
+    normalizeDelayCompression,
+    type DelayCompressionConfiguration,
+    type NegotiatedDelayCompression,
+    type NormalizedDelayCompression,
+} from "./DelayCompression.js"
+import {
     KexGSSAPIComplete,
     KexGSSAPIContinue,
     KexGSSAPIError,
@@ -254,6 +264,8 @@ export interface ClientOptions {
     noFlowControl?: NoFlowControlPreference
     /** RFC 8308 operating-system elevation preference. False disables the extension. */
     elevation?: ElevationPreference
+    /** RFC 8308 post-authentication compression renegotiation. */
+    delayCompression?: DelayCompressionConfiguration
     /** Private key object or encoded private-key container used for public-key authentication. */
     privateKey?: PrivateKey | string | Buffer
     /** Certificate public key paired with `privateKey` for certificate authentication. */
@@ -317,6 +329,7 @@ export interface ClientOptionsRequired
     certificate?: PublicKey | string | Buffer
     passphrase?: string | Buffer
     agent: Agent
+    delayCompression: NormalizedDelayCompression
     debug?: (...message: unknown[]) => void
 }
 
@@ -507,6 +520,7 @@ export default class Client extends EventEmitter<ClientEvents> {
         this.options.agentForward ??= false
         this.options.noFlowControl = normalizeNoFlowControlPreference(this.options.noFlowControl)
         this.options.elevation = normalizeElevationPreference(this.options.elevation)
+        this.options.delayCompression = normalizeDelayCompression(this.options.delayCompression)
         this.options.gssapi = normalizeGSSAPIClientMechanisms(this.options.gssapi ?? [])
         this.options.gssapiDelegateCredentials ??= false
         this.options.gssapiKeyExchangeAuthentication ??= true
@@ -769,6 +783,8 @@ export default class Client extends EventEmitter<ClientEvents> {
     private rfc9987AgentForwardingSupported = false
     private noFlowControlEnabled = false
     private elevationResult?: boolean
+    private pendingDelayCompression?: Readonly<NegotiatedDelayCompression>
+    private delayCompressionRekeyBlocked = false
     private readonly remoteForwardings = new Map<string, RemoteForwarding>()
     private readonly remoteStreamLocalForwardings = new Set<string>()
     private readonly x11Forwardings = new Map<number, { single: boolean }>()
@@ -918,6 +934,8 @@ export default class Client extends EventEmitter<ClientEvents> {
         this.rfc9987AgentForwardingSupported = false
         this.noFlowControlEnabled = false
         this.elevationResult = undefined
+        this.pendingDelayCompression = undefined
+        this.delayCompressionRekeyBlocked = this.options.delayCompression !== false
         this.remoteForwardings.clear()
         this.remoteStreamLocalForwardings.clear()
         this.x11Forwardings.clear()
@@ -966,6 +984,11 @@ export default class Client extends EventEmitter<ClientEvents> {
         }
         if (this.keyExchangeInProgress) {
             return Promise.reject(new Error("SSH key exchange is already in progress"))
+        }
+        if (this.delayCompressionRekeyBlocked) {
+            return Promise.reject(
+                new Error("Cannot rekey before RFC 8308 delay-compression is resolved"),
+            )
         }
         return this.performKeyExchange().catch((error: unknown) => {
             this.destroy()
@@ -1444,9 +1467,31 @@ export default class Client extends EventEmitter<ClientEvents> {
         )
     }
 
-    private enableDelayedCompression(): void {
-        if (this.clientCompressionAlgorithm?.delayed) this.installOutboundCompression()
-        if (this.serverCompressionAlgorithm?.delayed) this.installInboundCompression()
+    private activateAuthenticatedServerCompression(): void {
+        if (this.pendingDelayCompression) {
+            this.serverCompressionAlgorithm = compression_algorithms.get(
+                this.pendingDelayCompression.serverToClient,
+            )
+            assert(this.serverCompressionAlgorithm)
+            this.installInboundCompression()
+        } else if (this.serverCompressionAlgorithm?.delayed) {
+            this.installInboundCompression()
+        }
+    }
+
+    private triggerAuthenticatedClientCompression(): void {
+        if (this.pendingDelayCompression) {
+            this.sendPacket(new NewCompress())
+            this.clientCompressionAlgorithm = compression_algorithms.get(
+                this.pendingDelayCompression.clientToServer,
+            )
+            assert(this.clientCompressionAlgorithm)
+            this.installOutboundCompression()
+            this.pendingDelayCompression = undefined
+        } else if (this.clientCompressionAlgorithm?.delayed) {
+            this.installOutboundCompression()
+        }
+        this.delayCompressionRekeyBlocked = false
     }
 
     private createKexInit(): KexInit {
@@ -1806,6 +1851,10 @@ export default class Client extends EventEmitter<ClientEvents> {
             if (!isRekey && serverKexInit.data.kex_algorithms.includes("ext-info-s")) {
                 const noFlowControl = noFlowControlExtension(this.options.noFlowControl)
                 const elevation = elevationExtension(this.options.elevation)
+                const delayCompression =
+                    this.options.delayCompression === false
+                        ? undefined
+                        : delayCompressionExtension(this.options.delayCompression)
                 this.sendPacket(
                     new ExtInfo({
                         extensions: [
@@ -1815,10 +1864,12 @@ export default class Client extends EventEmitter<ClientEvents> {
                             },
                             ...(noFlowControl ? [noFlowControl] : []),
                             ...(elevation ? [elevation] : []),
+                            ...(delayCompression ? [delayCompression] : []),
                         ],
                     }),
                 )
                 this.advertisedAuthenticationExtInfo = true
+                if (delayCompression) this.delayCompressionRekeyBlocked = true
             }
             while (this.packetsQueuedDuringKeyExchange.length > 0) {
                 this.writePacket(this.packetsQueuedDuringKeyExchange.shift()!)
@@ -2525,8 +2576,12 @@ export default class Client extends EventEmitter<ClientEvents> {
 
             case PacketNameToType.SSH_MSG_USERAUTH_SUCCESS:
                 this.hasAuthenticated = true
-                this.enableDelayedCompression()
+                this.activateAuthenticatedServerCompression()
+                this.triggerAuthenticatedClientCompression()
                 break
+
+            case PacketNameToType.SSH_MSG_NEWCOMPRESS:
+                throw new ProtocolError("SSH server sent the client-only NEWCOMPRESS message")
 
             case PacketNameToType.SSH_MSG_EXT_INFO: {
                 this.applyServerExtensions((p as ExtInfo).data.extensions)
@@ -2794,6 +2849,18 @@ export default class Client extends EventEmitter<ClientEvents> {
             noFlowControlValue(this.options.noFlowControl),
             extensions,
         )
+        try {
+            this.pendingDelayCompression = negotiateDelayCompression(
+                this.options.delayCompression === false ? undefined : this.options.delayCompression,
+                findDelayCompressionOffers(extensions),
+            )
+        } catch (error) {
+            if (!(error instanceof KeyExchangeError)) throw error
+            throw new DisconnectError(
+                DisconnectReason.SSH_DISCONNECT_KEY_EXCHANGE_FAILED,
+                error.message,
+            )
+        }
         this.emit("serverExtensions", this.serverExtensions)
     }
 

@@ -347,6 +347,71 @@ delayed-compression streams start immediately after the corresponding `NEWKEYS`,
 `zlib`. This avoids compressing attacker-controlled pre-authentication exchanges while retaining
 compression for authenticated channel traffic.
 
+RFC 8308 `delay-compression` is a separate standardized negotiation mechanism. It is disabled by
+default. Enable it on both peers with `delayCompression: true`; this advertises `zlib,none`
+independently in both directions while allowing the initial key exchange to select `none`:
+
+```ts
+const server = new Server({
+    hostKeys,
+    algorithms: { compress: ["none"] },
+    delayCompression: true,
+})
+
+const client = new Client({
+    hostname,
+    username,
+    algorithms: { compress: ["none"] },
+    delayCompression: true,
+})
+```
+
+Direction-specific policy accepts explicit lists containing `"zlib"` and `"none"`:
+
+```ts
+const delayCompression = {
+    clientToServer: ["zlib", "none"],
+    serverToClient: ["none"],
+} as const
+```
+
+The extension takes effect only when both peers advertise it. Each direction follows the client's
+preference order; bilateral offers without a mutual algorithm in either direction receive a
+key-exchange-failure disconnect. `zlib@openssh.com` is rejected inside these lists because it
+defines its own delayed activation semantics.
+
+The server activates its selected output stream immediately after sending
+`SSH_MSG_USERAUTH_SUCCESS`. The client activates matching input before decoding the next packet,
+sends the uncompressed `SSH_MSG_NEWCOMPRESS` trigger, and then activates its selected output
+stream. The server accepts up to 32 intervening client messages before requiring that trigger.
+Unexpected, duplicate, or server-originated `NEWCOMPRESS` messages are protocol errors. Activation
+always creates a fresh compression stream, including when the selected algorithm was already
+active. A subsequent rekey replaces both extension selections with its newly negotiated algorithms.
+
+A server may delay its offer until account policy is known. Include the exported builder in the
+single authentication-time replacement extension set:
+
+```ts
+import { delayCompressionExtension } from "modernssh"
+
+server.hooker.hook("passwordAuthentication", async (_hook, context, decision, connection) => {
+    const account = await accounts.verifyPassword(context.username, context.password)
+    if (account.accepted && connection.clientSupportsAuthenticationExtensionInfo) {
+        connection.sendAuthenticationExtensions([
+            delayCompressionExtension({
+                clientToServer: account.uploadCompression,
+                serverToClient: account.downloadCompression,
+            }),
+        ])
+    }
+    decision.allowLogin = account.accepted
+})
+```
+
+A role that advertised support cannot initiate rekey until authentication resolves the extension
+and it has sent its own compression trigger. `rekey()` rejects during that interval instead of
+creating the ambiguous ordering prohibited by RFC 8308.
+
 RSA host keys support the RFC 8332 `rsa-sha2-512` and `rsa-sha2-256` algorithms. The negotiated
 algorithm selects the SHA-2 signature while the serialized public key remains `ssh-rsa`, preserving
 the key blob and fingerprint. The legacy `ssh-rsa` SHA-1 signature remains available when selected

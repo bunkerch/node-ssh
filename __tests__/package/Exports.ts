@@ -20,6 +20,8 @@ import {
     DirectTCPIPChannel,
     DirectStreamLocalChannel,
     decodeSFTPLimits,
+    DELAY_COMPRESSION_EXTENSION,
+    delayCompressionExtension,
     DiskAgent,
     ELEVATION_EXTENSION,
     EncodedSignature,
@@ -81,6 +83,7 @@ import {
     type ClientOptions,
     type ClientSessionOptions,
     type CygwinAgentOptions,
+    type DelayCompressionOptions,
     type ElevationPreference,
     type GSSAPIKeyExchangeClientContextOptions,
     type NoFlowControlPreference,
@@ -101,8 +104,13 @@ describe("package exports", () => {
         const serverOptions: ServerOptions = { sendAllHostKeys: false }
         const noFlowControl: NoFlowControlPreference = "supported"
         const elevation: ElevationPreference = "unelevated"
+        const delayCompression: DelayCompressionOptions = {
+            clientToServer: ["zlib", "none"],
+            serverToClient: ["none"],
+        }
         clientOptions.noFlowControl = noFlowControl
         clientOptions.elevation = elevation
+        clientOptions.delayCompression = delayCompression
         serverOptions.noFlowControl = noFlowControl
         const keyExchangeOptions: GSSAPIKeyExchangeClientContextOptions = {
             hostname: "example.test",
@@ -224,6 +232,8 @@ describe("package exports", () => {
         expect(createSocketAgent).toBeFunction()
         expect(NO_FLOW_CONTROL_EXTENSION).toBe("no-flow-control")
         expect(ELEVATION_EXTENSION).toBe("elevation")
+        expect(DELAY_COMPRESSION_EXTENSION).toBe("delay-compression")
+        expect(delayCompressionExtension(delayCompression).name).toBe("delay-compression")
     })
 
     test("compiled entry point provides the same side-effect-free API", async () => {
@@ -282,6 +292,8 @@ describe("package exports", () => {
         expect(entry.createSocketAgent).toBeFunction()
         expect(entry.NO_FLOW_CONTROL_EXTENSION).toBe("no-flow-control")
         expect(entry.ELEVATION_EXTENSION).toBe("elevation")
+        expect(entry.DELAY_COMPRESSION_EXTENSION).toBe("delay-compression")
+        expect(entry.delayCompressionExtension).toBeFunction()
     })
 
     test("compiled declarations expose Promise-only completion APIs", async () => {
@@ -302,6 +314,7 @@ describe("package exports", () => {
         expect(client).not.toContain("ClientGlobalRequestCallback")
         expect(client).toContain("globalRequest(name: string, args?: Buffer): Promise<Buffer>")
         expect(client).toContain("get elevated(): boolean | undefined")
+        expect(client).toContain("delayCompression?: DelayCompressionConfiguration")
         expect(client).toContain("exec(command: string, options?: ClientSessionOptions)")
         expect(clientChannel).toContain("sendData(data: Buffer | string")
         expect(clientSession).toContain("forwardAgent(): Promise<void>")
@@ -318,6 +331,7 @@ describe("package exports", () => {
             "get clientElevationPreference(): ElevationRequest | undefined",
         )
         expect(server).toContain("getConnections(): Promise<number>")
+        expect(server).toContain("delayCompression?: DelayCompressionConfiguration")
         expect(server).toContain("close(): Promise<void>")
         expect(agentProtocol).toContain("addIdentity(")
         expect(agentProtocol).toContain("removeAllIdentities(): Promise<void>")
@@ -355,7 +369,7 @@ describe("package exports", () => {
                     "--input-type=module",
                     "--eval",
                     `
-                    const { Client, createSocketAgent, CygwinAgent, CygwinAgentError, ELEVATION_EXTENSION, EncodedSignature, generateKeyPair, generateKeyPairSync, KnownHosts, MAX_OPENSSH_AGENT_SESSION_BINDINGS, MAX_SSH_AGENT_MESSAGE_LENGTH, NO_FLOW_CONTROL_EXTENSION, OnePasswordAgent, OPENSSH_AGENT_SECURITY_KEY_PROVIDER, OPENSSH_AGENT_SESSION_BIND, parseKey, PrivateKey, PrivateKeyAgent, PublicKey, SSH_ED25519_SECURITY_KEY_ALGORITHM, SSHAgentConstraintType, SSHAgentExtensionFailureError, SSHAgentMessageType, SSHAgentProtocolClient, SSHAgentProtocolError, SSHAgentProtocolServer, SSHED25519SecurityKeyPrivateKey, SSHED25519SecurityKeyPublicKey } = await import("modernssh")
+                    const { Client, createSocketAgent, CygwinAgent, CygwinAgentError, DELAY_COMPRESSION_EXTENSION, delayCompressionExtension, ELEVATION_EXTENSION, EncodedSignature, generateKeyPair, generateKeyPairSync, KnownHosts, MAX_OPENSSH_AGENT_SESSION_BINDINGS, MAX_SSH_AGENT_MESSAGE_LENGTH, NO_FLOW_CONTROL_EXTENSION, OnePasswordAgent, OPENSSH_AGENT_SECURITY_KEY_PROVIDER, OPENSSH_AGENT_SESSION_BIND, parseKey, PrivateKey, PrivateKeyAgent, PublicKey, SSH_ED25519_SECURITY_KEY_ALGORITHM, SSHAgentConstraintType, SSHAgentExtensionFailureError, SSHAgentMessageType, SSHAgentProtocolClient, SSHAgentProtocolError, SSHAgentProtocolServer, SSHED25519SecurityKeyPrivateKey, SSHED25519SecurityKeyPublicKey } = await import("modernssh")
                     const { privateKey, publicKey } = await generateKeyPair("ed25519", {
                         comment: "packed@example.test",
                     })
@@ -411,6 +425,8 @@ describe("package exports", () => {
                     if (onePasswordAgent.socketPath !== ${JSON.stringify(String.raw`\\.\pipe\openssh-ssh-agent`)}) process.exit(30)
                     if (NO_FLOW_CONTROL_EXTENSION !== "no-flow-control" || new Client({ noFlowControl: "preferred" }).options.noFlowControl !== "preferred") process.exit(31)
                     if (ELEVATION_EXTENSION !== "elevation" || new Client({ elevation: "unelevated" }).options.elevation !== "unelevated") process.exit(32)
+                    if (DELAY_COMPRESSION_EXTENSION !== "delay-compression" || new Client({ delayCompression: true }).options.delayCompression.clientToServer[0] !== "zlib") process.exit(33)
+                    if (delayCompressionExtension({ clientToServer: ["none"], serverToClient: ["none"] }).name !== "delay-compression") process.exit(34)
                     process.stdout.write(publicKey.toString())
                 `,
                 ],

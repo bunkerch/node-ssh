@@ -37,6 +37,12 @@ export { NO_FLOW_CONTROL_EXTENSION } from "./NoFlowControl.js"
 export type { NoFlowControlPreference } from "./NoFlowControl.js"
 export { ELEVATION_EXTENSION } from "./Elevation.js"
 export type { ElevationPreference, ElevationRequest } from "./Elevation.js"
+export { DELAY_COMPRESSION_EXTENSION, delayCompressionExtension } from "./DelayCompression.js"
+export type {
+    DelayCompressionAlgorithm,
+    DelayCompressionConfiguration,
+    DelayCompressionOptions,
+} from "./DelayCompression.js"
 export {
     buildGSSAPIKeyExchangeUserAuthMIC,
     buildGSSAPIUserAuthMIC,

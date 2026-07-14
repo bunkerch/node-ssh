@@ -22,6 +22,7 @@ import KexDHGexReply from "./packets/KexDHGexReply.js"
 import KexDHGexRequest from "./packets/KexDHGexRequest.js"
 import KexInit from "./packets/KexInit.js"
 import NewKeys from "./packets/NewKeys.js"
+import NewCompress from "./packets/NewCompress.js"
 import Ping from "./packets/Ping.js"
 import Pong from "./packets/Pong.js"
 import RequestFailure from "./packets/RequestFailure.js"
@@ -78,6 +79,7 @@ export const packets = {
     SSH_MSG_SERVICE_REQUEST: ServiceRequest,
     SSH_MSG_SERVICE_ACCEPT: ServiceAccept,
     SSH_MSG_EXT_INFO: ExtInfo,
+    SSH_MSG_NEWCOMPRESS: NewCompress,
 
     SSH_MSG_KEXINIT: KexInit,
     SSH_MSG_NEWKEYS: NewKeys,

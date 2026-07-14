@@ -38,6 +38,11 @@ import { normalizeGSSAPIServerMechanisms, type GSSAPIServerMechanism } from "./G
 import { createGSSAPIKeyExchangeAlgorithms } from "./algorithms/kex/gssapi-key-exchange.js"
 import { normalizeNoFlowControlPreference, type NoFlowControlPreference } from "./NoFlowControl.js"
 import type { ElevationRequest } from "./Elevation.js"
+import {
+    normalizeDelayCompression,
+    type DelayCompressionConfiguration,
+    type NormalizedDelayCompression,
+} from "./DelayCompression.js"
 
 export interface ServerOptions {
     protocolVersionExchange?: ProtocolVersionExchange
@@ -76,6 +81,8 @@ export interface ServerOptions {
     gssapi?: readonly GSSAPIServerMechanism[]
     /** RFC 8308 infinite channel windows. Both peers must opt in and one must prefer it. */
     noFlowControl?: NoFlowControlPreference
+    /** RFC 8308 post-authentication compression renegotiation. */
+    delayCompression?: DelayCompressionConfiguration
     /** Receive the same diagnostic arguments as the `debug` event. */
     debug?: (...message: unknown[]) => void
 }
@@ -90,6 +97,7 @@ export interface ServerOptionsRequired
     ident?: string | Buffer
     algorithms?: ServerAlgorithmOptions
     hostKeys: PrivateKey[]
+    delayCompression: NormalizedDelayCompression
     hostCertificates?: (PublicKey | string | Buffer)[]
     debug?: (...message: unknown[]) => void
 }
@@ -381,6 +389,7 @@ export default class Server extends EventEmitter<ServerEvents> {
         this.options.sendAllHostKeys ??= true
         this.options.gssapi = normalizeGSSAPIServerMechanisms(this.options.gssapi ?? [])
         this.options.noFlowControl = normalizeNoFlowControlPreference(this.options.noFlowControl)
+        this.options.delayCompression = normalizeDelayCompression(this.options.delayCompression)
         this.options.banner ??= ""
         this.options.handshakeTimeout ??= 20_000
         this.options.authenticationTimeout ??= 600_000

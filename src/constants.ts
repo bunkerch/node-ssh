@@ -15,6 +15,7 @@ export const PacketNameToType = {
     SSH_MSG_SERVICE_REQUEST: 5,
     SSH_MSG_SERVICE_ACCEPT: 6,
     SSH_MSG_EXT_INFO: 7,
+    SSH_MSG_NEWCOMPRESS: 8,
 
     SSH_MSG_KEXINIT: 20,
     SSH_MSG_NEWKEYS: 21,

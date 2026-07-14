@@ -44,6 +44,7 @@ import {
     createPacketCompressor,
     createPacketDecompressor,
     describeNegotiatedAlgorithms,
+    compression_algorithms,
     host_key_algorithms,
     public_key_signature_algorithms,
     type CompressionAlgorithm,
@@ -176,6 +177,13 @@ import GSSAPIKeyExchange from "./algorithms/kex/gssapi-key-exchange.js"
 import { ELEVATION_EXTENSION, findElevationRequest, type ElevationRequest } from "./Elevation.js"
 import { serializeBinaryBoolean } from "./utils/BinaryBoolean.js"
 import {
+    delayCompressionExtension,
+    findDelayCompressionOffers,
+    negotiateDelayCompression,
+    type DelayCompressionOffers,
+    type NegotiatedDelayCompression,
+} from "./DelayCompression.js"
+import {
     KexGSSAPIComplete,
     KexGSSAPIContinue,
     KexGSSAPIError,
@@ -196,6 +204,8 @@ interface PendingGlobalRequest {
     resolve: (response: Buffer) => void
     reject: (error: Error) => void
 }
+
+const MAX_MESSAGES_BEFORE_NEWCOMPRESS = 32
 
 interface GSSAPIAuthenticationResult {
     allowLogin: boolean
@@ -248,6 +258,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         this.socket = socket
         this.server = server
         this.connectionId = randomBase36(9)
+        this.delayCompressionRekeyBlocked = server.options.delayCompression !== false
 
         this.socket.on("data", (data) => {
             try {
@@ -308,6 +319,12 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     private clientExtInfoAfterNewKeys = false
     private clientAuthenticationExtInfoSupported = false
     private clientElevationRequest?: ElevationRequest
+    private clientDelayCompressionOffers?: Readonly<DelayCompressionOffers>
+    private advertisedDelayCompressionOffers?: Readonly<DelayCompressionOffers>
+    private pendingDelayCompression?: Readonly<NegotiatedDelayCompression>
+    private awaitingClientNewCompress = false
+    private messagesBeforeNewCompress = 0
+    private delayCompressionRekeyBlocked = false
     private advertisedNoFlowControlValue?: NoFlowControlValue
     private noFlowControlEnabled = false
     private authenticationRequestReceived = false
@@ -424,6 +441,21 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             this.advertisedNoFlowControlValue,
             this.negotiatedClientExtensions,
         )
+    }
+
+    private updateDelayCompression(): void {
+        try {
+            this.pendingDelayCompression = negotiateDelayCompression(
+                this.clientDelayCompressionOffers,
+                this.advertisedDelayCompressionOffers,
+            )
+        } catch (error) {
+            if (!(error instanceof KeyExchangeError)) throw error
+            throw new DisconnectError(
+                DisconnectReason.SSH_DISCONNECT_KEY_EXCHANGE_FAILED,
+                error.message,
+            )
+        }
     }
 
     private assertChannelCapacity(): void {
@@ -575,6 +607,11 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         if (this.keyExchangeInProgress) {
             return Promise.reject(new Error("SSH key exchange is already in progress"))
         }
+        if (this.delayCompressionRekeyBlocked) {
+            return Promise.reject(
+                new Error("Cannot rekey before RFC 8308 delay-compression is resolved"),
+            )
+        }
         return this.performKeyExchange().catch((error: unknown) => {
             this.terminate()
             throw error
@@ -615,10 +652,19 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         if (this.authenticationExtInfoSent) {
             throw new Error("SSH server already sent authentication extension information")
         }
+        const packet = new ExtInfo({ extensions })
         const noFlowControl = findNoFlowControlValue(extensions)
-        this.sendPacket(new ExtInfo({ extensions }))
+        const delayCompression = findDelayCompressionOffers(extensions)
+        const negotiatedDelayCompression = negotiateDelayCompression(
+            this.clientDelayCompressionOffers,
+            delayCompression,
+        )
+        this.sendPacket(packet)
         this.advertisedNoFlowControlValue = noFlowControl
         this.updateNoFlowControl()
+        this.advertisedDelayCompressionOffers = delayCompression
+        this.pendingDelayCompression = negotiatedDelayCompression
+        if (delayCompression) this.delayCompressionRekeyBlocked = true
         this.authenticationExtInfoSent = true
         return this
     }
@@ -952,6 +998,14 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 this.advertisedNoFlowControlValue = noFlowControlValue(
                     this.server.options.noFlowControl,
                 )
+                const delayCompression =
+                    this.server.options.delayCompression === false
+                        ? undefined
+                        : delayCompressionExtension(this.server.options.delayCompression)
+                this.advertisedDelayCompressionOffers =
+                    this.server.options.delayCompression === false
+                        ? undefined
+                        : this.server.options.delayCompression
                 this.sendPacket(
                     new ExtInfo({
                         extensions: [
@@ -976,9 +1030,11 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                                   ]
                                 : []),
                             ...(noFlowControl ? [noFlowControl] : []),
+                            ...(delayCompression ? [delayCompression] : []),
                         ],
                     }),
                 )
+                if (delayCompression) this.delayCompressionRekeyBlocked = true
             }
             while (this.packetsQueuedDuringKeyExchange.length > 0) {
                 this.writePacket(this.packetsQueuedDuringKeyExchange.shift()!)
@@ -2055,7 +2111,8 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             }
             this.sendPacket(new UserAuthSuccess({}))
             this.hasAuthenticated = true
-            this.enableDelayedCompression()
+            this.activateAuthenticatedServerCompression()
+            this.prepareAuthenticatedClientCompression()
             if (this.clientElevationRequest !== undefined && elevationResult !== undefined) {
                 this.sendPacket(
                     new GlobalRequest({
@@ -2389,9 +2446,40 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         )
     }
 
-    private enableDelayedCompression(): void {
-        if (this.serverCompressionAlgorithm?.delayed) this.installOutboundCompression()
-        if (this.clientCompressionAlgorithm?.delayed) this.installInboundCompression()
+    private activateAuthenticatedServerCompression(): void {
+        if (this.pendingDelayCompression) {
+            this.serverCompressionAlgorithm = compression_algorithms.get(
+                this.pendingDelayCompression.serverToClient,
+            )
+            assert(this.serverCompressionAlgorithm)
+            this.installOutboundCompression()
+        } else if (this.serverCompressionAlgorithm?.delayed) {
+            this.installOutboundCompression()
+        }
+        this.delayCompressionRekeyBlocked = false
+    }
+
+    private prepareAuthenticatedClientCompression(): void {
+        if (this.pendingDelayCompression) {
+            this.awaitingClientNewCompress = true
+            this.messagesBeforeNewCompress = 0
+        } else if (this.clientCompressionAlgorithm?.delayed) {
+            this.installInboundCompression()
+        }
+    }
+
+    private activateClientCompression(): void {
+        if (!this.awaitingClientNewCompress || !this.pendingDelayCompression) {
+            throw new ProtocolError("SSH client sent an unexpected NEWCOMPRESS message")
+        }
+        this.clientCompressionAlgorithm = compression_algorithms.get(
+            this.pendingDelayCompression.clientToServer,
+        )
+        assert(this.clientCompressionAlgorithm)
+        this.installInboundCompression()
+        this.awaitingClientNewCompress = false
+        this.messagesBeforeNewCompress = 0
+        this.pendingDelayCompression = undefined
     }
 
     onMessage(message: Buffer): void {
@@ -2452,6 +2540,14 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             !isStrictKeyExchangePacket(packetType)
         ) {
             throw new KeyExchangeError("Received a non-KEX packet during strict key exchange")
+        }
+        if (this.awaitingClientNewCompress && packetType !== PacketNameToType.SSH_MSG_NEWCOMPRESS) {
+            this.messagesBeforeNewCompress++
+            if (this.messagesBeforeNewCompress > MAX_MESSAGES_BEFORE_NEWCOMPRESS) {
+                throw new ProtocolError(
+                    `SSH client did not send NEWCOMPRESS within ${MAX_MESSAGES_BEFORE_NEWCOMPRESS} messages`,
+                )
+            }
         }
         if (!(packetType in PacketTypeToName)) {
             this.debug("Unsupported SSH packet type:", packetType)
@@ -2582,10 +2678,18 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                     ({ name }) => name === AUTHENTICATION_EXT_INFO_EXTENSION,
                 )
                 this.clientElevationRequest = findElevationRequest(this.negotiatedClientExtensions)
+                this.clientDelayCompressionOffers = findDelayCompressionOffers(
+                    this.negotiatedClientExtensions,
+                )
+                this.updateDelayCompression()
                 this.updateNoFlowControl()
                 this.emit("clientExtensions", this.clientExtensions)
                 break
             }
+
+            case PacketNameToType.SSH_MSG_NEWCOMPRESS:
+                this.activateClientCompression()
+                break
 
             case PacketNameToType.SSH_MSG_PING: {
                 const ping = p as Ping

@@ -149,6 +149,14 @@ each packet boundary. They prove dictionary continuity across packets, exact pay
 malformed-stream rejection, and bounded expansion. In-process peers exercise both immediate `zlib`
 and delayed `zlib@openssh.com` through multi-packet bidirectional transfers and rekeying.
 
+RFC 8308 delay-compression tests use the specification's literal two-name-list value, a complete
+fixed extension packet, and the one-byte opcode-8 `NEWCOMPRESS` trigger. In-process peers begin with
+`none`, activate each `zlib` direction at its distinct authentication trigger, exchange compressed
+traffic, and prove that a subsequent rekey overrides the extension. Coverage also includes
+bilateral gating, a server offer delayed until authentication policy, non-mutual negotiation,
+locally blocked premature rekeys, the bounded trigger deadline, and wrong-direction or duplicate
+triggers.
+
 Transport ping coverage uses fixed opcode 192/193 packet vectors and exercises concurrent ordered
 echoes plus a ping queued across rekey against the in-process server. The pinned OpenSSH fixture
 predates `ping@openssh.com`; the client verifies that absence of its RFC 8308 advertisement rejects
