@@ -385,8 +385,9 @@ The package root currently exports:
 
 - `Client`, `Server`, and `ServerClient` plus their option, event, and hook types.
 - `ClientChannel`, `ClientSessionChannel`, `Channel`, `SessionChannel`, and `Shell`.
-- `Agent`, `PrivateKeyAgent`, `DiskAgent`, `SSHAgent`, `OnePasswordAgent`, and their option, error,
-  and agent-type definitions.
+- `Agent`, `PrivateKeyAgent`, `DiskAgent`, `SSHAgent`, `SSHAgentProtocolClient`,
+  `SSHAgentProtocolServer`, `OnePasswordAgent`, and their option, hook, error, and agent-type
+  definitions.
 - `PublicKey`, `PrivateKey`, `EncodedSignature`, `ProtocolVersionExchange`, `generateKeyPair()`,
   `generateKeyPairSync()`, `parseKey()`, and `parseKeys()`.
 - Public service, authentication, connection-state, and extended-data enums.

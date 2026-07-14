@@ -182,6 +182,58 @@ connected directly to a fresh local agent socket. Incoming agent channels are re
 session request has succeeded, and agents without a stream capability such as `DiskAgent` cannot
 be forwarded.
 
+A server can inspect an authorized forwarded agent through the Promise-based protocol client. The
+connection carries no request identifiers, so operations are serialized and each response has a
+10-second deadline by default:
+
+```ts
+import { SSHAgentProtocolClient } from "modernssh"
+
+const channel = await connection.forwardAgent()
+const agent = new SSHAgentProtocolClient(channel.stream)
+try {
+    const identities = await agent.getPublicKeys()
+    const [id, publicKey] = identities[0]
+    const message = Buffer.from("application challenge")
+    const signature = await agent.sign(id, message)
+    if (!publicKey.verifySignature(message, signature))
+        throw new Error("Agent returned a bad signature")
+} finally {
+    agent.destroy()
+}
+```
+
+`SSHAgentProtocolServer` serves an already-connected `Duplex` with awaited, deny-by-default
+`identities` and `sign` hooks. It is useful for exposing a deliberately restricted agent rather
+than forwarding an entire local socket:
+
+```ts
+import { SSHAgentProtocolServer } from "modernssh"
+
+const agentServer = new SSHAgentProtocolServer()
+
+agentServer.hooker.hook("identities", async (_hook, decision) => {
+    decision.identities = await identitiesAllowedForThisConnection()
+})
+
+agentServer.hooker.hook("sign", async (_hook, request, decision) => {
+    decision.signature = await signIfAuthorized(request.publicKey, request.data, request.algorithm)
+})
+
+await agentServer.serve(connectedAgentStream)
+```
+
+Both roles enforce the agent's 256 KiB message ceiling, strict framing, fatal UTF-8 comments, exact
+RSA SHA-2 flags, response types, and signature algorithms. Server hooks are awaited in wire order;
+missing, rejected, or invalid policy decisions return the protocol failure response. The server
+also verifies a supplied signature against the requested key and message before releasing it.
+The client exclusively owns reads from its stream and must not share it with another protocol
+consumer. Destroy the client when finished; a request deadline also destroys the stream because an
+untagged late response cannot safely be matched to a later request. Call `serve()` only once per
+stream and await it through peer closure or failure.
+Forwarding still gives the remote host an interface capable of requesting signatures as your local
+identity, so expose only the identities and destinations that host is trusted to use.
+
 ## Protocol behavior
 
 The implementation follows RFC 4254 channel rules:

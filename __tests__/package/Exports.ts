@@ -33,6 +33,7 @@ import {
     HTTPSAgent,
     KERBEROS_V5_GSSAPI_OID,
     KnownHosts,
+    MAX_SSH_AGENT_MESSAGE_LENGTH,
     OnePasswordAgent,
     OPEN_MODE,
     parseKey,
@@ -56,6 +57,10 @@ import {
     STATUS_CODE,
     stringToFlags,
     SSHAgent,
+    SSHAgentMessageType,
+    SSHAgentProtocolClient,
+    SSHAgentProtocolError,
+    SSHAgentProtocolServer,
     SSHHTTPAgent,
     SSHHTTPSAgent,
     SSHAuthenticationMethods,
@@ -64,6 +69,8 @@ import {
     type ClientOptions,
     type ClientSessionOptions,
     type GSSAPIKeyExchangeClientContextOptions,
+    type SSHAgentProtocolOptions,
+    type SSHAgentProtocolServerOptions,
     type ServerOptions,
 } from "../../src/index.js"
 
@@ -84,11 +91,20 @@ describe("package exports", () => {
             replayDetection: false,
             sequenceDetection: false,
         }
+        const agentProtocolOptions: SSHAgentProtocolOptions = {
+            maxMessageLength: 1024,
+            requestTimeout: 250,
+        }
+        const agentProtocolServerOptions: SSHAgentProtocolServerOptions = {
+            maxMessageLength: 2048,
+        }
 
         expect(clientOptions.hostname).toBe("example.test")
         expect(sessionOptions.pty).toBe(true)
         expect(serverOptions.sendAllHostKeys).toBe(false)
         expect(keyExchangeOptions.service).toBe("host")
+        expect(agentProtocolOptions.requestTimeout).toBe(250)
+        expect(agentProtocolServerOptions.maxMessageLength).toBe(2048)
         expect([
             Agent,
             Channel,
@@ -153,6 +169,11 @@ describe("package exports", () => {
         expect(stringToFlags("r")).toBe(OPEN_MODE.READ)
         expect(flagsToString(OPEN_MODE.READ)).toBe("r")
         expect(STATUS_CODE.OK).toBe(0)
+        expect(SSHAgentProtocolClient).toBeFunction()
+        expect(SSHAgentProtocolServer).toBeFunction()
+        expect(SSHAgentProtocolError).toBeFunction()
+        expect(SSHAgentMessageType.SignRequest).toBe(13)
+        expect(MAX_SSH_AGENT_MESSAGE_LENGTH).toBe(256 * 1024)
     })
 
     test("compiled entry point provides the same side-effect-free API", async () => {
@@ -200,6 +221,11 @@ describe("package exports", () => {
         expect(entry.decodeSFTPLimits).toBeDefined()
         expect(entry.TerminalMode.TTY_OP_OSPEED).toBe(129)
         expect(entry.TerminalModes).toBe(entry.TerminalMode)
+        expect(entry.SSHAgentProtocolClient).toBeFunction()
+        expect(entry.SSHAgentProtocolServer).toBeFunction()
+        expect(entry.SSHAgentProtocolError).toBeFunction()
+        expect(entry.SSHAgentMessageType.IdentitiesAnswer).toBe(12)
+        expect(entry.MAX_SSH_AGENT_MESSAGE_LENGTH).toBe(256 * 1024)
     })
 
     test("compiled declarations expose Promise-only completion APIs", async () => {
@@ -213,6 +239,7 @@ describe("package exports", () => {
         const shell = await readFile("dist/channels/Session/Shell.d.ts", "utf8")
         const privateKey = await readFile("dist/utils/PrivateKey.d.ts", "utf8")
         const knownHosts = await readFile("dist/KnownHosts.d.ts", "utf8")
+        const agentProtocol = await readFile("dist/publickey/SSHAgentProtocol.d.ts", "utf8")
 
         expect(client).not.toContain("ClientSessionCallback")
         expect(client).not.toContain("ClientGlobalRequestCallback")
@@ -236,9 +263,12 @@ describe("package exports", () => {
         expect(knownHosts).toContain("static load(path: string): Promise<KnownHosts>")
         expect(knownHosts).toContain("replaceHostKeys(")
         expect(knownHosts).toContain("): Promise<void>")
+        expect(agentProtocol).toContain("getPublicKeys(): Promise<[string, PublicKey][]>")
+        expect(agentProtocol).toContain("serve(stream: Duplex): Promise<void>")
+        expect(agentProtocol).not.toContain("callback")
     })
 
-    test("package archive exposes working ESM key generation", async () => {
+    test("package archive exposes a working ESM API", async () => {
         const directory = await mkdtemp(join(tmpdir(), "modernssh-package-"))
         try {
             await execFileAsync("pnpm", ["pack", "--pack-destination", directory])
@@ -253,7 +283,7 @@ describe("package exports", () => {
                     "--input-type=module",
                     "--eval",
                     `
-                    const { Client, generateKeyPair, generateKeyPairSync, KnownHosts, parseKey, PrivateKey, PrivateKeyAgent } = await import("modernssh")
+                    const { Client, generateKeyPair, generateKeyPairSync, KnownHosts, MAX_SSH_AGENT_MESSAGE_LENGTH, parseKey, PrivateKey, PrivateKeyAgent, SSHAgentMessageType, SSHAgentProtocolClient, SSHAgentProtocolError, SSHAgentProtocolServer } = await import("modernssh")
                     const { privateKey, publicKey } = await generateKeyPair("ed25519", {
                         comment: "packed@example.test",
                     })
@@ -285,6 +315,8 @@ describe("package exports", () => {
                     const knownHosts = KnownHosts.parse("packed.example.test " + publicKey.toString())
                     if (knownHosts.check("packed.example.test", publicKey).status !== "trusted") process.exit(15)
                     if (new Client({}).algorithmOffer.kex[0] !== "sntrup761x25519-sha512") process.exit(16)
+                    if (typeof SSHAgentProtocolClient !== "function" || typeof SSHAgentProtocolServer !== "function" || typeof SSHAgentProtocolError !== "function") process.exit(17)
+                    if (SSHAgentMessageType.SignResponse !== 14 || MAX_SSH_AGENT_MESSAGE_LENGTH !== 262144) process.exit(18)
                     process.stdout.write(publicKey.toString())
                 `,
                 ],

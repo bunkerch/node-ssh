@@ -209,6 +209,22 @@ export { default as Agent, AgentError, AgentType } from "./publickey/Agent.js"
 export { default as DiskAgent, DiskAgentError } from "./publickey/DiskAgent.js"
 export type { DiskAgentOptions, DiskAgentPassphrase } from "./publickey/DiskAgent.js"
 export { default as SSHAgent, SSHAgentError } from "./publickey/SSHAgent.js"
+export {
+    MAX_SSH_AGENT_MESSAGE_LENGTH,
+    SSHAgentMessageType,
+    SSHAgentProtocolClient,
+    SSHAgentProtocolError,
+    SSHAgentProtocolServer,
+} from "./publickey/SSHAgentProtocol.js"
+export type {
+    SSHAgentIdentity,
+    SSHAgentProtocolOptions,
+    SSHAgentProtocolServerOptions,
+    SSHAgentServerHooker,
+    SSHAgentServerIdentitiesController,
+    SSHAgentServerSignContext,
+    SSHAgentServerSignController,
+} from "./publickey/SSHAgentProtocol.js"
 export { default as OnePasswordAgent, OnePasswordAgentError } from "./publickey/OnePasswordAgent.js"
 export { default as PrivateKeyAgent, PrivateKeyAgentError } from "./publickey/PrivateKeyAgent.js"
 
