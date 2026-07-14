@@ -23,10 +23,13 @@ export interface UserAuthRequestData {
     method: AuthMethod
 }
 export class UnknownAuthMethod implements AuthMethod {
-    constructor(
-        public method_name: string,
-        public data: Buffer,
-    ) {}
+    method_name: string
+    data: Buffer
+    constructor(method_name: string, data: Buffer) {
+        encodeSSHName(method_name, "SSH authentication method name")
+        this.method_name = method_name
+        this.data = Buffer.from(data)
+    }
 
     serialize(): Buffer {
         return Buffer.concat([
@@ -51,7 +54,10 @@ export default class UserAuthRequest implements Packet {
 
     data: UserAuthRequestData
     constructor(data: UserAuthRequestData) {
-        this.data = data
+        encodeSSHUTF8(data.username, "SSH username")
+        encodeSSHName(data.service_name, "SSH service name")
+        encodeSSHName(data.method.method_name, "SSH authentication method name")
+        this.data = { ...data }
     }
 
     get username() {

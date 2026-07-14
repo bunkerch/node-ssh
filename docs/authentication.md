@@ -6,6 +6,10 @@ methods that the server advertises. When a factor returns partial success, selec
 stage using the server's new continuation list; this supports multi-factor policies without
 hard-coding a particular sequence.
 
+Request usernames are strict UTF-8, while service and method identifiers use strict RFC 4250 SSH
+names. Constructors copy caller-owned envelope metadata, unknown-method payloads are copied as
+opaque bytes, and mutable text is revalidated during serialization.
+
 During authentication, `authenticationMethodsRemaining` reflects the latest server continuation
 list and `partialAuthenticationSuccess` indicates whether any factor has already succeeded.
 

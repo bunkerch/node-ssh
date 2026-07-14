@@ -296,6 +296,8 @@ meaningful wire-level behavior.
   exchange. Reject unavailable services with reason 7 and wrong-role, mismatched, premature, or
   repeated service messages with reason 2; keep transport and rekey traffic transparent to the
   outstanding negotiation.
+- User-authentication request envelopes use fatal UTF-8 usernames and strict SSH service/method
+  names, copy caller metadata and unknown payload bytes, and revalidate mutable text when serialized.
 - Preserve all inbound RFC 4253 debug fields in an immutable semantic event. Copy outbound ignore
   bytes at the API boundary, keep ignore payloads semantically opaque, and queue both debug and
   ignore messages across key exchange so they cannot violate strict-KEX ordering. Transport-level

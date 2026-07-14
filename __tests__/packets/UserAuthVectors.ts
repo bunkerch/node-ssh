@@ -155,6 +155,43 @@ describe("RFC 4252 and RFC 4256 authentication vectors", () => {
         expect(packet.serialize()).toEqual(unknownRequest)
     })
 
+    test.each([
+        ["username", "alice"],
+        ["service", "ssh-connection"],
+        ["method", "future-auth"],
+    ])("rejects malformed user authentication %s text", (_field, value) => {
+        const malformed = Buffer.from(unknownRequest)
+        const offset = malformed.indexOf(value)
+        expect(offset).toBeGreaterThanOrEqual(0)
+        malformed[offset] = 0xff
+
+        expect(() => UserAuthRequest.parse(malformed)).toThrow()
+    })
+
+    test("copies authentication envelope and unknown method input", () => {
+        const unknownData = Buffer.from("deadbeef", "hex")
+        const method = new UnknownAuthMethod("future-auth", unknownData)
+        const input = { username: "remote", service_name: "ssh-connection", method }
+        const packet = new UserAuthRequest(input)
+        input.username = "other"
+        input.service_name = "ssh-userauth"
+        unknownData.fill(0xff)
+
+        expect(packet.data.username).toBe("remote")
+        expect(packet.data.service_name).toBe("ssh-connection")
+        expect(method.data).toEqual(Buffer.from("deadbeef", "hex"))
+    })
+
+    test("revalidates mutable authentication envelope text at serialization", () => {
+        const packet = UserAuthRequest.parse(unknownRequest)
+        packet.data.username = "\ud800"
+        expect(() => packet.serialize()).toThrow("SSH username is not valid UTF-8 text")
+
+        packet.data.username = "remote"
+        packet.data.service_name = "ssh,connection"
+        expect(() => packet.serialize()).toThrow("SSH service name must not contain a comma")
+    })
+
     test("parses and serializes an independently written RFC 8332 RSA SHA-512 request", () => {
         const packet = UserAuthRequest.parse(rsaSha512Request)
         const method = packet.data.method as PublicKeyAuthMethod
