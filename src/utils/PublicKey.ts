@@ -5,6 +5,8 @@ import asn1js from "asn1js"
 import crypto, { createHash, ECDH, type JsonWebKey } from "crypto"
 import { ed448 } from "@noble/curves/ed448.js"
 import nacl from "tweetnacl"
+import { decodeBigIntBE } from "./BigInt.js"
+import { parseBufferToMpintBuffer } from "./mpint.js"
 import {
     dsaParametersFromPublicKey,
     type DSAParameters,
@@ -672,9 +674,18 @@ export class SSHRSAPublicKey implements PublicKeyAlgoritm {
     static has_encryption = false
     static has_signature = true
 
-    data: SSHRSAData
+    readonly data: SSHRSAData
     constructor(data: SSHRSAData) {
-        this.data = data
+        parseBufferToMpintBuffer(data.publicExponent)
+        parseBufferToMpintBuffer(data.modulus)
+        const publicExponent = decodeBigIntBE(data.publicExponent)
+        const modulus = decodeBigIntBE(data.modulus)
+        assert(publicExponent >= 3n && (publicExponent & 1n) === 1n, "Invalid RSA public exponent")
+        assert(modulus > publicExponent && (modulus & 1n) === 1n, "Invalid RSA modulus")
+        this.data = {
+            publicExponent: Buffer.from(data.publicExponent),
+            modulus: Buffer.from(data.modulus),
+        }
     }
 
     // encode the public key to PKCS#1 in PEM

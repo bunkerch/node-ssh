@@ -19,6 +19,7 @@ import PublicKey, {
 } from "./PublicKey.js"
 import nacl from "tweetnacl"
 import {
+    checkPrimeSync,
     createECDH,
     createPrivateKey,
     createSign,
@@ -35,7 +36,7 @@ import {
     getOpenSSHPrivateKeyCipherBlockLength,
     type OpenSSHPrivateKeyEncryptionOptions,
 } from "./OpenSSHPrivateKeyCipher.js"
-import { serializeMpintBufferToBuffer } from "./mpint.js"
+import { parseBufferToMpintBuffer, serializeMpintBufferToBuffer } from "./mpint.js"
 import {
     dsaParametersFromPrivateKey,
     signDSA,
@@ -687,9 +688,37 @@ export interface SSHRSAPrivateKeyData {
 export class SSHRSAPrivateKey implements PrivateKeyAlgorithm {
     static alg_name = "ssh-rsa"
 
-    data: SSHRSAPrivateKeyData
+    readonly data: SSHRSAPrivateKeyData
     constructor(data: SSHRSAPrivateKeyData) {
-        this.data = data
+        for (const value of Object.values(data)) parseBufferToMpintBuffer(value)
+        const modulus = decodeBigIntBE(data.modulus)
+        const publicExponent = decodeBigIntBE(data.publicExponent)
+        const privateExponent = decodeBigIntBE(data.privateExponent)
+        const p = decodeBigIntBE(data.p)
+        const q = decodeBigIntBE(data.q)
+        const iqmp = decodeBigIntBE(data.iqmp)
+        new SSHRSAPublicKey({ modulus: data.modulus, publicExponent: data.publicExponent })
+        assert(
+            p > 2n && q > 2n && p !== q && (p & 1n) === 1n && (q & 1n) === 1n,
+            "Invalid RSA primes",
+        )
+        assert(
+            checkPrimeSync(unsignedInteger(data.p), { checks: 64 }) &&
+                checkPrimeSync(unsignedInteger(data.q), { checks: 64 }),
+            "Invalid RSA primes",
+        )
+        assert(p * q === modulus, "RSA modulus does not match its prime factors")
+        assert((iqmp * q) % p === 1n, "Invalid RSA inverse coefficient")
+        const lambda = ((p - 1n) / greatestCommonDivisor(p - 1n, q - 1n)) * (q - 1n)
+        assert((privateExponent * publicExponent) % lambda === 1n, "Invalid RSA private exponent")
+        this.data = {
+            modulus: Buffer.from(data.modulus),
+            publicExponent: Buffer.from(data.publicExponent),
+            privateExponent: Buffer.from(data.privateExponent),
+            iqmp: Buffer.from(data.iqmp),
+            p: Buffer.from(data.p),
+            q: Buffer.from(data.q),
+        }
     }
 
     sign(data: Buffer, algorithm = SSHRSAPrivateKey.alg_name): EncodedSignature {
@@ -961,6 +990,11 @@ export class SSHRSAPrivateKey implements PrivateKeyAlgorithm {
     }
 }
 PrivateKey.algorithms.set(SSHRSAPrivateKey.alg_name, SSHRSAPrivateKey)
+
+function greatestCommonDivisor(a: bigint, b: bigint): bigint {
+    while (b !== 0n) [a, b] = [b, a % b]
+    return a
+}
 
 export interface SSHECDSAPrivateKeyData {
     publicKey: Buffer

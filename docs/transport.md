@@ -265,6 +265,12 @@ explicitly. Initial key exchange also advertises RFC 8308 extension negotiation;
 `server-sig-algs` immediately after `NEWKEYS` so clients can select an accepted user-authentication
 signature without guessing.
 
+RSA key import requires canonical positive SSH mpints and validates the public exponent and odd
+modulus. Private import additionally applies native probable-prime tests, checks both factors against
+the modulus, and verifies the CRT inverse and private exponent congruence before copying every
+retained component. Later mutation of input buffers cannot change the serialized identity or signing
+key.
+
 RFC 8709 public keys have fixed widths: `ssh-ed25519` contains exactly 32 key octets and `ssh-ed448`
 contains exactly 57. Their signatures contain 64 and 114 octets respectively. Parsing rejects
 trailing fields and incorrect lengths, while verification rejects incorrect signature names or
