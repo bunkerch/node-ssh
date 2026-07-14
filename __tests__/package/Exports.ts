@@ -334,7 +334,7 @@ describe("package exports", () => {
                     "--input-type=module",
                     "--eval",
                     `
-                    const { Client, createSocketAgent, CygwinAgent, CygwinAgentError, generateKeyPair, generateKeyPairSync, KnownHosts, MAX_OPENSSH_AGENT_SESSION_BINDINGS, MAX_SSH_AGENT_MESSAGE_LENGTH, OPENSSH_AGENT_SESSION_BIND, parseKey, PrivateKey, PrivateKeyAgent, SSHAgentConstraintType, SSHAgentExtensionFailureError, SSHAgentMessageType, SSHAgentProtocolClient, SSHAgentProtocolError, SSHAgentProtocolServer } = await import("modernssh")
+                    const { Client, createSocketAgent, CygwinAgent, CygwinAgentError, EncodedSignature, generateKeyPair, generateKeyPairSync, KnownHosts, MAX_OPENSSH_AGENT_SESSION_BINDINGS, MAX_SSH_AGENT_MESSAGE_LENGTH, OPENSSH_AGENT_SESSION_BIND, parseKey, PrivateKey, PrivateKeyAgent, PublicKey, SSH_ED25519_SECURITY_KEY_ALGORITHM, SSHAgentConstraintType, SSHAgentExtensionFailureError, SSHAgentMessageType, SSHAgentProtocolClient, SSHAgentProtocolError, SSHAgentProtocolServer, SSHED25519SecurityKeyPublicKey } = await import("modernssh")
                     const { privateKey, publicKey } = await generateKeyPair("ed25519", {
                         comment: "packed@example.test",
                     })
@@ -371,6 +371,11 @@ describe("package exports", () => {
                     if (typeof CygwinAgent !== "function" || typeof CygwinAgentError !== "function" || typeof createSocketAgent !== "function") process.exit(19)
                     if (SSHAgentMessageType.ExtensionResponse !== 29 || SSHAgentConstraintType.Extension !== 255 || typeof SSHAgentExtensionFailureError !== "function") process.exit(21)
                     if (OPENSSH_AGENT_SESSION_BIND !== "session-bind@openssh.com" || MAX_OPENSSH_AGENT_SESSION_BINDINGS !== 16) process.exit(22)
+                    const securityKey = PublicKey.parse(Buffer.from("0000001a736b2d7373682d65643235353139406f70656e7373682e636f6d00000020d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a000000087373683a74657374", "hex"))
+                    const securityKeySignature = EncodedSignature.parse(Buffer.from("0000001a736b2d7373682d65643235353139406f70656e7373682e636f6d00000040f2330a0e0f6b9da42b530f7e14a4bb4db0832754452a0bdb90c002f6c922508ead849b2fb57a5552fcd92d407616d7347dafb9335e1e46a806f01de7bcd2d10f010000002a", "hex"))
+                    if (!(securityKey.data.algorithm instanceof SSHED25519SecurityKeyPublicKey)) process.exit(23)
+                    if (SSH_ED25519_SECURITY_KEY_ALGORITHM !== "sk-ssh-ed25519@openssh.com") process.exit(24)
+                    if (!securityKey.verifySignature(Buffer.from("security-key-message"), securityKeySignature)) process.exit(25)
                     const originalPlatform = process.platform
                     Object.defineProperty(process, "platform", { configurable: true, value: "win32" })
                     const selectedAgent = createSocketAgent("C:/cygwin/tmp/agent.socket")

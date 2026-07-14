@@ -43,6 +43,7 @@ import {
     createPacketDecompressor,
     describeNegotiatedAlgorithms,
     host_key_algorithms,
+    public_key_signature_algorithms,
     type CompressionAlgorithm,
     type HostKeyAlgorithm,
 } from "./algorithms.js"
@@ -876,9 +877,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                             {
                                 name: "server-sig-algs",
                                 value: Buffer.from(
-                                    [...host_key_algorithms.keys()]
-                                        .filter((name) => name !== "null")
-                                        .join(","),
+                                    public_key_signature_algorithms.join(","),
                                     "ascii",
                                 ),
                             },

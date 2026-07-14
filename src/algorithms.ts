@@ -58,6 +58,11 @@ import Client from "./Client.js"
 import ServerClient from "./ServerClient.js"
 import assert from "assert"
 import PublicKey from "./utils/PublicKey.js"
+import {
+    SSH_ECDSA_SECURITY_KEY_ALGORITHM,
+    SSH_ED25519_SECURITY_KEY_ALGORITHM,
+    SSH_WEBAUTHN_ECDSA_SECURITY_KEY_ALGORITHM,
+} from "./utils/Signature.js"
 import type { NegotiatedAlgorithms, ResolvedAlgorithmOptions } from "./AlgorithmOptions.js"
 import type { InboundPacketProtection, OutboundPacketProtection } from "./BinaryPacket.js"
 import { MAXIMUM_BINARY_PACKET_SIZE } from "./BinaryPacket.js"
@@ -182,6 +187,22 @@ export const host_key_algorithms = new Map<string, HostKeyAlgorithm>([
             "ssh-dss",
         ),
     ],
+])
+
+function securityKeyCertificateAlgorithm(algorithm: string): string {
+    const suffix = "@openssh.com"
+    assert(algorithm.endsWith(suffix))
+    return `${algorithm.slice(0, -suffix.length)}-cert-v01@openssh.com`
+}
+
+export const public_key_signature_algorithms: readonly string[] = Object.freeze([
+    ...host_key_algorithms.keys().filter((name) => name !== "null"),
+    SSH_ED25519_SECURITY_KEY_ALGORITHM,
+    securityKeyCertificateAlgorithm(SSH_ED25519_SECURITY_KEY_ALGORITHM),
+    SSH_ECDSA_SECURITY_KEY_ALGORITHM,
+    securityKeyCertificateAlgorithm(SSH_ECDSA_SECURITY_KEY_ALGORITHM),
+    SSH_WEBAUTHN_ECDSA_SECURITY_KEY_ALGORITHM,
+    securityKeyCertificateAlgorithm(SSH_WEBAUTHN_ECDSA_SECURITY_KEY_ALGORITHM),
 ])
 
 export abstract class KexAlgorithm {

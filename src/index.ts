@@ -271,12 +271,16 @@ export {
     PublicKeyAlgoritm,
     PublicKeyAlgoritm as PublicKeyAlgorithm,
     SSHCertificatePublicKey,
+    SSHECDSASecurityKeyPublicKey,
+    SSHED25519SecurityKeyPublicKey,
 } from "./utils/PublicKey.js"
 export type {
     PublicKeyData,
+    SSHECDSASecurityKeyPublicKeyData,
     SSHCertificateData,
     SSHCertificateOption,
     SSHCertificateRole,
+    SSHED25519SecurityKeyPublicKeyData,
 } from "./utils/PublicKey.js"
 export { default as PrivateKey, PrivateKeyAlgorithm } from "./utils/PrivateKey.js"
 export type { PrivateKeyData } from "./utils/PrivateKey.js"
@@ -288,8 +292,17 @@ export type {
 } from "./utils/OpenSSHPrivateKeyCipher.js"
 export { generateKeyPair, generateKeyPairSync } from "./KeyGeneration.js"
 export type { GeneratedKeyPair, GenerateKeyPairOptions, KeyPairType } from "./KeyGeneration.js"
-export { default as EncodedSignature } from "./utils/Signature.js"
-export type { EncodedSignatureData } from "./utils/Signature.js"
+export {
+    default as EncodedSignature,
+    SSH_ECDSA_SECURITY_KEY_ALGORITHM,
+    SSH_ED25519_SECURITY_KEY_ALGORITHM,
+    SSH_WEBAUTHN_ECDSA_SECURITY_KEY_ALGORITHM,
+} from "./utils/Signature.js"
+export type {
+    EncodedSecurityKeySignatureData,
+    EncodedSignatureData,
+    EncodedWebAuthnSignatureData,
+} from "./utils/Signature.js"
 export type {
     AlgorithmListChanges,
     AlgorithmMatcher,

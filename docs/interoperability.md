@@ -132,6 +132,13 @@ reads. A separate integration test starts the system OpenSSH `ssh-agent`, loads 
 generated Ed25519 key with `ssh-add`, lists it through `modernssh`, and verifies a delegated
 signature cryptographically.
 
+Security-key coverage uses fixed Ed25519, P-256, and WebAuthn wire values derived independently from
+the published FIDO/U2F format. Negative cases change the signed counter, WebAuthn challenge,
+authenticator-data flag, origin, and extension-present state. The system `ssh-keygen` issues both
+security-key certificate types; the library parses their exact vendor algorithm names and verifies
+the certificate authority signature. An in-process non-interactive agent completes host-bound
+public-key authentication with a security-key signature through the awaited server policy hook.
+
 Legacy Cygwin transport coverage uses the
 [socket descriptor and security exchange published by Cygwin's maintainers](https://cygwin.com/pipermail/cygwin-developers/2014-May/011417.html).
 A loopback TCP fixture verifies the exact per-uint32 byte order of the

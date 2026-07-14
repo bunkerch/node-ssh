@@ -1,6 +1,18 @@
 import assert from "assert"
-import { readNextBuffer, readNextUint32, readNextUint64, serializeBuffer } from "./Buffer.js"
-import EncodedSignature from "./Signature.js"
+import {
+    readNextBuffer,
+    readNextUint32,
+    readNextUint64,
+    serializeBuffer,
+    serializeUint8,
+    serializeUint32,
+} from "./Buffer.js"
+import EncodedSignature, {
+    SSH_ECDSA_SECURITY_KEY_ALGORITHM,
+    SSH_ED25519_SECURITY_KEY_ALGORITHM,
+    SSH_WEBAUTHN_ECDSA_SECURITY_KEY_ALGORITHM,
+    type EncodedSecurityKeySignatureData,
+} from "./Signature.js"
 import asn1js from "asn1js"
 import crypto, { createHash, ECDH, type JsonWebKey } from "crypto"
 import { ed448 } from "@noble/curves/ed448.js"
@@ -8,7 +20,7 @@ import nacl from "tweetnacl"
 import { decodeBigIntBE } from "./BigInt.js"
 import { parseBufferToMpintBuffer } from "./mpint.js"
 import { decodeSSHName, encodeSSHName } from "./SSHName.js"
-import { encodeSSHUTF8 } from "./SSHText.js"
+import { decodeSSHUTF8, encodeSSHUTF8 } from "./SSHText.js"
 import {
     dsaParametersFromPublicKey,
     type DSAParameters,
@@ -87,9 +99,24 @@ export default class PublicKey {
             const suffix = this.data.alg.endsWith(CERTIFICATE_SUFFIX)
                 ? CERTIFICATE_SUFFIX
                 : STANDARD_CERTIFICATE_SUFFIX
+            if (
+                this.data.algorithm.publicKey.data.algorithm instanceof SSHECDSASecurityKeyPublicKey
+            ) {
+                return [
+                    suffix === CERTIFICATE_SUFFIX
+                        ? securityKeyCertificateAlgorithm(SSH_ECDSA_SECURITY_KEY_ALGORITHM)
+                        : `${SSH_ECDSA_SECURITY_KEY_ALGORITHM}${suffix}`,
+                    suffix === CERTIFICATE_SUFFIX
+                        ? securityKeyCertificateAlgorithm(SSH_WEBAUTHN_ECDSA_SECURITY_KEY_ALGORITHM)
+                        : `${SSH_WEBAUTHN_ECDSA_SECURITY_KEY_ALGORITHM}${suffix}`,
+                ]
+            }
             return this.data.algorithm.publicKey.data.alg === SSHRSAPublicKey.alg_name
                 ? [`rsa-sha2-512${suffix}`, `rsa-sha2-256${suffix}`, this.data.alg]
                 : [this.data.alg]
+        }
+        if (this.data.algorithm instanceof SSHECDSASecurityKeyPublicKey) {
+            return [SSH_ECDSA_SECURITY_KEY_ALGORITHM, SSH_WEBAUTHN_ECDSA_SECURITY_KEY_ALGORITHM]
         }
         return this.data.alg === SSHRSAPublicKey.alg_name
             ? ["rsa-sha2-512", "rsa-sha2-256", SSHRSAPublicKey.alg_name]
@@ -113,6 +140,12 @@ export default class PublicKey {
         )
         if (!(this.data.algorithm instanceof SSHCertificatePublicKey)) return algorithm
         if (algorithm === this.data.alg) return this.data.algorithm.publicKey.data.alg
+        if (algorithm.endsWith(CERTIFICATE_SUFFIX) && algorithm.startsWith("sk-")) {
+            return `${algorithm.slice(0, -CERTIFICATE_SUFFIX.length)}@openssh.com`
+        }
+        if (algorithm.endsWith(CERTIFICATE_SUFFIX) && algorithm.startsWith("webauthn-sk-")) {
+            return `${algorithm.slice(0, -CERTIFICATE_SUFFIX.length)}@openssh.com`
+        }
         const suffix = algorithm.endsWith(CERTIFICATE_SUFFIX)
             ? CERTIFICATE_SUFFIX
             : STANDARD_CERTIFICATE_SUFFIX
@@ -121,7 +154,12 @@ export default class PublicKey {
     }
 
     verifySignature(data: Buffer, signature: EncodedSignature): boolean {
-        return this.data.algorithm.verifySignature(data, signature.data.data, signature.data.alg)
+        return this.data.algorithm.verifySignature(
+            data,
+            signature.data.data,
+            signature.data.alg,
+            signature.data.securityKey,
+        )
     }
 
     toString(): string {
@@ -307,7 +345,22 @@ export interface SSHCertificateData {
 
 const CERTIFICATE_SUFFIX = "-cert-v01@openssh.com"
 const STANDARD_CERTIFICATE_SUFFIX = "-cert"
+const OPENSSH_ALGORITHM_SUFFIX = "@openssh.com"
+
+function securityKeyCertificateAlgorithm(algorithm: string): string {
+    assert(algorithm.endsWith(OPENSSH_ALGORITHM_SUFFIX))
+    return `${algorithm.slice(0, -OPENSSH_ALGORITHM_SUFFIX.length)}${CERTIFICATE_SUFFIX}`
+}
+
 const CERTIFICATE_KEY_ALGORITHMS = new Map<string, string>([
+    [
+        securityKeyCertificateAlgorithm(SSH_ED25519_SECURITY_KEY_ALGORITHM),
+        SSH_ED25519_SECURITY_KEY_ALGORITHM,
+    ],
+    [
+        securityKeyCertificateAlgorithm(SSH_ECDSA_SECURITY_KEY_ALGORITHM),
+        SSH_ECDSA_SECURITY_KEY_ALGORITHM,
+    ],
     [`ssh-ed25519${CERTIFICATE_SUFFIX}`, "ssh-ed25519"],
     [`ssh-rsa${CERTIFICATE_SUFFIX}`, "ssh-rsa"],
     [`ssh-dss${CERTIFICATE_SUFFIX}`, "ssh-dss"],
@@ -366,8 +419,18 @@ export class SSHCertificatePublicKey implements PublicKeyAlgoritm {
         )
     }
 
-    verifySignature(data: Buffer, signature: Buffer, algorithm?: string): boolean {
-        return this.publicKey.data.algorithm.verifySignature(data, signature, algorithm)
+    verifySignature(
+        data: Buffer,
+        signature: Buffer,
+        algorithm?: string,
+        securityKey?: EncodedSecurityKeySignatureData,
+    ): boolean {
+        return this.publicKey.data.algorithm.verifySignature(
+            data,
+            signature,
+            algorithm,
+            securityKey,
+        )
     }
 
     serialize(): Buffer {
@@ -447,11 +510,15 @@ export class SSHCertificatePublicKey implements PublicKeyAlgoritm {
 
 function parseCertifiedPublicKey(keyAlgorithm: string, raw: Buffer): [PublicKey, Buffer] {
     const fields =
-        keyAlgorithm === "ssh-ed25519" || keyAlgorithm === "ssh-ed448"
-            ? 1
-            : keyAlgorithm === "ssh-rsa" || keyAlgorithm.startsWith("ecdsa-")
-              ? 2
-              : 4
+        keyAlgorithm === SSH_ED25519_SECURITY_KEY_ALGORITHM
+            ? 2
+            : keyAlgorithm === SSH_ECDSA_SECURITY_KEY_ALGORITHM
+              ? 3
+              : keyAlgorithm === "ssh-ed25519" || keyAlgorithm === "ssh-ed448"
+                ? 1
+                : keyAlgorithm === "ssh-rsa" || keyAlgorithm.startsWith("ecdsa-")
+                  ? 2
+                  : 4
     const fieldBuffers: Buffer[] = []
     let remaining = raw
     for (let index = 0; index < fields; index++) {
@@ -529,8 +596,13 @@ export abstract class PublicKeyAlgoritm {
         throw new Error("Not implemented")
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    verifySignature(data: Buffer, signature: Buffer, algorithm?: string): boolean {
+    verifySignature(
+        data: Buffer,
+        signature: Buffer,
+        algorithm?: string,
+        securityKey?: EncodedSecurityKeySignatureData,
+    ): boolean {
+        void securityKey
         throw new Error("Not implemented")
     }
 
@@ -929,3 +1001,209 @@ function registerECDSAPublicKey(curve: ECDSACurve): void {
 }
 
 for (const curve of ECDSA_CURVES) registerECDSAPublicKey(curve)
+
+function encodeSecurityKeyApplication(application: string): Buffer {
+    const encoded = encodeSSHUTF8(application, "security-key application")
+    assert(encoded.length > 0, "Security-key application must not be empty")
+    assert(!encoded.includes(0), "Security-key application must not contain NUL")
+    return encoded
+}
+
+function securityKeySignedData(
+    application: string,
+    data: Buffer,
+    details: EncodedSecurityKeySignatureData,
+    webAuthn: boolean,
+): Buffer {
+    let extensions: Buffer = Buffer.alloc(0)
+    let messageHash: Buffer
+    if (webAuthn) {
+        const metadata = details.webAuthn
+        assert(metadata, "Missing WebAuthn signature metadata")
+        const origin = encodeSSHUTF8(metadata.origin, "WebAuthn signature origin")
+        assert(!origin.includes(0), "WebAuthn signature origin must not contain NUL")
+        assert(!origin.includes(0x22), "WebAuthn origin must not contain a quote")
+        assert(Buffer.isBuffer(metadata.clientData), "WebAuthn client data must be a buffer")
+        assert(Buffer.isBuffer(metadata.extensions), "WebAuthn extensions must be a buffer")
+        assert((details.flags & 0x40) === 0, "WebAuthn authenticator-data flag is not permitted")
+        assert(
+            ((details.flags & 0x80) !== 0) === (metadata.extensions.length !== 0),
+            "WebAuthn extension flag does not match the extension data",
+        )
+        const preamble = Buffer.from(
+            `{"type":"webauthn.get","challenge":"${data.toString("base64url")}","origin":"${origin.toString("utf8")}"`,
+        )
+        assert(
+            metadata.clientData.subarray(0, preamble.length).equals(preamble),
+            "WebAuthn client data does not contain the signed SSH message",
+        )
+        extensions = metadata.extensions
+        messageHash = createHash("sha256").update(metadata.clientData).digest()
+    } else {
+        assert(details.webAuthn === undefined, "Unexpected WebAuthn signature metadata")
+        messageHash = createHash("sha256").update(data).digest()
+    }
+    return Buffer.concat([
+        createHash("sha256").update(encodeSecurityKeyApplication(application)).digest(),
+        serializeUint8(details.flags),
+        serializeUint32(details.counter),
+        extensions,
+        messageHash,
+    ])
+}
+
+export interface SSHED25519SecurityKeyPublicKeyData {
+    publicKey: Buffer
+    application: string
+}
+
+export class SSHED25519SecurityKeyPublicKey implements PublicKeyAlgoritm {
+    static alg_name = SSH_ED25519_SECURITY_KEY_ALGORITHM
+    static has_encryption = false
+    static has_signature = true
+
+    readonly data: SSHED25519SecurityKeyPublicKeyData
+
+    constructor(data: SSHED25519SecurityKeyPublicKeyData) {
+        new SSHED25519PublicKey({ publicKey: data.publicKey })
+        encodeSecurityKeyApplication(data.application)
+        this.data = {
+            publicKey: Buffer.from(data.publicKey),
+            application: data.application,
+        }
+    }
+
+    verifySignature(
+        data: Buffer,
+        signature: Buffer,
+        algorithm = SSH_ED25519_SECURITY_KEY_ALGORITHM,
+        securityKey?: EncodedSecurityKeySignatureData,
+    ): boolean {
+        if (
+            algorithm !== SSH_ED25519_SECURITY_KEY_ALGORITHM ||
+            securityKey === undefined ||
+            securityKey.webAuthn !== undefined
+        ) {
+            return false
+        }
+        try {
+            return new SSHED25519PublicKey({ publicKey: this.data.publicKey }).verifySignature(
+                securityKeySignedData(this.data.application, data, securityKey, false),
+                signature,
+            )
+        } catch {
+            return false
+        }
+    }
+
+    serialize(): Buffer {
+        new SSHED25519PublicKey({ publicKey: this.data.publicKey })
+        return Buffer.concat([
+            serializeBuffer(this.data.publicKey),
+            serializeBuffer(encodeSecurityKeyApplication(this.data.application)),
+        ])
+    }
+
+    equals(other: PublicKeyAlgoritm): boolean {
+        return (
+            other instanceof SSHED25519SecurityKeyPublicKey &&
+            this.data.publicKey.equals(other.data.publicKey) &&
+            this.data.application === other.data.application
+        )
+    }
+
+    static parse(raw: Buffer): SSHED25519SecurityKeyPublicKey {
+        let publicKey: Buffer
+        let application: Buffer
+        ;[publicKey, raw] = readNextBuffer(raw)
+        ;[application, raw] = readNextBuffer(raw)
+        assert(raw.length === 0, "Unexpected Ed25519 security-key data")
+        return new SSHED25519SecurityKeyPublicKey({
+            publicKey,
+            application: decodeSSHUTF8(application, "security-key application"),
+        })
+    }
+}
+PublicKey.algorithms.set(SSHED25519SecurityKeyPublicKey.alg_name, SSHED25519SecurityKeyPublicKey)
+
+export interface SSHECDSASecurityKeyPublicKeyData {
+    publicKey: Buffer
+    application: string
+}
+
+export class SSHECDSASecurityKeyPublicKey implements PublicKeyAlgoritm {
+    static alg_name = SSH_ECDSA_SECURITY_KEY_ALGORITHM
+    static has_encryption = false
+    static has_signature = true
+
+    readonly data: SSHECDSASecurityKeyPublicKeyData
+
+    constructor(data: SSHECDSASecurityKeyPublicKeyData) {
+        new SSHECDSAPublicKey(ECDSA_CURVES[0], {
+            publicKey: data.publicKey,
+        })
+        encodeSecurityKeyApplication(data.application)
+        this.data = {
+            publicKey: Buffer.from(data.publicKey),
+            application: data.application,
+        }
+    }
+
+    verifySignature(
+        data: Buffer,
+        signature: Buffer,
+        algorithm = SSH_ECDSA_SECURITY_KEY_ALGORITHM,
+        securityKey?: EncodedSecurityKeySignatureData,
+    ): boolean {
+        const webAuthn = algorithm === SSH_WEBAUTHN_ECDSA_SECURITY_KEY_ALGORITHM
+        if (
+            (algorithm !== SSH_ECDSA_SECURITY_KEY_ALGORITHM && !webAuthn) ||
+            securityKey === undefined
+        ) {
+            return false
+        }
+        try {
+            return new SSHECDSAPublicKey(ECDSA_CURVES[0], {
+                publicKey: this.data.publicKey,
+            }).verifySignature(
+                securityKeySignedData(this.data.application, data, securityKey, webAuthn),
+                signature,
+            )
+        } catch {
+            return false
+        }
+    }
+
+    serialize(): Buffer {
+        new SSHECDSAPublicKey(ECDSA_CURVES[0], { publicKey: this.data.publicKey })
+        return Buffer.concat([
+            serializeBuffer(Buffer.from(ECDSA_CURVES[0].identifier, "ascii")),
+            serializeBuffer(this.data.publicKey),
+            serializeBuffer(encodeSecurityKeyApplication(this.data.application)),
+        ])
+    }
+
+    equals(other: PublicKeyAlgoritm): boolean {
+        return (
+            other instanceof SSHECDSASecurityKeyPublicKey &&
+            this.data.publicKey.equals(other.data.publicKey) &&
+            this.data.application === other.data.application
+        )
+    }
+
+    static parse(raw: Buffer): SSHECDSASecurityKeyPublicKey {
+        let identifier: Buffer
+        let publicKey: Buffer
+        let application: Buffer
+        ;[identifier, raw] = readNextBuffer(raw)
+        ;[publicKey, raw] = readNextBuffer(raw)
+        ;[application, raw] = readNextBuffer(raw)
+        assert(raw.length === 0, "Unexpected ECDSA security-key data")
+        assert(identifier.equals(Buffer.from(ECDSA_CURVES[0].identifier, "ascii")))
+        return new SSHECDSASecurityKeyPublicKey({
+            publicKey,
+            application: decodeSSHUTF8(application, "security-key application"),
+        })
+    }
+}
+PublicKey.algorithms.set(SSHECDSASecurityKeyPublicKey.alg_name, SSHECDSASecurityKeyPublicKey)

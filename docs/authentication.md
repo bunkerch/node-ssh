@@ -258,6 +258,48 @@ ECDSA identities on `nistp256`, `nistp384`, and `nistp521` use the matching RFC 
 and SHA-2 hash. Disk-backed OpenSSH ECDSA keys and delegated agent signatures use the same public-key
 authentication path as Ed25519 and RSA identities.
 
+### Security-key identities
+
+The public-key and certificate parsers accept the published FIDO/U2F identity formats
+`sk-ssh-ed25519@openssh.com` and `sk-ecdsa-sha2-nistp256@openssh.com`. An `Agent` implementation may
+return either identity from `getPublicKeys()` and provide its hardware-backed signature from
+`sign()`; the normal public-key and host-bound authentication paths then preserve the signed flags
+and counter. The server advertises these signature algorithms through `server-sig-algs`, including
+the WebAuthn ECDSA signature form.
+
+`EncodedSignature.data.securityKey` exposes the authenticator flags and counter. WebAuthn ECDSA
+signatures additionally expose the origin, client-data wrapper, and extension bytes. Verification
+checks the application hash, flags, counter, message challenge, origin prefix, extension-present
+flag, and underlying Ed25519 or P-256 signature. Buffers are copied when parsed or constructed and
+mutable metadata is revalidated before serialization or verification.
+
+Cryptographic verification does not decide an application's authentication policy. In particular,
+a security-key identity is still one authentication factor. A server that requires evidence such
+as user presence must inspect the authenticated flags before allowing login:
+
+```ts
+server.hooker.hook("publicKeyAuthentication", async (_hook, context, decision) => {
+    if (!context.signature) {
+        decision.requestSignature = true
+        return
+    }
+
+    const securityKey = context.signature.data.securityKey
+    if (!securityKey || (securityKey.flags & 0x01) === 0) return
+    if (!context.publicKey.verifySignature(context.signatureMessage, context.signature)) return
+
+    decision.allowLogin = await authorizeSecurityKeyCounter({
+        username: context.username,
+        publicKey: context.publicKey,
+        counter: securityKey.counter,
+    })
+})
+```
+
+The library parses public identities, certificates, and signatures and supports delegated signing
+through `Agent`; it does not enroll authenticators or retain hardware key handles. Those operations
+belong in a FIDO provider used by the application or agent.
+
 Historical RFC 4253 DSS identities are available as `ssh-dss` for explicitly configured legacy
 peers. They use only DSA-1024 with SHA-1 and are excluded from normal algorithm offers. Do not
 enable them for new credentials; prefer Ed25519, ECDSA, or RSA SHA-2.
