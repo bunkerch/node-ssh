@@ -24,7 +24,11 @@ export default class KeyboardInteractiveAuthMethod implements AuthMethod {
         return KeyboardInteractiveAuthMethod.method_name
     }
 
-    constructor(public data: KeyboardInteractiveAuthMethodData) {}
+    data: KeyboardInteractiveAuthMethodData
+
+    constructor(data: KeyboardInteractiveAuthMethodData) {
+        this.data = { languageTag: data.languageTag, submethods: data.submethods }
+    }
 
     serialize(): Buffer {
         return Buffer.concat([

@@ -7,6 +7,9 @@ import UserAuthPKOK from "../../src/packets/UserAuthPKOK.js"
 import UserAuthRequest, { UnknownAuthMethod } from "../../src/packets/UserAuthRequest.js"
 import PublicKeyAuthMethod, { HostboundPublicKeyAuthMethod } from "../../src/auth/publickey.js"
 import HostbasedAuthMethod from "../../src/auth/hostbased.js"
+import PasswordAuthMethod from "../../src/auth/password.js"
+import KeyboardInteractiveAuthMethod from "../../src/auth/keyboard-interactive.js"
+import NoneAuthMethod from "../../src/auth/none.js"
 import type Client from "../../src/Client.js"
 
 const banner = Buffer.from(
@@ -285,6 +288,53 @@ describe("RFC 4252 and RFC 4256 authentication vectors", () => {
         expect(packet.data.username).toBe("remote")
         expect(packet.data.service_name).toBe("ssh-connection")
         expect(method.data).toEqual(Buffer.from("deadbeef", "hex"))
+    })
+
+    test("does not retain password or keyboard-interactive method metadata", () => {
+        const passwordInput = {
+            change_password: true,
+            password: "old",
+            newPassword: "new",
+        }
+        const password = new PasswordAuthMethod(passwordInput)
+        passwordInput.change_password = false
+        passwordInput.password = "changed"
+        passwordInput.newPassword = "changed"
+        expect(password.data).toEqual({
+            change_password: true,
+            password: "old",
+            newPassword: "new",
+        })
+
+        const interactiveInput = { languageTag: "en-US", submethods: "otp,password" }
+        const interactive = new KeyboardInteractiveAuthMethod(interactiveInput)
+        interactiveInput.languageTag = "fr"
+        interactiveInput.submethods = "password"
+        expect(interactive.data).toEqual({ languageTag: "en-US", submethods: "otp,password" })
+
+        const none = new NoneAuthMethod({})
+        expect(none.data).toEqual({})
+        expect(() => new NoneAuthMethod({ future: true } as never)).toThrow(
+            "None authentication does not accept metadata",
+        )
+    })
+
+    test("revalidates mutable authentication method text at serialization", () => {
+        const password = new PasswordAuthMethod({
+            change_password: false,
+            password: "secret",
+        })
+        password.data.password = "\ud800"
+        expect(() => password.serialize()).toThrow("SSH password is not valid UTF-8 text")
+
+        const interactive = new KeyboardInteractiveAuthMethod({
+            languageTag: "",
+            submethods: "otp",
+        })
+        interactive.data.submethods = "otp,,password"
+        expect(() => interactive.serialize()).toThrow(
+            "SSH name-list entry must be 1 to 64 printable US-ASCII characters",
+        )
     })
 
     test("revalidates mutable authentication envelope text at serialization", () => {

@@ -142,6 +142,9 @@ meaningful wire-level behavior.
   selection follows the peer's wire message.
 - Snapshot banner, password-change, and keyboard-interactive packet metadata, including nested
   prompt objects and response arrays. Revalidate mutable public packet fields when serializing.
+- Authentication method constructors snapshot password and keyboard-interactive metadata before a
+  request retains them. Keep the deliberate signature slot mutable only where signing occurs after
+  the public-key request envelope is assembled.
 - An awaited client keyboard-interactive hook enables that method only when the caller did not
   provide an explicit authentication order. Resolve this at connect time without mutating retained
   options; explicit orders remain strict allow-lists across every partial-success stage.

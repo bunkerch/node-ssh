@@ -15,8 +15,9 @@ export default class NoneAuthMethod implements AuthMethod {
     }
 
     data: NoneAuthMethodData
-    constructor(data: NoneAuthMethodData) {
-        this.data = data
+    constructor(data: NoneAuthMethodData = {}) {
+        assert(Object.keys(data).length === 0, "None authentication does not accept metadata")
+        this.data = {}
     }
 
     serialize(): Buffer {

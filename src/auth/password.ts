@@ -24,7 +24,11 @@ export default class PasswordAuthMethod implements AuthMethod {
 
     data: PasswordAuthMethodData
     constructor(data: PasswordAuthMethodData) {
-        this.data = data
+        this.data = {
+            change_password: data.change_password,
+            password: data.password,
+            newPassword: data.newPassword,
+        }
     }
 
     serialize(): Buffer {
