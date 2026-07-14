@@ -146,6 +146,10 @@ transport EOF through `end` before terminal `close` cleanup.
 Server admission integration verifies that the public connection event receives an immutable
 snapshot of both TCP endpoints and retains it after the peer closes.
 
+Server shell integration verifies RFC 4254 directional half-close semantics: ending stdout sends
+EOF without CLOSE, the client sends additional stdin afterward, and explicit close then completes
+the channel lifecycle.
+
 An independently written unknown message is also sent in both directions over an encrypted
 in-process connection; each peer returns the exact rejected sequence in `SSH_MSG_UNIMPLEMENTED` and
 continues with later traffic. The system OpenSSH client independently returns the same response to

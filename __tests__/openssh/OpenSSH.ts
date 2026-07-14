@@ -354,7 +354,7 @@ describe("OpenSSH interoperability", () => {
                 })
                 channel.events.on("exec", (_command, shell) => {
                     shell.stdout.write("keyboard-interactive accepted\n", () => {
-                        shell.exit(0).end()
+                        shell.exit(0).close()
                     })
                 })
             })
@@ -452,7 +452,7 @@ describe("OpenSSH interoperability", () => {
                     decision.success = true
                 })
                 channel.events.on("exec", (_command, shell) => {
-                    shell.stdout.write("password changed\n", () => shell.exit(0).end())
+                    shell.stdout.write("password changed\n", () => shell.exit(0).close())
                 })
             })
         })
@@ -854,7 +854,7 @@ describe("OpenSSH interoperability", () => {
                 channel.events.on("exec", (_command, shell) => {
                     shell.on("data", (data: Buffer) => input.push(data))
                     shell.on("end", () => {
-                        shell.stdout.write("rsa-sha2-ok\n", () => shell.exit(0).end())
+                        shell.stdout.write("rsa-sha2-ok\n", () => shell.exit(0).close())
                     })
                 })
             })
@@ -953,7 +953,7 @@ describe("OpenSSH interoperability", () => {
                 channel.events.on("exec", (_command, shell) => {
                     shell.resume()
                     shell.on("end", () => {
-                        shell.stdout.write("ecdsa-ok\n", () => shell.exit(0).end())
+                        shell.stdout.write("ecdsa-ok\n", () => shell.exit(0).close())
                     })
                 })
             })
@@ -1036,7 +1036,7 @@ describe("OpenSSH interoperability", () => {
                 channel.events.on("exec", (_command, shell) => {
                     shell.resume()
                     shell.on("end", () => {
-                        shell.stdout.write("dss-host-key-ok\n", () => shell.exit(0).end())
+                        shell.stdout.write("dss-host-key-ok\n", () => shell.exit(0).close())
                     })
                 })
             })
@@ -1117,7 +1117,7 @@ describe("OpenSSH interoperability", () => {
                 channel.events.on("exec", (_command, shell) => {
                     shell.resume()
                     shell.on("end", () => {
-                        shell.stdout.write("gex-ok\n", () => shell.exit(0).end())
+                        shell.stdout.write("gex-ok\n", () => shell.exit(0).close())
                     })
                 })
             })
@@ -1211,7 +1211,7 @@ describe("OpenSSH interoperability", () => {
                     decision.success = true
                 })
                 channel.events.on("exec", (_command, shell) => {
-                    shell.stdout.write("hostbased-ok\n", () => shell.exit(0).end())
+                    shell.stdout.write("hostbased-ok\n", () => shell.exit(0).close())
                 })
             })
         })
@@ -1314,7 +1314,7 @@ describe("OpenSSH interoperability", () => {
                 channel.events.on("exec", (_command, shell) => {
                     shell.resume()
                     shell.on("end", () => {
-                        shell.stdout.write("aead-ok\n", () => shell.exit(0).end())
+                        shell.stdout.write("aead-ok\n", () => shell.exit(0).close())
                     })
                 })
             })
@@ -1404,7 +1404,7 @@ describe("OpenSSH interoperability", () => {
                     const input: Buffer[] = []
                     shell.on("data", (data: Buffer) => input.push(data))
                     shell.on("end", () => {
-                        shell.stdout.write(Buffer.concat(input), () => shell.exit(0).end())
+                        shell.stdout.write(Buffer.concat(input), () => shell.exit(0).close())
                     })
                 })
             })
@@ -1491,7 +1491,7 @@ describe("OpenSSH interoperability", () => {
                 channel.events.on("exec", (_command, shell) => {
                     shell.resume()
                     shell.on("end", () => {
-                        shell.stdout.write("cbc-ok\n", () => shell.exit(0).end())
+                        shell.stdout.write("cbc-ok\n", () => shell.exit(0).close())
                     })
                 })
             })
@@ -1589,7 +1589,9 @@ describe("OpenSSH interoperability", () => {
                 })
                 channel.events.on("exec", (_command, shell) => {
                     shell.resume()
-                    shell.on("end", () => shell.stdout.write("mac-ok\n", () => shell.exit(0).end()))
+                    shell.on("end", () =>
+                        shell.stdout.write("mac-ok\n", () => shell.exit(0).close()),
+                    )
                 })
             })
         })
@@ -1676,10 +1678,10 @@ describe("OpenSSH interoperability", () => {
                     void (async () => {
                         const forwardedAgent = await connection.openssh_forwardAgent()
                         resolveResponse(await requestAgentIdentities(forwardedAgent.stream))
-                        shell.exit(0).end()
+                        shell.exit(0).close()
                     })().catch((error: Error) => {
                         rejectResponse(error)
-                        shell.exit(1).end()
+                        shell.exit(1).close()
                     })
                 })
             })
@@ -1801,10 +1803,10 @@ describe("OpenSSH interoperability", () => {
                             x11SetupRequest(fakeCookie),
                             12,
                         )
-                        shell.exit(0).end()
+                        shell.exit(0).close()
                         return Buffer.from(response)
                     })()
-                    void forwardedResponse.catch(() => shell.exit(1).end())
+                    void forwardedResponse.catch(() => shell.exit(1).close())
                 })
             })
         })

@@ -119,6 +119,12 @@ through 3,000 milliseconds as recommended by the RFC.
 Calling `channel.end()` finishes standard input by sending channel EOF. Calling `channel.close()`
 sends EOF followed by CLOSE. A peer CLOSE is always acknowledged before the stream is destroyed.
 
+The server-side `Shell` follows the same directional lifecycle. `shell.end()` finishes stdout by
+sending EOF but keeps stdin readable; the client may continue sending data because RFC 4254 leaves
+the channel open in the opposite direction. Use `shell.close()` to send EOF followed by CLOSE when
+the program and its input are both finished. A typical terminal path is
+`shell.exit(0).close()` after the final stdout write completes.
+
 OpenSSH's `eow@openssh.com` request is a different half-close: it asks the peer to stop sending
 channel data while leaving the reverse direction and the channel itself open. Call
 `channel.sendEndOfWrite()` on a client session or `shell.sendEndOfWrite()` on a server session. The

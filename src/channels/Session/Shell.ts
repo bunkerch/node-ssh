@@ -57,7 +57,7 @@ export default class Shell extends Duplex {
     }
 
     _final(callback: WriteCallback): void {
-        this.channel.close()
+        this.channel.sendEOF()
         callback()
     }
 

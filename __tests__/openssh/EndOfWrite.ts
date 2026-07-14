@@ -25,7 +25,7 @@ describe("OpenSSH end-of-write interoperability", () => {
                 })
                 channel.events.on("exec", (_command, shell) => {
                     sent = shell.sendEndOfWrite()
-                    shell.stdout.write("output remains readable\n", () => shell.exit(0).end())
+                    shell.stdout.write("output remains readable\n", () => shell.exit(0).close())
                 })
             })
         })

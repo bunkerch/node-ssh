@@ -832,7 +832,7 @@ describe("client/server integration", () => {
                         const input: Buffer[] = []
                         shell.on("data", (data: Buffer) => input.push(data))
                         shell.on("end", () => {
-                            shell.stdout.write(Buffer.concat(input), () => shell.exit(0).end())
+                            shell.stdout.write(Buffer.concat(input), () => shell.exit(0).close())
                         })
                     })
                 })

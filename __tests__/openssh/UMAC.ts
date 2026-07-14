@@ -82,7 +82,7 @@ describe("OpenSSH UMAC interoperability", () => {
                         .rekey()
                         .then(() => {
                             shell.stdout.write(`UMAC accepted\n${"x".repeat(8192)}`, () =>
-                                shell.exit(0).end(),
+                                shell.exit(0).close(),
                             )
                         })
                         .catch((error: Error) => shell.destroy(error))

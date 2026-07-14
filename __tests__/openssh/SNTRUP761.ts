@@ -77,7 +77,7 @@ describe("RFC 9941 OpenSSH interoperability", () => {
                 channel.events.on("exec", (_command, shell) => {
                     shell.resume()
                     shell.on("end", () => {
-                        shell.stdout.write("hybrid-server-ok\n", () => shell.exit(0).end())
+                        shell.stdout.write("hybrid-server-ok\n", () => shell.exit(0).close())
                     })
                 })
             })

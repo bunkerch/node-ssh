@@ -168,7 +168,9 @@ describe("OpenSSH certificate authentication interoperability", () => {
                         decision.success = true
                     })
                     channel.events.on("exec", (_command, shell) => {
-                        shell.stdout.write("host certificate accepted\n", () => shell.exit(0).end())
+                        shell.stdout.write("host certificate accepted\n", () =>
+                            shell.exit(0).close(),
+                        )
                     })
                 })
             })
@@ -257,7 +259,7 @@ describe("OpenSSH certificate authentication interoperability", () => {
                         decision.success = true
                     })
                     channel.events.on("exec", (_command, shell) => {
-                        shell.stdout.write("certificate accepted\n", () => shell.exit(0).end())
+                        shell.stdout.write("certificate accepted\n", () => shell.exit(0).close())
                     })
                 })
             })
