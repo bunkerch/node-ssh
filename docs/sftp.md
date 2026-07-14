@@ -75,6 +75,7 @@ disjoint chunks concurrently. `concurrency` defaults to 64 and is bounded by the
 `chunkSize` defaults to 32 KiB and is clamped to negotiated server limits. A `step` handler receives
 the cumulative bytes, completed chunk size, and total size. `fastPut` also accepts a remote `mode`.
 `fastGet` snapshots a Buffer remote path before its separate `STAT` and `OPEN` requests.
+`fastPut` snapshots its remote path and options before opening or inspecting the local file.
 All workers settle before either handle is closed, and an operation error is preserved over a
 secondary close failure.
 

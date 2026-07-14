@@ -460,23 +460,27 @@ export default class SFTPClient {
         remotePath: SFTPPath,
         options: SFTPFastPutOptions = {},
     ): Promise<void> {
+        const ownedRemotePath = Buffer.from(pathBuffer(remotePath))
+        const transferOptions = { ...options }
         const localHandle = await openLocalFile(localPath, "r")
         let remoteHandle: Buffer | undefined
         let operationError: unknown
         try {
             const localAttributes = await localHandle.stat({ bigint: true })
             const total = transferFileSize(localAttributes.size)
-            const chunkSize = transferChunkSize(options.chunkSize, this.maxWriteLength)
-            const concurrency = transferConcurrency(options.concurrency)
-            remoteHandle = await this.open(remotePath, "w", {
-                permissions: parseMode(options.mode ?? Number(localAttributes.mode & 0o777n)),
+            const chunkSize = transferChunkSize(transferOptions.chunkSize, this.maxWriteLength)
+            const concurrency = transferConcurrency(transferOptions.concurrency)
+            remoteHandle = await this.open(ownedRemotePath, "w", {
+                permissions: parseMode(
+                    transferOptions.mode ?? Number(localAttributes.mode & 0o777n),
+                ),
             })
             let transferred = 0
             await runConcurrentTransfer(total, chunkSize, concurrency, async (offset, length) => {
                 const data = await readLocalChunk(localHandle, length, offset)
                 await this.write(remoteHandle!, data, BigInt(offset))
                 transferred += data.length
-                options.step?.(transferred, data.length, total)
+                transferOptions.step?.(transferred, data.length, total)
             })
         } catch (error) {
             operationError = error

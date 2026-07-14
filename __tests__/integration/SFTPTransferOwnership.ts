@@ -1,5 +1,5 @@
 import { once } from "node:events"
-import { mkdtemp, rm } from "node:fs/promises"
+import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import type { AddressInfo } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -87,6 +87,82 @@ test("SFTP fastGet owns its remote path across stat and open requests", async ()
         sftp.end()
     } finally {
         releaseStat()
+        client.destroy()
+        for (const connection of server.clients) connection.terminate()
+        await server.close()
+        await rm(directory, { recursive: true, force: true })
+    }
+}, 15_000)
+
+test("SFTP fastPut owns its remote path and mode before opening the local file", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "modernssh-fast-put-ownership-"))
+    const localPath = join(directory, "upload")
+    await writeFile(localPath, Buffer.alloc(0))
+    const server = new Server({
+        hostKeys: [await PrivateKey.generate("ssh-ed25519")],
+        sendAllHostKeys: false,
+        algorithms: { kex: ["curve25519-sha256"] },
+    })
+    server.hooker.hook("noneAuthentication", (_hook, _context, controller) => {
+        controller.allowLogin = true
+    })
+    server.hooker.hook("channelOpenRequest", (_hook, channel, controller) => {
+        controller.allowOpen = channel instanceof SessionChannel
+    })
+
+    let receivedOpen: { path: Buffer; permissions: number | undefined } | undefined
+    server.on("connection", (connection) => {
+        connection.on("channel", (channel) => {
+            if (!(channel instanceof SessionChannel)) return
+            channel.hooker.hook("subsystemRequest", (_hook, context, controller) => {
+                if (context.subsystem !== "sftp") return
+                controller.success = true
+                controller.sftp = {}
+            })
+            channel.events.on("sftp", (sftp) => {
+                sftp.hooker.hook("OPEN", async (_hook, request) => {
+                    receivedOpen = {
+                        path: Buffer.from(request.filename),
+                        permissions: request.attributes.permissions,
+                    }
+                    sftp.handle(request.requestId, Buffer.from("file-handle"))
+                })
+                sftp.hooker.hook("CLOSE", async (_hook, request) => {
+                    sftp.status(request.requestId, SFTPStatusCode.Ok)
+                })
+            })
+        })
+    })
+
+    server.listen({ host: "127.0.0.1", port: 0 })
+    await once(server, "listening")
+    const client = new Client({
+        hostname: "127.0.0.1",
+        port: (server.address() as AddressInfo).port,
+        username: "sftp-fast-put-ownership",
+        authenticationMethodsOrder: [SSHAuthenticationMethods.None],
+        algorithms: { kex: ["curve25519-sha256"] },
+    })
+    client.hooker.hook("hostKey", (_hook, controller) => {
+        controller.allowHostKey = true
+    })
+
+    try {
+        await client.connect()
+        const sftp = await client.sftp()
+        const remotePath = Buffer.from("original-path")
+        const options = { mode: 0o640 }
+        const transfer = sftp.fastPut(localPath, remotePath, options)
+        remotePath.fill(0x78)
+        options.mode = 0o777
+        await transfer
+
+        expect(receivedOpen).toEqual({
+            path: Buffer.from("original-path"),
+            permissions: 0o640,
+        })
+        sftp.end()
+    } finally {
         client.destroy()
         for (const connection of server.clients) connection.terminate()
         await server.close()
