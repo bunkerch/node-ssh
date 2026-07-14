@@ -23,6 +23,13 @@ export default class ChannelStream extends Duplex {
         callback()
     }
 
+    _destroy(error: Error | null, callback: WriteCallback): void {
+        if (this.channel.isOpen && this.channel.client.isConnected) {
+            this.channel.terminate()
+        }
+        callback(error)
+    }
+
     receive(data: Buffer): boolean {
         return this.push(data)
     }

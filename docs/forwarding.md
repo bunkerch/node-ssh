@@ -174,7 +174,9 @@ server.on("connection", (connection) => {
 
 The bound address and port must identify a currently active forwarding request. This prevents an
 application bug from opening an unsolicited server-initiated channel. Channel-open rejection is
-reported through the returned Promise.
+reported through the returned Promise. Destroying the returned server-side stream sends channel
+CLOSE to its peer; peer CLOSE and transport teardown destroy the stream without trying to close the
+channel a second time. The SSH connection remains available for unrelated channels.
 
 ## OpenSSH UNIX-domain socket forwarding
 
