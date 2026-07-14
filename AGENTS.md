@@ -173,7 +173,9 @@ meaningful wire-level behavior.
   remote window rather than splitting it, and validate mode-specific framing before emitting data.
 - SSH keepalives use reply-requesting `keepalive@openssh.com` global requests. Count both success
   and failure as liveness, bound consecutive unanswered requests, unref timers, and clear them on
-  every connection shutdown path.
+  every connection shutdown path. Server configuration creates independent timers and failure
+  counters for each authenticated client; timing out one peer must not affect the listener or its
+  other connections.
 - Unknown RFC 4254 global requests are deny-by-default async `Hooker` policy surfaces on both peer
   roles. Copy opaque arguments into the hook context, serialize handlers to preserve reply order,
   require Buffer success payloads, invoke one-way notifications without replying, and settle every

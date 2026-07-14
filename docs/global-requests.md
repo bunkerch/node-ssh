@@ -4,6 +4,11 @@ RFC 4254 global requests apply to the whole SSH connection rather than one chann
 handles forwarding, host-key rotation, keepalives, and session-lockdown requests internally. An
 application can use the generic API for additional standardized or private request names.
 
+Periodic keepalives are reply-requesting `keepalive@openssh.com` messages. Both success and failure
+prove liveness. Client options configure the outbound client timer; matching server options create
+one timer per authenticated connection. Missing replies are bounded, while an ordinary failure is
+never treated as a timeout.
+
 ## Sending from a client
 
 `Client.globalRequest()` sends a reply-requesting `SSH_MSG_GLOBAL_REQUEST` after authentication and

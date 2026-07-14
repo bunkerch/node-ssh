@@ -51,6 +51,10 @@ export interface ServerOptions {
     authenticationTimeout?: number
     /** Maximum rejected non-`none` authentication requests per connection. */
     maxAuthenticationAttempts?: number
+    /** Milliseconds between authenticated per-connection SSH keepalive probes. Zero disables. */
+    keepaliveInterval?: number
+    /** Consecutive unanswered probes allowed before terminating a connection. */
+    keepaliveCountMax?: number
 }
 export interface ServerOptionsRequired
     extends Required<Omit<ServerOptions, "ident" | "algorithms" | "hostCertificates">> {
@@ -298,6 +302,8 @@ export default class Server extends EventEmitter<ServerEvents> {
         this.options.banner ??= ""
         this.options.authenticationTimeout ??= 600_000
         this.options.maxAuthenticationAttempts ??= 20
+        this.options.keepaliveInterval ??= 0
+        this.options.keepaliveCountMax ??= 3
         if (
             !Number.isFinite(this.options.authenticationTimeout) ||
             this.options.authenticationTimeout < 0
@@ -309,6 +315,18 @@ export default class Server extends EventEmitter<ServerEvents> {
             this.options.maxAuthenticationAttempts < 1
         ) {
             throw new RangeError("SSH maximum authentication attempts must be a positive integer")
+        }
+        if (
+            !Number.isFinite(this.options.keepaliveInterval) ||
+            this.options.keepaliveInterval < 0
+        ) {
+            throw new RangeError("SSH keepalive interval must be a non-negative number")
+        }
+        if (
+            !Number.isInteger(this.options.keepaliveCountMax) ||
+            this.options.keepaliveCountMax < 0
+        ) {
+            throw new RangeError("SSH keepalive count maximum must be a non-negative integer")
         }
         this.algorithmOffer = resolveServerAlgorithmOptions(
             this.options.algorithms,

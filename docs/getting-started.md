@@ -87,6 +87,18 @@ liveness response. The client emits an `SSH keepalive timeout` error and destroy
 after more than `keepaliveCountMax` consecutive probes go unanswered. The timer does not keep the
 Node.js process alive; the options default to `0` (disabled) and `3`, respectively.
 
+`Server` accepts the same options. Every authenticated `ServerClient` owns an independent,
+unreferenced timer. A connection that exceeds its unanswered bound emits `SSH keepalive timeout`
+through its `error` event and terminates without affecting other accepted clients.
+
+```ts
+const server = new Server({
+    hostKeys,
+    keepaliveInterval: 15_000,
+    keepaliveCountMax: 3,
+})
+```
+
 Servers that advertise the `ping@openssh.com` transport extension may also be probed directly.
 `ping()` echoes opaque bytes. Calls made during rekey are queued until the exchange finishes, and
 concurrent replies retain request order.

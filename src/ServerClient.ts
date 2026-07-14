@@ -204,6 +204,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         })
 
         this.socket.on("close", () => {
+            this.clearKeepalive()
             this.state = SocketState.Disconnected
             const closeError = this.connectionClosedError("SSH connection closed")
             for (const forwarding of this.remoteForwardListeners.values()) forwarding.server.close()
@@ -288,6 +289,8 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     private authenticationExpired = false
     private authenticationInProgress = false
     private readonly pendingGlobalRequests: PendingGlobalRequest[] = []
+    private keepaliveTimer?: ReturnType<typeof setTimeout>
+    private unansweredKeepalives = 0
 
     get noMoreSessions(): boolean {
         return this.noMoreSessionsRequested
@@ -787,6 +790,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         }
         // user is logged in!
         this.state = SocketState.Connected
+        this.resetKeepalive()
         // emit the event
         this.emit("connect")
 
@@ -2178,6 +2182,45 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         return this.peerDisconnect
             ? new PeerDisconnectError(this.peerDisconnect)
             : new Error(fallback)
+    }
+
+    private resetKeepalive(): void {
+        this.clearKeepalive()
+        this.unansweredKeepalives = 0
+        this.scheduleKeepalive()
+    }
+
+    private scheduleKeepalive(): void {
+        if (this.server.options.keepaliveInterval === 0 || !this.isConnected) return
+        this.keepaliveTimer = setTimeout(
+            () => this.sendKeepalive(),
+            this.server.options.keepaliveInterval,
+        )
+        this.keepaliveTimer.unref()
+    }
+
+    private clearKeepalive(): void {
+        if (this.keepaliveTimer !== undefined) clearTimeout(this.keepaliveTimer)
+        this.keepaliveTimer = undefined
+    }
+
+    private sendKeepalive(): void {
+        this.keepaliveTimer = undefined
+        if (!this.isConnected) return
+        this.unansweredKeepalives++
+        if (this.unansweredKeepalives > this.server.options.keepaliveCountMax) {
+            this.emit("error", new Error("SSH keepalive timeout"))
+            this.terminate()
+            return
+        }
+
+        void this.globalRequest("keepalive@openssh.com").then(
+            () => this.resetKeepalive(),
+            (error: unknown) => {
+                if (error instanceof ServerGlobalRequestError) this.resetKeepalive()
+            },
+        )
+        this.scheduleKeepalive()
     }
 
     private reserveRemoteChannelId(remoteId: number): void {
