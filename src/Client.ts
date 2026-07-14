@@ -547,6 +547,28 @@ export default class Client extends EventEmitter<ClientEvents> {
             SSHAuthenticationMethods.Password,
             SSHAuthenticationMethods.Hostbased,
         ]
+        if (
+            this.options.authenticationMethodsOrder.includes(
+                SSHAuthenticationMethods.GSSAPIKeyExchange,
+            ) &&
+            !this.options.gssapiKeyExchangeAuthentication
+        ) {
+            throw new TypeError(
+                "gssapi-keyex authentication is disabled by gssapiKeyExchangeAuthentication",
+            )
+        }
+        if (
+            this.options.authenticationMethodsOrder.includes(
+                SSHAuthenticationMethods.GSSAPIKeyExchange,
+            ) &&
+            !this.options.gssapi.some(
+                (mechanism) => mechanism.createKeyExchangeContext !== undefined,
+            )
+        ) {
+            throw new TypeError(
+                "gssapi-keyex authentication requires a GSS-API key-exchange mechanism",
+            )
+        }
         this.options.keepaliveInterval ??= 0
         this.options.keepaliveCountMax ??= 3
         this.options.rekeyBytes ??= DEFAULT_REKEY_BYTES

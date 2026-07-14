@@ -422,6 +422,12 @@ export default class Server extends EventEmitter<ServerEvents> {
         ) {
             throw new TypeError("SSH server null host key must be the only advertised host key")
         }
+        if (
+            this.algorithmOffer.serverHostKey[0] === "null" &&
+            !this.algorithmOffer.kex.some((name) => gssapiKeyExchangeAlgorithms.has(name))
+        ) {
+            throw new TypeError("SSH server null host key requires a GSS-API key-exchange method")
+        }
         this.server = net.createServer((socket) => void this.acceptSocket(socket))
         this.server.on("error", (error) => this.emit("error", error))
         this.server.on("listening", () => this.emit("listening"))

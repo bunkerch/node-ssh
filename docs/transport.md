@@ -240,7 +240,8 @@ exchange-hash construction, and cleanup.
 The server normally sends its host key during GSS-API key exchange. RFC 4462's `null` host-key
 algorithm may instead be configured explicitly for deployments whose GSS mechanism authenticates
 the server without an SSH host key. `null` must be the server's only configured host-key algorithm;
-it is never mixed into a normal host-key offer. In that mode there is no host-key value for
+it is never mixed into a normal host-key offer, and at least one configured key-exchange method must
+come from a GSS-API mechanism adapter. In that mode there is no host-key value for
 `hostVerifier` to approve, so applications must treat the configured GSS mechanism and its target
 name as the server-authentication trust boundary.
 

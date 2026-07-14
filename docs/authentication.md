@@ -213,6 +213,10 @@ session identifier, username, and requested service without establishing a secon
 `authenticationMethodsOrder`, when the mechanism context must be anonymous or must not be retained.
 Contexts created during rekeying are never retained for user authentication.
 
+An explicit order containing `GSSAPIKeyExchange` requires both an adapter with
+`createKeyExchangeContext` and `gssapiKeyExchangeAuthentication` enabled. Contradictory
+configuration is rejected during client construction rather than failing after transport setup.
+
 Server adapters expose the authenticated mechanism identity and optional delegated credentials only
 after context establishment and MIC verification. A key-exchange server context supplies `getMIC`
 for the transport transcript and, if `gssapi-keyex` authentication is supported, `verifyMIC` plus a

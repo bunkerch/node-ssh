@@ -407,5 +407,35 @@ describe("RFC 8732 GSS-API key exchange", () => {
                     algorithms: { serverHostKey: ["ssh-ed25519", "null"] },
                 }),
         ).toThrow("null host key must be the only advertised host key")
+        expect(
+            () =>
+                new Server({
+                    algorithms: {
+                        kex: ["curve25519-sha256"],
+                        serverHostKey: ["null"],
+                    },
+                }),
+        ).toThrow("null host key requires a GSS-API key-exchange method")
+    })
+
+    test("rejects contradictory gssapi-keyex authentication configuration", () => {
+        const mechanism: GSSAPIClientMechanism = {
+            oid: KERBEROS_V5_GSSAPI_OID,
+            createKeyExchangeContext: () => new TestClientContext([]),
+        }
+        expect(
+            () =>
+                new Client({
+                    gssapi: [mechanism],
+                    gssapiKeyExchangeAuthentication: false,
+                    authenticationMethodsOrder: [SSHAuthenticationMethods.GSSAPIKeyExchange],
+                }),
+        ).toThrow("disabled by gssapiKeyExchangeAuthentication")
+        expect(
+            () =>
+                new Client({
+                    authenticationMethodsOrder: [SSHAuthenticationMethods.GSSAPIKeyExchange],
+                }),
+        ).toThrow("requires a GSS-API key-exchange mechanism")
     })
 })
