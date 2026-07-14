@@ -9,7 +9,7 @@ export default class DiffieHellmanGroup17SHA512 extends DiffieHellmanGroupN {
         return new DiffieHellmanGroup17SHA512()
     }
 
-    constructor() {
-        super("modp17", "sha512")
+    constructor(privateKey?: Buffer) {
+        super("modp17", "sha512", privateKey)
     }
 }

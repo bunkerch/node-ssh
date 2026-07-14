@@ -120,7 +120,14 @@ describe("RFC 4419 Diffie-Hellman group exchange", () => {
         )
         expect(() =>
             exchange.computeSharedSecret(serializeMpintBufferToBuffer(group14.getPrime())),
-        ).toThrow("outside [1, p-1]")
+        ).toThrow("outside (1, p-1)")
+        expect(() => exchange.computeSharedSecret(Buffer.from([1]))).toThrow("outside (1, p-1)")
+        const prime = decodeBigIntBE(group14.getPrime())
+        expect(() =>
+            exchange.computeSharedSecret(
+                serializeMpintBufferToBuffer(Buffer.from((prime - 1n).toString(16), "hex")),
+            ),
+        ).toThrow("outside (1, p-1)")
     })
 
     test("owns staged host-key and peer values used by the exchange hash", () => {

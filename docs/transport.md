@@ -220,6 +220,14 @@ public values, and shared secrets are validated before the exchange hash is acce
 variant and RFC 4419's single-size legacy request are supported only as explicit compatibility
 paths; prefer SHA-256 and the bounded three-size request for configured use.
 
+RFC 8268 fixed-group key exchange is available as `diffie-hellman-group14-sha256` and the
+SHA-512-backed `diffie-hellman-group15-sha512` through `diffie-hellman-group18-sha512` methods.
+They use the exact RFC 3526 safe-prime groups at 2048, 3072, 4096, 6144, and 8192 bits. Both peers
+reject non-canonical or non-positive public-value mpints and enforce RFC 8268's corrected open
+interval `1 < e,f < p-1`; shared secrets at either endpoint are rejected as well. Group 16 is the
+preferred fixed finite-field method under RFC 9142, while groups 15, 17, and 18 remain available
+after it for peers with different policy.
+
 The RFC 6668 `hmac-sha2-256` and `hmac-sha2-512` integrity methods are available for both
 directions. Their full 32- and 64-byte outputs authenticate the RFC 4253 sequence number followed
 by the plaintext packet. The OpenSSH `hmac-sha2-256-etm@openssh.com`,

@@ -14,6 +14,11 @@ import { decodeBigIntBE } from "../../utils/BigInt.js"
 import { serializeBuffer, serializeUint32 } from "../../utils/Buffer.js"
 import { serializeMpintBufferToBuffer } from "../../utils/mpint.js"
 import KeyExchange, { KeyExchangeError } from "./key-exchange.js"
+import {
+    decodePositiveDHMPInt,
+    keyExchangeErrorMessage,
+    unsignedDHBuffer,
+} from "./diffie-hellman-validation.js"
 
 const supportedGroups = [
     { bits: 2048, name: "modp14" },
@@ -122,8 +127,8 @@ export class DiffieHellmanGroupExchange extends KeyExchange {
 
     acceptServerGroup(p: Buffer, g: Buffer): void {
         const request = this.requireRequest()
-        const prime = decodePositiveMpint(p, "group prime")
-        const generator = decodePositiveMpint(g, "group generator")
+        const prime = decodePositiveDHMPInt(p, "group prime")
+        const generator = decodePositiveDHMPInt(g, "group generator")
         const bits = prime.toString(2).length
         if (bits < request.min || bits > request.max || bits < 2048 || bits > 8192) {
             throw new KeyExchangeError(
@@ -135,9 +140,11 @@ export class DiffieHellmanGroupExchange extends KeyExchange {
         }
         let keyPair: DiffieHellman
         try {
-            keyPair = createDiffieHellman(unsignedBuffer(p), unsignedBuffer(g))
+            keyPair = createDiffieHellman(unsignedDHBuffer(p), unsignedDHBuffer(g))
         } catch (cause) {
-            throw new KeyExchangeError(`Invalid Diffie-Hellman group: ${errorMessage(cause)}`)
+            throw new KeyExchangeError(
+                `Invalid Diffie-Hellman group: ${keyExchangeErrorMessage(cause)}`,
+            )
         }
         // For a safe prime, every value except 1 and p-1 has order q or 2q, so OpenSSL's
         // narrow generator-suitability flag is not relevant. All prime-related flags remain fatal.
@@ -165,17 +172,17 @@ export class DiffieHellmanGroupExchange extends KeyExchange {
         if (!this.keyPair || !this.prime) {
             throw new KeyExchangeError("Diffie-Hellman group was not selected")
         }
-        const peer = decodePositiveMpint(peerPublicKey, "public value")
+        const peer = decodePositiveDHMPInt(peerPublicKey, "public value")
         const prime = decodeBigIntBE(this.prime)
-        if (peer < 1n || peer > prime - 1n) {
-            throw new KeyExchangeError("Diffie-Hellman public value is outside [1, p-1]")
+        if (peer <= 1n || peer >= prime - 1n) {
+            throw new KeyExchangeError("Diffie-Hellman public value is outside (1, p-1)")
         }
 
         try {
-            this.sharedSecret = this.keyPair.computeSecret(unsignedBuffer(peerPublicKey))
+            this.sharedSecret = this.keyPair.computeSecret(unsignedDHBuffer(peerPublicKey))
         } catch (cause) {
             throw new KeyExchangeError(
-                `Invalid Diffie-Hellman public value: ${errorMessage(cause)}`,
+                `Invalid Diffie-Hellman public value: ${keyExchangeErrorMessage(cause)}`,
             )
         }
         const sharedSecret = decodeBigIntBE(this.sharedSecret)
@@ -298,24 +305,4 @@ function validateRequest({ min, preferred, max }: KexDHGexRequestData): void {
             "Diffie-Hellman group request must satisfy 2048 <= min <= preferred <= max <= 8192",
         )
     }
-}
-
-function decodePositiveMpint(value: Buffer, label: string): bigint {
-    if (value.length === 0 || (value[0] & 0x80) !== 0) {
-        throw new KeyExchangeError(`Diffie-Hellman ${label} must be a positive mpint`)
-    }
-    if (value.length > 1 && value[0] === 0 && (value[1] & 0x80) === 0) {
-        throw new KeyExchangeError(`Diffie-Hellman ${label} is not canonically encoded`)
-    }
-    const decoded = decodeBigIntBE(value)
-    if (decoded <= 0n) throw new KeyExchangeError(`Diffie-Hellman ${label} must be positive`)
-    return decoded
-}
-
-function unsignedBuffer(value: Buffer): Buffer {
-    return value.length > 1 && value[0] === 0 ? value.subarray(1) : value
-}
-
-function errorMessage(error: unknown): string {
-    return error instanceof Error ? error.message : String(error)
 }
