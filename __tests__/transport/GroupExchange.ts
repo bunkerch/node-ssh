@@ -7,6 +7,7 @@ import {
 } from "../../src/algorithms/kex/diffie-hellman-group-exchange.js"
 import { decodeBigIntBE } from "../../src/utils/BigInt.js"
 import { serializeMpintBufferToBuffer } from "../../src/utils/mpint.js"
+import type Client from "../../src/Client.js"
 
 class InspectableGroupExchange extends DiffieHellmanGroupExchange {
     constructor() {
@@ -120,5 +121,49 @@ describe("RFC 4419 Diffie-Hellman group exchange", () => {
         expect(() =>
             exchange.computeSharedSecret(serializeMpintBufferToBuffer(group14.getPrime())),
         ).toThrow("outside [1, p-1]")
+    })
+
+    test("owns staged host-key and peer values used by the exchange hash", () => {
+        const server = new InspectableGroupExchange()
+        server.setRequest(defaultGroupExchangeRequest)
+        const group = server.selectServerGroup()
+        server.generateKeyPair()
+
+        const client = new InspectableGroupExchange()
+        client.setRequest(defaultGroupExchangeRequest)
+        client.acceptServerGroup(group.p, group.g)
+        client.generateKeyPair()
+
+        const hostKey = Buffer.from("host key")
+        const peerPublicKey = serializeMpintBufferToBuffer(server.getPublicKey())
+        const retainedPeerPublicKey = Buffer.from(peerPublicKey)
+        client.setServerHostKey(hostKey)
+        client.computeSharedSecret(peerPublicKey)
+
+        const fakeClient = {
+            options: { protocolVersionExchange: Buffer.from("SSH-2.0-client\r\n") },
+            serverProtocolVersion: Buffer.from("SSH-2.0-server\r\n"),
+            clientKexInitPayload: Buffer.from("1401", "hex"),
+        } as Client
+        const serverKexInit = Buffer.from("1402", "hex")
+        const expected = computeGroupExchangeHash({
+            hashName: "sha256",
+            clientVersion: "SSH-2.0-client",
+            serverVersion: "SSH-2.0-server",
+            clientKexInit: Buffer.from("1401", "hex"),
+            serverKexInit,
+            hostKey: Buffer.from(hostKey),
+            request: defaultGroupExchangeRequest,
+            prime: group.p,
+            generator: group.g,
+            clientPublicKey: serializeMpintBufferToBuffer(client.getPublicKey()),
+            serverPublicKey: retainedPeerPublicKey,
+            sharedSecret: client.secret!,
+        })
+
+        hostKey.fill(0xff)
+        peerPublicKey.fill(0xff)
+
+        expect(client.computeHClient(fakeClient, serverKexInit)).toEqual(expected)
     })
 })

@@ -185,6 +185,8 @@ algorithm offer or exchange hash used by the connection.
 Method-specific key-exchange packets also own their ephemeral public values, host-key blobs, and
 signature envelopes. Constructor inputs and parsed transport frames cannot be mutated later to
 change values used for shared-secret computation or exchange-hash verification.
+RFC 4419 group exchange additionally copies the host key and peer public value retained across its
+multi-message state machine before constructing the final exchange hash.
 
 The two optional language preference name-lists use RFC 3066 syntax rather than algorithm-name
 rules. Their order and repeated tags are preserved; malformed tags are rejected in both directions.

@@ -148,7 +148,7 @@ export class DiffieHellmanGroupExchange extends KeyExchange {
     }
 
     setServerHostKey(hostKey: Buffer): void {
-        this.serverHostKey = hostKey
+        this.serverHostKey = Buffer.from(hostKey)
     }
 
     generateKeyPair(): void {
@@ -182,7 +182,7 @@ export class DiffieHellmanGroupExchange extends KeyExchange {
         if (sharedSecret <= 1n || sharedSecret >= prime - 1n) {
             throw new KeyExchangeError("Diffie-Hellman shared secret is outside (1, p-1)")
         }
-        this.peerPublicKey = peerPublicKey
+        this.peerPublicKey = Buffer.from(peerPublicKey)
     }
 
     computeHClient(client: Client, serverKexInit: Buffer): Buffer {

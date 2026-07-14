@@ -362,7 +362,8 @@ meaningful wire-level behavior.
   p, and g in its distinct exchange hash. The legacy opcode 30 hashes only its single preferred
   size. Enforce RFC 8270's 2048-to-8192-bit range, accept only canonical positive mpints and
   safe-prime groups, validate public values and shared secrets against p, and cover both hash
-  variants with fixed frames plus OpenSSH in both roles across rekey. Keep SHA-1 last.
+  variants with fixed frames plus OpenSSH in both roles across rekey. Copy staged host-key and peer
+  public-value buffers before retaining them for the final hash. Keep SHA-1 last.
 - RFC 4432 `rsa2048-sha256` uses a fresh server-only transient RSA key, SHA-256 RSAES-OAEP over the
   complete shared-secret mpint, and its distinct opcode 30/31/32 flow and exchange hash. Enforce the
   2048-bit transient minimum, discard the private-key reference after decryption, disconnect on OAEP
