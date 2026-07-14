@@ -180,7 +180,11 @@ export default class CygwinAgent extends Agent<string> {
     }
 
     sign(id: string, data: Buffer, algorithm?: string): Promise<EncodedSignature> {
-        return this.#withProtocol((protocol) => protocol.sign(id, data, algorithm))
+        if (!Buffer.isBuffer(data)) {
+            return Promise.reject(new TypeError("Cygwin agent signing data must be a buffer"))
+        }
+        const message = Buffer.from(data)
+        return this.#withProtocol((protocol) => protocol.sign(id, message, algorithm))
     }
 
     async getStream(): Promise<Socket> {

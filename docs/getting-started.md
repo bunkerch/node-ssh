@@ -436,6 +436,9 @@ Public-key comments may contain spaces and are preserved.
 `DiskAgent.sign()` snapshots the message before reading key files or awaiting a passphrase resolver,
 so caller mutation during key loading cannot change what is signed.
 
+Socket-backed agents, including the Cygwin transport, likewise snapshot signing messages before
+socket discovery, transport handshakes, or identity lookup.
+
 ## Public exports
 
 The package root currently exports:

@@ -60,12 +60,24 @@ describe("Cygwin agent transport", () => {
         const credentials: Buffer[] = []
         let connectionIndex = 0
         let fixtureError: Error | undefined
+        let releaseSigningDiscovery!: () => void
+        const signingDiscoveryReleased = new Promise<void>((resolve) => {
+            releaseSigningDiscovery = resolve
+        })
+        let reportSigningDiscovery!: () => void
+        const signingDiscoveryReceived = new Promise<void>((resolve) => {
+            reportSigningDiscovery = resolve
+        })
         server.on("connection", (socket) => {
             sockets.add(socket)
             socket.once("close", () => sockets.delete(socket))
             const index = connectionIndex++
             const task = (async () => {
                 expect(await readExactly(socket, 16)).toEqual(wireSecret)
+                if (index === 2) {
+                    reportSigningDiscovery()
+                    await signingDiscoveryReleased
+                }
                 writeFragmented(socket, wireSecret)
                 credentials.push(await readExactly(socket, 12))
                 writeFragmented(
@@ -95,8 +107,16 @@ describe("Cygwin agent transport", () => {
             expect(identities).toHaveLength(1)
             expect(identities[0][1].data.comment).toBe("cygwin-fixture")
             const message = Buffer.from("signed through a Cygwin agent transport")
-            const signature = await agent.sign(identities[0][0], message)
-            expect(identities[0][1].verifySignature(message, signature)).toBeTrue()
+            const original = Buffer.from(message)
+            const signing = agent.sign(identities[0][0], message)
+            await signingDiscoveryReceived
+            message.fill(0x78)
+            releaseSigningDiscovery()
+            const signature = await signing
+            expect({
+                original: identities[0][1].verifySignature(original, signature),
+                mutated: identities[0][1].verifySignature(message, signature),
+            }).toEqual({ original: true, mutated: false })
             expect(connectionIndex).toBe(4)
             const expectedCredentials = Buffer.from(discoveredCredentials)
             expectedCredentials.writeUInt32LE(process.pid, 0)
@@ -107,6 +127,7 @@ describe("Cygwin agent transport", () => {
                 expectedCredentials,
             ])
         } finally {
+            releaseSigningDiscovery()
             for (const socket of sockets) socket.destroy()
             await closeServer(server)
             await Promise.all(tasks)
