@@ -76,8 +76,9 @@ export class SFTPReadStream extends Readable {
 
     close(): Promise<void> {
         if (this.isClosed) return Promise.resolve()
-        const closed = closePromise(this)
         this.forceClose = true
+        if (this.destroyed) return this.destroyStream()
+        const closed = closePromise(this)
         this.destroy()
         return closed
     }
@@ -208,8 +209,9 @@ export class SFTPWriteStream extends Writable {
 
     close(): Promise<void> {
         if (this.isClosed) return Promise.resolve()
-        const closed = closePromise(this)
         this.forceClose = true
+        if (this.destroyed) return this.destroyStream()
+        const closed = closePromise(this)
         this.end(() => this.destroy())
         return closed
     }

@@ -94,6 +94,25 @@ describe("SFTP streams", () => {
         expect(fixture.closeCount).toBe(0)
     })
 
+    test("explicitly closes a read handle after the stream was destroyed", async () => {
+        const fixture = new StreamSFTPFixture()
+        const stream = new SFTPReadStream(asSFTP(fixture), "ignored", {
+            handle: Buffer.from("source"),
+            autoClose: false,
+        })
+        stream.destroy()
+        await once(stream, "close")
+
+        const outcome = await Promise.race([
+            stream.close().then(() => "closed"),
+            new Promise<string>((resolve) => setTimeout(() => resolve("timed out"), 50)),
+        ])
+
+        expect(outcome).toBe("closed")
+        expect(fixture.closeCount).toBe(1)
+        expect(stream.isClosed).toBe(true)
+    })
+
     test("serializes writes, honors append offsets, and supports explicit close", async () => {
         const fixture = new StreamSFTPFixture()
         fixture.files.set("destination", Buffer.from("prefix:"))
@@ -113,6 +132,25 @@ describe("SFTP streams", () => {
         ])
         expect(stream.bytesWritten).toBe(7n)
         expect(fixture.closeCount).toBe(1)
+    })
+
+    test("explicitly closes a write handle after the stream was destroyed", async () => {
+        const fixture = new StreamSFTPFixture()
+        const stream = new SFTPWriteStream(asSFTP(fixture), "ignored", {
+            handle: Buffer.from("destination"),
+            autoClose: false,
+        })
+        stream.destroy()
+        await once(stream, "close")
+
+        const outcome = await Promise.race([
+            stream.close().then(() => "closed"),
+            new Promise<string>((resolve) => setTimeout(() => resolve("timed out"), 50)),
+        ])
+
+        expect(outcome).toBe("closed")
+        expect(fixture.closeCount).toBe(1)
+        expect(stream.isClosed).toBe(true)
     })
 
     test("rejects invalid ranges before opening a remote handle", () => {
