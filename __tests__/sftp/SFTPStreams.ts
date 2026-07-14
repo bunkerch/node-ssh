@@ -104,9 +104,7 @@ describe("SFTP streams", () => {
         await once(stream, "ready")
         stream.write("one")
         stream.write(Buffer.from("-two"))
-        const closed = once(stream, "close")
-        stream.close()
-        await closed
+        await stream.close()
 
         expect(fixture.files.get("destination")!.toString()).toBe("prefix:one-two")
         expect(fixture.writes).toEqual([

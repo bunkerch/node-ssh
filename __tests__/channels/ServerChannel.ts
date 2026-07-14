@@ -2,6 +2,7 @@ import Channel from "../../src/Channel.js"
 import Client from "../../src/Client.js"
 import Packet from "../../src/packet.js"
 import ChannelData from "../../src/packets/ChannelData.js"
+import ChannelExtendedData from "../../src/packets/ChannelExtendedData.js"
 import ChannelOpen from "../../src/packets/ChannelOpen.js"
 import ChannelWindowAdjust from "../../src/packets/ChannelWindowAdjust.js"
 import ChannelEOF from "../../src/packets/ChannelEOF.js"
@@ -91,11 +92,7 @@ describe("server Channel", () => {
 
     test("serializes queued output within the peer packet and window limits", async () => {
         const { channel, sent } = createChannel()
-        const finished = new Promise<void>((resolve, reject) => {
-            channel.sendData(Buffer.from("abcdefgh"), (error) =>
-                error ? reject(error) : resolve(),
-            )
-        })
+        const finished = channel.sendData(Buffer.from("abcdefgh"))
 
         expect(
             sent
@@ -112,6 +109,31 @@ describe("server Channel", () => {
         ).toEqual(["abc", "de", "fgh"])
     })
 
+    test("awaits Promise-based shell output before later protocol messages", async () => {
+        const { channel, sent } = createChannel(0, 3)
+        channel.channel_type = "session"
+        const shell = new Shell(channel as SessionChannel)
+
+        const stdout = shell.writeStdout("out")
+        expect(sent).toEqual([])
+        channel.receiveWindowAdjust(3)
+        await stdout
+
+        const stderr = shell.writeStderr("err")
+        channel.receiveWindowAdjust(3)
+        await stderr
+        shell.exit(0)
+
+        expect(sent.map((packet) => packet.constructor)).toEqual([
+            ChannelData,
+            ChannelExtendedData,
+            ChannelRequest,
+        ])
+        expect((sent[0] as ChannelData).data.data.toString()).toBe("out")
+        expect((sent[1] as ChannelExtendedData).data.data.toString()).toBe("err")
+        shell.destroy()
+    })
+
     test("advertises more receive window after inbound data reaches the threshold", () => {
         const { channel, sent } = createChannel()
 
@@ -124,17 +146,23 @@ describe("server Channel", () => {
         expect(() => channel.receiveData(Buffer.alloc(5))).toThrow("oversized data packet")
     })
 
-    test("accepts a zero peer window without emitting data or spinning", () => {
+    test("accepts a zero peer window without emitting data or spinning", async () => {
         const { channel, sent } = createChannel(0, 0)
         let completed = false
 
-        channel.sendData(Buffer.from("queued"), () => {
-            completed = true
-        })
+        const completion = channel.sendData(Buffer.from("queued")).then(
+            () => {
+                completed = true
+            },
+            () => {
+                completed = true
+            },
+        )
 
         expect(sent).toEqual([])
         expect(completed).toBe(false)
         channel.receiveClose()
+        await completion
         expect(completed).toBe(true)
     })
 
@@ -147,18 +175,20 @@ describe("server Channel", () => {
     test("stops outbound data after end-of-write without closing the channel", async () => {
         const { channel, sent } = createChannel(0, 3)
         channel.channel_type = "session"
-        const queued = new Promise<Error | undefined>((resolve) => {
-            channel.sendData(Buffer.from("queued"), (error) => resolve(error ?? undefined))
-        })
+        const queued = channel.sendData(Buffer.from("queued")).then(
+            () => undefined,
+            (error: Error) => error,
+        )
 
         channel.receiveEndOfWrite()
         expect(await queued).toBeInstanceOf(Error)
         expect(channel.hasReceivedEndOfWrite).toBe(true)
         expect(channel.isOpen).toBe(true)
         expect(sent.some((packet) => packet instanceof ChannelEOF)).toBe(true)
-        const later = await new Promise<Error | undefined>((resolve) => {
-            channel.sendData(Buffer.from("later"), (error) => resolve(error ?? undefined))
-        })
+        const later = await channel.sendData(Buffer.from("later")).then(
+            () => undefined,
+            (error: Error) => error,
+        )
         expect(later?.message).toContain("end-of-write")
 
         expect(channel.sendEndOfWrite()).toBe(false)

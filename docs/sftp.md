@@ -19,8 +19,8 @@ await client.connect()
 const sftp = await client.sftp()
 ```
 
-`Client.sftp(callback)` is also available for callback-based setup. The resulting `SFTPClient`
-exposes the negotiated version, the duplicate-preserving `extensions` announcement list, and
+The resulting `SFTPClient` exposes the negotiated version, the duplicate-preserving `extensions`
+announcement list, and
 `supportsExtension(name, version?)`.
 
 The baseline operations are Promise-based:
@@ -69,7 +69,7 @@ remain visible.
 
 `fastGet(remotePath, localPath, options?)` and `fastPut(localPath, remotePath, options?)` transfer
 disjoint chunks concurrently. `concurrency` defaults to 64 and is bounded by the request engine;
-`chunkSize` defaults to 32 KiB and is clamped to negotiated server limits. A `step` callback receives
+`chunkSize` defaults to 32 KiB and is clamped to negotiated server limits. A `step` handler receives
 the cumulative bytes, completed chunk size, and total size. `fastPut` also accepts a remote `mode`.
 All workers settle before either handle is closed, and an operation error is preserved over a
 secondary close failure.

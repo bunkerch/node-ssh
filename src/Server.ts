@@ -400,16 +400,15 @@ export default class Server extends EventEmitter<ServerEvents> {
     readonly algorithmOffer: ResolvedAlgorithmOptions
     private readonly hostKeysReady: Promise<void>
 
-    listen(port?: number, hostname?: string, backlog?: number, listeningListener?: () => void): this
-    listen(port?: number, hostname?: string, listeningListener?: () => void): this
-    listen(port?: number, backlog?: number, listeningListener?: () => void): this
-    listen(port?: number, listeningListener?: () => void): this
-    listen(path: string, backlog?: number, listeningListener?: () => void): this
-    listen(path: string, listeningListener?: () => void): this
-    listen(options: net.ListenOptions, listeningListener?: () => void): this
-    listen(handle: unknown, backlog?: number, listeningListener?: () => void): this
-    listen(handle: unknown, listeningListener?: () => void): this
+    listen(port?: number, hostname?: string, backlog?: number): this
+    listen(port?: number, backlog?: number): this
+    listen(path: string, backlog?: number): this
+    listen(options: net.ListenOptions): this
+    listen(handle: unknown, backlog?: number): this
     listen(...args: unknown[]): this {
+        if (args.some((argument) => typeof argument === "function")) {
+            throw new TypeError("Server.listen does not accept callback listeners; use 'listening'")
+        }
         void this.hostKeysReady.then(() => {
             Reflect.apply(this.server.listen, this.server, args)
         })
@@ -426,14 +425,14 @@ export default class Server extends EventEmitter<ServerEvents> {
         return this.server.address()
     }
 
-    getConnections(callback: (error: Error | null, count: number) => void): this {
-        queueMicrotask(() => callback(null, this.clients.size))
-        return this
+    async getConnections(): Promise<number> {
+        return this.clients.size
     }
 
-    close(callback?: (error?: Error) => void): this {
-        this.server.close(callback)
-        return this
+    close(): Promise<void> {
+        return new Promise((resolve, reject) => {
+            this.server.close((error) => (error ? reject(error) : resolve()))
+        })
     }
 
     ref(): this {

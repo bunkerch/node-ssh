@@ -62,7 +62,7 @@ describe("packet tunnel integration", () => {
         } finally {
             client.destroy()
             for (const peer of server.clients) peer.terminate()
-            await new Promise<void>((resolve) => server.close(() => resolve()))
+            await server.close()
         }
     }, 15_000)
 })

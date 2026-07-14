@@ -30,7 +30,9 @@ request destination. Standard agent pooling can keep that channel and its SSH co
 later requests.
 
 ```ts
+import { once } from "node:events"
 import https from "node:https"
+import { finished } from "node:stream/promises"
 import { HTTPSAgent } from "modernssh"
 
 const agent = new HTTPSAgent(
@@ -44,9 +46,10 @@ const agent = new HTTPSAgent(
     { keepAlive: true, sourceHost: "build-runner.example" },
 )
 
-https.get("https://service.internal/health", { agent }, (response) => {
-    response.pipe(process.stdout)
-})
+const request = https.get("https://service.internal/health", { agent })
+const [response] = await once(request, "response")
+response.pipe(process.stdout)
+await finished(response)
 ```
 
 For HTTPS, TLS is negotiated end-to-end over the SSH channel; the SSH server does not terminate or
@@ -164,8 +167,8 @@ server.on("connection", (connection) => {
 ```
 
 The bound address and port must identify a currently active forwarding request. This prevents an
-application bug from opening an unsolicited server-initiated channel. Both promise and callback
-forms are available; channel-open rejection is reported through the returned promise or callback.
+application bug from opening an unsolicited server-initiated channel. Channel-open rejection is
+reported through the returned Promise.
 
 ## OpenSSH UNIX-domain socket forwarding
 

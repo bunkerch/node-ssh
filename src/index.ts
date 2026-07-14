@@ -9,13 +9,9 @@ export type { SSHAgentOptions, SSHHTTPAgentOptions, SSHHTTPSAgentOptions } from 
 export type {
     ClientEvents,
     ClientEnvironment,
-    ClientChannelCallback,
-    ClientForwardCallback,
-    ClientForwardInCallback,
     ClientHooker,
     ClientHookerAuthenticationMethodContext,
     ClientHookerAuthenticationMethodController,
-    ClientGlobalRequestCallback,
     ClientHostbasedOptions,
     ClientHookerGlobalRequestContext,
     ClientHookerGlobalRequestController,
@@ -27,11 +23,7 @@ export type {
     ClientHookerPasswordChangeContext,
     ClientHookerPasswordChangeController,
     ClientOptions,
-    ClientPingCallback,
     ClientSessionOptions,
-    ClientSFTPCallback,
-    ClientSessionCallback,
-    ClientStreamLocalCallback,
 } from "./Client.js"
 export {
     default as SFTPClient,
@@ -137,12 +129,7 @@ export type { PeerDisconnectInfo } from "./packets/Disconnect.js"
 export type { ProtocolDebugMessage } from "./packets/Debug.js"
 export type { SSHExtension } from "./packets/ExtInfo.js"
 export { default as ServerClient } from "./ServerClient.js"
-export {
-    ServerGlobalRequestError,
-    type ServerClientEvents,
-    type ServerForwardCallback,
-    type ServerGlobalRequestCallback,
-} from "./ServerClient.js"
+export { ServerGlobalRequestError, type ServerClientEvents } from "./ServerClient.js"
 
 export {
     default as Channel,

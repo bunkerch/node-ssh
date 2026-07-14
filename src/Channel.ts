@@ -19,13 +19,12 @@ import { ProtocolError } from "./packets/Disconnect.js"
 export const DEFAULT_SERVER_CHANNEL_WINDOW_SIZE = 2 ** 21
 export const DEFAULT_SERVER_CHANNEL_PACKET_SIZE = 2 ** 15
 
-type WriteCallback = (error?: Error | null) => void
-
 interface PendingChannelWrite {
     data: Buffer
     offset: number
     extendedDataType?: number
-    callback: WriteCallback
+    resolve: () => void
+    reject: (error: Error) => void
     atomic: boolean
 }
 interface PendingChannelRequest {
@@ -213,16 +212,16 @@ export default class Channel {
         }
     }
 
-    sendData(data: Buffer, callback: WriteCallback): void {
-        this.queueData(data, undefined, callback, false)
+    sendData(data: Buffer): Promise<void> {
+        return this.queueData(data, undefined, false)
     }
 
-    protected sendAtomicData(data: Buffer, callback: WriteCallback): void {
-        this.queueData(data, undefined, callback, true)
+    protected sendAtomicData(data: Buffer): Promise<void> {
+        return this.queueData(data, undefined, true)
     }
 
-    sendExtendedData(dataType: number, data: Buffer, callback: WriteCallback): void {
-        this.queueData(data, dataType, callback, false)
+    sendExtendedData(dataType: number, data: Buffer): Promise<void> {
+        return this.queueData(data, dataType, false)
     }
 
     sendRequest(type: string, args: Buffer = Buffer.alloc(0), wantReply = false): void {
@@ -388,37 +387,35 @@ export default class Channel {
     private queueData(
         data: Buffer,
         extendedDataType: number | undefined,
-        callback: WriteCallback,
         atomic: boolean,
-    ): void {
+    ): Promise<void> {
         if (!this.isOpen) {
-            callback(new Error(`SSH channel ${this.localId} is not open for writing`))
-            return
+            return Promise.reject(new Error(`SSH channel ${this.localId} is not open for writing`))
         }
         if (this.outboundStopped) {
-            callback(new Error(`SSH channel ${this.localId} received end-of-write`))
-            return
+            return Promise.reject(new Error(`SSH channel ${this.localId} received end-of-write`))
         }
-        if (data.length === 0) {
-            callback()
-            return
-        }
+        if (data.length === 0) return Promise.resolve()
         if (
             atomic &&
             (data.length > this.remote_maximum_packet_size ||
                 data.length > DEFAULT_SERVER_CHANNEL_PACKET_SIZE)
         ) {
-            callback(new Error(`SSH channel ${this.localId} atomic packet exceeds peer limits`))
-            return
+            return Promise.reject(
+                new Error(`SSH channel ${this.localId} atomic packet exceeds peer limits`),
+            )
         }
-        this.pendingWrites.push({
-            data: Buffer.from(data),
-            offset: 0,
-            extendedDataType,
-            callback,
-            atomic,
+        return new Promise<void>((resolve, reject) => {
+            this.pendingWrites.push({
+                data: Buffer.from(data),
+                offset: 0,
+                extendedDataType,
+                resolve,
+                reject,
+                atomic,
+            })
+            this.flushPendingWrites()
         })
-        this.flushPendingWrites()
     }
 
     private flushPendingWrites(): void {
@@ -457,7 +454,7 @@ export default class Channel {
             this.remote_window_size -= length
             if (pending.offset === pending.data.length) {
                 this.pendingWrites.shift()
-                pending.callback()
+                pending.resolve()
             }
         }
     }
@@ -502,7 +499,7 @@ export default class Channel {
     }
 
     private failPendingWrites(error: Error): void {
-        while (this.pendingWrites.length > 0) this.pendingWrites.shift()!.callback(error)
+        while (this.pendingWrites.length > 0) this.pendingWrites.shift()!.reject(error)
     }
 
     private failPendingRequests(error: Error): void {

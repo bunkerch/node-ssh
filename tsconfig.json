@@ -8,6 +8,7 @@
         "target": "ESNext",
         "module": "NodeNext",
         "moduleResolution": "nodenext",
+        "types": ["node"],
 
         "useDefineForClassFields": true,
         "skipLibCheck": true,

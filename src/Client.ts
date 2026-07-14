@@ -217,10 +217,7 @@ export interface ClientOptionsRequired
     debug?: (...message: unknown[]) => void
 }
 
-export type ClientHostVerifier = (
-    key: Buffer | string,
-    callback: (verified: boolean) => void,
-) => boolean | void
+export type ClientHostVerifier = (key: Buffer | string) => boolean | Promise<boolean>
 
 export interface ClientEvents {
     debug: [...message: unknown[]]
@@ -348,17 +345,6 @@ export type ClientHooker = {
     ]
 }
 
-export type ClientChannelCallback<T extends ClientChannel = ClientChannel> = (
-    error: Error | undefined,
-    channel?: T,
-) => void
-export type ClientSessionCallback = ClientChannelCallback<ClientSessionChannel>
-export type ClientSFTPCallback = (error: Error | undefined, sftp?: SFTPClient) => void
-export type ClientForwardCallback = ClientChannelCallback<ClientTCPIPChannel>
-export type ClientForwardInCallback = (error: Error | undefined, port?: number) => void
-export type ClientStreamLocalCallback = ClientChannelCallback<ClientDirectStreamLocalChannel>
-export type ClientPingCallback = (error: Error | undefined, data?: Buffer) => void
-export type ClientGlobalRequestCallback = (error: Error | undefined, response?: Buffer) => void
 export type ClientEnvironment = Readonly<Record<string, string>>
 export interface ClientSessionOptions {
     agentForward?: boolean
@@ -755,69 +741,39 @@ export default class Client extends EventEmitter<ClientEvents> {
         throw new Error("strictVendor enabled and server is not OpenSSH or compatible version")
     }
 
-    rekey(): Promise<void>
-    rekey(callback: (error?: Error) => void): this
-    rekey(callback?: (error?: Error) => void): Promise<void> | this {
+    rekey(): Promise<void> {
         if (!this.isConnected) {
-            const error = new Error("Cannot rekey before the SSH connection is ready")
-            if (!callback) return Promise.reject(error)
-            queueMicrotask(() => callback(error))
-            return this
+            return Promise.reject(new Error("Cannot rekey before the SSH connection is ready"))
         }
         if (this.keyExchangeInProgress) {
-            const error = new Error("SSH key exchange is already in progress")
-            if (!callback) return Promise.reject(error)
-            queueMicrotask(() => callback(error))
-            return this
+            return Promise.reject(new Error("SSH key exchange is already in progress"))
         }
-        const operation = this.performKeyExchange().catch((error: unknown) => {
+        return this.performKeyExchange().catch((error: unknown) => {
             this.destroy()
             throw error
         })
-        if (!callback) return operation
-        operation.then(
-            () => callback(),
-            (error: Error) => callback(error),
-        )
-        return this
     }
 
-    ping(data?: Buffer): Promise<Buffer>
-    ping(callback: ClientPingCallback): this
-    ping(data: Buffer, callback: ClientPingCallback): this
-    ping(
-        dataOrCallback: Buffer | ClientPingCallback = Buffer.alloc(0),
-        callback?: ClientPingCallback,
-    ): Promise<Buffer> | this {
-        const data = typeof dataOrCallback === "function" ? Buffer.alloc(0) : dataOrCallback
-        callback = typeof dataOrCallback === "function" ? dataOrCallback : callback
-        let operation: Promise<Buffer>
+    ping(data: Buffer = Buffer.alloc(0)): Promise<Buffer> {
         if (!this.isConnected) {
-            operation = Promise.reject(new Error("Cannot ping before the SSH connection is ready"))
-        } else if (!this.transportPingSupported) {
-            operation = Promise.reject(
-                new Error("SSH server did not advertise transport ping support"),
-            )
-        } else if (!Buffer.isBuffer(data)) {
-            operation = Promise.reject(new TypeError("SSH transport ping data must be a buffer"))
-        } else {
-            const sent = Buffer.from(data)
-            operation = new Promise<Buffer>((resolve, reject) => {
-                this.pendingPings.push({ data: sent, resolve, reject })
-                try {
-                    this.sendPacket(new Ping({ data: sent }))
-                } catch (error) {
-                    this.pendingPings.pop()
-                    reject(error as Error)
-                }
-            })
+            return Promise.reject(new Error("Cannot ping before the SSH connection is ready"))
         }
-        if (!callback) return operation
-        operation.then(
-            (reply) => callback(undefined, reply),
-            (error: Error) => callback(error),
-        )
-        return this
+        if (!this.transportPingSupported) {
+            return Promise.reject(new Error("SSH server did not advertise transport ping support"))
+        }
+        if (!Buffer.isBuffer(data)) {
+            return Promise.reject(new TypeError("SSH transport ping data must be a buffer"))
+        }
+        const sent = Buffer.from(data)
+        return new Promise<Buffer>((resolve, reject) => {
+            this.pendingPings.push({ data: sent, resolve, reject })
+            try {
+                this.sendPacket(new Ping({ data: sent }))
+            } catch (error) {
+                this.pendingPings.pop()
+                reject(error as Error)
+            }
+        })
     }
 
     sendDebug(message: string, alwaysDisplay = false, languageTag = ""): this {
@@ -839,49 +795,21 @@ export default class Client extends EventEmitter<ClientEvents> {
         return this
     }
 
-    globalRequest(name: string, args?: Buffer): Promise<Buffer>
-    globalRequest(name: string, callback: ClientGlobalRequestCallback): this
-    globalRequest(name: string, args: Buffer, callback: ClientGlobalRequestCallback): this
-    globalRequest(
-        name: string,
-        argsOrCallback: Buffer | ClientGlobalRequestCallback = Buffer.alloc(0),
-        callback?: ClientGlobalRequestCallback,
-    ): Promise<Buffer> | this {
-        const args = typeof argsOrCallback === "function" ? Buffer.alloc(0) : argsOrCallback
-        callback = typeof argsOrCallback === "function" ? argsOrCallback : callback
-        let operation: Promise<Buffer>
+    globalRequest(name: string, args: Buffer = Buffer.alloc(0)): Promise<Buffer> {
         try {
             this.validateGlobalRequest(name, args)
-            operation = this.sendGlobalRequest(name, Buffer.from(args))
+            return this.sendGlobalRequest(name, Buffer.from(args))
         } catch (error) {
-            operation = Promise.reject(error as Error)
+            return Promise.reject(error as Error)
         }
-        if (!callback) return operation
-        operation.then(
-            (response) => callback(undefined, response),
-            (error: Error) => callback(error),
-        )
-        return this
     }
 
-    openSession(): Promise<ClientSessionChannel>
-    openSession(callback: ClientSessionCallback): this
-    openSession(callback?: ClientSessionCallback): Promise<ClientSessionChannel> | this {
-        return this.withOptionalChannelCallback(this.openSessionChannel(), callback)
+    openSession(): Promise<ClientSessionChannel> {
+        return this.openSessionChannel()
     }
 
-    exec(command: string, options?: ClientSessionOptions): Promise<ClientSessionChannel>
-    exec(command: string, callback: ClientSessionCallback): this
-    exec(command: string, options: ClientSessionOptions, callback: ClientSessionCallback): this
-    exec(
-        command: string,
-        optionsOrCallback: ClientSessionOptions | ClientSessionCallback = {},
-        callback?: ClientSessionCallback,
-    ): Promise<ClientSessionChannel> | this {
-        const options = typeof optionsOrCallback === "function" ? {} : optionsOrCallback
-        const resolvedCallback =
-            typeof optionsOrCallback === "function" ? optionsOrCallback : callback
-        const operation = this.openSessionChannel().then(async (channel) => {
+    exec(command: string, options: ClientSessionOptions = {}): Promise<ClientSessionChannel> {
+        return this.openSessionChannel().then(async (channel) => {
             try {
                 await this.configureSession(channel, options, false)
                 await channel.exec(command)
@@ -891,20 +819,10 @@ export default class Client extends EventEmitter<ClientEvents> {
                 throw error
             }
         })
-        return this.withOptionalChannelCallback(operation, resolvedCallback)
     }
 
-    shell(options?: ClientSessionOptions): Promise<ClientSessionChannel>
-    shell(callback: ClientSessionCallback): this
-    shell(options: ClientSessionOptions, callback: ClientSessionCallback): this
-    shell(
-        optionsOrCallback: ClientSessionOptions | ClientSessionCallback = {},
-        callback?: ClientSessionCallback,
-    ): Promise<ClientSessionChannel> | this {
-        const options = typeof optionsOrCallback === "function" ? {} : optionsOrCallback
-        const resolvedCallback =
-            typeof optionsOrCallback === "function" ? optionsOrCallback : callback
-        const operation = this.openSessionChannel().then(async (channel) => {
+    shell(options: ClientSessionOptions = {}): Promise<ClientSessionChannel> {
+        return this.openSessionChannel().then(async (channel) => {
             try {
                 await this.configureSession(channel, options, true)
                 await channel.shell()
@@ -914,16 +832,10 @@ export default class Client extends EventEmitter<ClientEvents> {
                 throw error
             }
         })
-        return this.withOptionalChannelCallback(operation, resolvedCallback)
     }
 
-    subsystem(name: string): Promise<ClientSessionChannel>
-    subsystem(name: string, callback: ClientSessionCallback): this
-    subsystem(
-        name: string,
-        callback?: ClientSessionCallback,
-    ): Promise<ClientSessionChannel> | this {
-        const operation = this.openSessionChannel().then(async (channel) => {
+    subsystem(name: string): Promise<ClientSessionChannel> {
+        return this.openSessionChannel().then(async (channel) => {
             try {
                 await channel.subsystem(name)
                 return channel
@@ -932,42 +844,22 @@ export default class Client extends EventEmitter<ClientEvents> {
                 throw error
             }
         })
-        return this.withOptionalChannelCallback(operation, callback)
     }
 
-    subsys(name: string): Promise<ClientSessionChannel>
-    subsys(name: string, callback: ClientSessionCallback): this
-    subsys(name: string, callback?: ClientSessionCallback): Promise<ClientSessionChannel> | this {
-        return callback ? this.subsystem(name, callback) : this.subsystem(name)
+    subsys(name: string): Promise<ClientSessionChannel> {
+        return this.subsystem(name)
     }
 
-    openssh_noMoreSessions(): Promise<void>
-    openssh_noMoreSessions(callback: (error?: Error) => void): this
-    openssh_noMoreSessions(callback?: (error?: Error) => void): Promise<void> | this {
-        const operation = this.requestNoMoreSessions()
-        if (!callback) return operation
-        operation.then(
-            () => callback(),
-            (error: Error) => callback(error),
-        )
-        return this
+    openssh_noMoreSessions(): Promise<void> {
+        return this.requestNoMoreSessions()
     }
 
     opensshNoMoreSessions(): Promise<void> {
         return this.requestNoMoreSessions()
     }
 
-    sftp(environment?: ClientEnvironment): Promise<SFTPClient>
-    sftp(callback: ClientSFTPCallback): this
-    sftp(environment: ClientEnvironment, callback: ClientSFTPCallback): this
-    sftp(
-        environmentOrCallback: ClientEnvironment | ClientSFTPCallback = {},
-        callback?: ClientSFTPCallback,
-    ): Promise<SFTPClient> | this {
-        const environment = typeof environmentOrCallback === "function" ? {} : environmentOrCallback
-        const resolvedCallback =
-            typeof environmentOrCallback === "function" ? environmentOrCallback : callback
-        const operation = this.openSessionChannel().then(async (channel) => {
+    sftp(environment: ClientEnvironment = {}): Promise<SFTPClient> {
+        return this.openSessionChannel().then(async (channel) => {
             try {
                 for (const [name, value] of Object.entries(environment)) {
                     await channel.setEnv(name, value, false)
@@ -980,13 +872,6 @@ export default class Client extends EventEmitter<ClientEvents> {
                 throw error
             }
         })
-        if (!resolvedCallback) return operation
-        void operation.then(
-            (sftp) => resolvedCallback(undefined, sftp),
-            (error: unknown) =>
-                resolvedCallback(error instanceof Error ? error : new Error(String(error))),
-        )
-        return this
     }
 
     forwardOut(
@@ -994,22 +879,8 @@ export default class Client extends EventEmitter<ClientEvents> {
         sourcePort: number,
         destinationHost: string,
         destinationPort: number,
-    ): Promise<ClientTCPIPChannel>
-    forwardOut(
-        sourceHost: string,
-        sourcePort: number,
-        destinationHost: string,
-        destinationPort: number,
-        callback: ClientForwardCallback,
-    ): this
-    forwardOut(
-        sourceHost: string,
-        sourcePort: number,
-        destinationHost: string,
-        destinationPort: number,
-        callback?: ClientForwardCallback,
-    ): Promise<ClientTCPIPChannel> | this {
-        const operation = this.openClientChannel(
+    ): Promise<ClientTCPIPChannel> {
+        return this.openClientChannel(
             new ClientTCPIPChannel(this, {
                 sourceHost,
                 sourcePort,
@@ -1017,114 +888,44 @@ export default class Client extends EventEmitter<ClientEvents> {
                 destinationPort,
             }),
         )
-        return this.withOptionalChannelCallback(operation, callback)
     }
 
-    forwardIn(bindAddress: string, bindPort: number): Promise<number>
-    forwardIn(bindAddress: string, bindPort: number, callback: ClientForwardInCallback): this
-    forwardIn(
-        bindAddress: string,
-        bindPort: number,
-        callback?: ClientForwardInCallback,
-    ): Promise<number> | this {
-        const operation = this.requestRemoteForward(bindAddress, bindPort)
-        if (!callback) return operation
-        operation.then(
-            (port) => callback(undefined, port),
-            (error: Error) => callback(error),
-        )
-        return this
+    forwardIn(bindAddress: string, bindPort: number): Promise<number> {
+        return this.requestRemoteForward(bindAddress, bindPort)
     }
 
-    unforwardIn(bindAddress: string, bindPort: number): Promise<void>
-    unforwardIn(bindAddress: string, bindPort: number, callback: (error?: Error) => void): this
-    unforwardIn(
-        bindAddress: string,
-        bindPort: number,
-        callback?: (error?: Error) => void,
-    ): Promise<void> | this {
-        const operation = this.cancelRemoteForward(bindAddress, bindPort)
-        if (!callback) return operation
-        operation.then(
-            () => callback(),
-            (error: Error) => callback(error),
-        )
-        return this
+    unforwardIn(bindAddress: string, bindPort: number): Promise<void> {
+        return this.cancelRemoteForward(bindAddress, bindPort)
     }
 
-    openssh_forwardOutStreamLocal(socketPath: string): Promise<ClientDirectStreamLocalChannel>
-    openssh_forwardOutStreamLocal(socketPath: string, callback: ClientStreamLocalCallback): this
-    openssh_forwardOutStreamLocal(
-        socketPath: string,
-        callback?: ClientStreamLocalCallback,
-    ): Promise<ClientDirectStreamLocalChannel> | this {
+    openssh_forwardOutStreamLocal(socketPath: string): Promise<ClientDirectStreamLocalChannel> {
         try {
             this.assertOpenSSHVendor()
         } catch (error) {
-            return this.withOptionalChannelCallback(
-                Promise.reject<ClientDirectStreamLocalChannel>(error),
-                callback,
-            )
+            return Promise.reject(error)
         }
         this.validateSocketPath(socketPath)
-        const operation = this.openClientChannel(
-            new ClientDirectStreamLocalChannel(this, socketPath),
-        )
-        return this.withOptionalChannelCallback(operation, callback)
+        return this.openClientChannel(new ClientDirectStreamLocalChannel(this, socketPath))
     }
 
-    openssh_openTunnel(mode: TunnelMode, unit?: number): Promise<ClientTunnelChannel>
     openssh_openTunnel(
         mode: TunnelMode,
-        unit: number,
-        callback: ClientChannelCallback<ClientTunnelChannel>,
-    ): this
-    openssh_openTunnel(mode: TunnelMode, callback: ClientChannelCallback<ClientTunnelChannel>): this
-    openssh_openTunnel(
-        mode: TunnelMode,
-        unitOrCallback: number | ClientChannelCallback<ClientTunnelChannel> = AUTOMATIC_TUNNEL_UNIT,
-        callback?: ClientChannelCallback<ClientTunnelChannel>,
-    ): Promise<ClientTunnelChannel> | this {
-        const unit = typeof unitOrCallback === "number" ? unitOrCallback : AUTOMATIC_TUNNEL_UNIT
-        const resolvedCallback = typeof unitOrCallback === "function" ? unitOrCallback : callback
-        let operation: Promise<ClientTunnelChannel>
+        unit: number = AUTOMATIC_TUNNEL_UNIT,
+    ): Promise<ClientTunnelChannel> {
         try {
             this.assertOpenSSHVendor()
-            operation = this.openClientChannel(new ClientTunnelChannel(this, mode, unit))
+            return this.openClientChannel(new ClientTunnelChannel(this, mode, unit))
         } catch (error) {
-            operation = Promise.reject(error)
+            return Promise.reject(error)
         }
-        return this.withOptionalChannelCallback(operation, resolvedCallback)
     }
 
-    openssh_forwardInStreamLocal(socketPath: string): Promise<void>
-    openssh_forwardInStreamLocal(socketPath: string, callback: (error?: Error) => void): this
-    openssh_forwardInStreamLocal(
-        socketPath: string,
-        callback?: (error?: Error) => void,
-    ): Promise<void> | this {
-        const operation = this.requestRemoteStreamLocalForward(socketPath)
-        if (!callback) return operation
-        operation.then(
-            () => callback(),
-            (error: Error) => callback(error),
-        )
-        return this
+    openssh_forwardInStreamLocal(socketPath: string): Promise<void> {
+        return this.requestRemoteStreamLocalForward(socketPath)
     }
 
-    openssh_unforwardInStreamLocal(socketPath: string): Promise<void>
-    openssh_unforwardInStreamLocal(socketPath: string, callback: (error?: Error) => void): this
-    openssh_unforwardInStreamLocal(
-        socketPath: string,
-        callback?: (error?: Error) => void,
-    ): Promise<void> | this {
-        const operation = this.cancelRemoteStreamLocalForward(socketPath)
-        if (!callback) return operation
-        operation.then(
-            () => callback(),
-            (error: Error) => callback(error),
-        )
-        return this
+    openssh_unforwardInStreamLocal(socketPath: string): Promise<void> {
+        return this.cancelRemoteStreamLocalForward(socketPath)
     }
 
     private async openSessionChannel(): Promise<ClientSessionChannel> {
@@ -1171,18 +972,6 @@ export default class Client extends EventEmitter<ClientEvents> {
             channel.destroy()
             throw error
         }
-    }
-
-    private withOptionalChannelCallback<T extends ClientChannel>(
-        operation: Promise<T>,
-        callback?: ClientChannelCallback<T>,
-    ): Promise<T> | this {
-        if (!callback) return operation
-        operation.then(
-            (channel) => callback(undefined, channel),
-            (error: Error) => callback(error),
-        )
-        return this
     }
 
     private async handleServerHostKeys(packet: GlobalRequest): Promise<void> {
@@ -2583,34 +2372,23 @@ export default class Client extends EventEmitter<ClientEvents> {
         const presentedKey: Buffer | string = this.options.hostHash
             ? crypto.createHash(this.options.hostHash).update(serializedHostKey).digest("hex")
             : Buffer.from(serializedHostKey)
-        const allowed = await new Promise<boolean>((resolve, reject) => {
-            let completed = false
-            const cleanup = () => {
-                this.off("error", fail)
-                this.off("close", closed)
-            }
-            const complete = (verified: boolean) => {
-                if (completed) return
-                completed = true
-                cleanup()
-                resolve(verified === true)
-            }
-            const fail = (error: Error) => {
-                if (completed) return
-                completed = true
-                cleanup()
-                reject(error)
-            }
-            const closed = () => fail(new Error("SSH connection closed during host verification"))
-            this.once("error", fail)
-            this.once("close", closed)
-            try {
-                const result = verifier(presentedKey, complete)
-                if (result !== undefined) complete(result)
-            } catch (error) {
-                fail(error as Error)
-            }
+        let rejectClosed!: (error: Error) => void
+        const closed = new Promise<never>((_resolve, reject) => {
+            rejectClosed = reject
         })
+        const fail = (error: Error) => rejectClosed(error)
+        const close = () =>
+            rejectClosed(new Error("SSH connection closed during host verification"))
+        this.once("error", fail)
+        this.once("close", close)
+        let allowed: boolean
+        try {
+            allowed =
+                (await Promise.race([Promise.resolve(verifier(presentedKey)), closed])) === true
+        } finally {
+            this.off("error", fail)
+            this.off("close", close)
+        }
         if (!allowed) throw new Error("Host key not allowed by verifier")
     }
 

@@ -15,11 +15,9 @@ class ServerStderr extends Writable {
 
     _write(data: Buffer | string, encoding: BufferEncoding, callback: WriteCallback): void {
         const buffer = Buffer.isBuffer(data) ? data : Buffer.from(data, encoding)
-        this.channel.sendExtendedData(
-            SSHExtendedDataTypes.SSH_EXTENDED_DATA_STDERR,
-            buffer,
-            callback,
-        )
+        void this.channel
+            .sendExtendedData(SSHExtendedDataTypes.SSH_EXTENDED_DATA_STDERR, buffer)
+            .then(() => callback(), callback)
     }
 }
 
@@ -42,8 +40,20 @@ export default class Shell extends Duplex {
     }
 
     _write(data: Buffer | string, encoding: BufferEncoding, callback: WriteCallback): void {
-        const buffer = Buffer.isBuffer(data) ? data : Buffer.from(data, encoding)
-        this.channel.sendData(buffer, callback)
+        void this.writeStdout(data, encoding).then(() => callback(), callback)
+    }
+
+    /** Send standard output and resolve after every resulting channel-data packet is written. */
+    writeStdout(data: Buffer | string, encoding: BufferEncoding = "utf8"): Promise<void> {
+        return this.channel.sendData(Buffer.isBuffer(data) ? data : Buffer.from(data, encoding))
+    }
+
+    /** Send standard error and resolve after every resulting extended-data packet is written. */
+    writeStderr(data: Buffer | string, encoding: BufferEncoding = "utf8"): Promise<void> {
+        return this.channel.sendExtendedData(
+            SSHExtendedDataTypes.SSH_EXTENDED_DATA_STDERR,
+            Buffer.isBuffer(data) ? data : Buffer.from(data, encoding),
+        )
     }
 
     _final(callback: WriteCallback): void {

@@ -47,7 +47,7 @@ async function createConnectedPeers(
 async function closePeers(server: Server, client: Client): Promise<void> {
     client.destroy()
     for (const peer of server.clients) peer.terminate()
-    await new Promise<void>((resolve) => server.close(() => resolve()))
+    await server.close()
 }
 
 function nextDebug(emitter: Client | ServerClient): Promise<Readonly<ProtocolDebugMessage>> {

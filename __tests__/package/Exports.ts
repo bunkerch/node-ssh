@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process"
-import { mkdir, mkdtemp, readdir, rm } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, readdir, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
@@ -165,6 +165,29 @@ describe("package exports", () => {
         expect(entry.decodeSFTPLimits).toBeDefined()
         expect(entry.TerminalMode.TTY_OP_OSPEED).toBe(129)
         expect(entry.TerminalModes).toBe(entry.TerminalMode)
+    })
+
+    test("compiled declarations expose Promise-only completion APIs", async () => {
+        const client = await readFile("dist/Client.d.ts", "utf8")
+        const channel = await readFile("dist/Channel.d.ts", "utf8")
+        const serverClient = await readFile("dist/ServerClient.d.ts", "utf8")
+        const server = await readFile("dist/Server.d.ts", "utf8")
+        const streams = await readFile("dist/sftp/streams.d.ts", "utf8")
+        const shell = await readFile("dist/channels/Session/Shell.d.ts", "utf8")
+
+        expect(client).not.toContain("ClientSessionCallback")
+        expect(client).not.toContain("ClientGlobalRequestCallback")
+        expect(client).toContain("globalRequest(name: string, args?: Buffer): Promise<Buffer>")
+        expect(client).toContain("exec(command: string, options?: ClientSessionOptions)")
+        expect(channel).toContain("sendData(data: Buffer): Promise<void>")
+        expect(channel).toContain("sendExtendedData(dataType: number, data: Buffer): Promise<void>")
+        expect(serverClient).not.toContain("ServerGlobalRequestCallback")
+        expect(serverClient).toContain("rekey(): Promise<void>")
+        expect(server).toContain("getConnections(): Promise<number>")
+        expect(server).toContain("close(): Promise<void>")
+        expect(streams.match(/close\(\): Promise<void>/gu)).toHaveLength(2)
+        expect(shell).toContain("writeStdout(data: Buffer | string")
+        expect(shell).toContain("writeStderr(data: Buffer | string")
     })
 
     test("package archive exposes working ESM key generation", async () => {
