@@ -160,6 +160,11 @@ that every CBC direction uses a separate MAC. NIST SP 800-38A AES vectors and an
 generated OpenSSL 3DES vector verify the block primitives, while fragmented fixed packets verify
 that cipher chaining continues when the decoder receives the first block separately.
 
+Truncated HMAC-SHA1 interoperability forces both RFC 4253 `hmac-sha1-96` and the deployed
+`hmac-sha1-96-etm@openssh.com` method in both peer roles with AES-128-CTR. Each direction explicitly
+rekeys and executes a command, while fixed RFC 2202 bytes independently verify that the tag is the
+first 12 bytes of the complete HMAC-SHA1 result.
+
 Delayed-compression interoperability runs in both peer roles. OpenSSH and the modern client each
 force `zlib@openssh.com`, transfer repeated multi-packet data in both directions, and rekey while the
 compression streams are active. Handshake details confirm the selected method before traffic is

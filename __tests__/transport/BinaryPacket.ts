@@ -7,6 +7,8 @@ import AES128CTR from "../../src/algorithms/encryption/aes128-ctr.js"
 import AES128GCMOpenSSH from "../../src/algorithms/encryption/aes128-gcm-openssh.js"
 import ChaCha20Poly1305OpenSSH from "../../src/algorithms/encryption/chacha20-poly1305-openssh.js"
 import HMACSHA2256 from "../../src/algorithms/mac/hmac-sha2-256.js"
+import HMACSHA196 from "../../src/algorithms/mac/hmac-sha1-96.js"
+import HMACSHA196ETM from "../../src/algorithms/mac/hmac-sha1-96-etm.js"
 
 const deterministicPadding = (size: number): Buffer => Buffer.alloc(size, 0xa5)
 
@@ -36,6 +38,29 @@ function createETMProtectionPair() {
     return {
         outbound: { ...protection.outbound, encryptThenMac: true },
         inbound: { ...protection.inbound, encryptThenMac: true },
+    }
+}
+
+function createSHA196ProtectionPair(encryptThenMac: boolean) {
+    const key = Buffer.from("00112233445566778899aabbccddeeff", "hex")
+    const iv = Buffer.from("ffeeddccbbaa99887766554433221100", "hex")
+    const macKey = Buffer.alloc(HMACSHA196.key_length, 0x24)
+    const MAC = encryptThenMac ? HMACSHA196ETM : HMACSHA196
+    return {
+        outbound: {
+            cipher: new AES128CTR(key, iv),
+            mac: new MAC(macKey),
+            blockSize: AES128CTR.block_size,
+            macLength: MAC.digest_length,
+            encryptThenMac,
+        },
+        inbound: {
+            cipher: new AES128CTR(key, iv),
+            mac: new MAC(macKey),
+            blockSize: AES128CTR.block_size,
+            macLength: MAC.digest_length,
+            encryptThenMac,
+        },
     }
 }
 
@@ -78,6 +103,29 @@ function createChaChaProtectionPair() {
 }
 
 describe("BinaryPacket", () => {
+    test.each([false, true])(
+        "authenticates packets with a 96-bit HMAC-SHA1 tag (etm=%s)",
+        (encryptThenMac) => {
+            const payload = Buffer.from("5e000000070000000474657374", "hex")
+            const encoder = new BinaryPacketEncoder({ randomBytes: deterministicPadding })
+            encoder.setProtection(createSHA196ProtectionPair(encryptThenMac).outbound)
+            const encoded = encoder.encode(payload).data
+            expect(encoded.subarray(-12)).toHaveLength(12)
+
+            const decoder = new BinaryPacketDecoder()
+            decoder.setProtection(createSHA196ProtectionPair(encryptThenMac).inbound)
+            decoder.push(encoded)
+            expect(decoder.read()?.payload).toEqual(payload)
+
+            const modified = Buffer.from(encoded)
+            modified[modified.length - 1] ^= 0x01
+            const rejectingDecoder = new BinaryPacketDecoder()
+            rejectingDecoder.setProtection(createSHA196ProtectionPair(encryptThenMac).inbound)
+            rejectingDecoder.push(modified)
+            expect(() => rejectingDecoder.read()).toThrow("MAC verification failed")
+        },
+    )
+
     test("resets both implicit sequence counters after NEWKEYS", () => {
         const encoder = new BinaryPacketEncoder({ randomBytes: deterministicPadding })
         const decoder = new BinaryPacketDecoder()

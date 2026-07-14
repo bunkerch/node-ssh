@@ -170,6 +170,10 @@ meaningful wire-level behavior.
   and uses the full digest. OpenSSH ETM leaves the packet length clear, encrypts the packet body,
   authenticates sequence number plus clear length plus ciphertext, and must verify the tag before
   decrypting. Keep ETM padding aligned to the encrypted body rather than the clear length.
+- RFC 4253 `hmac-sha1-96` computes the complete HMAC-SHA1 over sequence number plus packet, then
+  truncates it to the first 12 bytes. Its ETM form authenticates the clear length plus ciphertext
+  and verifies before decryption. Keep both behind stronger choices and validate them with RFC 2202
+  bytes plus OpenSSH in both peer roles across rekey.
 - RFC 5647 AES-GCM leaves the four-byte packet length clear as authenticated data, encrypts the
   block-aligned body, appends the full 16-byte tag, and uses no separate MAC key. Treat the IV's
   trailing eight bytes as a per-packet invocation counter, never permit it to wrap, and validate
