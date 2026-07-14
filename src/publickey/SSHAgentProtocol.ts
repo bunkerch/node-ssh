@@ -14,6 +14,37 @@ import PrivateKey from "../utils/PrivateKey.js"
 import PublicKey from "../utils/PublicKey.js"
 import EncodedSignature from "../utils/Signature.js"
 import Agent, { AgentError, AgentType } from "./Agent.js"
+import {
+    MAX_OPENSSH_AGENT_SESSION_BINDINGS,
+    OPENSSH_AGENT_ASSOCIATED_CERTIFICATES,
+    OPENSSH_AGENT_RESTRICT_DESTINATION,
+    OPENSSH_AGENT_SESSION_BIND,
+    parseOpenSSHAgentConstraint,
+    parseOpenSSHSessionBinding,
+    serializeOpenSSHAgentConstraint,
+    serializeOpenSSHSessionBinding,
+    type OpenSSHAgentKeyConstraint,
+    type OpenSSHAgentSessionBinding,
+} from "./OpenSSHAgentProtocol.js"
+
+export {
+    MAX_OPENSSH_AGENT_ASSOCIATED_CERTIFICATES,
+    MAX_OPENSSH_AGENT_DESTINATION_CONSTRAINTS,
+    MAX_OPENSSH_AGENT_SESSION_BINDINGS,
+    MAX_OPENSSH_AGENT_SESSION_IDENTIFIER_LENGTH,
+    OPENSSH_AGENT_ASSOCIATED_CERTIFICATES,
+    OPENSSH_AGENT_RESTRICT_DESTINATION,
+    OPENSSH_AGENT_SESSION_BIND,
+} from "./OpenSSHAgentProtocol.js"
+export type {
+    OpenSSHAgentAssociatedCertificatesConstraint,
+    OpenSSHAgentDestinationConstraint,
+    OpenSSHAgentDestinationHop,
+    OpenSSHAgentDestinationKey,
+    OpenSSHAgentDestinationRule,
+    OpenSSHAgentKeyConstraint,
+    OpenSSHAgentSessionBinding,
+} from "./OpenSSHAgentProtocol.js"
 
 export const MAX_SSH_AGENT_MESSAGE_LENGTH = 256 * 1024
 
@@ -68,6 +99,7 @@ export type SSHAgentConstraint =
     | Readonly<{ type: "lifetime"; seconds: number }>
     | Readonly<{ type: "confirm" }>
     | Readonly<{ type: "extension"; name: string; data: Buffer }>
+    | OpenSSHAgentKeyConstraint
 
 export interface SSHAgentAddIdentityOptions {
     comment?: string
@@ -151,31 +183,109 @@ export interface SSHAgentServerQueryExtensionsController {
     extensions: readonly string[] | undefined
 }
 
+export interface SSHAgentProtocolConnectionContext {
+    /** The stream supplied to serve(); use object identity to associate application state. */
+    readonly stream: Duplex
+    /** True after any session-bind request, including a malformed or refused one. */
+    readonly sessionBindAttempted: boolean
+    /** Accepted bindings in forwarding-path order. */
+    readonly sessionBindings: readonly OpenSSHAgentSessionBinding[]
+}
+
 // eslint-disable-next-line @typescript-eslint/consistent-type-definitions
 export type SSHAgentServerHooker = {
-    identities: [controller: SSHAgentServerIdentitiesController]
-    sign: [context: SSHAgentServerSignContext, controller: SSHAgentServerSignController]
+    identities: [
+        controller: SSHAgentServerIdentitiesController,
+        connection: SSHAgentProtocolConnectionContext,
+    ]
+    sign: [
+        context: SSHAgentServerSignContext,
+        controller: SSHAgentServerSignController,
+        connection: SSHAgentProtocolConnectionContext,
+    ]
     addIdentity: [
         context: SSHAgentServerAddIdentityContext,
         controller: SSHAgentServerSuccessController,
+        connection: SSHAgentProtocolConnectionContext,
     ]
-    addToken: [context: SSHAgentServerAddTokenContext, controller: SSHAgentServerSuccessController]
+    addToken: [
+        context: SSHAgentServerAddTokenContext,
+        controller: SSHAgentServerSuccessController,
+        connection: SSHAgentProtocolConnectionContext,
+    ]
     removeIdentity: [
         context: SSHAgentServerRemoveIdentityContext,
         controller: SSHAgentServerSuccessController,
+        connection: SSHAgentProtocolConnectionContext,
     ]
-    removeAllIdentities: [controller: SSHAgentServerSuccessController]
+    removeAllIdentities: [
+        controller: SSHAgentServerSuccessController,
+        connection: SSHAgentProtocolConnectionContext,
+    ]
     removeToken: [
         context: SSHAgentServerRemoveTokenContext,
         controller: SSHAgentServerSuccessController,
+        connection: SSHAgentProtocolConnectionContext,
     ]
-    lock: [context: SSHAgentServerPassphraseContext, controller: SSHAgentServerSuccessController]
-    unlock: [context: SSHAgentServerPassphraseContext, controller: SSHAgentServerSuccessController]
+    lock: [
+        context: SSHAgentServerPassphraseContext,
+        controller: SSHAgentServerSuccessController,
+        connection: SSHAgentProtocolConnectionContext,
+    ]
+    unlock: [
+        context: SSHAgentServerPassphraseContext,
+        controller: SSHAgentServerSuccessController,
+        connection: SSHAgentProtocolConnectionContext,
+    ]
     extension: [
         context: SSHAgentServerExtensionContext,
         controller: SSHAgentServerExtensionController,
+        connection: SSHAgentProtocolConnectionContext,
     ]
-    queryExtensions: [controller: SSHAgentServerQueryExtensionsController]
+    queryExtensions: [
+        controller: SSHAgentServerQueryExtensionsController,
+        connection: SSHAgentProtocolConnectionContext,
+    ]
+    sessionBind: [
+        binding: OpenSSHAgentSessionBinding,
+        controller: SSHAgentServerSuccessController,
+        connection: SSHAgentProtocolConnectionContext,
+    ]
+}
+
+interface SSHAgentProtocolConnectionState {
+    readonly context: SSHAgentProtocolConnectionContext
+    sessionBindAttempted: boolean
+    sessionBindings: readonly OpenSSHAgentSessionBinding[]
+}
+
+function copySessionBinding(binding: OpenSSHAgentSessionBinding): OpenSSHAgentSessionBinding {
+    const serialized = serializeOpenSSHSessionBinding(binding)
+    try {
+        return parseOpenSSHSessionBinding(serialized)
+    } finally {
+        serialized.fill(0)
+    }
+}
+
+function createConnectionState(stream: Duplex): SSHAgentProtocolConnectionState {
+    const state = {
+        sessionBindAttempted: false,
+        sessionBindings: Object.freeze([]) as readonly OpenSSHAgentSessionBinding[],
+    }
+    const context: SSHAgentProtocolConnectionContext = Object.freeze({
+        stream,
+        get sessionBindAttempted(): boolean {
+            return state.sessionBindAttempted
+        },
+        get sessionBindings(): readonly OpenSSHAgentSessionBinding[] {
+            return Object.freeze(state.sessionBindings.map(copySessionBinding))
+        },
+    })
+    return Object.defineProperty(state, "context", {
+        value: context,
+        enumerable: true,
+    }) as unknown as SSHAgentProtocolConnectionState
 }
 
 function validateOptions(options: SSHAgentProtocolOptions): Required<SSHAgentProtocolOptions> {
@@ -231,15 +341,35 @@ function encodeOpaqueString(value: string | Buffer, description: string): Buffer
     return Buffer.from(value)
 }
 
-function serializeConstraints(constraints: readonly SSHAgentConstraint[]): Buffer {
+function constraintIdentity(constraint: SSHAgentConstraint): string {
+    if (constraint.type === "extension") return `extension:${constraint.name}`
+    if (constraint.type === "openssh-restrict-destination") {
+        return `extension:${OPENSSH_AGENT_RESTRICT_DESTINATION}`
+    }
+    if (constraint.type === "openssh-associated-certificates") {
+        return `extension:${OPENSSH_AGENT_ASSOCIATED_CERTIFICATES}`
+    }
+    return constraint.type
+}
+
+function serializeConstraints(
+    constraints: readonly SSHAgentConstraint[],
+    target: "identity" | "token",
+): Buffer {
     if (!Array.isArray(constraints)) {
         throw new TypeError("SSH agent constraints must be an array")
     }
     const serialized: Buffer[] = []
+    const seen = new Set<string>()
     constraints.forEach((constraint, index) => {
         if (typeof constraint !== "object" || constraint === null) {
             throw new TypeError("SSH agent constraint must be an object")
         }
+        const identity = constraintIdentity(constraint)
+        if (seen.has(identity)) {
+            throw new SSHAgentProtocolError("SSH agent constraint must not be duplicate")
+        }
+        seen.add(identity)
         if (constraint.type === "lifetime") {
             if (
                 !Number.isSafeInteger(constraint.seconds) ||
@@ -256,6 +386,13 @@ function serializeConstraints(constraints: readonly SSHAgentConstraint[]): Buffe
         }
         if (constraint.type === "confirm") {
             serialized.push(Buffer.from([SSHAgentConstraintType.Confirm]))
+            return
+        }
+        if (
+            constraint.type === "openssh-restrict-destination" ||
+            constraint.type === "openssh-associated-certificates"
+        ) {
+            serialized.push(serializeOpenSSHAgentConstraint(constraint, target))
             return
         }
         if (constraint.type === "extension") {
@@ -276,6 +413,14 @@ function serializeConstraints(constraints: readonly SSHAgentConstraint[]): Buffe
                     "SSH agent constraint extension name must not be empty",
                 )
             }
+            if (
+                constraint.name === OPENSSH_AGENT_RESTRICT_DESTINATION ||
+                constraint.name === OPENSSH_AGENT_ASSOCIATED_CERTIFICATES
+            ) {
+                throw new SSHAgentProtocolError(
+                    "OpenSSH agent structured constraints require their typed representation",
+                )
+            }
             serialized.push(
                 Buffer.from([SSHAgentConstraintType.Extension]),
                 serializeBuffer(encodedName),
@@ -288,18 +433,26 @@ function serializeConstraints(constraints: readonly SSHAgentConstraint[]): Buffe
     return Buffer.concat(serialized)
 }
 
-function parseConstraints(raw: Buffer): readonly SSHAgentConstraint[] {
+function parseConstraints(
+    raw: Buffer,
+    target: "identity" | "token",
+): readonly SSHAgentConstraint[] {
     const constraints: SSHAgentConstraint[] = []
+    const seen = new Set<string>()
     while (raw.length !== 0) {
         const type = raw[0]
         raw = raw.subarray(1)
         if (type === SSHAgentConstraintType.Lifetime) {
+            if (seen.has("lifetime")) throw new Error("duplicate lifetime constraint")
+            seen.add("lifetime")
             let seconds: number
             ;[seconds, raw] = readNextUint32(raw)
             constraints.push(Object.freeze({ type: "lifetime", seconds }))
             continue
         }
         if (type === SSHAgentConstraintType.Confirm) {
+            if (seen.has("confirm")) throw new Error("duplicate confirmation constraint")
+            seen.add("confirm")
             constraints.push(Object.freeze({ type: "confirm" }))
             continue
         }
@@ -311,10 +464,20 @@ function parseConstraints(raw: Buffer): readonly SSHAgentConstraint[] {
                     "SSH agent constraint extension name must not be empty",
                 )
             }
+            const decodedName = decodeSSHUTF8(name, "SSH agent constraint extension name")
+            const identity = `extension:${decodedName}`
+            if (seen.has(identity)) throw new Error("duplicate constraint extension")
+            seen.add(identity)
+            const parsed = parseOpenSSHAgentConstraint(decodedName, raw, target)
+            if (parsed) {
+                constraints.push(...parsed[0])
+                raw = parsed[1]
+                continue
+            }
             constraints.push(
                 Object.freeze({
                     type: "extension",
-                    name: decodeSSHUTF8(name, "SSH agent constraint extension name"),
+                    name: decodedName,
                     data: Buffer.from(raw),
                 }),
             )
@@ -359,7 +522,7 @@ function serializePrivateKeyRequest(
                     "SSH agent identity comment",
                 ),
             ),
-            serializeConstraints(constraints),
+            serializeConstraints(constraints, "identity"),
         ])
     } finally {
         keyData.fill(0)
@@ -381,7 +544,7 @@ function parsePrivateKeyRequest(
     const [encodedComment, afterComment] = readNextBuffer(raw)
     raw = afterComment
     const comment = decodeSSHUTF8(encodedComment, "SSH agent identity comment")
-    const constraints = constrained ? parseConstraints(raw) : Object.freeze([])
+    const constraints = constrained ? parseConstraints(raw, "identity") : Object.freeze([])
     if (!constrained && raw.length !== 0) throw new Error("trailing data")
     const publicKey = algorithm.getPublicKey()
     if (publicKey.data.alg !== algorithmName) throw new Error("private key type mismatch")
@@ -568,7 +731,7 @@ export class SSHAgentProtocolClient extends Agent<string> {
         options: SSHAgentAddTokenOptions = {},
     ): Promise<void> {
         const constraints = options.constraints ?? []
-        const encodedConstraints = serializeConstraints(constraints)
+        const encodedConstraints = serializeConstraints(constraints, "token")
         const encodedTokenId = encodeOpaqueString(tokenId, "SSH agent token identifier")
         const encodedPin = encodeOpaqueString(pin, "SSH agent token PIN")
         let payload: Buffer | undefined
@@ -710,6 +873,18 @@ export class SSHAgentProtocolClient extends Agent<string> {
         }
     }
 
+    async opensshSessionBind(binding: OpenSSHAgentSessionBinding): Promise<void> {
+        const result = await this.extension(
+            OPENSSH_AGENT_SESSION_BIND,
+            serializeOpenSSHSessionBinding(binding),
+        )
+        if (result.kind !== "success") {
+            throw new SSHAgentProtocolError(
+                "OpenSSH agent session binding returned an unexpected response body",
+            )
+        }
+    }
+
     destroy(error?: Error): void {
         this.stream.destroy(error)
     }
@@ -832,6 +1007,7 @@ export class SSHAgentProtocolServer {
             throw new Error("SSH agent protocol stream is already being served")
         }
         this.#activeStreams.add(stream)
+        const connection = createConnectionState(stream)
         let buffered = Buffer.alloc(0)
         try {
             for await (const chunk of stream) {
@@ -853,7 +1029,7 @@ export class SSHAgentProtocolServer {
                     consumed.fill(0)
                     let response: Buffer | undefined
                     try {
-                        response = await this.#orderedRequest(payload)
+                        response = await this.#orderedRequest(payload, connection)
                         await writeFrame(stream, response, this.options.maxMessageLength)
                     } finally {
                         payload.fill(0)
@@ -879,8 +1055,8 @@ export class SSHAgentProtocolServer {
         }
     }
 
-    #orderedRequest(payload: Buffer): Promise<Buffer> {
-        const operation = this.#requestQueue.then(() => this.#handleRequest(payload))
+    #orderedRequest(payload: Buffer, connection: SSHAgentProtocolConnectionState): Promise<Buffer> {
+        const operation = this.#requestQueue.then(() => this.#handleRequest(payload, connection))
         this.#requestQueue = operation.then(
             () => undefined,
             () => undefined,
@@ -888,7 +1064,10 @@ export class SSHAgentProtocolServer {
         return operation
     }
 
-    async #handleRequest(payload: Buffer): Promise<Buffer> {
+    async #handleRequest(
+        payload: Buffer,
+        connection: SSHAgentProtocolConnectionState,
+    ): Promise<Buffer> {
         const type = payload[0] as SSHAgentMessageType
         if (
             this.locked &&
@@ -904,31 +1083,33 @@ export class SSHAgentProtocolServer {
         try {
             switch (type) {
                 case SSHAgentMessageType.RequestIdentities:
-                    return payload.length === 1 ? await this.#handleIdentities() : this.#failure()
+                    return payload.length === 1
+                        ? await this.#handleIdentities(connection)
+                        : this.#failure()
                 case SSHAgentMessageType.SignRequest:
-                    return await this.#handleSign(payload)
+                    return await this.#handleSign(payload, connection)
                 case SSHAgentMessageType.AddIdentity:
-                    return await this.#handleAddIdentity(payload, false)
+                    return await this.#handleAddIdentity(payload, false, connection)
                 case SSHAgentMessageType.AddConstrainedIdentity:
-                    return await this.#handleAddIdentity(payload, true)
+                    return await this.#handleAddIdentity(payload, true, connection)
                 case SSHAgentMessageType.AddToken:
-                    return await this.#handleAddToken(payload, false)
+                    return await this.#handleAddToken(payload, false, connection)
                 case SSHAgentMessageType.AddConstrainedToken:
-                    return await this.#handleAddToken(payload, true)
+                    return await this.#handleAddToken(payload, true, connection)
                 case SSHAgentMessageType.RemoveIdentity:
-                    return await this.#handleRemoveIdentity(payload)
+                    return await this.#handleRemoveIdentity(payload, connection)
                 case SSHAgentMessageType.RemoveAllIdentities:
                     return payload.length === 1
-                        ? await this.#handleRemoveAllIdentities()
+                        ? await this.#handleRemoveAllIdentities(connection)
                         : this.#failure()
                 case SSHAgentMessageType.RemoveToken:
-                    return await this.#handleRemoveToken(payload)
+                    return await this.#handleRemoveToken(payload, connection)
                 case SSHAgentMessageType.Lock:
-                    return await this.#handleLock(payload)
+                    return await this.#handleLock(payload, connection)
                 case SSHAgentMessageType.Unlock:
-                    return await this.#handleUnlock(payload)
+                    return await this.#handleUnlock(payload, connection)
                 case SSHAgentMessageType.Extension:
-                    return await this.#handleExtension(payload)
+                    return await this.#handleExtension(payload, connection)
                 default:
                     return this.#failure()
             }
@@ -937,9 +1118,9 @@ export class SSHAgentProtocolServer {
         }
     }
 
-    async #handleIdentities(): Promise<Buffer> {
+    async #handleIdentities(connection: SSHAgentProtocolConnectionState): Promise<Buffer> {
         const controller: SSHAgentServerIdentitiesController = { identities: undefined }
-        await this.hooker.triggerHook("identities", controller)
+        await this.hooker.triggerHook("identities", controller, connection.context)
         if (controller.identities === undefined) return this.#failure()
         const identities = controller.identities.map((identity) => {
             if (!(identity.publicKey instanceof PublicKey)) {
@@ -961,7 +1142,10 @@ export class SSHAgentProtocolServer {
         )
     }
 
-    async #handleSign(payload: Buffer): Promise<Buffer> {
+    async #handleSign(
+        payload: Buffer,
+        connection: SSHAgentProtocolConnectionState,
+    ): Promise<Buffer> {
         let raw = payload.subarray(1)
         const [keyBlob, afterKey] = readNextBuffer(raw)
         const [data, afterData] = readNextBuffer(afterKey)
@@ -977,7 +1161,7 @@ export class SSHAgentProtocolServer {
             flags,
         })
         const controller: SSHAgentServerSignController = { signature: undefined }
-        await this.hooker.triggerHook("sign", context, controller)
+        await this.hooker.triggerHook("sign", context, controller, connection.context)
         const signature = controller.signature
         if (
             !signature ||
@@ -994,19 +1178,27 @@ export class SSHAgentProtocolServer {
         )
     }
 
-    async #handleAddIdentity(payload: Buffer, constrained: boolean): Promise<Buffer> {
+    async #handleAddIdentity(
+        payload: Buffer,
+        constrained: boolean,
+        connection: SSHAgentProtocolConnectionState,
+    ): Promise<Buffer> {
         const context = parsePrivateKeyRequest(payload, constrained)
         const controller: SSHAgentServerSuccessController = { success: undefined }
-        await this.hooker.triggerHook("addIdentity", context, controller)
+        await this.hooker.triggerHook("addIdentity", context, controller, connection.context)
         return controller.success === true ? this.#success() : this.#failure()
     }
 
-    async #handleAddToken(payload: Buffer, constrained: boolean): Promise<Buffer> {
+    async #handleAddToken(
+        payload: Buffer,
+        constrained: boolean,
+        connection: SSHAgentProtocolConnectionState,
+    ): Promise<Buffer> {
         let raw = payload.subarray(1)
         const [tokenId, afterTokenId] = readNextBuffer(raw)
         const [pin, afterPin] = readNextBuffer(afterTokenId)
         raw = afterPin
-        const constraints = constrained ? parseConstraints(raw) : Object.freeze([])
+        const constraints = constrained ? parseConstraints(raw, "token") : Object.freeze([])
         if (!constrained && raw.length !== 0) throw new Error("trailing data")
         const pinCopy = Buffer.from(pin)
         const context: SSHAgentServerAddTokenContext = Object.freeze({
@@ -1016,30 +1208,36 @@ export class SSHAgentProtocolServer {
         })
         const controller: SSHAgentServerSuccessController = { success: undefined }
         try {
-            await this.hooker.triggerHook("addToken", context, controller)
+            await this.hooker.triggerHook("addToken", context, controller, connection.context)
             return controller.success === true ? this.#success() : this.#failure()
         } finally {
             pinCopy.fill(0)
         }
     }
 
-    async #handleRemoveIdentity(payload: Buffer): Promise<Buffer> {
+    async #handleRemoveIdentity(
+        payload: Buffer,
+        connection: SSHAgentProtocolConnectionState,
+    ): Promise<Buffer> {
         const keyBlob = parseExactString(payload.subarray(1))
         const context: SSHAgentServerRemoveIdentityContext = Object.freeze({
             publicKey: PublicKey.parse(keyBlob),
         })
         const controller: SSHAgentServerSuccessController = { success: undefined }
-        await this.hooker.triggerHook("removeIdentity", context, controller)
+        await this.hooker.triggerHook("removeIdentity", context, controller, connection.context)
         return controller.success === true ? this.#success() : this.#failure()
     }
 
-    async #handleRemoveAllIdentities(): Promise<Buffer> {
+    async #handleRemoveAllIdentities(connection: SSHAgentProtocolConnectionState): Promise<Buffer> {
         const controller: SSHAgentServerSuccessController = { success: undefined }
-        await this.hooker.triggerHook("removeAllIdentities", controller)
+        await this.hooker.triggerHook("removeAllIdentities", controller, connection.context)
         return controller.success === true ? this.#success() : this.#failure()
     }
 
-    async #handleRemoveToken(payload: Buffer): Promise<Buffer> {
+    async #handleRemoveToken(
+        payload: Buffer,
+        connection: SSHAgentProtocolConnectionState,
+    ): Promise<Buffer> {
         let raw = payload.subarray(1)
         const [encodedTokenId, afterTokenId] = readNextBuffer(raw)
         const [pin, afterPin] = readNextBuffer(afterTokenId)
@@ -1051,14 +1249,17 @@ export class SSHAgentProtocolServer {
         const context: SSHAgentServerRemoveTokenContext = Object.freeze({ tokenId, pin: pinCopy })
         const controller: SSHAgentServerSuccessController = { success: undefined }
         try {
-            await this.hooker.triggerHook("removeToken", context, controller)
+            await this.hooker.triggerHook("removeToken", context, controller, connection.context)
             return controller.success === true ? this.#success() : this.#failure()
         } finally {
             pinCopy.fill(0)
         }
     }
 
-    async #handleLock(payload: Buffer): Promise<Buffer> {
+    async #handleLock(
+        payload: Buffer,
+        connection: SSHAgentProtocolConnectionState,
+    ): Promise<Buffer> {
         const passphrase = Buffer.from(parseExactString(payload.subarray(1)))
         const hookPassphrase = Buffer.from(passphrase)
         try {
@@ -1067,7 +1268,7 @@ export class SSHAgentProtocolServer {
                 passphrase: hookPassphrase,
             })
             const controller: SSHAgentServerSuccessController = { success: undefined }
-            await this.hooker.triggerHook("lock", context, controller)
+            await this.hooker.triggerHook("lock", context, controller, connection.context)
             if (controller.success !== true) return this.#failure()
             const salt = randomBytes(16)
             let verifier: Buffer
@@ -1085,7 +1286,10 @@ export class SSHAgentProtocolServer {
         }
     }
 
-    async #handleUnlock(payload: Buffer): Promise<Buffer> {
+    async #handleUnlock(
+        payload: Buffer,
+        connection: SSHAgentProtocolConnectionState,
+    ): Promise<Buffer> {
         const passphrase = Buffer.from(parseExactString(payload.subarray(1)))
         const hookPassphrase = Buffer.from(passphrase)
         try {
@@ -1099,7 +1303,7 @@ export class SSHAgentProtocolServer {
                 passphrase: hookPassphrase,
             })
             const controller: SSHAgentServerSuccessController = { success: undefined }
-            await this.hooker.triggerHook("unlock", context, controller)
+            await this.hooker.triggerHook("unlock", context, controller, connection.context)
             if (controller.success !== true) return this.#failure()
             state.salt.fill(0)
             state.verifier.fill(0)
@@ -1111,19 +1315,27 @@ export class SSHAgentProtocolServer {
         }
     }
 
-    async #handleExtension(payload: Buffer): Promise<Buffer> {
+    async #handleExtension(
+        payload: Buffer,
+        connection: SSHAgentProtocolConnectionState,
+    ): Promise<Buffer> {
         let raw = payload.subarray(1)
         const [encodedType, afterType] = readNextBuffer(raw)
         raw = afterType
         const type = decodeSSHUTF8(encodedType, "SSH agent extension type")
         if (type.length === 0) throw new Error("empty extension type")
-        if (type === "query" && raw.length === 0) return this.#handleQueryExtensions()
+        if (type === "query" && raw.length === 0) {
+            return this.#handleQueryExtensions(connection)
+        }
+        if (type === OPENSSH_AGENT_SESSION_BIND) {
+            return this.#handleOpenSSHSessionBind(raw, connection)
+        }
         const context: SSHAgentServerExtensionContext = Object.freeze({
             type,
             contents: Buffer.from(raw),
         })
         const controller: SSHAgentServerExtensionController = { result: undefined }
-        await this.hooker.triggerHook("extension", context, controller)
+        await this.hooker.triggerHook("extension", context, controller, connection.context)
         const result = controller.result
         if (result === undefined) return this.#failure()
         if (result.kind === "failure") {
@@ -1143,16 +1355,28 @@ export class SSHAgentProtocolServer {
         )
     }
 
-    async #handleQueryExtensions(): Promise<Buffer> {
+    async #handleQueryExtensions(connection: SSHAgentProtocolConnectionState): Promise<Buffer> {
         const controller: SSHAgentServerQueryExtensionsController = { extensions: undefined }
-        await this.hooker.triggerHook("queryExtensions", controller)
-        if (controller.extensions === undefined) return this.#failure()
-        if (!Array.isArray(controller.extensions)) return this.#failure()
+        await this.hooker.triggerHook("queryExtensions", controller, connection.context)
+        const sessionBindSupported = this.hooker.hasHooks("sessionBind")
+        if (controller.extensions === undefined && !sessionBindSupported) return this.#failure()
+        if (controller.extensions !== undefined && !Array.isArray(controller.extensions)) {
+            return this.#failure()
+        }
+        const configured = controller.extensions ?? []
         const seen = new Set<string>()
-        const extensions = controller.extensions.map((extension) => {
+        const extensions = [
+            ...configured,
+            ...(sessionBindSupported && !configured.includes(OPENSSH_AGENT_SESSION_BIND)
+                ? [OPENSSH_AGENT_SESSION_BIND]
+                : []),
+        ].map((extension) => {
             const encoded = encodeSSHUTF8(extension, "SSH agent supported extension type")
             if (encoded.length === 0 || seen.has(extension)) {
                 throw new Error("invalid supported extension type")
+            }
+            if (extension === OPENSSH_AGENT_SESSION_BIND && !sessionBindSupported) {
+                throw new Error("session binding was advertised without a policy hook")
             }
             seen.add(extension)
             return serializeBuffer(encoded)
@@ -1164,6 +1388,42 @@ export class SSHAgentProtocolServer {
                 ...extensions,
             ]),
         )
+    }
+
+    async #handleOpenSSHSessionBind(
+        raw: Buffer,
+        connection: SSHAgentProtocolConnectionState,
+    ): Promise<Buffer> {
+        connection.sessionBindAttempted = true
+        let binding: OpenSSHAgentSessionBinding
+        try {
+            binding = parseOpenSSHSessionBinding(raw)
+        } catch {
+            return Buffer.from([SSHAgentMessageType.ExtensionFailure])
+        }
+        for (const existing of connection.sessionBindings) {
+            if (!existing.forwarding) {
+                return Buffer.from([SSHAgentMessageType.ExtensionFailure])
+            }
+            if (!existing.sessionIdentifier.equals(binding.sessionIdentifier)) continue
+            return Buffer.from([SSHAgentMessageType.ExtensionFailure])
+        }
+        if (connection.sessionBindings.length >= MAX_OPENSSH_AGENT_SESSION_BINDINGS) {
+            return Buffer.from([SSHAgentMessageType.ExtensionFailure])
+        }
+        const controller: SSHAgentServerSuccessController = { success: undefined }
+        await this.hooker.triggerHook("sessionBind", binding, controller, connection.context)
+        if (controller.success !== true) {
+            return Buffer.from([SSHAgentMessageType.ExtensionFailure])
+        }
+        let retainedBinding: OpenSSHAgentSessionBinding
+        try {
+            retainedBinding = copySessionBinding(binding)
+        } catch {
+            return Buffer.from([SSHAgentMessageType.ExtensionFailure])
+        }
+        connection.sessionBindings = Object.freeze([...connection.sessionBindings, retainedBinding])
+        return this.#success()
     }
 
     #failure(): Buffer {

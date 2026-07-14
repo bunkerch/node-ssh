@@ -49,6 +49,28 @@ An extension-specific failure rejects with `SSHAgentExtensionFailureError`. A no
 `SSHAgentProtocolError` means the extension was unsupported, the request was refused, the reply
 was malformed, the stream failed, or the deadline expired.
 
+### OpenSSH session binding
+
+`opensshSessionBind()` binds one agent connection to a host key and the session identifier from an
+SSH key exchange. The host-key signature is verified locally before the request is sent. Set
+`forwarding` to `true` for a forwarding hop and to `false` for the final user-authentication
+session.
+
+```ts
+await agent.opensshSessionBind({
+    hostKey,
+    sessionIdentifier,
+    signature: hostKeySignature,
+    forwarding: true,
+})
+```
+
+The identifier and signature must be the values from the same initial key exchange; an arbitrary
+application signature is not a session binding. A refused or malformed bind rejects with
+`SSHAgentExtensionFailureError`. The extension permits at most 16 accepted bindings on one
+connection, rejects duplicate identifiers, and rejects any further binding after a final
+authentication binding.
+
 ### Key constraints
 
 Pass constraints when adding an identity or token:
@@ -72,6 +94,53 @@ Lifetime values are unsigned 32-bit seconds. A confirmation constraint asks the 
 explicit approval for each private-key operation. An extension constraint consumes the remaining
 bytes of the request because RFC 9987 gives its data no separate length; it must therefore be the
 last constraint. Unknown constraints fail closed on the server.
+
+Destination restrictions use a typed constraint so their boundary remains parseable when another
+constraint follows:
+
+```ts
+await agent.addIdentity(privateKey, {
+    constraints: [
+        {
+            type: "openssh-restrict-destination",
+            destinations: [
+                {
+                    // Omitting `from` means the machine running the agent.
+                    to: {
+                        username: "alice",
+                        hostname: "target.example",
+                        hostKeys: [{ publicKey: targetHostKey }],
+                    },
+                },
+            ],
+        },
+        { type: "confirm" },
+    ],
+})
+```
+
+For forwarded paths, `from` identifies the preceding host and `to` identifies the following host.
+Each host key may set `certificateAuthority: true` to match certificates signed by that CA instead
+of matching the key directly. A target hostname and at least one target host key are required.
+
+Token requests can associate certificates produced by `ssh-keygen` or another conforming SSH
+certificate issuer with token-hosted private keys:
+
+```ts
+await agent.addToken(providerPath, pin, {
+    constraints: [
+        {
+            type: "openssh-associated-certificates",
+            certificatesOnly: true,
+            certificates: [userCertificate],
+        },
+    ],
+})
+```
+
+Associated certificates are valid only for constrained token-add requests. Every entry must be an
+SSH certificate, and the list cannot be empty. `certificatesOnly` asks the token implementation to
+load only the certificate identities rather than also exposing their plain public-key identities.
 
 Private-key, PIN, and passphrase request frames are copied for transport and cleared after they
 have been written and answered. This does not clear buffers retained by the caller.
@@ -103,9 +172,35 @@ await server.serve(connectedStream)
 ```
 
 The available hooks are `identities`, `sign`, `addIdentity`, `addToken`, `removeIdentity`,
-`removeAllIdentities`, `removeToken`, `lock`, `unlock`, `extension`, and `queryExtensions`. Hooks
-run in wire order. Requests across multiple streams served by one server are also globally ordered
-so a successful lock cannot race a later sensitive operation on another stream.
+`removeAllIdentities`, `removeToken`, `lock`, `unlock`, `extension`, `queryExtensions`, and
+`sessionBind`. Hooks run in wire order. Requests across multiple streams served by one server are
+also globally ordered so a successful lock cannot race a later sensitive operation on another
+stream.
+
+Every hook receives an `SSHAgentProtocolConnectionContext` as its final argument. Its `stream`
+identifies the served connection, `sessionBindAttempted` records even malformed or refused bind
+attempts, and `sessionBindings` contains defensive snapshots of accepted bindings in forwarding
+order.
+
+```ts
+server.hooker.hook("sessionBind", async (_hook, binding, decision, connection) => {
+    decision.success = await allowAgentPathBinding(binding, connection.sessionBindings)
+})
+
+server.hooker.hook("sign", async (_hook, request, decision, connection) => {
+    decision.signature = await signIfPathAllowed(request, connection.sessionBindings)
+})
+```
+
+The server validates the binding signature and ordering before invoking `sessionBind`, but the hook
+is deny-by-default and must set `success = true`. Registering this hook automatically advertises
+`session-bind@openssh.com` from `queryExtensions`; the server refuses to advertise that name when
+no binding policy is installed.
+
+The protocol server does not own the application key store. Applications must retain destination
+constraints accepted by `addIdentity` or `addToken` and enforce them during later identity, signing,
+and removal hooks using the connection bindings. Merely approving `sessionBind` records the path;
+it does not authorize use of a destination-constrained key.
 
 Set `success = true` for add, remove, lock, and unlock hooks. For a generic extension, set one of:
 
@@ -141,5 +236,7 @@ when a tighter bound is appropriate, and configure `requestTimeout` on the clien
 timeout disables the deadline.
 
 The fixed-frame tests cover RFC 9987 identity, token, constraint, removal, lock, and extension
-layouts. Integration tests also add an identity to the system OpenSSH agent, list it, sign with it,
-lock and unlock the agent, and remove the identity again.
+layouts plus the published session-binding and destination-constraint layouts. Integration tests
+pass a real SSH certificate through token policy and exercise identity management, destination
+constraints, session binding, signing, locking, unlocking, and removal against the system OpenSSH
+agent.

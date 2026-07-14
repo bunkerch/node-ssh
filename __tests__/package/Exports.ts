@@ -36,8 +36,13 @@ import {
     HTTPSAgent,
     KERBEROS_V5_GSSAPI_OID,
     KnownHosts,
+    MAX_OPENSSH_AGENT_SESSION_BINDINGS,
+    MAX_OPENSSH_AGENT_SESSION_IDENTIFIER_LENGTH,
     MAX_SSH_AGENT_MESSAGE_LENGTH,
     OnePasswordAgent,
+    OPENSSH_AGENT_ASSOCIATED_CERTIFICATES,
+    OPENSSH_AGENT_RESTRICT_DESTINATION,
+    OPENSSH_AGENT_SESSION_BIND,
     OPEN_MODE,
     parseKey,
     parseKeys,
@@ -75,6 +80,8 @@ import {
     type ClientSessionOptions,
     type CygwinAgentOptions,
     type GSSAPIKeyExchangeClientContextOptions,
+    type OpenSSHAgentDestinationConstraint,
+    type OpenSSHAgentSessionBinding,
     type SSHAgentProtocolOptions,
     type SSHAgentProtocolServerOptions,
     type SSHAgentConstraint,
@@ -106,6 +113,11 @@ describe("package exports", () => {
             maxMessageLength: 2048,
         }
         const agentConstraint: SSHAgentConstraint = { type: "confirm" }
+        const destinationConstraint: OpenSSHAgentDestinationConstraint = {
+            type: "openssh-restrict-destination",
+            destinations: [],
+        }
+        const sessionBinding: OpenSSHAgentSessionBinding | undefined = undefined
         const cygwinAgentOptions: CygwinAgentOptions = {
             handshakeTimeout: 500,
             maxSocketFileLength: 512,
@@ -118,6 +130,8 @@ describe("package exports", () => {
         expect(agentProtocolOptions.requestTimeout).toBe(250)
         expect(agentProtocolServerOptions.maxMessageLength).toBe(2048)
         expect(agentConstraint.type).toBe("confirm")
+        expect(destinationConstraint.type).toBe("openssh-restrict-destination")
+        expect(sessionBinding).toBeUndefined()
         expect(cygwinAgentOptions.handshakeTimeout).toBe(500)
         expect([
             Agent,
@@ -191,6 +205,11 @@ describe("package exports", () => {
         expect(SSHAgentMessageType.ExtensionResponse).toBe(29)
         expect(SSHAgentConstraintType.Extension).toBe(255)
         expect(MAX_SSH_AGENT_MESSAGE_LENGTH).toBe(256 * 1024)
+        expect(MAX_OPENSSH_AGENT_SESSION_BINDINGS).toBe(16)
+        expect(MAX_OPENSSH_AGENT_SESSION_IDENTIFIER_LENGTH).toBe(128)
+        expect(OPENSSH_AGENT_SESSION_BIND).toBe("session-bind@openssh.com")
+        expect(OPENSSH_AGENT_RESTRICT_DESTINATION).toBe("restrict-destination-v00@openssh.com")
+        expect(OPENSSH_AGENT_ASSOCIATED_CERTIFICATES).toBe("associated-certs-v00@openssh.com")
         expect(CygwinAgent).toBeFunction()
         expect(CygwinAgentError).toBeFunction()
         expect(createSocketAgent).toBeFunction()
@@ -246,6 +265,7 @@ describe("package exports", () => {
         expect(entry.SSHAgentProtocolError).toBeFunction()
         expect(entry.SSHAgentMessageType.IdentitiesAnswer).toBe(12)
         expect(entry.MAX_SSH_AGENT_MESSAGE_LENGTH).toBe(256 * 1024)
+        expect(entry.OPENSSH_AGENT_SESSION_BIND).toBe("session-bind@openssh.com")
         expect(entry.CygwinAgent).toBeFunction()
         expect(entry.CygwinAgentError).toBeFunction()
         expect(entry.createSocketAgent).toBeFunction()
@@ -281,6 +301,7 @@ describe("package exports", () => {
         expect(agentProtocol).toContain("addIdentity(")
         expect(agentProtocol).toContain("removeAllIdentities(): Promise<void>")
         expect(agentProtocol).toContain("queryExtensions(): Promise<readonly string[]>")
+        expect(agentProtocol).toContain("opensshSessionBind(")
         expect(agentProtocol).not.toContain("callback")
         expect(streams.match(/close\(\): Promise<void>/gu)).toHaveLength(2)
         expect(shell).toContain("writeStdout(data: Buffer | string")
@@ -313,7 +334,7 @@ describe("package exports", () => {
                     "--input-type=module",
                     "--eval",
                     `
-                    const { Client, createSocketAgent, CygwinAgent, CygwinAgentError, generateKeyPair, generateKeyPairSync, KnownHosts, MAX_SSH_AGENT_MESSAGE_LENGTH, parseKey, PrivateKey, PrivateKeyAgent, SSHAgentConstraintType, SSHAgentExtensionFailureError, SSHAgentMessageType, SSHAgentProtocolClient, SSHAgentProtocolError, SSHAgentProtocolServer } = await import("modernssh")
+                    const { Client, createSocketAgent, CygwinAgent, CygwinAgentError, generateKeyPair, generateKeyPairSync, KnownHosts, MAX_OPENSSH_AGENT_SESSION_BINDINGS, MAX_SSH_AGENT_MESSAGE_LENGTH, OPENSSH_AGENT_SESSION_BIND, parseKey, PrivateKey, PrivateKeyAgent, SSHAgentConstraintType, SSHAgentExtensionFailureError, SSHAgentMessageType, SSHAgentProtocolClient, SSHAgentProtocolError, SSHAgentProtocolServer } = await import("modernssh")
                     const { privateKey, publicKey } = await generateKeyPair("ed25519", {
                         comment: "packed@example.test",
                     })
@@ -349,6 +370,7 @@ describe("package exports", () => {
                     if (SSHAgentMessageType.SignResponse !== 14 || MAX_SSH_AGENT_MESSAGE_LENGTH !== 262144) process.exit(18)
                     if (typeof CygwinAgent !== "function" || typeof CygwinAgentError !== "function" || typeof createSocketAgent !== "function") process.exit(19)
                     if (SSHAgentMessageType.ExtensionResponse !== 29 || SSHAgentConstraintType.Extension !== 255 || typeof SSHAgentExtensionFailureError !== "function") process.exit(21)
+                    if (OPENSSH_AGENT_SESSION_BIND !== "session-bind@openssh.com" || MAX_OPENSSH_AGENT_SESSION_BINDINGS !== 16) process.exit(22)
                     const originalPlatform = process.platform
                     Object.defineProperty(process, "platform", { configurable: true, value: "win32" })
                     const selectedAgent = createSocketAgent("C:/cygwin/tmp/agent.socket")

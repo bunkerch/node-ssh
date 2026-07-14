@@ -213,7 +213,14 @@ export { default as CygwinAgent, CygwinAgentError } from "./publickey/CygwinAgen
 export type { CygwinAgentOptions } from "./publickey/CygwinAgent.js"
 export { createSocketAgent } from "./publickey/SocketAgent.js"
 export {
+    MAX_OPENSSH_AGENT_ASSOCIATED_CERTIFICATES,
+    MAX_OPENSSH_AGENT_DESTINATION_CONSTRAINTS,
+    MAX_OPENSSH_AGENT_SESSION_BINDINGS,
+    MAX_OPENSSH_AGENT_SESSION_IDENTIFIER_LENGTH,
     MAX_SSH_AGENT_MESSAGE_LENGTH,
+    OPENSSH_AGENT_ASSOCIATED_CERTIFICATES,
+    OPENSSH_AGENT_RESTRICT_DESTINATION,
+    OPENSSH_AGENT_SESSION_BIND,
     SSHAgentConstraintType,
     SSHAgentExtensionFailureError,
     SSHAgentMessageType,
@@ -222,11 +229,19 @@ export {
     SSHAgentProtocolServer,
 } from "./publickey/SSHAgentProtocol.js"
 export type {
+    OpenSSHAgentAssociatedCertificatesConstraint,
+    OpenSSHAgentDestinationConstraint,
+    OpenSSHAgentDestinationHop,
+    OpenSSHAgentDestinationKey,
+    OpenSSHAgentDestinationRule,
+    OpenSSHAgentKeyConstraint,
+    OpenSSHAgentSessionBinding,
     SSHAgentAddIdentityOptions,
     SSHAgentAddTokenOptions,
     SSHAgentConstraint,
     SSHAgentExtensionResult,
     SSHAgentIdentity,
+    SSHAgentProtocolConnectionContext,
     SSHAgentProtocolOptions,
     SSHAgentProtocolServerOptions,
     SSHAgentServerHooker,

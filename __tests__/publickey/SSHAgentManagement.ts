@@ -1,12 +1,14 @@
-import { spawn } from "node:child_process"
+import { execFile, spawn } from "node:child_process"
 import { once } from "node:events"
-import { access, mkdtemp, rm } from "node:fs/promises"
+import { access, mkdtemp, readFile, rm } from "node:fs/promises"
 import { createConnection } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Duplex } from "node:stream"
+import { promisify } from "node:util"
 
 import {
+    OPENSSH_AGENT_SESSION_BIND,
     SSHAgentExtensionFailureError,
     SSHAgentProtocolClient,
     SSHAgentProtocolServer,
@@ -17,7 +19,11 @@ import PrivateKey, {
     SSHED448PrivateKey,
     SSHRSAPrivateKey,
 } from "../../src/utils/PrivateKey.js"
+import PublicKey from "../../src/utils/PublicKey.js"
+import EncodedSignature from "../../src/utils/Signature.js"
 import { rfc6979DSAParameters } from "../fixtures/DSAParameters.js"
+
+const execFileAsync = promisify(execFile)
 
 const seed = Buffer.from("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60", "hex")
 const publicBytes = Buffer.from(
@@ -76,6 +82,43 @@ const queryResponseFrame = Buffer.from(
     "hex",
 )
 const successFrame = Buffer.from("0000000106", "hex")
+const destinationConstraint = Buffer.from(
+    "ff0000002472657374726963742d64657374696e6174696f6e2d763030406f70656e7373682e636f6d" +
+        "000000730000006f0000000c000000000000000000000000" +
+        "0000005700000005616c6963650000000e7461726765742e6578616d706c65" +
+        "0000000000000033" +
+        keyBlob.toString("hex") +
+        "0000000000",
+    "hex",
+)
+const destinationAddFrame = Buffer.from(
+    "00000123" +
+        "19" +
+        "0000000b7373682d65643235353139" +
+        privateFields +
+        "0000000766697874757265" +
+        destinationConstraint.toString("hex"),
+    "hex",
+)
+const sessionIdentifier = Buffer.alloc(32, 0x42)
+const sessionSignature = Buffer.from(
+    "0000000b7373682d6564323535313900000040" +
+        "ddf3b5189c51feb459b936620288eb6c9b69ea64e9759d0f0f8b089f912d4" +
+        "4839265cab067922b1ded4507883bfb3b914a6a06b3632e700c72062ba9f412000a",
+    "hex",
+)
+const sessionBindFrame = Buffer.from(
+    "000000d0" +
+        "1b0000001873657373696f6e2d62696e64406f70656e7373682e636f6d" +
+        "00000033" +
+        keyBlob.toString("hex") +
+        "00000020" +
+        sessionIdentifier.toString("hex") +
+        "00000053" +
+        sessionSignature.toString("hex") +
+        "01",
+    "hex",
+)
 
 function streamPair(): [Duplex, Duplex] {
     class MemoryDuplex extends Duplex {
@@ -133,6 +176,8 @@ describe("SSH agent management protocol", () => {
             unlockFrame,
             extensionFrame,
             queryFrame,
+            destinationAddFrame,
+            sessionBindFrame,
         ]
         const replies = [
             successFrame,
@@ -145,6 +190,8 @@ describe("SSH agent management protocol", () => {
             successFrame,
             extensionResponseFrame,
             queryResponseFrame,
+            successFrame,
+            successFrame,
         ]
         const requests: Buffer[] = []
         const fixture = (async () => {
@@ -180,6 +227,28 @@ describe("SSH agent management protocol", () => {
             contents: Buffer.from([3, 4]),
         })
         expect(await client.queryExtensions()).toEqual(["one@example.com", "two@example.com"])
+        await client.addIdentity(privateKey, {
+            constraints: [
+                {
+                    type: "openssh-restrict-destination",
+                    destinations: [
+                        {
+                            to: {
+                                username: "alice",
+                                hostname: "target.example",
+                                hostKeys: [{ publicKey: privateKey.data.publicKey }],
+                            },
+                        },
+                    ],
+                },
+            ],
+        })
+        await client.opensshSessionBind({
+            hostKey: privateKey.data.publicKey,
+            sessionIdentifier,
+            signature: privateKey.sign(sessionIdentifier),
+            forwarding: true,
+        })
         expect(requests).toEqual(expected)
 
         client.destroy()
@@ -192,12 +261,19 @@ describe("SSH agent management protocol", () => {
         const server = new SSHAgentProtocolServer()
         const calls: string[] = []
         let retainedPin: Buffer | undefined
+        let destinationHostname: string | undefined
 
         server.hooker.hook("addIdentity", async (_hook, request, decision) => {
             await Promise.resolve()
             calls.push(
                 `add:${request.privateKey.data.alg}:${request.comment}:${request.constraints.length}`,
             )
+            const destination = request.constraints.find(
+                (constraint) => constraint.type === "openssh-restrict-destination",
+            )
+            if (destination?.type === "openssh-restrict-destination") {
+                destinationHostname = destination.destinations[0].to.hostname
+            }
             expect(request.privateKey.sign(Buffer.alloc(0)).data.data).toHaveLength(64)
             decision.success = true
         })
@@ -237,8 +313,22 @@ describe("SSH agent management protocol", () => {
         const client = new SSHAgentProtocolClient(clientStream)
         const privateKey = fixedPrivateKey()
         await client.addIdentity(privateKey, {
-            constraints: [{ type: "confirm" }],
+            constraints: [
+                {
+                    type: "openssh-restrict-destination",
+                    destinations: [
+                        {
+                            to: {
+                                hostname: "target.example",
+                                hostKeys: [{ publicKey: privateKey.data.publicKey }],
+                            },
+                        },
+                    ],
+                },
+                { type: "confirm" },
+            ],
         })
+        expect(destinationHostname).toBe("target.example")
         await client.addToken("token", "1234")
         expect(retainedPin).toEqual(Buffer.alloc(4))
         await client.removeIdentity(privateKey.data.publicKey)
@@ -250,7 +340,7 @@ describe("SSH agent management protocol", () => {
         clientStream.end()
         await serving
         expect(calls).toEqual([
-            "add:ssh-ed25519:fixture:1",
+            "add:ssh-ed25519:fixture:2",
             "token:token:1234",
             "remove:ssh-ed25519",
             "remove-all",
@@ -406,6 +496,203 @@ describe("SSH agent management protocol", () => {
         secondServerStream.destroy()
     })
 
+    test("validates and records OpenSSH session bindings per served connection", async () => {
+        const [clientStream, serverStream] = streamPair()
+        const server = new SSHAgentProtocolServer()
+        const privateKey = fixedPrivateKey()
+        const priorBindingCounts: number[] = []
+        let observedBindings = 0
+        let observedAttempt = false
+        let retainedFirstByte = 0
+        server.hooker.hook("sessionBind", async (_hook, binding, decision, connection) => {
+            await Promise.resolve()
+            expect(binding.hostKey.equals(privateKey.data.publicKey)).toBeTrue()
+            expect(
+                binding.hostKey.verifySignature(binding.sessionIdentifier, binding.signature),
+            ).toBeTrue()
+            priorBindingCounts.push(connection.sessionBindings.length)
+            decision.success = true
+        })
+        server.hooker.hook("identities", (_hook, decision, connection) => {
+            observedBindings = connection.sessionBindings.length
+            observedAttempt = connection.sessionBindAttempted
+            connection.sessionBindings[0].sessionIdentifier.fill(0)
+            retainedFirstByte = connection.sessionBindings[0].sessionIdentifier[0]
+            decision.identities = []
+        })
+        const serving = server.serve(serverStream)
+        const client = new SSHAgentProtocolClient(clientStream)
+        const forwardedIdentifier = Buffer.alloc(32, 0x41)
+        const authenticationIdentifier = Buffer.alloc(32, 0x42)
+
+        expect(await client.queryExtensions()).toEqual([OPENSSH_AGENT_SESSION_BIND])
+        await expect(client.extension(OPENSSH_AGENT_SESSION_BIND)).rejects.toBeInstanceOf(
+            SSHAgentExtensionFailureError,
+        )
+        await client.opensshSessionBind({
+            hostKey: privateKey.data.publicKey,
+            sessionIdentifier: forwardedIdentifier,
+            signature: privateKey.sign(forwardedIdentifier),
+            forwarding: true,
+        })
+        await expect(
+            client.opensshSessionBind({
+                hostKey: privateKey.data.publicKey,
+                sessionIdentifier: forwardedIdentifier,
+                signature: privateKey.sign(forwardedIdentifier),
+                forwarding: true,
+            }),
+        ).rejects.toBeInstanceOf(SSHAgentExtensionFailureError)
+        await client.opensshSessionBind({
+            hostKey: privateKey.data.publicKey,
+            sessionIdentifier: authenticationIdentifier,
+            signature: privateKey.sign(authenticationIdentifier),
+            forwarding: false,
+        })
+        await client.getPublicKeys()
+        expect(observedBindings).toBe(2)
+        expect(observedAttempt).toBeTrue()
+        expect(retainedFirstByte).toBe(0x41)
+        expect(priorBindingCounts).toEqual([0, 1])
+
+        const laterIdentifier = Buffer.alloc(32, 0x43)
+        await expect(
+            client.opensshSessionBind({
+                hostKey: privateKey.data.publicKey,
+                sessionIdentifier: laterIdentifier,
+                signature: privateKey.sign(laterIdentifier),
+                forwarding: true,
+            }),
+        ).rejects.toBeInstanceOf(SSHAgentExtensionFailureError)
+        const invalidSignature = new EncodedSignature({
+            alg: "ssh-ed25519",
+            data: Buffer.alloc(64),
+        })
+        await expect(
+            client.opensshSessionBind({
+                hostKey: privateKey.data.publicKey,
+                sessionIdentifier: Buffer.alloc(32),
+                signature: invalidSignature,
+                forwarding: true,
+            }),
+        ).rejects.toThrow("signature is invalid")
+
+        clientStream.end()
+        await serving
+        clientStream.destroy()
+        serverStream.destroy()
+    })
+
+    test("passes OpenSSH token certificate constraints through awaited policy", async () => {
+        const directory = await mkdtemp(join(tmpdir(), "modernssh-agent-certificate-"))
+        try {
+            const caPath = join(directory, "ca")
+            const subjectPath = join(directory, "subject")
+            await execFileAsync("ssh-keygen", ["-q", "-t", "ed25519", "-N", "", "-f", caPath])
+            await execFileAsync("ssh-keygen", ["-q", "-t", "ed25519", "-N", "", "-f", subjectPath])
+            await execFileAsync("ssh-keygen", [
+                "-q",
+                "-s",
+                caPath,
+                "-I",
+                "agent-token@example.test",
+                "-n",
+                "alice",
+                `${subjectPath}.pub`,
+            ])
+            const certificate = PublicKey.parseString(
+                await readFile(`${subjectPath}-cert.pub`, "utf8"),
+            )
+            const [clientStream, serverStream] = streamPair()
+            const server = new SSHAgentProtocolServer()
+            let policyCalls = 0
+            server.hooker.hook("addToken", async (_hook, request, decision) => {
+                await Promise.resolve()
+                policyCalls++
+                expect(request.constraints).toHaveLength(2)
+                const associated = request.constraints[1]
+                expect(associated.type).toBe("openssh-associated-certificates")
+                if (associated.type !== "openssh-associated-certificates") return
+                expect(associated.certificatesOnly).toBeTrue()
+                expect(associated.certificates).toHaveLength(1)
+                expect(associated.certificates[0].equals(certificate)).toBeTrue()
+                decision.success = true
+            })
+            const serving = server.serve(serverStream)
+            const client = new SSHAgentProtocolClient(clientStream)
+
+            await client.addToken("provider", Buffer.alloc(0), {
+                constraints: [
+                    {
+                        type: "openssh-restrict-destination",
+                        destinations: [
+                            {
+                                to: {
+                                    hostname: "target.example",
+                                    hostKeys: [{ publicKey: fixedPrivateKey().data.publicKey }],
+                                },
+                            },
+                        ],
+                    },
+                    {
+                        type: "openssh-associated-certificates",
+                        certificatesOnly: true,
+                        certificates: [certificate],
+                    },
+                ],
+            })
+            expect(policyCalls).toBe(1)
+
+            clientStream.end()
+            await serving
+            clientStream.destroy()
+            serverStream.destroy()
+        } finally {
+            await rm(directory, { recursive: true, force: true })
+        }
+    })
+
+    test("isolates session-binding state between served connections", async () => {
+        const [firstClientStream, firstServerStream] = streamPair()
+        const [secondClientStream, secondServerStream] = streamPair()
+        const server = new SSHAgentProtocolServer()
+        const observations: [number, boolean][] = []
+        server.hooker.hook("sessionBind", (_hook, _binding, decision) => {
+            decision.success = true
+        })
+        server.hooker.hook("identities", (_hook, decision, connection) => {
+            observations.push([connection.sessionBindings.length, connection.sessionBindAttempted])
+            decision.identities = []
+        })
+        const firstServing = server.serve(firstServerStream)
+        const secondServing = server.serve(secondServerStream)
+        const firstClient = new SSHAgentProtocolClient(firstClientStream)
+        const secondClient = new SSHAgentProtocolClient(secondClientStream)
+        const privateKey = fixedPrivateKey()
+        const identifier = Buffer.alloc(32, 0x66)
+
+        await firstClient.opensshSessionBind({
+            hostKey: privateKey.data.publicKey,
+            sessionIdentifier: identifier,
+            signature: privateKey.sign(identifier),
+            forwarding: true,
+        })
+        await firstClient.getPublicKeys()
+        await secondClient.getPublicKeys()
+        expect(observations).toEqual([
+            [1, true],
+            [0, false],
+        ])
+
+        firstClientStream.end()
+        secondClientStream.end()
+        await Promise.all([firstServing, secondServing])
+        firstClientStream.destroy()
+        firstServerStream.destroy()
+        secondClientStream.destroy()
+        secondServerStream.destroy()
+    })
+
     test("rejects malformed constraints and distinguishes extension failure", async () => {
         const [clientStream, serverStream] = streamPair()
         const server = new SSHAgentProtocolServer()
@@ -436,6 +723,30 @@ describe("SSH agent management protocol", () => {
                 constraints: [{ type: "extension", name: "", data: Buffer.alloc(0) }],
             }),
         ).rejects.toThrow("must not be empty")
+        await expect(
+            client.addIdentity(fixedPrivateKey(), {
+                constraints: [
+                    { type: "lifetime", seconds: 1 },
+                    { type: "lifetime", seconds: 2 },
+                ],
+            }),
+        ).rejects.toThrow("duplicate")
+        const destination = {
+            type: "openssh-restrict-destination" as const,
+            destinations: [
+                {
+                    to: {
+                        hostname: "target.example",
+                        hostKeys: [{ publicKey: fixedPrivateKey().data.publicKey }],
+                    },
+                },
+            ],
+        }
+        await expect(
+            client.addIdentity(fixedPrivateKey(), {
+                constraints: [destination, destination],
+            }),
+        ).rejects.toThrow("duplicate")
 
         clientStream.end()
         await serving
@@ -455,6 +766,17 @@ describe("SSH agent management protocol", () => {
         const iterator = malformedClient[Symbol.asyncIterator]()
         const response = await iterator.next()
         expect(response.value).toEqual(Buffer.from("0000000105", "hex"))
+        expect(addCalls).toBe(0)
+
+        const duplicatePayload = Buffer.concat([
+            destinationAddFrame.subarray(4),
+            destinationConstraint,
+        ])
+        const duplicateLength = Buffer.alloc(4)
+        duplicateLength.writeUInt32BE(duplicatePayload.length)
+        malformedClient.write(Buffer.concat([duplicateLength, duplicatePayload]))
+        const duplicateResponse = await iterator.next()
+        expect(duplicateResponse.value).toEqual(Buffer.from("0000000105", "hex"))
         expect(addCalls).toBe(0)
 
         malformedClient.end()
@@ -508,7 +830,44 @@ describe("SSH agent management protocol", () => {
             await expect(client.unlock("wrong")).rejects.toThrow("refused")
             await client.unlock("secret")
             for (const [, publicKey] of identities) await client.removeIdentity(publicKey)
+
+            const destinationKey = PrivateKey.generateSync("ssh-ed25519")
+            await client.addIdentity(destinationKey, {
+                comment: "destination-constrained",
+                constraints: [
+                    {
+                        type: "openssh-restrict-destination",
+                        destinations: [
+                            {
+                                to: {
+                                    username: "alice",
+                                    hostname: "target.example",
+                                    hostKeys: [{ publicKey: privateKeys[0].data.publicKey }],
+                                },
+                            },
+                        ],
+                    },
+                ],
+            })
+            expect(
+                (await client.getPublicKeys()).some(
+                    ([, publicKey]) => publicKey.data.comment === "destination-constrained",
+                ),
+            ).toBeTrue()
+            await client.removeAllIdentities()
             expect(await client.getPublicKeys()).toHaveLength(0)
+
+            const boundSocket = createConnection(socketPath)
+            await once(boundSocket, "connect")
+            const boundClient = new SSHAgentProtocolClient(boundSocket)
+            const boundIdentifier = Buffer.alloc(32, 0x55)
+            await boundClient.opensshSessionBind({
+                hostKey: privateKeys[0].data.publicKey,
+                sessionIdentifier: boundIdentifier,
+                signature: privateKeys[0].sign(boundIdentifier),
+                forwarding: true,
+            })
+            boundClient.destroy()
             client.destroy()
         } finally {
             process.kill("SIGTERM")
