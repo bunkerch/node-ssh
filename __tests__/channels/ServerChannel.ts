@@ -10,6 +10,7 @@ import { ProtocolError } from "../../src/packets/Disconnect.js"
 import SessionChannel from "../../src/channels/SessionChannel.js"
 import type ServerClient from "../../src/ServerClient.js"
 import { serializeBuffer, serializeUint32 } from "../../src/utils/Buffer.js"
+import Shell from "../../src/channels/Session/Shell.js"
 
 function createChannel(remoteWindow = 5, remotePacketSize = 3) {
     const client = new Client({ hostname: "unused" })
@@ -34,6 +35,33 @@ function createChannel(remoteWindow = 5, remotePacketSize = 3) {
 }
 
 describe("server Channel", () => {
+    test("validates exit-signal text before sending the one-way result", () => {
+        const sent: { type: string; args: Buffer }[] = []
+        const channel = {
+            sendRequest(type: string, args: Buffer): void {
+                sent.push({ type, args: Buffer.from(args) })
+            },
+        } as unknown as SessionChannel
+        const shell = new Shell(channel)
+
+        expect(() => shell.exit("TERM", false, "\ud800")).toThrow(
+            "SSH exit-signal message is not valid UTF-8 text",
+        )
+        expect(sent).toEqual([])
+
+        shell.exit("TERM", true, "terminated")
+        expect(sent).toEqual([
+            {
+                type: "exit-signal",
+                args: Buffer.from(
+                    "000000045445524d01" + "0000000a7465726d696e61746564" + "00000000",
+                    "hex",
+                ),
+            },
+        ])
+        shell.destroy()
+    })
+
     test("rejects malformed UTF-8 session policy text", () => {
         const peer = { localChannelIndex: 0 } as ServerClient
         const channel = new SessionChannel(peer, "session")

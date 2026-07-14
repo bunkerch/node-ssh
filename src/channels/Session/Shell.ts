@@ -3,6 +3,7 @@ import { SSHExtendedDataTypes } from "../../constants.js"
 import { serializeBinaryBoolean } from "../../utils/BinaryBoolean.js"
 import { serializeBuffer, serializeUint32 } from "../../utils/Buffer.js"
 import { normalizeSSHSignal } from "../../utils/Signal.js"
+import { encodeSSHUTF8 } from "../../utils/SSHText.js"
 import SessionChannel from "../SessionChannel.js"
 
 type WriteCallback = (error?: Error | null) => void
@@ -109,7 +110,7 @@ export default class Shell extends Duplex {
             Buffer.concat([
                 serializeBuffer(Buffer.from(signal, "ascii")),
                 serializeBinaryBoolean(coreDumped),
-                serializeBuffer(Buffer.from(message, "utf8")),
+                serializeBuffer(encodeSSHUTF8(message, "SSH exit-signal message")),
                 serializeBuffer(Buffer.alloc(0)),
             ]),
         )

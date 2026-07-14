@@ -184,7 +184,8 @@ meaningful wire-level behavior.
   identified OpenSSH peers unless callers explicitly override detection.
 - RFC 4254 session exit results are one-way and singular. Accept `exit-status` and `exit-signal`
   only on session channels with a false reply flag; validate signal names, fatal UTF-8 decoding,
-  RFC 3066 language tags, and complete framing before publishing any exit metadata.
+  RFC 3066 language tags, and complete framing before publishing any exit metadata. Validate local
+  exit-signal diagnostic text before sending the result.
 - Packet tunnel channels use the `tun@openssh.com` layout from upstream `PROTOCOL`. Preserve each
   IP datagram or Ethernet frame in exactly one channel-data message, wait asynchronously for enough
   remote window rather than splitting it, and validate mode-specific framing before emitting data.
