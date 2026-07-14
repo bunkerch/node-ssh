@@ -1186,6 +1186,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         const lock = await this.queue.obtainLock("channelOpenRequest")
         let accepted = false
         try {
+            if (!this.isConnected) return
             if (
                 this.noFlowControlEnabled &&
                 (this.channels.size !== 0 || this.remoteChannelIds.size > 1)
@@ -1209,6 +1210,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             }
 
             await this.server.hooker.triggerHook("channelOpenRequest", channel, controller, this)
+            if (!this.isConnected) return
 
             if (!controller.allowOpen) {
                 throw new ChannelOpenError(
@@ -1225,6 +1227,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             this.emit("channel", channel)
         } catch (err) {
             this.debug(`ChannelOpenRequest failed:`, err)
+            if (!this.isConnected) return
 
             if (err instanceof ChannelOpenError) {
                 this.sendPacket(err.getOpenFailurePacket())
@@ -1280,6 +1283,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
 
     private async handleGlobalRequest(packet: GlobalRequest): Promise<void> {
         this.debug(`Received global request packet:`, packet)
+        if (!this.isConnected) return
 
         switch (packet.data.request_name) {
             case "hostkeys-prove-00@openssh.com":
@@ -1314,6 +1318,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         })
         const controller: ServerHookerGlobalRequestController = { success: false }
         await this.server.hooker.triggerHook("globalRequest", context, controller, this)
+        if (!this.isConnected) return
         if (!packet.data.want_reply) return
         if (!controller.success) {
             this.sendPacket(new RequestFailure({}))
@@ -1376,6 +1381,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             const context = this.parseTCPIPForwardArgs(packet.data.args)
             const controller = { allow: false }
             await this.server.hooker.triggerHook("tcpipForward", context, controller, this)
+            if (!this.isConnected) return
             if (!controller.allow) {
                 if (packet.data.want_reply) this.sendPacket(new RequestFailure({}))
                 return
@@ -1424,7 +1430,9 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             }
         } catch (error) {
             this.debug(`Could not establish remote forwarding listener:`, error)
-            if (packet.data.want_reply) this.sendPacket(new RequestFailure({}))
+            if (packet.data.want_reply && this.isConnected) {
+                this.sendPacket(new RequestFailure({}))
+            }
         }
     }
 
@@ -1464,6 +1472,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             const context = this.parseStreamLocalForwardArgs(packet.data.args)
             const controller = { allow: false }
             await this.server.hooker.triggerHook("streamLocalForward", context, controller, this)
+            if (!this.isConnected) return
             if (!controller.allow || this.remoteStreamLocalListeners.has(context.socketPath)) {
                 if (packet.data.want_reply) this.sendPacket(new RequestFailure({}))
                 return
@@ -1498,7 +1507,9 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             }
         } catch (error) {
             this.debug(`Could not establish remote stream-local forwarding listener:`, error)
-            if (packet.data.want_reply) this.sendPacket(new RequestFailure({}))
+            if (packet.data.want_reply && this.isConnected) {
+                this.sendPacket(new RequestFailure({}))
+            }
         }
     }
 

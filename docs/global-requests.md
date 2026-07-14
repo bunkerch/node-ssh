@@ -67,6 +67,9 @@ server.hooker.hook("globalRequest", async (_hook, context, controller, connectio
 The same hook is available on `client.hooker` without the final connection argument. Requests are
 dispatched serially so awaited handlers cannot reorder success or failure replies. A one-way
 request still invokes the hook, but the library sends no reply regardless of the controller.
+If the connection closes while a hook is pending, its eventual decision is discarded. In
+particular, a late forwarding-policy result cannot create a listening socket after connection
+cleanup, and a late application result cannot send a reply on the closed transport.
 
 Built-in protocol requests are processed by their dedicated validation and policy paths before the
 generic hook. Do not treat an unrecognized request name as trusted merely because the SSH peer was

@@ -253,7 +253,8 @@ The implementation follows RFC 4254 channel rules:
 - Local and remote channel numbers are tracked independently. A peer identifier is reserved as soon
   as its open request arrives, including while asynchronous policy is pending, and remains reserved
   until both CLOSE messages have been exchanged. Reusing an active identifier is a protocol error;
-  reuse after the channel is fully closed is valid.
+  reuse after the channel is fully closed is valid. If the connection closes while channel-open
+  policy is pending, a late approval is discarded without creating or publishing a channel.
 - Outbound data is split to the peer's maximum packet size and paused when its window is empty.
 - Inbound stdout and stderr share the advertised receive window. Window adjustments are sent as
   stream consumers make room. A zero adjustment is a valid no-op; an adjustment that would raise

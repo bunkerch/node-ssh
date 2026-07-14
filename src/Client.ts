@@ -1299,6 +1299,7 @@ export default class Client extends EventEmitter<ClientEvents> {
         })
         const controller: ClientHookerGlobalRequestController = { success: false }
         await this.hooker.triggerHook("globalRequest", context, controller)
+        if (!this.isConnected) return
         if (!packet.data.want_reply) return
         if (!controller.success) {
             this.sendPacket(new RequestFailure({}))
