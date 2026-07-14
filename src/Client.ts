@@ -479,6 +479,36 @@ export interface ClientSessionOptions {
     x11?: boolean | number | ClientX11Options
 }
 
+function snapshotSessionOptions(options: ClientSessionOptions): ClientSessionOptions {
+    const pty =
+        typeof options.pty === "object"
+            ? {
+                  ...options.pty,
+                  modes:
+                      options.pty.modes instanceof Map
+                          ? new Map(options.pty.modes)
+                          : options.pty.modes === undefined
+                            ? undefined
+                            : { ...options.pty.modes },
+              }
+            : options.pty
+    const x11 =
+        typeof options.x11 === "object"
+            ? {
+                  ...options.x11,
+                  cookie: Buffer.isBuffer(options.x11.cookie)
+                      ? Buffer.from(options.x11.cookie)
+                      : options.x11.cookie,
+              }
+            : options.x11
+    return {
+        ...options,
+        env: options.env === undefined ? undefined : { ...options.env },
+        pty,
+        x11,
+    }
+}
+
 export class GlobalRequestError extends Error {
     name = "GlobalRequestError"
 }
@@ -1075,10 +1105,10 @@ export default class Client extends EventEmitter<ClientEvents> {
     }
 
     exec(command: string, options: ClientSessionOptions = {}): Promise<ClientSessionChannel> {
-        const environment = options.env === undefined ? undefined : { ...options.env }
+        const sessionOptions = snapshotSessionOptions(options)
         return this.openSessionChannel().then(async (channel) => {
             try {
-                await this.configureSession(channel, { ...options, env: environment }, false)
+                await this.configureSession(channel, sessionOptions, false)
                 await channel.exec(command)
                 return channel
             } catch (error) {

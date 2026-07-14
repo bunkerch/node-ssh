@@ -46,8 +46,9 @@ and agent-forwarding requests require success before `exec` starts. `shell()` ac
 options and requests a default PTY unless `pty: false` is supplied. `sftp(environment)` sends the
 given environment before starting the subsystem.
 
-`exec()` copies the environment when the operation starts. Later changes to the supplied environment
-object do not change requests that are waiting for the session channel to open.
+`exec()` snapshots its session options when the operation starts, including the environment, PTY
+terminal modes, and X11 cookie bytes. Later changes to caller-owned configuration do not affect
+requests waiting for the session channel to open.
 
 For PTY, environment, resize, signal, or subsystem setup, open a session explicitly and make the
 requests in protocol order:
