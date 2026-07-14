@@ -20,7 +20,11 @@ export default class ChannelExtendedData implements Packet {
 
     data: ChannelExtendedDataData
     constructor(data: ChannelExtendedDataData) {
-        this.data = data
+        this.data = {
+            recipient_channel_id: data.recipient_channel_id,
+            data_type_code: data.data_type_code,
+            data: Buffer.from(data.data),
+        }
     }
 
     serialize(): Buffer {

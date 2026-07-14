@@ -160,4 +160,61 @@ describe("RFC 4254 channel packet vectors", () => {
             expect(packetType.parse(raw).serialize()).toEqual(raw)
         }
     })
+
+    test("channel packets own caller-provided opaque payload bytes", () => {
+        const channelPayload = Buffer.from("abc")
+        const data = new ChannelData({ recipient_channel_id: 3, data: channelPayload })
+        channelPayload.fill(0xff)
+        expect(data.serialize()).toEqual(vector("5e 00000003 00000003 616263"))
+
+        const extendedPayload = Buffer.from("err")
+        const extended = new ChannelExtendedData({
+            recipient_channel_id: 3,
+            data_type_code: 1,
+            data: extendedPayload,
+        })
+        extendedPayload.fill(0xff)
+        expect(extended.serialize()).toEqual(vector("5f 00000003 00000001 00000003 657272"))
+
+        const openArgs = vector("00000004 73736864")
+        const open = new ChannelOpen({
+            channel_type: "direct-streamlocal@openssh.com",
+            sender_channel_id: 7,
+            initial_window_size: 2_097_152,
+            maximum_packet_size: 32_768,
+            args: openArgs,
+        })
+        openArgs.fill(0xff)
+        expect(open.data.args).toEqual(vector("00000004 73736864"))
+
+        const requestArgs = vector("00000004 73667470")
+        const request = new ChannelRequest({
+            recipient_channel_id: 3,
+            request_type: "subsystem",
+            want_reply: true,
+            args: requestArgs,
+        })
+        requestArgs.fill(0xff)
+        expect(request.data.args).toEqual(vector("00000004 73667470"))
+    })
+
+    test("parsed channel packets do not alias their input frames", () => {
+        const frames = [
+            vector("5e 00000003 00000003 616263"),
+            vector("5f 00000003 00000001 00000003 657272"),
+            vector("5a 00000003 783131 00000007 00200000 00008000 01020304"),
+            vector("62 00000003 00000009 73756273797374656d 01 00000004 73667470"),
+        ]
+        const packets = [
+            ChannelData.parse(frames[0]),
+            ChannelExtendedData.parse(frames[1]),
+            ChannelOpen.parse(frames[2]),
+            ChannelRequest.parse(frames[3]),
+        ]
+        const serialized = packets.map((packet) => packet.serialize())
+
+        for (const frame of frames) frame.fill(0xff)
+
+        expect(packets.map((packet) => packet.serialize())).toEqual(serialized)
+    })
 })

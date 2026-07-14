@@ -19,7 +19,10 @@ export default class ChannelData implements Packet {
 
     data: ChannelDataData
     constructor(data: ChannelDataData) {
-        this.data = data
+        this.data = {
+            recipient_channel_id: data.recipient_channel_id,
+            data: Buffer.from(data.data),
+        }
     }
 
     serialize(): Buffer {

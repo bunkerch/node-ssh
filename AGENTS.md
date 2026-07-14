@@ -211,6 +211,8 @@ meaningful wire-level behavior.
   only on session channels with a false reply flag; validate signal names, fatal UTF-8 decoding,
   RFC 3066 language tags, and complete framing before publishing any exit metadata. Validate local
   exit-signal diagnostic text before sending the result.
+- Channel data, extended data, open arguments, and request arguments are opaque owned buffers.
+  Packet construction and parsing must not leave them aliased to caller or transport-frame storage.
 - Parse SSH boolean fields as false only for zero; accept every nonzero byte as true, while emitting
   canonical zero and one values for local booleans.
 - Preserve name-list order and repeated entries exactly. RFC 4251 permits repeated names; reject

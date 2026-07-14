@@ -3,6 +3,9 @@
 After `connect()` authenticates, a client can start a command or an interactive shell. Both APIs
 return a `ClientSessionChannel`, which is a Node.js `Duplex` stream. Its readable side is standard
 output, its writable side is standard input, and `channel.stderr` is a separate readable stream.
+At the packet boundary, opaque channel data and request-detail buffers are copied; callers may
+safely reuse or clear input buffers after constructing a packet, and parsed details do not alias
+the transport frame that carried them.
 
 ```ts
 const channel = await client.exec("node --version")

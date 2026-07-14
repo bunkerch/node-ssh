@@ -24,7 +24,12 @@ export default class ChannelRequest implements Packet {
 
     data: ChannelRequestData
     constructor(data: ChannelRequestData) {
-        this.data = data
+        this.data = {
+            recipient_channel_id: data.recipient_channel_id,
+            request_type: data.request_type,
+            want_reply: data.want_reply,
+            args: Buffer.from(data.args),
+        }
     }
 
     serialize(): Buffer {

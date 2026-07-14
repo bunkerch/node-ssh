@@ -22,7 +22,13 @@ export default class ChannelOpen implements Packet {
 
     data: ChannelOpenData
     constructor(data: ChannelOpenData) {
-        this.data = data
+        this.data = {
+            channel_type: data.channel_type,
+            sender_channel_id: data.sender_channel_id,
+            initial_window_size: data.initial_window_size,
+            maximum_packet_size: data.maximum_packet_size,
+            args: Buffer.from(data.args),
+        }
     }
 
     serialize(): Buffer {
