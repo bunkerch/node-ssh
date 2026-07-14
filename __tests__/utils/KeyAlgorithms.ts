@@ -61,4 +61,35 @@ describe("SSH key algorithm envelopes", () => {
 
         expect(() => PrivateKey.parse(encoded)).toThrow("SSH private key algorithm")
     })
+
+    test.each(["bad\ncomment", "bad\0comment", "\ud800"])(
+        "rejects an invalid constructed key comment",
+        async (comment) => {
+            const privateKey = await PrivateKey.generate("ssh-ed25519")
+            expect(() => new PublicKey({ ...privateKey.data.publicKey.data, comment })).toThrow(
+                "SSH key comment",
+            )
+            expect(() => new PrivateKey({ ...privateKey.data, comment })).toThrow("SSH key comment")
+        },
+    )
+
+    test("fatally decodes a private-container comment", async () => {
+        const generated = await PrivateKey.generate("ssh-ed25519")
+        const key = new PrivateKey({ ...generated.data, comment: "wire-comment" })
+        const encoded = key.serialize()
+        const offset = encoded.indexOf("wire-comment")
+        expect(offset).toBeGreaterThanOrEqual(0)
+        encoded[offset] = 0xff
+
+        expect(() => PrivateKey.parse(encoded)).toThrow("SSH key comment is not valid UTF-8 text")
+    })
+
+    test("revalidates mutable comments at serialization", async () => {
+        const privateKey = await PrivateKey.generate("ssh-ed25519")
+        privateKey.data.publicKey.data.comment = "bad\ncomment"
+        privateKey.data.comment = "bad\ncomment"
+
+        expect(() => privateKey.data.publicKey.toString()).toThrow("SSH key comment")
+        expect(() => privateKey.serialize()).toThrow("SSH key comment")
+    })
 })

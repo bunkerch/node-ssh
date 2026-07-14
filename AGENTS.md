@@ -302,6 +302,8 @@ meaningful wire-level behavior.
   subsystems on both parse and serialization paths.
 - Public and private key envelopes bind their validated SSH algorithm name to the contained key
   implementation, require private/public identity agreement, and copy caller-owned envelope data.
+- Key comments use fatal UTF-8, exclude NUL and line endings on every construction and parse path,
+  and are revalidated at serialization because key metadata remains intentionally mutable.
 - Strict key exchange advertises both the standard and deployed marker pairs only in the initial
   KEXINIT. Enable it only for a matching pair, require the peer's initial KEXINIT at sequence zero,
   reject non-KEX and duplicate KEX messages during that exchange, and reset each direction's

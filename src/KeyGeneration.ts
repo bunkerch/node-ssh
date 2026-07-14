@@ -1,5 +1,5 @@
 import PrivateKey, { SSHRSAPrivateKey } from "./utils/PrivateKey.js"
-import PublicKey from "./utils/PublicKey.js"
+import PublicKey, { encodeSSHKeyComment } from "./utils/PublicKey.js"
 
 export type KeyPairType = "ed25519" | "ed448" | "rsa" | "ecdsa" | "dsa"
 
@@ -16,10 +16,7 @@ export interface GeneratedKeyPair {
 }
 
 function validateComment(comment: string | undefined): void {
-    if (comment === undefined) return
-    if (comment.includes("\0") || comment.includes("\n") || comment.includes("\r")) {
-        throw new TypeError("SSH key comment must not contain NUL or a line ending")
-    }
+    if (comment !== undefined) encodeSSHKeyComment(comment)
 }
 
 function algorithm(type: KeyPairType, bits: number | undefined): string | undefined {

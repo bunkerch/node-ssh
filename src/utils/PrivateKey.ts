@@ -16,6 +16,7 @@ import PublicKey, {
     SSHECDSAPublicKey,
     SSHRSAPublicKey,
     SSHCertificatePublicKey,
+    encodeSSHKeyComment,
 } from "./PublicKey.js"
 import nacl from "tweetnacl"
 import {
@@ -45,6 +46,7 @@ import {
 } from "./DSA.js"
 import { ed448 } from "@noble/curves/ed448.js"
 import { decodeSSHName, encodeSSHName } from "./SSHName.js"
+import { decodeSSHUTF8 } from "./SSHText.js"
 
 export interface PrivateKeyData {
     publicKey: PublicKey
@@ -72,6 +74,7 @@ export default class PrivateKey {
             suppliedPublicKey.equals(expectedPublicKey),
             "Private and public key data do not match",
         )
+        if (data.comment !== undefined) encodeSSHKeyComment(data.comment)
         this.data = { ...data }
     }
 
@@ -124,7 +127,13 @@ export default class PrivateKey {
             const algorithmPayload = key.data.algorithm.serialize()
             prv.push(serializeBuffer(encodeSSHName(key.data.alg, "SSH private key algorithm")))
             prv.push(algorithmPayload)
-            prv.push(serializeBuffer(Buffer.from(key.data.comment ?? "", "utf8")))
+            prv.push(
+                serializeBuffer(
+                    key.data.comment === undefined
+                        ? Buffer.alloc(0)
+                        : encodeSSHKeyComment(key.data.comment),
+                ),
+            )
             algorithmPayloads.push(algorithmPayload)
         }
         let prvPayload = Buffer.concat(prv)
@@ -269,7 +278,8 @@ export default class PrivateKey {
                     publicKey,
                     alg: algorithmName,
                     algorithm: prv,
-                    comment: comment.length > 0 ? comment.toString("utf8") : undefined,
+                    comment:
+                        comment.length > 0 ? decodeSSHUTF8(comment, "SSH key comment") : undefined,
                 }),
             )
         }

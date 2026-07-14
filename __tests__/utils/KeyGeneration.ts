@@ -97,5 +97,8 @@ describe("SSH key-pair generation", () => {
         await expect(generateKeyPair("ed25519", { comment: "bad\ncomment" })).rejects.toThrow(
             "must not contain",
         )
+        await expect(generateKeyPair("ed25519", { comment: "\ud800" })).rejects.toThrow(
+            "SSH key comment is not valid UTF-8 text",
+        )
     })
 })

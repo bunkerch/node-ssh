@@ -294,6 +294,10 @@ to match the contained key implementation. Private envelopes additionally requir
 identity to match the private material. Constructed envelopes copy their metadata object, so later
 mutation of the caller's input object cannot silently relabel a retained key.
 
+Comments are strict UTF-8 and may not contain NUL, CR, or LF. These rules apply to generated,
+constructed, authorized-key, and private-container values, and are rechecked when mutable key
+objects are serialized. Malformed container text is rejected instead of replacement-decoded.
+
 Certificate public-key lines and wire blobs are parsed into `PublicKey` objects whose algorithm is
 an exported `SSHCertificatePublicKey`. Its `data` exposes the certified plain key, CA key, serial,
 role, identifier, principals, validity interval, critical options, and extensions without losing

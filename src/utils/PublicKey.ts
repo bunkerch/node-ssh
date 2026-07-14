@@ -8,6 +8,7 @@ import nacl from "tweetnacl"
 import { decodeBigIntBE } from "./BigInt.js"
 import { parseBufferToMpintBuffer } from "./mpint.js"
 import { decodeSSHName, encodeSSHName } from "./SSHName.js"
+import { encodeSSHUTF8 } from "./SSHText.js"
 import {
     dsaParametersFromPublicKey,
     type DSAParameters,
@@ -57,6 +58,13 @@ export interface PublicKeyData {
     comment?: string
 }
 
+export function encodeSSHKeyComment(comment: string, field = "SSH key comment"): Buffer {
+    if (/[\0\r\n]/u.test(comment)) {
+        throw new Error(`${field} must not contain NUL or a line ending`)
+    }
+    return encodeSSHUTF8(comment, field)
+}
+
 export default class PublicKey {
     static algorithms = new Map<string, typeof PublicKeyAlgoritm>()
 
@@ -70,6 +78,7 @@ export default class PublicKey {
                   ? data.algorithm.curve.algorithm
                   : (data.algorithm.constructor as typeof PublicKeyAlgoritm).alg_name
         assert(data.alg === expectedAlgorithm, "Public key algorithm does not match key data")
+        if (data.comment !== undefined) encodeSSHKeyComment(data.comment)
         this.data = { ...data }
     }
 
@@ -114,6 +123,7 @@ export default class PublicKey {
     }
 
     toString(): string {
+        if (this.data.comment !== undefined) encodeSSHKeyComment(this.data.comment)
         return `${this.data.alg} ${this.serialize().toString("base64")}${this.data.comment ? ` ${this.data.comment}` : ""}`
     }
 
@@ -184,11 +194,7 @@ export default class PublicKey {
             `blob public key algorithm does not match the text public key algorithm`,
         )
 
-        if (comment) {
-            publicKey.data.comment = comment
-        }
-
-        return publicKey
+        return comment ? new PublicKey({ ...publicKey.data, comment }) : publicKey
     }
 
     static fromPEM(data: string | Buffer): PublicKey {
