@@ -27,6 +27,8 @@ export default class DiskAgent implements Agent<string> {
     }
 
     async sign(id: string, data: Buffer, algorithm?: string): Promise<EncodedSignature> {
+        if (!Buffer.isBuffer(data)) throw new TypeError("Disk agent signing data must be a buffer")
+        const message = Buffer.from(data)
         const path = resolve(id)
 
         // getPublicKey already checks if the id is correct
@@ -49,7 +51,7 @@ export default class DiskAgent implements Agent<string> {
             new DiskAgentError("Stored public key does not match the private key's public key."),
         )
 
-        return privateKey.sign(data, pub.signatureAlgorithmFor(algorithm ?? pub.data.alg))
+        return privateKey.sign(message, pub.signatureAlgorithmFor(algorithm ?? pub.data.alg))
     }
 
     async getPublicKeys(): Promise<[string, PublicKey][]> {

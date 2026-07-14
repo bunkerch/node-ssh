@@ -335,4 +335,42 @@ describe("OpenSSH private keys", () => {
             await rm(directory, { recursive: true, force: true })
         }
     })
+
+    test("DiskAgent owns signing data before awaited key loading", async () => {
+        const directory = await mkdtemp(join(tmpdir(), "modernssh-disk-agent-ownership-"))
+        try {
+            const fixture = await generateKey(directory, "id_ed25519", "ed25519")
+            const keyPath = join(directory, "id_ed25519")
+            let releasePassphrase!: () => void
+            const passphraseReleased = new Promise<void>((resolve) => {
+                releasePassphrase = resolve
+            })
+            let reportPassphrase!: () => void
+            const passphraseRequested = new Promise<void>((resolve) => {
+                reportPassphrase = resolve
+            })
+            const agent = new DiskAgent(directory, {
+                async passphrase() {
+                    reportPassphrase()
+                    await passphraseReleased
+                    return passphrase
+                },
+            })
+            const data = Buffer.from("original disk-agent message")
+            const original = Buffer.from(data)
+            const signing = agent.sign(keyPath, data)
+
+            await passphraseRequested
+            data.fill(0x78)
+            releasePassphrase()
+            const signature = await signing
+
+            expect({
+                original: fixture.publicKey.verifySignature(original, signature),
+                mutated: fixture.publicKey.verifySignature(data, signature),
+            }).toEqual({ original: true, mutated: false })
+        } finally {
+            await rm(directory, { recursive: true, force: true })
+        }
+    })
 })

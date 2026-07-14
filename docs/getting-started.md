@@ -433,6 +433,9 @@ companions; `onInvalidPublicKey` is awaited for each skipped identity so applica
 audit it. Direct lookup and discovery share the same whitespace-tolerant public-key parser.
 Public-key comments may contain spaces and are preserved.
 
+`DiskAgent.sign()` snapshots the message before reading key files or awaiting a passphrase resolver,
+so caller mutation during key loading cannot change what is signed.
+
 ## Public exports
 
 The package root currently exports:
