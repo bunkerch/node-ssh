@@ -9,6 +9,12 @@ hard-coding a particular sequence.
 During authentication, `authenticationMethodsRemaining` reflects the latest server continuation
 list and `partialAuthenticationSuccess` indicates whether any factor has already succeeded.
 
+Authentication and connection messages have disjoint protocol phases. Authentication packets are
+accepted only after `ssh-userauth` service negotiation and before login completes; connection-layer
+global requests and channel traffic are accepted only after successful authentication. A peer that
+sends either class outside its phase receives an RFC protocol-error disconnect. Transport
+diagnostics and key re-exchange remain valid independently of those higher-layer phases.
+
 ## Client authentication
 
 Choose the allowed order with `authenticationMethodsOrder`. `none` is useful as the first entry

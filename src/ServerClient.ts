@@ -286,6 +286,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     agentForwardingEnabled = false
     private noMoreSessionsRequested = false
     private authenticationExpired = false
+    private authenticationInProgress = false
     private readonly pendingGlobalRequests: PendingGlobalRequest[] = []
 
     get noMoreSessions(): boolean {
@@ -778,7 +779,12 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             )
         }
 
-        await this.handleAuthenticationWithinLimits()
+        this.authenticationInProgress = true
+        try {
+            await this.handleAuthenticationWithinLimits()
+        } finally {
+            this.authenticationInProgress = false
+        }
         // user is logged in!
         this.state = SocketState.Connected
         // emit the event
@@ -1886,6 +1892,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             }
             return
         }
+        this.validateHigherLayerPhase(packetType)
         const packet =
             packetType === PacketNameToType.SSH_MSG_KEXDH_REPLY &&
             this.kexAlgorithm instanceof RSA2048SHA256
@@ -2139,6 +2146,32 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             return
         }
         this.clientExtInfoAfterNewKeys = false
+    }
+
+    private validateHigherLayerPhase(packetType: PacketType): void {
+        if (packetType >= 50 && packetType < 80) {
+            if (!this.authenticationInProgress) {
+                throw new DisconnectError(
+                    DisconnectReason.SSH_DISCONNECT_PROTOCOL_ERROR,
+                    "SSH client sent an authentication message outside authentication",
+                )
+            }
+            if (
+                packetType !== PacketNameToType.SSH_MSG_USERAUTH_REQUEST &&
+                packetType !== PacketNameToType.SSH_MSG_USERAUTH_INFO_RESPONSE
+            ) {
+                throw new DisconnectError(
+                    DisconnectReason.SSH_DISCONNECT_PROTOCOL_ERROR,
+                    "SSH client sent a server-only authentication message",
+                )
+            }
+        }
+        if (packetType >= 80 && packetType < 128 && !this.hasAuthenticated) {
+            throw new DisconnectError(
+                DisconnectReason.SSH_DISCONNECT_PROTOCOL_ERROR,
+                "SSH client sent a connection message before authentication completed",
+            )
+        }
     }
 
     private connectionClosedError(fallback: string): Error {

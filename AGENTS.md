@@ -117,6 +117,10 @@ meaningful wire-level behavior.
   unconfigured, already-failed, or unadvertised choice. Keep at most one keyboard-interactive
   request outstanding, and test prompts, banners, and password changes with fixed vectors plus
   OpenSSH.
+- Enforce higher-layer phases before parsing method-specific payloads: authentication packets are
+  valid only during the negotiated authentication phase and only in their assigned peer direction;
+  connection packets are valid only after authentication. Reject cross-phase traffic with reason 2
+  while continuing to permit transport diagnostics and key exchange.
 - RFC 4252 host-based authentication signs the session identifier and complete request fields,
   including the claimed client hostname and username. Verify that signature before invoking the
   awaited server policy hook; the hook must separately authorize the target user, host key,

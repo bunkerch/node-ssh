@@ -589,6 +589,7 @@ export default class Client extends EventEmitter<ClientEvents> {
     partialAuthenticationSuccess = false
     private authenticationFailureSequence = 0
     private awaitingServiceAccept = false
+    private authenticationInProgress = false
 
     localChannelIndex = 0
     channels = new Map<number, ClientChannel>()
@@ -1645,8 +1646,9 @@ export default class Client extends EventEmitter<ClientEvents> {
 
         const methodList = this.options.authenticationMethodsOrder
         const attemptedMethods = new Set<SSHAuthenticationMethods>()
-        authentication: {
-            while (true) {
+        this.authenticationInProgress = true
+        try {
+            authentication: while (true) {
                 const defaultMethod = methodList.find(
                     (candidate) =>
                         !attemptedMethods.has(candidate) &&
@@ -1725,6 +1727,8 @@ export default class Client extends EventEmitter<ClientEvents> {
                     attemptedMethods.add(method)
                 }
             }
+        } finally {
+            this.authenticationInProgress = false
         }
         this.hasAuthenticated = true
 
@@ -1976,6 +1980,7 @@ export default class Client extends EventEmitter<ClientEvents> {
             }
             return
         }
+        this.validateHigherLayerPhase(packetType)
         let packet: typeof Packet
         if (
             packetType === PacketNameToType.SSH_MSG_KEXDH_INIT &&
@@ -2205,6 +2210,34 @@ export default class Client extends EventEmitter<ClientEvents> {
             throw new Error("Server EXT_INFO arrived outside an RFC 8308 opportunity")
         }
         this.serverExtInfoAfterNewKeys = false
+    }
+
+    private validateHigherLayerPhase(packetType: PacketType): void {
+        if (packetType >= 50 && packetType < 80) {
+            if (!this.authenticationInProgress) {
+                throw new DisconnectError(
+                    DisconnectReason.SSH_DISCONNECT_PROTOCOL_ERROR,
+                    "SSH server sent an authentication message outside authentication",
+                )
+            }
+            if (
+                packetType !== PacketNameToType.SSH_MSG_USERAUTH_FAILURE &&
+                packetType !== PacketNameToType.SSH_MSG_USERAUTH_SUCCESS &&
+                packetType !== PacketNameToType.SSH_MSG_USERAUTH_BANNER &&
+                packetType !== PacketNameToType.SSH_MSG_USERAUTH_PK_OK
+            ) {
+                throw new DisconnectError(
+                    DisconnectReason.SSH_DISCONNECT_PROTOCOL_ERROR,
+                    "SSH server sent a client-only authentication message",
+                )
+            }
+        }
+        if (packetType >= 80 && packetType < 128 && !this.hasAuthenticated) {
+            throw new DisconnectError(
+                DisconnectReason.SSH_DISCONNECT_PROTOCOL_ERROR,
+                "SSH server sent a connection message before authentication completed",
+            )
+        }
     }
 
     private applyServerExtensions(extensions: readonly SSHExtension[]): void {
