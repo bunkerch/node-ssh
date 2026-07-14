@@ -543,8 +543,9 @@ export class SSHED448PrivateKey implements PrivateKeyAlgorithm {
     constructor(data: SSHED448PrivateKeyData) {
         assert(data.publicKey.length === 57, "Invalid Ed448 public key length")
         assert(data.privateKey.length === 114, "Invalid Ed448 private key length")
+        const derived = Buffer.from(ed448.getPublicKey(data.privateKey.subarray(0, 57)))
         assert(
-            data.privateKey.subarray(57).equals(data.publicKey),
+            derived.equals(data.publicKey) && data.privateKey.subarray(57).equals(data.publicKey),
             "Ed448 private and public key data do not match",
         )
         this.data = {

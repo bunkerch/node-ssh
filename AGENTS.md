@@ -76,7 +76,8 @@ meaningful wire-level behavior.
   and fingerprinting, including the documented RSA default.
 - RFC 8709 Ed448 uses exact 57-byte public keys and 114-byte signatures, remains explicit rather
   than default, and is validated with RFC 8032 vectors. Use the portable curve primitive for core
-  operations so Bun tests remain meaningful; validate PKCS#8/SPKI conversion in native Node.
+  operations so Bun tests remain meaningful; verify private seeds derive their claimed public keys,
+  and validate PKCS#8/SPKI conversion in native Node.
 - RFC 8709 Ed25519 public keys are exactly 32 octets and signatures are exactly 64 octets. Validate
   fixed wire widths at construction and parsing boundaries, verify that private seeds derive their
   claimed public keys, and copy caller-owned key storage.

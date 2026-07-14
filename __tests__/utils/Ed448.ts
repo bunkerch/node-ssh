@@ -89,6 +89,16 @@ describe("RFC 8709 Ed448 keys", () => {
                 }),
         ).toThrow("do not match")
 
+        const wrongSeed = Buffer.concat([seed, publicBytes])
+        wrongSeed[0] ^= 0x80
+        expect(
+            () =>
+                new SSHED448PrivateKey({
+                    publicKey: publicBytes,
+                    privateKey: wrongSeed,
+                }),
+        ).toThrow("do not match")
+
         const key = vectorPrivateKey()
         expect(() => key.sign(Buffer.alloc(0), "ssh-ed25519")).toThrow(
             "Unsupported Ed448 signature algorithm",
