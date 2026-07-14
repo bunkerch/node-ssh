@@ -99,8 +99,8 @@ try {
 Protocol names follow RFC 4250: they contain 1 through 64 printable US-ASCII characters, never a
 comma, and locally defined names contain one at-sign followed by a valid domain name. This is
 enforced for algorithm name-lists, services, authentication methods, extension names, channel
-types, global and channel requests, and subsystem names. Name-lists reject empty and duplicate
-entries before negotiation.
+types, global and channel requests, and subsystem names. Name-lists reject empty entries while
+preserving repeated names permitted by RFC 4251.
 
 ## Service negotiation
 
@@ -164,6 +164,10 @@ Every exchange clears prior selections before matching, so a rekey with no mutua
 rather than retaining stale transport state. Compression is negotiated independently in both
 directions from `none`, delayed `zlib@openssh.com`, and immediate RFC 4253 `zlib`; `none` remains the
 first default preference.
+
+`SSH_MSG_KEXINIT` parsing consumes its complete fixed layout: the cookie is exactly 16 bytes, all
+eight mandatory algorithm lists are non-empty, the reserved uint32 is zero, and trailing bytes are
+rejected before negotiation begins.
 
 The default key-exchange preference starts with the RFC 8731 `curve25519-sha256` method and its
 wire-equivalent deployed alias `curve25519-sha256@libssh.org`, the RFC 5656

@@ -90,5 +90,36 @@ describe("Packets", () => {
             const serialized = packet.serialize()
             expect(serialized).toEqual(sample)
         })
+
+        test("rejects invalid fixed-layout framing and mandatory empty offers", () => {
+            expect(() => KexInit.parse(Buffer.concat([sample, Buffer.from([0])]))).toThrow(
+                "trailing data",
+            )
+
+            const oneName = Buffer.from("0000000161", "hex")
+            const emptyNameList = Buffer.alloc(4)
+            const minimalEmptyKexOffer = Buffer.concat([
+                Buffer.from([KexInit.type]),
+                Buffer.alloc(16, 0x5a),
+                emptyNameList,
+                ...Array.from({ length: 7 }, () => oneName),
+                emptyNameList,
+                emptyNameList,
+                Buffer.from([0]),
+                Buffer.alloc(4),
+            ])
+            expect(() => KexInit.parse(minimalEmptyKexOffer)).toThrow(
+                "key exchange list must not be empty",
+            )
+
+            const parsed = KexInit.parse(sample)
+            expect(() => new KexInit({ ...parsed.data, cookie: Buffer.alloc(15) })).toThrow(
+                "cookie must be exactly 16 bytes",
+            )
+            parsed.data.compression_algorithms_server_to_client = []
+            expect(() => parsed.serialize()).toThrow(
+                "server-to-client compression list must not be empty",
+            )
+        })
     })
 })

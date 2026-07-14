@@ -19,15 +19,34 @@ export interface KexInitData {
     languages_server_to_client: string[]
     first_kex_packet_follows: boolean
 }
+
+function validateKexInitData(data: KexInitData): void {
+    assert(data.cookie.length === 16, "SSH KEXINIT cookie must be exactly 16 bytes")
+    for (const [name, algorithms] of [
+        ["key exchange", data.kex_algorithms],
+        ["server host key", data.server_host_key_algorithms],
+        ["client-to-server encryption", data.encryption_algorithms_client_to_server],
+        ["server-to-client encryption", data.encryption_algorithms_server_to_client],
+        ["client-to-server MAC", data.mac_algorithms_client_to_server],
+        ["server-to-client MAC", data.mac_algorithms_server_to_client],
+        ["client-to-server compression", data.compression_algorithms_client_to_server],
+        ["server-to-client compression", data.compression_algorithms_server_to_client],
+    ] as const) {
+        assert(algorithms.length > 0, `SSH KEXINIT ${name} list must not be empty`)
+    }
+}
+
 export default class KexInit implements Packet {
     static type = PacketNameToType.SSH_MSG_KEXINIT
 
     data: KexInitData
     constructor(data: KexInitData) {
+        validateKexInitData(data)
         this.data = data
     }
 
     serialize(): Buffer {
+        validateKexInitData(this.data)
         const buffers = []
 
         buffers.push(Buffer.from([KexInit.type]))
@@ -98,6 +117,7 @@ export default class KexInit implements Packet {
         let reserved_future_extensions: number
         ;[reserved_future_extensions, raw] = readNextUint32(raw)
         assert(reserved_future_extensions == 0)
+        assert(raw.length === 0, "SSH KEXINIT has trailing data")
 
         return new KexInit({
             cookie,
