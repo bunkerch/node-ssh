@@ -385,9 +385,9 @@ The package root currently exports:
 
 - `Client`, `Server`, and `ServerClient` plus their option, event, and hook types.
 - `ClientChannel`, `ClientSessionChannel`, `Channel`, `SessionChannel`, and `Shell`.
-- `Agent`, `PrivateKeyAgent`, `DiskAgent`, `SSHAgent`, `SSHAgentProtocolClient`,
-  `SSHAgentProtocolServer`, `OnePasswordAgent`, and their option, hook, error, and agent-type
-  definitions.
+- `Agent`, `PrivateKeyAgent`, `DiskAgent`, `SSHAgent`, `CygwinAgent`, `createSocketAgent`,
+  `SSHAgentProtocolClient`, `SSHAgentProtocolServer`, `OnePasswordAgent`, and their option, hook,
+  error, and agent-type definitions.
 - `PublicKey`, `PrivateKey`, `EncodedSignature`, `ProtocolVersionExchange`, `generateKeyPair()`,
   `generateKeyPairSync()`, `parseKey()`, and `parseKeys()`.
 - Public service, authentication, connection-state, and extended-data enums.
@@ -395,10 +395,11 @@ The package root currently exports:
 Deep imports into `dist/` are not part of the supported API. New public functionality will be added
 to the root exports as its implementation and tests become library-ready.
 
-## OpenSSH agent authentication
+## Socket agent authentication
 
-`SSHAgent` uses the UNIX socket supplied explicitly or through `SSH_AUTH_SOCK`. The client lists the
-agent's public identities and delegates signatures without reading private key material.
+`SSHAgent` uses a Unix-domain socket or Windows named pipe supplied explicitly or through
+`SSH_AUTH_SOCK`. The client lists the agent's public identities and delegates signatures without
+reading private key material.
 
 ```ts
 import { Client } from "modernssh"
@@ -412,12 +413,26 @@ const client = new Client({
 await client.connect()
 ```
 
-Passing a socket path is shorthand for constructing `new SSHAgent(path)`. Construct `SSHAgent`
-directly when its methods or socket metadata are also needed. The implementation follows
-[RFC 9987](https://www.rfc-editor.org/rfc/rfc9987.html), bounds messages
-to OpenSSH's 256 KiB limit, handles fragmented socket reads, and treats identity IDs as opaque
-values. Identity comments use fatal UTF-8 decoding, so malformed agent text fails the listing.
-Generic failure replies must contain only their message byte; trailing fields are rejected.
+Passing a socket path calls `createSocketAgent(path)`. On POSIX it constructs `SSHAgent`. On Windows,
+named-pipe paths such as `\\.\pipe\agent` also use `SSHAgent`, while other paths use `CygwinAgent`
+for Cygwin's legacy socket-file transport. Construct a specific class directly to override that
+selection or configure Cygwin handshake limits. Path availability is checked when a Promise opens
+the connection rather than during construction, so a later-created socket works and connection
+failures remain asynchronous.
+
+The agent messages follow [RFC 9987](https://www.rfc-editor.org/rfc/rfc9987.html), are bounded to
+256 KiB, handle fragmented socket reads, and treat identity IDs as opaque values. Identity comments
+use fatal UTF-8 decoding, so malformed agent text fails the listing. Generic failure replies must
+contain only their message byte; trailing fields are rejected.
+
+`CygwinAgent` reads at most 4 KiB from the socket descriptor by default, accepts only the legacy
+ASCII stream descriptor, and connects only to IPv4 loopback. It validates the complete 16-byte
+secret echo, performs Cygwin's discovery and credentialed exchanges on separate TCP connections,
+and applies a 10-second idle deadline to each handshake. `handshakeTimeout: 0` disables that
+deadline; `maxSocketFileLength` may tighten the descriptor bound. On Windows only, an unreadable
+POSIX-style path is resolved once through `cygpath -w`. The negotiated stream then uses the same
+bounded RFC 9987 protocol client and may be forwarded like another stream-capable agent.
+
 `OnePasswordAgent` uses the same protocol while discovering 1Password's default socket and
 marks signing as interactive. Access to an agent socket normally grants the ability to request
 signatures, so do not expose or forward it to untrusted processes or hosts.

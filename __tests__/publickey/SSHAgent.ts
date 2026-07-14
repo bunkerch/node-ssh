@@ -5,6 +5,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
 import Client from "../../src/Client.js"
+import { createSocketAgent } from "../../src/publickey/SocketAgent.js"
 import SSHAgent from "../../src/publickey/SSHAgent.js"
 
 const execFileAsync = promisify(execFile)
@@ -37,6 +38,30 @@ async function writeFragmented(socket: Socket, response: Buffer): Promise<void> 
 }
 
 describe("SSHAgent", () => {
+    test("defers path availability to connection time and accepts named pipes", async () => {
+        const directory = await mkdtemp(join(tmpdir(), "modernssh-late-agent-"))
+        const socketPath = join(directory, "agent.sock")
+        const agent = new SSHAgent(socketPath)
+        const server = createServer((socket) => socket.end())
+        expect(agent.socketPath).toBe(socketPath)
+        expect(createSocketAgent(socketPath)).toBeInstanceOf(SSHAgent)
+        expect(new SSHAgent("\\\\.\\pipe\\modernssh-agent").socketPath).toBe(
+            "\\\\.\\pipe\\modernssh-agent",
+        )
+
+        try {
+            server.listen(socketPath)
+            await new Promise<void>((resolve) => server.once("listening", resolve))
+            const socket = await agent.getStream()
+            socket.destroy()
+        } finally {
+            await new Promise<void>((resolve, reject) => {
+                server.close((error) => (error ? reject(error) : resolve()))
+            })
+            await rm(directory, { recursive: true, force: true })
+        }
+    })
+
     test("uses fixed RFC 9987 identity and signing packets across fragmented reads", async () => {
         const directory = await mkdtemp(join(tmpdir(), "modernssh-agent-vector-"))
         const socketPath = join(directory, "agent.sock")

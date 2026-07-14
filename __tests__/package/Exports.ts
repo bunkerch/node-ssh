@@ -14,6 +14,9 @@ import {
     ClientForwardedTCPIPChannel,
     ClientTCPIPChannel,
     ClientX11Channel,
+    createSocketAgent,
+    CygwinAgent,
+    CygwinAgentError,
     DirectTCPIPChannel,
     DirectStreamLocalChannel,
     decodeSFTPLimits,
@@ -68,6 +71,7 @@ import {
     TerminalModes,
     type ClientOptions,
     type ClientSessionOptions,
+    type CygwinAgentOptions,
     type GSSAPIKeyExchangeClientContextOptions,
     type SSHAgentProtocolOptions,
     type SSHAgentProtocolServerOptions,
@@ -98,6 +102,10 @@ describe("package exports", () => {
         const agentProtocolServerOptions: SSHAgentProtocolServerOptions = {
             maxMessageLength: 2048,
         }
+        const cygwinAgentOptions: CygwinAgentOptions = {
+            handshakeTimeout: 500,
+            maxSocketFileLength: 512,
+        }
 
         expect(clientOptions.hostname).toBe("example.test")
         expect(sessionOptions.pty).toBe(true)
@@ -105,6 +113,7 @@ describe("package exports", () => {
         expect(keyExchangeOptions.service).toBe("host")
         expect(agentProtocolOptions.requestTimeout).toBe(250)
         expect(agentProtocolServerOptions.maxMessageLength).toBe(2048)
+        expect(cygwinAgentOptions.handshakeTimeout).toBe(500)
         expect([
             Agent,
             Channel,
@@ -174,6 +183,9 @@ describe("package exports", () => {
         expect(SSHAgentProtocolError).toBeFunction()
         expect(SSHAgentMessageType.SignRequest).toBe(13)
         expect(MAX_SSH_AGENT_MESSAGE_LENGTH).toBe(256 * 1024)
+        expect(CygwinAgent).toBeFunction()
+        expect(CygwinAgentError).toBeFunction()
+        expect(createSocketAgent).toBeFunction()
     })
 
     test("compiled entry point provides the same side-effect-free API", async () => {
@@ -226,6 +238,9 @@ describe("package exports", () => {
         expect(entry.SSHAgentProtocolError).toBeFunction()
         expect(entry.SSHAgentMessageType.IdentitiesAnswer).toBe(12)
         expect(entry.MAX_SSH_AGENT_MESSAGE_LENGTH).toBe(256 * 1024)
+        expect(entry.CygwinAgent).toBeFunction()
+        expect(entry.CygwinAgentError).toBeFunction()
+        expect(entry.createSocketAgent).toBeFunction()
     })
 
     test("compiled declarations expose Promise-only completion APIs", async () => {
@@ -240,6 +255,7 @@ describe("package exports", () => {
         const privateKey = await readFile("dist/utils/PrivateKey.d.ts", "utf8")
         const knownHosts = await readFile("dist/KnownHosts.d.ts", "utf8")
         const agentProtocol = await readFile("dist/publickey/SSHAgentProtocol.d.ts", "utf8")
+        const cygwinAgent = await readFile("dist/publickey/CygwinAgent.d.ts", "utf8")
 
         expect(client).not.toContain("ClientSessionCallback")
         expect(client).not.toContain("ClientGlobalRequestCallback")
@@ -266,6 +282,8 @@ describe("package exports", () => {
         expect(agentProtocol).toContain("getPublicKeys(): Promise<[string, PublicKey][]>")
         expect(agentProtocol).toContain("serve(stream: Duplex): Promise<void>")
         expect(agentProtocol).not.toContain("callback")
+        expect(cygwinAgent).toContain("getStream(): Promise<Socket>")
+        expect(cygwinAgent).not.toContain("callback")
     })
 
     test("package archive exposes a working ESM API", async () => {
@@ -283,7 +301,7 @@ describe("package exports", () => {
                     "--input-type=module",
                     "--eval",
                     `
-                    const { Client, generateKeyPair, generateKeyPairSync, KnownHosts, MAX_SSH_AGENT_MESSAGE_LENGTH, parseKey, PrivateKey, PrivateKeyAgent, SSHAgentMessageType, SSHAgentProtocolClient, SSHAgentProtocolError, SSHAgentProtocolServer } = await import("modernssh")
+                    const { Client, createSocketAgent, CygwinAgent, CygwinAgentError, generateKeyPair, generateKeyPairSync, KnownHosts, MAX_SSH_AGENT_MESSAGE_LENGTH, parseKey, PrivateKey, PrivateKeyAgent, SSHAgentMessageType, SSHAgentProtocolClient, SSHAgentProtocolError, SSHAgentProtocolServer } = await import("modernssh")
                     const { privateKey, publicKey } = await generateKeyPair("ed25519", {
                         comment: "packed@example.test",
                     })
@@ -317,6 +335,13 @@ describe("package exports", () => {
                     if (new Client({}).algorithmOffer.kex[0] !== "sntrup761x25519-sha512") process.exit(16)
                     if (typeof SSHAgentProtocolClient !== "function" || typeof SSHAgentProtocolServer !== "function" || typeof SSHAgentProtocolError !== "function") process.exit(17)
                     if (SSHAgentMessageType.SignResponse !== 14 || MAX_SSH_AGENT_MESSAGE_LENGTH !== 262144) process.exit(18)
+                    if (typeof CygwinAgent !== "function" || typeof CygwinAgentError !== "function" || typeof createSocketAgent !== "function") process.exit(19)
+                    const originalPlatform = process.platform
+                    Object.defineProperty(process, "platform", { configurable: true, value: "win32" })
+                    const selectedAgent = createSocketAgent("C:/cygwin/tmp/agent.socket")
+                    const selectedClient = new Client({ agent: "C:/cygwin/tmp/agent.socket" })
+                    Object.defineProperty(process, "platform", { configurable: true, value: originalPlatform })
+                    if (!(selectedAgent instanceof CygwinAgent) || !(selectedClient.options.agent instanceof CygwinAgent)) process.exit(20)
                     process.stdout.write(publicKey.toString())
                 `,
                 ],

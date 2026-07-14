@@ -132,6 +132,15 @@ reads. A separate integration test starts the system OpenSSH `ssh-agent`, loads 
 generated Ed25519 key with `ssh-add`, lists it through `modernssh`, and verifies a delegated
 signature cryptographically.
 
+Legacy Cygwin transport coverage uses the
+[socket descriptor and security exchange published by Cygwin's maintainers](https://cygwin.com/pipermail/cygwin-developers/2014-May/011417.html).
+A loopback TCP fixture verifies the exact per-uint32 byte order of the
+16-byte socket secret, fragmented secret echoes, the zero-credential discovery connection, the
+second connection's process ID and discovered UID/GID, and subsequent RFC 9987 listing and signing.
+Negative cases cover non-ASCII, malformed, and oversized descriptors, a mismatched secret, an idle
+deadline, and destruction of the silent peer. This is deterministic protocol coverage and does not
+claim execution inside a Cygwin installation.
+
 Private-key interoperability tests generate passphrase-protected Ed25519 keys with `ssh-keygen`
 using every cipher accepted by OpenSSH 9.6 (3DES-CBC, AES-CBC, AES-CTR, AES-GCM, and OpenSSH
 ChaCha20-Poly1305), then decrypt, sign, and verify each key. They also cover encrypted RSA keys,

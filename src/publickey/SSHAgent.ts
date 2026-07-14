@@ -1,4 +1,3 @@
-import { existsSync } from "node:fs"
 import { createConnection, type Socket } from "node:net"
 import PublicKey from "../utils/PublicKey.js"
 import {
@@ -28,11 +27,6 @@ export default class SSHAgent implements Agent<string> {
         if (!socketPath) {
             throw new SSHAgentError(
                 "Could not find an SSH agent socket in $SSH_AUTH_SOCK; pass its path to new SSHAgent(path)",
-            )
-        }
-        if (!existsSync(socketPath)) {
-            throw new SSHAgentError(
-                `SSH agent socket does not exist: ${JSON.stringify(socketPath)}`,
             )
         }
         this.socketPath = socketPath
@@ -125,10 +119,14 @@ export default class SSHAgent implements Agent<string> {
     getStream(): Promise<Socket> {
         return new Promise((resolve, reject) => {
             const socket = createConnection(this.socketPath)
-            socket.once("connect", () => resolve(socket))
-            socket.once("error", (error) => {
+            const onError = (error: Error): void => {
                 socket.destroy()
                 reject(new SSHAgentError("Could not connect to the SSH agent", { cause: error }))
+            }
+            socket.once("error", onError)
+            socket.once("connect", () => {
+                socket.off("error", onError)
+                resolve(socket)
             })
         })
     }

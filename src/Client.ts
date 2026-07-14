@@ -131,7 +131,7 @@ import PrivateKey from "./utils/PrivateKey.js"
 import { parseHostKeysProofResponse } from "./utils/HostKeysProof.js"
 import { ActionQueue } from "./utils/ActionQueue.js"
 import PrivateKeyAgent from "./publickey/PrivateKeyAgent.js"
-import SSHAgent from "./publickey/SSHAgent.js"
+import { createSocketAgent } from "./publickey/SocketAgent.js"
 import { parseKey } from "./KeyParsing.js"
 import { encodeSSHUTF8 } from "./utils/SSHText.js"
 import {
@@ -223,7 +223,7 @@ export interface ClientOptions {
     algorithms?: ClientAlgorithmOptions
     username?: string
     password?: string
-    /** Signing agent object, or a UNIX-domain agent socket path. */
+    /** Signing agent object, Unix socket, Windows named pipe, or Cygwin socket descriptor path. */
     agent?: Agent | string
     /** Request agent forwarding by default for exec and shell sessions. */
     agentForward?: boolean
@@ -480,7 +480,7 @@ export default class Client extends EventEmitter<ClientEvents> {
         this.options.gssapiDelegateCredentials ??= false
         this.options.gssapiKeyExchangeAuthentication ??= true
         if (typeof this.options.agent === "string") {
-            this.options.agent = new SSHAgent(this.options.agent)
+            this.options.agent = createSocketAgent(this.options.agent)
         }
         if (this.options.agent !== undefined && this.options.privateKey !== undefined) {
             throw new TypeError("SSH agent and privateKey options are mutually exclusive")
