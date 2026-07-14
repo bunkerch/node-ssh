@@ -74,6 +74,18 @@ ECDSA identities on `nistp256`, `nistp384`, and `nistp521` use the matching RFC 
 and SHA-2 hash. Disk-backed OpenSSH ECDSA keys and delegated agent signatures use the same public-key
 authentication path as Ed25519 and RSA identities.
 
+When a server advertises `publickey-hostbound@openssh.com` version 0, public-key authentication
+automatically uses the host-bound request. The signed message then contains the exact host-key blob
+that completed key exchange, so a delegated signature cannot be replayed to another server. The
+client accepts only the exact version-0 advertisement and otherwise uses RFC 4252 public-key
+authentication.
+
+Servers with a `publicKeyAuthentication` hook advertise host-bound authentication automatically.
+The same awaited hook handles both forms: `context.hostbound` identifies the bound form and
+`context.serverHostKey` is its parsed host key. The implementation rejects a request whose embedded
+key differs from the key used for this connection before invoking policy. Applications must still
+verify `context.signature` over `context.signatureMessage` before setting `allowLogin`.
+
 Host-based authentication proves possession of a client machine's private host key and sends the
 claimed client hostname and local username for authorization. Configure all three explicitly and
 include `Hostbased` in the method order. The hostname must be a non-empty ASCII DNS name; a trailing

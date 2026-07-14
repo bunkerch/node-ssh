@@ -64,6 +64,11 @@ meaningful wire-level behavior.
   awaited server policy hook; the hook must separately authorize the target user, host key,
   hostname, client user, and observed peer address. Validate with a fixed signature preimage,
   invalid-signature rejection, and real OpenSSH machine keys in both roles.
+- Host-bound public-key authentication is selected only for an exact
+  `publickey-hostbound@openssh.com` version-0 advertisement. Include the exact negotiated server
+  host-key blob in the signed request, reject mismatches before application policy, expose the
+  binding through the existing awaited public-key hook, and validate the preimage with literal
+  bytes plus OpenSSH in both roles.
 - Host-key rotation announcements are untrusted until every returned proof signature is checked
   over the extension name, current session identifier, and exact public-key blob. Emit only verified
   keys, never treat rotation as a substitute for authenticating the initial host key, and cover the

@@ -5,7 +5,7 @@ import { readNextBuffer, readNextUint8, serializeBuffer, serializeUint8 } from "
 import NoneAuthMethod from "../auth/none.js"
 import PasswordAuthMethod from "../auth/password.js"
 import type Client from "../Client.js"
-import PublicKeyAuthMethod from "../auth/publickey.js"
+import PublicKeyAuthMethod, { HostboundPublicKeyAuthMethod } from "../auth/publickey.js"
 import type ServerClient from "../ServerClient.js"
 import KeyboardInteractiveAuthMethod from "../auth/keyboard-interactive.js"
 import AuthMethod from "../auth/AuthMethod.js"
@@ -37,6 +37,7 @@ export default class UserAuthRequest implements Packet {
         [
             NoneAuthMethod,
             PublicKeyAuthMethod,
+            HostboundPublicKeyAuthMethod,
             HostbasedAuthMethod,
             PasswordAuthMethod,
             KeyboardInteractiveAuthMethod,

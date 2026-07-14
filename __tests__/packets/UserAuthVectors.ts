@@ -3,7 +3,7 @@ import UserAuthInfoRequest from "../../src/packets/UserAuthInfoRequest.js"
 import UserAuthInfoResponse from "../../src/packets/UserAuthInfoResponse.js"
 import UserAuthPasswordChangeRequest from "../../src/packets/UserAuthPasswordChangeRequest.js"
 import UserAuthRequest, { UnknownAuthMethod } from "../../src/packets/UserAuthRequest.js"
-import PublicKeyAuthMethod from "../../src/auth/publickey.js"
+import PublicKeyAuthMethod, { HostboundPublicKeyAuthMethod } from "../../src/auth/publickey.js"
 import HostbasedAuthMethod from "../../src/auth/hostbased.js"
 import type Client from "../../src/Client.js"
 
@@ -57,6 +57,26 @@ const hostbasedSignatureMessage = Buffer.from(
         "0000000b7373682d6564323535313900000020000102030405060708090a0b0c0d0e0f" +
         "101112131415161718191a1b1c1d1e1f0000000e636c69656e742e6578616d706c65" +
         "00000005616c696365",
+    "hex",
+)
+const hostboundRequest = Buffer.from(
+    "3200000005616c6963650000000e7373682d636f6e6e656374696f6e" +
+        "000000237075626c69636b65792d686f7374626f756e642d763030406f70656e7373682e636f6d" +
+        "010000000b7373682d65643235353139000000330000000b7373682d65643235353139" +
+        "00000020000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f" +
+        "000000330000000b7373682d6564323535313900000020202122232425262728292a2b2c2d2e2f" +
+        "303132333435363738393a3b3c3d3e3f000000530000000b7373682d65643235353139" +
+        "00000040000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f" +
+        "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
+    "hex",
+)
+const hostboundSignatureMessage = Buffer.from(
+    "00000004010203043200000005616c6963650000000e7373682d636f6e6e656374696f6e" +
+        "000000237075626c69636b65792d686f7374626f756e642d763030406f70656e7373682e636f6d" +
+        "010000000b7373682d65643235353139000000330000000b7373682d65643235353139" +
+        "00000020000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f" +
+        "000000330000000b7373682d6564323535313900000020202122232425262728292a2b2c2d2e2f" +
+        "303132333435363738393a3b3c3d3e3f",
     "hex",
 )
 
@@ -146,6 +166,24 @@ describe("RFC 4252 and RFC 4256 authentication vectors", () => {
             data: Buffer.from("01020304", "hex"),
         })
         expect(packet.serialize()).toEqual(rsaSha512Request)
+    })
+
+    test("binds a public-key signature to the exact server host key", () => {
+        const packet = UserAuthRequest.parse(hostboundRequest)
+        const method = packet.data.method as HostboundPublicKeyAuthMethod
+
+        expect(method).toBeInstanceOf(HostboundPublicKeyAuthMethod)
+        expect(method.data.serverHostKey).toEqual(
+            Buffer.from(
+                "0000000b7373682d6564323535313900000020202122232425262728292a2b2c2d2e2f" +
+                    "303132333435363738393a3b3c3d3e3f",
+                "hex",
+            ),
+        )
+        expect(packet.serialize()).toEqual(hostboundRequest)
+        expect(
+            packet.serializeForSignature({ sessionID: Buffer.from("01020304", "hex") } as Client),
+        ).toEqual(hostboundSignatureMessage)
     })
 
     test("parses and serializes an independently written RFC 4252 hostbased request", () => {

@@ -17,6 +17,10 @@ export interface PublicKeyAuthMethodData {
     algorithm?: string
     signature?: EncodedSignature
 }
+
+export interface HostboundPublicKeyAuthMethodData extends PublicKeyAuthMethodData {
+    serverHostKey: Buffer
+}
 export default class PublicKeyAuthMethod implements AuthMethod {
     static method_name = SSHAuthenticationMethods.PublicKey
     get method_name() {
@@ -107,10 +111,13 @@ export default class PublicKeyAuthMethod implements AuthMethod {
                         `Trying publickey authentication with key ${key[0]} ${key[1].toString()}`,
                     )
 
-                    const method = new PublicKeyAuthMethod({
-                        publicKey: key[1],
-                        algorithm,
-                    })
+                    const method = client.hostboundPublicKeyAuthentication
+                        ? new HostboundPublicKeyAuthMethod({
+                              publicKey: key[1],
+                              algorithm,
+                              serverHostKey: Buffer.from(client.serverHostKey!),
+                          })
+                        : new PublicKeyAuthMethod({ publicKey: key[1], algorithm })
                     const packet = new UserAuthRequest({
                         username: client.options.username,
                         service_name: SSHServiceNames.Connection,
@@ -186,5 +193,77 @@ export default class PublicKeyAuthMethod implements AuthMethod {
         }
 
         return false
+    }
+}
+
+export class HostboundPublicKeyAuthMethod extends PublicKeyAuthMethod {
+    static method_name = SSHAuthenticationMethods.HostboundPublicKey
+
+    declare data: HostboundPublicKeyAuthMethodData
+
+    constructor(data: HostboundPublicKeyAuthMethodData) {
+        super(data)
+        assert(
+            data.serverHostKey.length > 0,
+            "Host-bound authentication requires a server host key",
+        )
+        PublicKey.parse(data.serverHostKey)
+        this.data = { ...data, serverHostKey: Buffer.from(data.serverHostKey) }
+    }
+
+    get method_name() {
+        return HostboundPublicKeyAuthMethod.method_name
+    }
+
+    serialize(): Buffer {
+        return Buffer.concat([
+            serializeBuffer(Buffer.from(this.method_name, "ascii")),
+            serializeBinaryBoolean(this.data.signature !== undefined),
+            serializeBuffer(Buffer.from(this.data.algorithm!, "ascii")),
+            serializeBuffer(this.data.publicKey.serialize()),
+            serializeBuffer(this.data.serverHostKey),
+            ...(this.data.signature ? [serializeBuffer(this.data.signature.serialize())] : []),
+        ])
+    }
+
+    serializeForSignature(): Buffer {
+        return Buffer.concat([
+            serializeBuffer(Buffer.from(this.method_name, "ascii")),
+            serializeBinaryBoolean(true),
+            serializeBuffer(Buffer.from(this.data.algorithm!, "ascii")),
+            serializeBuffer(this.data.publicKey.serialize()),
+            serializeBuffer(this.data.serverHostKey),
+        ])
+    }
+
+    static parse(raw: Buffer): HostboundPublicKeyAuthMethod {
+        let hasSignature: boolean
+        let algorithmBuffer: Buffer
+        let publicKeyBlob: Buffer
+        let serverHostKey: Buffer
+        ;[hasSignature, raw] = readNextBinaryBoolean(raw)
+        ;[algorithmBuffer, raw] = readNextBuffer(raw)
+        ;[publicKeyBlob, raw] = readNextBuffer(raw)
+        ;[serverHostKey, raw] = readNextBuffer(raw)
+
+        const publicKey = PublicKey.parse(publicKeyBlob)
+        const algorithm = algorithmBuffer.toString("ascii")
+        assert(publicKey.supportsSignatureAlgorithm(algorithm))
+
+        let signature: Buffer | undefined
+        if (hasSignature) [signature, raw] = readNextBuffer(raw)
+        assert(raw.length === 0)
+        const encodedSignature = signature ? EncodedSignature.parse(signature) : undefined
+        assert(!encodedSignature || encodedSignature.data.alg === algorithm)
+        return new HostboundPublicKeyAuthMethod({
+            publicKey,
+            algorithm,
+            signature: encodedSignature,
+            serverHostKey,
+        })
+    }
+
+    static handleAuthentication(client: Client): Promise<boolean> {
+        return PublicKeyAuthMethod.handleAuthentication(client)
     }
 }

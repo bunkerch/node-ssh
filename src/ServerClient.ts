@@ -68,6 +68,7 @@ import UserAuthRequest from "./packets/UserAuthRequest.js"
 import AuthMethod from "./auth/AuthMethod.js"
 import UserAuthFailure from "./packets/UserAuthFailure.js"
 import PublicKeyAuthMethod from "./auth/publickey.js"
+import { HostboundPublicKeyAuthMethod } from "./auth/publickey.js"
 import UserAuthPKOK from "./packets/UserAuthPKOK.js"
 import PasswordAuthMethod from "./auth/password.js"
 import UserAuthSuccess from "./packets/UserAuthSuccess.js"
@@ -619,6 +620,14 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                                 ),
                             },
                             { name: "ping@openssh.com", value: Buffer.from("0", "ascii") },
+                            ...(this.server.hooker.hasHooks("publicKeyAuthentication")
+                                ? [
+                                      {
+                                          name: "publickey-hostbound@openssh.com",
+                                          value: Buffer.from("0", "ascii"),
+                                      },
+                                  ]
+                                : []),
                         ],
                     }),
                 )
@@ -1331,23 +1340,41 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                         this.sendPacket(userAuthFailure)
                         break
                     }
-                    case SSHAuthenticationMethods.PublicKey: {
-                        const method = authRequest.data.method as PublicKeyAuthMethod
-
+                    case SSHAuthenticationMethods.PublicKey:
+                    case SSHAuthenticationMethods.HostboundPublicKey: {
+                        const method = authRequest.data.method as
+                            | PublicKeyAuthMethod
+                            | HostboundPublicKeyAuthMethod
+                        const hostbound = method instanceof HostboundPublicKeyAuthMethod
+                        let boundServerHostKey: PublicKey | undefined
+                        if (hostbound) {
+                            const hostKey = this.server.options.hostKeys.find(
+                                (key) => key.data.alg === this.hostKeyAlgorithm!.key_format,
+                            )
+                            assert(hostKey, "Negotiated server host key is unavailable")
+                            if (
+                                !method.data.serverHostKey.equals(
+                                    hostKey.data.publicKey.serialize(),
+                                )
+                            ) {
+                                sendAuthenticationFailure({}, SSHAuthenticationMethods.PublicKey)
+                                break
+                            }
+                            boundServerHostKey = PublicKey.parse(method.data.serverHostKey)
+                        }
                         const context: ServerHookerPublicKeyAuthenticationContext = {
                             username: authRequest.data.username,
                             publicKey: method.data.publicKey,
                             algorithm: method.data.algorithm!,
                             signature: method.data.signature,
                             signatureMessage: authRequest.serializeForSignature(this),
+                            hostbound,
+                            serverHostKey: boundServerHostKey,
                         }
                         const controller: ServerHookerPublicKeyAuthenticationController = {
-                            // both are independant since you can also allowLogin without checking the signature
-                            // would sucks tho !
                             requestSignature: false,
                             allowLogin: false,
                         }
-
                         await this.server.hooker.triggerHook(
                             "publicKeyAuthentication",
                             Object.freeze(context),
@@ -1355,7 +1382,6 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                             this,
                         )
                         this.assertAuthenticationActive()
-
                         if (controller.allowLogin && controller.requestSignature) {
                             console.warn(
                                 `[node-ssh] Hook "publicKeyAuthentication" returned "allowLogin" and "requestSignature" to true at the same time. You should not set both to true, but rather the correct one, depending if the request is signed.`,
@@ -1366,12 +1392,10 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                                 controller.allowLogin = false
                             }
                         }
-
                         if (controller.allowLogin) {
                             allowLogin = true
                             break authentication
                         } else if (controller.requestSignature) {
-                            // ask the client for a signed request
                             this.sendPacket(
                                 new UserAuthPKOK({
                                     publicKey: method.data.publicKey,
@@ -1380,7 +1404,6 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                             )
                             break
                         }
-
                         sendAuthenticationFailure(controller, SSHAuthenticationMethods.PublicKey)
                         break
                     }

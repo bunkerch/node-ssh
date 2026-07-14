@@ -442,6 +442,8 @@ export default class Client extends EventEmitter<ClientEvents> {
     kexAlgorithm?: KexAlgorithm
     hostKeyAlgorithm?: HostKeyAlgorithm
     serverSignatureAlgorithms?: readonly string[]
+    private negotiatedServerHostKey?: Buffer
+    private hostboundAuthenticationSupported = false
     clientEncryptionAlgorithm?: typeof EncryptionAlgorithm
     serverEncryptionAlgorithm?: typeof EncryptionAlgorithm
     clientEncryption?: EncryptionAlgorithm
@@ -486,6 +488,14 @@ export default class Client extends EventEmitter<ClientEvents> {
     private keyExchangeInProgress = false
     private readonly packetsQueuedDuringKeyExchange: Packet[] = []
     private readonly actionQueue = new ActionQueue()
+
+    get serverHostKey(): Buffer | undefined {
+        return this.negotiatedServerHostKey ? Buffer.from(this.negotiatedServerHostKey) : undefined
+    }
+
+    get hostboundPublicKeyAuthentication(): boolean {
+        return this.hostboundAuthenticationSupported
+    }
 
     registerX11Forwarding(sessionId: number, single: boolean): void {
         this.x11Forwardings.set(sessionId, { single })
@@ -1213,6 +1223,7 @@ export default class Client extends EventEmitter<ClientEvents> {
             assert(hostKey.verifySignature(h, signature), "Invalid host key signature from server")
 
             await this.verifyConfiguredHostKey(reply.data.K_S)
+            this.negotiatedServerHostKey = Buffer.from(reply.data.K_S)
 
             if (this.hooker.hasHooks("hostKey")) {
                 const controller: ClientHookerHostKeyController = { allowHostKey: false }
@@ -1767,6 +1778,12 @@ export default class Client extends EventEmitter<ClientEvents> {
                 )
                 if (ping?.value.equals(Buffer.from("0", "ascii"))) {
                     this.transportPingSupported = true
+                }
+                const hostbound = (p as ExtInfo).data.extensions.find(
+                    ({ name }) => name === "publickey-hostbound@openssh.com",
+                )
+                if (hostbound?.value.equals(Buffer.from("0", "ascii"))) {
+                    this.hostboundAuthenticationSupported = true
                 }
                 break
             }

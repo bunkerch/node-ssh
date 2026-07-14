@@ -75,6 +75,7 @@ export enum SSHAuthenticationMethods {
     Hostbased = "hostbased",
     Password = "password",
     KeyboardInteractive = "keyboard-interactive",
+    HostboundPublicKey = "publickey-hostbound-v00@openssh.com",
 }
 
 // https://datatracker.ietf.org/doc/html/rfc4254#section-5.2

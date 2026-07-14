@@ -788,10 +788,12 @@ describe("OpenSSH interoperability", () => {
         })
         const errors: Error[] = []
         const authAlgorithms: string[] = []
+        const hostboundAuthentication: boolean[] = []
         const input: Buffer[] = []
         let rekeys = 0
         server.hooker.hook("publicKeyAuthentication", (_hook, context, decision) => {
             authAlgorithms.push(context.algorithm)
+            hostboundAuthentication.push(context.hostbound === true)
             if (!context.publicKey.equals(userKey) || context.algorithm !== "rsa-sha2-512") return
             if (!context.signature) {
                 decision.requestSignature = true
@@ -868,6 +870,7 @@ describe("OpenSSH interoperability", () => {
             expect(result).toEqual({ code: 0, stdout: "rsa-sha2-ok\n", stderr: "" })
             expect(Buffer.concat(input).toString()).toBe("x".repeat(65_536))
             expect(authAlgorithms).toEqual(["rsa-sha2-512", "rsa-sha2-512"])
+            expect(hostboundAuthentication).toEqual([false, true])
             expect(rekeys).toBeGreaterThan(0)
             expect(errors).toEqual([])
         } finally {
@@ -2272,6 +2275,7 @@ describe("OpenSSH interoperability", () => {
             })
 
             await client.connect()
+            expect(client.hostboundPublicKeyAuthentication).toBe(true)
             await expect(client.ping(Buffer.from("unsupported-transport-ping"))).rejects.toThrow(
                 "SSH server did not advertise transport ping support",
             )

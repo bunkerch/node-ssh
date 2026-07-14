@@ -104,6 +104,9 @@ export type ServerHookerPublicKeyAuthenticationContext = Readonly<{
     algorithm: string
     signature?: EncodedSignature
     signatureMessage: Buffer
+    /** Whether the signed request binds the identity to this server host key. */
+    hostbound: boolean
+    serverHostKey?: PublicKey
 }>
 export interface ServerHookerPublicKeyAuthenticationController
     extends ServerAuthenticationContinuation {

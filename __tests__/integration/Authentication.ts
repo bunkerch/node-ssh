@@ -7,8 +7,139 @@ import type ServerClient from "../../src/ServerClient.js"
 import PrivateKey from "../../src/utils/PrivateKey.js"
 import PublicKey from "../../src/utils/PublicKey.js"
 import EncodedSignature from "../../src/utils/Signature.js"
+import Agent, { AgentType } from "../../src/publickey/Agent.js"
+import Packet from "../../src/packet.js"
+import UserAuthRequest from "../../src/packets/UserAuthRequest.js"
+import { HostboundPublicKeyAuthMethod } from "../../src/auth/publickey.js"
+
+class PrivateKeyAgent extends Agent<number> {
+    readonly type = AgentType.NonInteractive
+
+    constructor(private readonly key: PrivateKey) {
+        super()
+    }
+
+    async getPublicKeys(): Promise<[number, PublicKey][]> {
+        return [[0, this.key.data.publicKey]]
+    }
+
+    async getPublicKey(): Promise<PublicKey> {
+        return this.key.data.publicKey
+    }
+
+    async sign(_id: number, data: Buffer, algorithm?: string): Promise<EncodedSignature> {
+        return this.key.sign(data, algorithm)
+    }
+}
 
 describe("RFC 4252 multi-method authentication", () => {
+    test("binds public-key authentication to the negotiated server host key", async () => {
+        const serverHostKey = await PrivateKey.generate("ssh-ed25519")
+        const userKey = await PrivateKey.generate("ssh-ed25519")
+        const server = new Server({ hostKeys: [serverHostKey], sendAllHostKeys: false })
+        const contexts: unknown[] = []
+        const errors: Error[] = []
+        server.hooker.hook("publicKeyAuthentication", (_hook, context, decision) => {
+            contexts.push(context)
+            if (!context.publicKey.equals(userKey.data.publicKey)) return
+            if (!context.signature) {
+                decision.requestSignature = true
+                return
+            }
+            decision.allowLogin = context.publicKey.verifySignature(
+                context.signatureMessage,
+                context.signature,
+            )
+        })
+        server.on("connection", (connection) =>
+            connection.on("error", (error) => errors.push(error)),
+        )
+        server.listen({ host: "127.0.0.1", port: 0 })
+        await new Promise<void>((resolve) => server.server!.once("listening", resolve))
+        const port = (server.server!.address() as AddressInfo).port
+        const client = new Client({
+            hostname: "127.0.0.1",
+            port,
+            username: "bound-user",
+            agent: new PrivateKeyAgent(userKey),
+            authenticationMethodsOrder: [SSHAuthenticationMethods.PublicKey],
+        })
+        client.on("error", (error) => errors.push(error))
+        client.hooker.hook("hostKey", (_hook, decision) => {
+            decision.allowHostKey = true
+        })
+
+        try {
+            await client.connect()
+            expect(client.hostboundPublicKeyAuthentication).toBe(true)
+            expect(contexts).toHaveLength(1)
+            const context = contexts[0] as {
+                hostbound?: boolean
+                serverHostKey?: PublicKey
+                signatureMessage: Buffer
+            }
+            expect(context.hostbound).toBe(true)
+            expect(context.serverHostKey?.equals(serverHostKey.data.publicKey)).toBe(true)
+            expect(context.signatureMessage.includes(Buffer.from("publickey-hostbound-v00"))).toBe(
+                true,
+            )
+            expect(errors).toEqual([])
+        } finally {
+            client.destroy()
+            for (const connection of server.clients) connection.terminate()
+            await new Promise<void>((resolve, reject) => {
+                server.server!.close((error) => (error ? reject(error) : resolve()))
+            })
+        }
+    }, 15_000)
+
+    test("rejects a host-bound request for a different server key before policy", async () => {
+        const serverHostKey = await PrivateKey.generate("ssh-ed25519")
+        const otherHostKey = await PrivateKey.generate("ssh-ed25519")
+        const userKey = await PrivateKey.generate("ssh-ed25519")
+        const server = new Server({ hostKeys: [serverHostKey], sendAllHostKeys: false })
+        let policyCalls = 0
+        server.hooker.hook("publicKeyAuthentication", () => {
+            policyCalls++
+        })
+        server.listen({ host: "127.0.0.1", port: 0 })
+        await new Promise<void>((resolve) => server.server!.once("listening", resolve))
+        const port = (server.server!.address() as AddressInfo).port
+
+        class MismatchedHostKeyClient extends Client {
+            override sendPacket(packet: Packet): number {
+                if (
+                    packet instanceof UserAuthRequest &&
+                    packet.data.method instanceof HostboundPublicKeyAuthMethod
+                ) {
+                    packet.data.method.data.serverHostKey = otherHostKey.data.publicKey.serialize()
+                }
+                return super.sendPacket(packet)
+            }
+        }
+        const client = new MismatchedHostKeyClient({
+            hostname: "127.0.0.1",
+            port,
+            username: "bound-user",
+            agent: new PrivateKeyAgent(userKey),
+            authenticationMethodsOrder: [SSHAuthenticationMethods.PublicKey],
+        })
+        client.hooker.hook("hostKey", (_hook, decision) => {
+            decision.allowHostKey = true
+        })
+
+        try {
+            await expect(client.connect()).rejects.toThrow("All authentication methods failed")
+            expect(policyCalls).toBe(0)
+        } finally {
+            client.destroy()
+            for (const connection of server.clients) connection.terminate()
+            await new Promise<void>((resolve, reject) => {
+                server.server!.close((error) => (error ? reject(error) : resolve()))
+            })
+        }
+    }, 15_000)
+
     test("emits only host keys whose ownership the server proves", async () => {
         const hostKeys = await Promise.all([
             PrivateKey.generate("ssh-ed25519"),

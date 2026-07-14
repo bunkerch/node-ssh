@@ -131,6 +131,11 @@ message, and matching the resulting RSA key to the real containerized server key
 bytes cover the proof preimage, while focused cryptographic tests reject modified, truncated, and
 extra signatures.
 
+Public-key authentication also exercises the version-0 host-bound extension in both roles. Fixed
+wire bytes prove that the exact negotiated server host key is part of the signature preimage; live
+tests prove the unsigned key probe followed by a bound signed request and reject a mismatched host
+key before application authorization.
+
 ECDSA host-key interoperability forces each RFC-required NIST curve in both peer roles. OpenSSH
 initiates low-limit rekeys against the modern server for P-256, P-384, and P-521; separate modern
 clients force each corresponding OpenSSH host key, explicitly rekey, authenticate, and execute a
