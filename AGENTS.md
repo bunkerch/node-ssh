@@ -387,7 +387,9 @@ meaningful wire-level behavior.
 - New public APIs and public types must be exported from `src/index.ts`, documented under `docs/`,
   exercised through the packed ESM entry point when relevant, and free of import-time side effects.
 - Deny security-sensitive forwarding and server-initiated behavior by default. Require explicit
-  policy hooks and document the trust boundary.
+  policy hooks and document the trust boundary. Decode forwarding addresses and stream-local paths
+  with the fatal UTF-8 codec before authorization or lookup; never allow replacement decoding to
+  change a peer-supplied policy key.
 - Agent forwarding requires a successful per-session request before accepting or opening agent
   channels. Test both directions with a real OpenSSH agent and document its transitive trust risk.
 - X11 forwarding authorization is session-scoped. Enforce single-connection consumption, remove

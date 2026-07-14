@@ -6,6 +6,7 @@ import Channel, {
 import Client from "../Client.js"
 import ServerClient from "../ServerClient.js"
 import { readNextBuffer, readNextUint32 } from "../utils/Buffer.js"
+import { decodeSSHUTF8 } from "../utils/SSHText.js"
 import ChannelStream from "./ChannelStream.js"
 import type { StreamLocalConnectionDetails } from "./ClientForwardedStreamLocalChannel.js"
 
@@ -45,6 +46,6 @@ export default class DirectStreamLocalChannel extends Channel {
         const [, afterReservedString] = readNextBuffer(afterSocketPath)
         const [, remaining] = readNextUint32(afterReservedString)
         assert(remaining.length === 0)
-        return { socketPath: socketPath.toString("utf8") }
+        return { socketPath: decodeSSHUTF8(socketPath, "direct stream-local socket path") }
     }
 }

@@ -6,6 +6,7 @@ import Channel, {
 import Client from "../Client.js"
 import ServerClient from "../ServerClient.js"
 import { readNextBuffer, readNextUint32 } from "../utils/Buffer.js"
+import { decodeSSHUTF8 } from "../utils/SSHText.js"
 import type { TCPIPConnectionDetails } from "./ClientTCPIPChannel.js"
 import ChannelStream from "./ChannelStream.js"
 
@@ -49,9 +50,9 @@ export default class DirectTCPIPChannel extends Channel {
         assert(destinationPort <= 65_535, "direct-tcpip destination port exceeds 65535")
         assert(sourcePort <= 65_535, "direct-tcpip source port exceeds 65535")
         return {
-            destinationHost: destinationHost.toString("utf8"),
+            destinationHost: decodeSSHUTF8(destinationHost, "direct-tcpip destination address"),
             destinationPort,
-            sourceHost: sourceHost.toString("utf8"),
+            sourceHost: decodeSSHUTF8(sourceHost, "direct-tcpip originator address"),
             sourcePort,
         }
     }

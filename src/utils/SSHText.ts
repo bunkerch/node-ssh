@@ -3,7 +3,9 @@ export function encodeSSHUTF8(value: string, field: string): Buffer {
         const codeUnit = value.charCodeAt(index)
         if (codeUnit >= 0xd800 && codeUnit <= 0xdbff) {
             const next = value.charCodeAt(++index)
-            if (next < 0xdc00 || next > 0xdfff) throw new Error(`${field} is not valid UTF-8 text`)
+            if (!Number.isInteger(next) || next < 0xdc00 || next > 0xdfff) {
+                throw new Error(`${field} is not valid UTF-8 text`)
+            }
         } else if (codeUnit >= 0xdc00 && codeUnit <= 0xdfff) {
             throw new Error(`${field} is not valid UTF-8 text`)
         }

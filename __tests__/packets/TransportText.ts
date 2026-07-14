@@ -11,12 +11,21 @@ import ExtInfo from "../../src/packets/ExtInfo.js"
 import ServiceRequest from "../../src/packets/ServiceRequest.js"
 import ChannelRequest from "../../src/packets/ChannelRequest.js"
 import Ignore from "../../src/packets/Ignore.js"
+import { encodeSSHUTF8 } from "../../src/utils/SSHText.js"
 
 function vector(hex: string): Buffer {
     return Buffer.from(hex.replace(/\s/gu, ""), "hex")
 }
 
 describe("RFC SSH text fields", () => {
+    test("rejects every unpaired UTF-16 surrogate before UTF-8 serialization", () => {
+        for (const value of ["\ud800", "\ud800x", "\udc00"]) {
+            expect(() => encodeSSHUTF8(value, "test field")).toThrow(
+                "test field is not valid UTF-8 text",
+            )
+        }
+        expect(encodeSSHUTF8("\ud83d\ude80", "test field")).toEqual(Buffer.from("🚀"))
+    })
     test("parses and serializes fixed UTF-8 debug and private disconnect frames", () => {
         const debugRaw = vector(`
             04 01

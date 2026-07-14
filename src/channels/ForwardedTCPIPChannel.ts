@@ -4,6 +4,7 @@ import Channel, {
 } from "../Channel.js"
 import ServerClient from "../ServerClient.js"
 import { serializeBuffer, serializeUint32 } from "../utils/Buffer.js"
+import { encodeSSHUTF8 } from "../utils/SSHText.js"
 import type { TCPIPConnectionDetails } from "./ClientTCPIPChannel.js"
 import ChannelStream from "./ChannelStream.js"
 
@@ -17,9 +18,13 @@ export default class ForwardedTCPIPChannel extends Channel {
 
     constructor(client: ServerClient, details: TCPIPConnectionDetails) {
         const args = Buffer.concat([
-            serializeBuffer(Buffer.from(details.destinationHost, "utf8")),
+            serializeBuffer(
+                encodeSSHUTF8(details.destinationHost, "forwarded-tcpip destination address"),
+            ),
             serializeUint32(details.destinationPort),
-            serializeBuffer(Buffer.from(details.sourceHost, "utf8")),
+            serializeBuffer(
+                encodeSSHUTF8(details.sourceHost, "forwarded-tcpip originator address"),
+            ),
             serializeUint32(details.sourcePort),
         ])
         super(client, ForwardedTCPIPChannel.channel_type, args)

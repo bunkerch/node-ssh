@@ -90,6 +90,7 @@ import Unimplemented from "./packets/Unimplemented.js"
 import Channel from "./Channel.js"
 import GlobalRequest from "./packets/GlobalRequest.js"
 import { readNextBuffer, readNextUint32, serializeBuffer, serializeUint32 } from "./utils/Buffer.js"
+import { decodeSSHUTF8 } from "./utils/SSHText.js"
 import RequestFailure from "./packets/RequestFailure.js"
 import RequestSuccess from "./packets/RequestSuccess.js"
 import ChannelOpen from "./packets/ChannelOpen.js"
@@ -1129,7 +1130,10 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         const [bindPort, remaining] = readNextUint32(afterAddress)
         assert(remaining.length === 0, "TCP forwarding request has trailing data")
         assert(bindPort <= 65_535, "TCP forwarding port exceeds 65535")
-        return Object.freeze({ bindAddress: bindAddress.toString("utf8"), bindPort })
+        return Object.freeze({
+            bindAddress: decodeSSHUTF8(bindAddress, "TCP forwarding bind address"),
+            bindPort,
+        })
     }
 
     private async handleStreamLocalForward(packet: GlobalRequest): Promise<void> {
@@ -1199,7 +1203,9 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         const [socketPath, remaining] = readNextBuffer(args)
         assert(remaining.length === 0, "Stream-local forwarding request has trailing data")
         assert(socketPath.length > 0, "Stream-local forwarding path is empty")
-        return Object.freeze({ socketPath: socketPath.toString("utf8") })
+        return Object.freeze({
+            socketPath: decodeSSHUTF8(socketPath, "stream-local forwarding socket path"),
+        })
     }
 
     private remoteForwardingKey(bindAddress: string, bindPort: number): string {

@@ -4,6 +4,7 @@ import Channel, {
 } from "../Channel.js"
 import ServerClient from "../ServerClient.js"
 import { serializeBuffer, serializeUint32 } from "../utils/Buffer.js"
+import { encodeSSHUTF8 } from "../utils/SSHText.js"
 import ChannelStream from "./ChannelStream.js"
 import type { X11ConnectionDetails } from "./ClientX11Channel.js"
 
@@ -18,7 +19,7 @@ export default class ForwardedX11Channel extends Channel {
             client,
             ForwardedX11Channel.channel_type,
             Buffer.concat([
-                serializeBuffer(Buffer.from(details.originatorAddress, "utf8")),
+                serializeBuffer(encodeSSHUTF8(details.originatorAddress, "X11 originator address")),
                 serializeUint32(details.originatorPort),
             ]),
         )

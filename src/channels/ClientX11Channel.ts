@@ -2,6 +2,7 @@ import assert from "node:assert"
 import Client from "../Client.js"
 import ChannelOpen from "../packets/ChannelOpen.js"
 import { readNextBuffer, readNextUint32 } from "../utils/Buffer.js"
+import { decodeSSHUTF8 } from "../utils/SSHText.js"
 import ClientChannel from "./ClientChannel.js"
 
 export interface X11ConnectionDetails {
@@ -26,6 +27,9 @@ export default class ClientX11Channel extends ClientChannel {
         const [originatorPort, remaining] = readNextUint32(afterAddress)
         assert(remaining.length === 0, "X11 channel open has trailing data")
         assert(originatorPort <= 65_535, "X11 originator port exceeds 65535")
-        return { originatorAddress: originatorAddress.toString("utf8"), originatorPort }
+        return {
+            originatorAddress: decodeSSHUTF8(originatorAddress, "X11 originator address"),
+            originatorPort,
+        }
     }
 }

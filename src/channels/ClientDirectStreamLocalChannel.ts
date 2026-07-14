@@ -1,6 +1,7 @@
 import Client from "../Client.js"
 import ChannelOpen from "../packets/ChannelOpen.js"
 import { serializeBuffer, serializeUint32 } from "../utils/Buffer.js"
+import { encodeSSHUTF8 } from "../utils/SSHText.js"
 import ClientChannel from "./ClientChannel.js"
 
 export default class ClientDirectStreamLocalChannel extends ClientChannel {
@@ -16,7 +17,7 @@ export default class ClientDirectStreamLocalChannel extends ClientChannel {
     override getOpenPacket(): ChannelOpen {
         return super.getOpenPacket(
             Buffer.concat([
-                serializeBuffer(Buffer.from(this.socketPath, "utf8")),
+                serializeBuffer(encodeSSHUTF8(this.socketPath, "direct stream-local socket path")),
                 serializeBuffer(Buffer.alloc(0)),
                 serializeUint32(0),
             ]),

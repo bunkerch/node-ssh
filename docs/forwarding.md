@@ -17,7 +17,9 @@ localSocket.pipe(tunnel).pipe(localSocket)
 
 The addresses are protocol metadata; the library does not create the destination socket itself.
 The receiving server decides whether the request is allowed and connects or otherwise services the
-stream. Ports are validated as unsigned 16-bit TCP port numbers before a packet is sent.
+stream. Ports are validated as unsigned 16-bit TCP port numbers before a packet is sent. Address
+and socket-path text must be valid UTF-8 on the wire; malformed input is rejected before it reaches
+an authorization hook, listener lookup, or channel event.
 
 ## HTTP and HTTPS agents
 

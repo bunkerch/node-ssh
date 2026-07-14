@@ -4,6 +4,7 @@ import Channel, {
 } from "../Channel.js"
 import ServerClient from "../ServerClient.js"
 import { serializeBuffer } from "../utils/Buffer.js"
+import { encodeSSHUTF8 } from "../utils/SSHText.js"
 import ChannelStream from "./ChannelStream.js"
 import type { StreamLocalConnectionDetails } from "./ClientForwardedStreamLocalChannel.js"
 
@@ -18,7 +19,7 @@ export default class ForwardedStreamLocalChannel extends Channel {
             client,
             ForwardedStreamLocalChannel.channel_type,
             Buffer.concat([
-                serializeBuffer(Buffer.from(socketPath, "utf8")),
+                serializeBuffer(encodeSSHUTF8(socketPath, "forwarded stream-local socket path")),
                 serializeBuffer(Buffer.alloc(0)),
             ]),
         )

@@ -126,6 +126,7 @@ import { ActionQueue } from "./utils/ActionQueue.js"
 import PrivateKeyAgent from "./publickey/PrivateKeyAgent.js"
 import SSHAgent from "./publickey/SSHAgent.js"
 import { parseKey } from "./KeyParsing.js"
+import { encodeSSHUTF8 } from "./utils/SSHText.js"
 
 export interface ClientHostbasedOptions {
     key: PrivateKey
@@ -1236,7 +1237,7 @@ export default class Client extends EventEmitter<ClientEvents> {
     private async requestRemoteForward(bindAddress: string, bindPort: number): Promise<number> {
         this.validatePort(bindPort, "remote forwarding port")
         const args = Buffer.concat([
-            serializeBuffer(Buffer.from(bindAddress, "utf8")),
+            serializeBuffer(encodeSSHUTF8(bindAddress, "TCP forwarding bind address")),
             serializeUint32(bindPort),
         ])
         const response = await this.sendGlobalRequest("tcpip-forward", args)
@@ -1279,7 +1280,7 @@ export default class Client extends EventEmitter<ClientEvents> {
         await this.sendGlobalRequest(
             "cancel-tcpip-forward",
             Buffer.concat([
-                serializeBuffer(Buffer.from(bindAddress, "utf8")),
+                serializeBuffer(encodeSSHUTF8(bindAddress, "TCP forwarding bind address")),
                 serializeUint32(bindPort),
             ]),
         )
@@ -1294,7 +1295,7 @@ export default class Client extends EventEmitter<ClientEvents> {
         }
         await this.sendGlobalRequest(
             "streamlocal-forward@openssh.com",
-            serializeBuffer(Buffer.from(socketPath, "utf8")),
+            serializeBuffer(encodeSSHUTF8(socketPath, "stream-local forwarding socket path")),
         )
         this.remoteStreamLocalForwardings.add(socketPath)
     }
@@ -1307,7 +1308,7 @@ export default class Client extends EventEmitter<ClientEvents> {
         }
         await this.sendGlobalRequest(
             "cancel-streamlocal-forward@openssh.com",
-            serializeBuffer(Buffer.from(socketPath, "utf8")),
+            serializeBuffer(encodeSSHUTF8(socketPath, "stream-local forwarding socket path")),
         )
         this.remoteStreamLocalForwardings.delete(socketPath)
     }

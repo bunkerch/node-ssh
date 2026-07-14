@@ -2,6 +2,7 @@ import assert from "node:assert"
 import Client from "../Client.js"
 import ChannelOpen from "../packets/ChannelOpen.js"
 import { readNextBuffer, readNextUint32 } from "../utils/Buffer.js"
+import { decodeSSHUTF8 } from "../utils/SSHText.js"
 import ClientChannel from "./ClientChannel.js"
 import type { TCPIPConnectionDetails } from "./ClientTCPIPChannel.js"
 
@@ -24,9 +25,9 @@ export default class ClientForwardedTCPIPChannel extends ClientChannel {
         assert(destinationPort <= 65_535, "forwarded-tcpip destination port exceeds 65535")
         assert(sourcePort <= 65_535, "forwarded-tcpip source port exceeds 65535")
         return {
-            destinationHost: destinationHost.toString("utf8"),
+            destinationHost: decodeSSHUTF8(destinationHost, "forwarded-tcpip destination address"),
             destinationPort,
-            sourceHost: sourceHost.toString("utf8"),
+            sourceHost: decodeSSHUTF8(sourceHost, "forwarded-tcpip originator address"),
             sourcePort,
         }
     }

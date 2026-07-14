@@ -2,6 +2,7 @@ import assert from "node:assert"
 import Client from "../Client.js"
 import ChannelOpen from "../packets/ChannelOpen.js"
 import { readNextBuffer } from "../utils/Buffer.js"
+import { decodeSSHUTF8 } from "../utils/SSHText.js"
 import ClientChannel from "./ClientChannel.js"
 
 export interface StreamLocalConnectionDetails {
@@ -26,6 +27,6 @@ export default class ClientForwardedStreamLocalChannel extends ClientChannel {
         const [socketPath, afterSocketPath] = readNextBuffer(raw)
         const [, remaining] = readNextBuffer(afterSocketPath)
         assert(remaining.length === 0)
-        return { socketPath: socketPath.toString("utf8") }
+        return { socketPath: decodeSSHUTF8(socketPath, "forwarded stream-local socket path") }
     }
 }

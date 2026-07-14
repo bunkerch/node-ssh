@@ -63,4 +63,17 @@ describe("OpenSSH stream-local forwarding vectors", () => {
         })
         expect(packet.serialize()).toEqual(raw)
     })
+
+    test("rejects a malformed UTF-8 forwarded socket path", () => {
+        expect(() =>
+            ClientForwardedStreamLocalChannel.parseDetails(vector("00000001 ff 00000000")),
+        ).toThrow("forwarded stream-local socket path is not valid UTF-8 text")
+        const outbound = new ClientDirectStreamLocalChannel(
+            new Client({ hostname: "unused" }),
+            "\ud800",
+        )
+        expect(() => outbound.getOpenPacket()).toThrow(
+            "direct stream-local socket path is not valid UTF-8 text",
+        )
+    })
 })

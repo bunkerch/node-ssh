@@ -1,5 +1,6 @@
 import Client from "../Client.js"
 import { serializeBuffer, serializeUint32 } from "../utils/Buffer.js"
+import { encodeSSHUTF8 } from "../utils/SSHText.js"
 import ClientChannel from "./ClientChannel.js"
 
 export interface TCPIPConnectionDetails {
@@ -24,9 +25,13 @@ export default class ClientTCPIPChannel extends ClientChannel {
     override getOpenPacket() {
         return super.getOpenPacket(
             Buffer.concat([
-                serializeBuffer(Buffer.from(this.details.destinationHost, "utf8")),
+                serializeBuffer(
+                    encodeSSHUTF8(this.details.destinationHost, "direct-tcpip destination address"),
+                ),
                 serializeUint32(this.details.destinationPort),
-                serializeBuffer(Buffer.from(this.details.sourceHost, "utf8")),
+                serializeBuffer(
+                    encodeSSHUTF8(this.details.sourceHost, "direct-tcpip originator address"),
+                ),
                 serializeUint32(this.details.sourcePort),
             ]),
         )

@@ -5,6 +5,9 @@ import ChannelOpenFailure from "../../src/packets/ChannelOpenFailure.js"
 import GlobalRequest from "../../src/packets/GlobalRequest.js"
 import RequestFailure from "../../src/packets/RequestFailure.js"
 import RequestSuccess from "../../src/packets/RequestSuccess.js"
+import ClientX11Channel from "../../src/channels/ClientX11Channel.js"
+import ClientTCPIPChannel from "../../src/channels/ClientTCPIPChannel.js"
+import Client from "../../src/Client.js"
 
 function vector(hex: string): Buffer {
     return Buffer.from(hex.replace(/\s/gu, ""), "hex")
@@ -87,6 +90,31 @@ describe("RFC 4254 TCP forwarding packet vectors", () => {
             sourcePort: 12_345,
         })
         expect(packet.serialize()).toEqual(raw)
+    })
+
+    test("rejects malformed UTF-8 forwarding addresses", () => {
+        expect(() =>
+            ClientForwardedTCPIPChannel.parseDetails(
+                vector("00000001 ff 00000000 00000001 31 00000000"),
+            ),
+        ).toThrow("forwarded-tcpip destination address is not valid UTF-8 text")
+        expect(() =>
+            ClientForwardedTCPIPChannel.parseDetails(
+                vector("00000001 31 00000000 00000001 ff 00000000"),
+            ),
+        ).toThrow("forwarded-tcpip originator address is not valid UTF-8 text")
+        expect(() => ClientX11Channel.parseDetails(vector("00000001 ff 00000000"))).toThrow(
+            "X11 originator address is not valid UTF-8 text",
+        )
+        const outbound = new ClientTCPIPChannel(new Client({ hostname: "unused" }), {
+            destinationHost: "\ud800",
+            destinationPort: 22,
+            sourceHost: "127.0.0.1",
+            sourcePort: 0,
+        })
+        expect(() => outbound.getOpenPacket()).toThrow(
+            "direct-tcpip destination address is not valid UTF-8 text",
+        )
     })
 
     test("round-trips fixed forwarded channel confirmation and rejection packets", () => {
