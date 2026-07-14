@@ -123,6 +123,9 @@ ciphers use their separately documented layouts.
 SSH boolean fields follow the RFC wire definition: zero is false and every nonzero byte is true.
 Serializing a local boolean uses the canonical zero or one representation.
 
+Name-lists preserve their wire order, including repeated names permitted by RFC 4251. Empty entries,
+commas inside names, non-ASCII bytes, and malformed names remain protocol errors.
+
 Inbound framing is validated before the decoder waits for the claimed packet body. Packets with
 invalid padding, empty payloads, incorrect block alignment, invalid MACs, or total sizes above
 35,000 bytes are rejected. The 35,000-byte bound includes framing, padding, and MAC and satisfies

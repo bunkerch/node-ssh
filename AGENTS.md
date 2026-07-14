@@ -188,6 +188,8 @@ meaningful wire-level behavior.
   exit-signal diagnostic text before sending the result.
 - Parse SSH boolean fields as false only for zero; accept every nonzero byte as true, while emitting
   canonical zero and one values for local booleans.
+- Preserve name-list order and repeated entries exactly. RFC 4251 permits repeated names; reject
+  only malformed names and framing, not duplicates.
 - Packet tunnel channels use the `tun@openssh.com` layout from upstream `PROTOCOL`. Preserve each
   IP datagram or Ethernet frame in exactly one channel-data message, wait asynchronously for enough
   remote window rather than splitting it, and validate mode-specific framing before emitting data.

@@ -14,6 +14,12 @@ describe("Utils", () => {
             expect(serializeNameList(["a", "b", "c"]).toString("hex")).toEqual("00000005612c622c63")
         })
 
+        test("preserves duplicate entries allowed by RFC 4251", () => {
+            const vector = Buffer.from("00000005612c622c61", "hex")
+            expect(readNextNameList(vector)).toEqual([["a", "b", "a"], Buffer.alloc(0)])
+            expect(serializeNameList(["a", "b", "a"])).toEqual(vector)
+        })
+
         test("enforces RFC 4250 name boundaries and extension domains", () => {
             const longest = "a".repeat(64)
             expect(encodeSSHName(longest)).toEqual(Buffer.from(longest, "ascii"))
@@ -28,12 +34,8 @@ describe("Utils", () => {
             expect(() => decodeSSHName(Buffer.from([0xff]))).toThrow("US-ASCII")
         })
 
-        test("rejects empty, duplicate, and malformed name-list entries", () => {
-            expect(() => readNextNameList(Buffer.from("00000003612c61", "hex"))).toThrow(
-                "duplicate",
-            )
+        test("rejects empty and malformed name-list entries", () => {
             expect(() => readNextNameList(Buffer.from("00000002612c", "hex"))).toThrow("1 to 64")
-            expect(() => serializeNameList(["a", "a"])).toThrow("duplicate")
             expect(() => serializeNameList(["invalid name"])).toThrow("printable")
         })
     })
