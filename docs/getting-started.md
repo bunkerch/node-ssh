@@ -240,7 +240,9 @@ run the `preconnect` policy hook, appear in `server.clients` and `getConnections
 on close. The injecting application retains responsibility for the outer listener; the SSH server
 owns the injected transport after acceptance. When `preconnect` hooks are present, they must
 complete without rejection and explicitly set `allowConnection = true`; denial happens before the
-public `connection` event.
+public `connection` event. `injectSocket()` rejects a transport synchronously if it has already
+closed or is no longer both readable and writable; attach it before transferring or closing either
+side of the stream.
 
 ## Passphrase-protected private keys
 

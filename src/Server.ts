@@ -3,7 +3,7 @@
 import EventEmitter from "node:events"
 import ProtocolVersionExchange from "./ProtocolVersionExchange.js"
 import net from "net"
-import type { Duplex } from "node:stream"
+import { isReadable, type Duplex } from "node:stream"
 import ServerClient from "./ServerClient.js"
 import { Hooker } from "./utils/Hooker.js"
 import PrivateKey from "./utils/PrivateKey.js"
@@ -522,6 +522,9 @@ export default class Server extends EventEmitter<ServerEvents> {
     }
 
     injectSocket(socket: ServerTransport): this {
+        if (!isReadable(socket) || !socket.writable || socket.destroyed) {
+            throw new TypeError("SSH server transport must be open, readable, and writable")
+        }
         void this.hostKeysReady.then(() => this.acceptSocket(socket))
         return this
     }

@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test"
 import { once } from "node:events"
 import type { AddressInfo } from "node:net"
+import { PassThrough } from "node:stream"
 import Client from "../../src/Client.js"
 import Server from "../../src/Server.js"
 import type ServerClient from "../../src/ServerClient.js"
@@ -19,6 +20,21 @@ function trustHost(client: Client): void {
         controller.allowHostKey = true
     })
 }
+
+test("rejects a server transport that has already closed", async () => {
+    const server = new Server({
+        hostKeys: [await PrivateKey.generate("ssh-ed25519")],
+        sendAllHostKeys: false,
+    })
+    server.hooker.hook("preconnect", () => undefined)
+    const transport = new PassThrough()
+    transport.destroy()
+    await once(transport, "close")
+
+    expect(() => server.injectSocket(transport)).toThrow(
+        "SSH server transport must be open, readable, and writable",
+    )
+})
 
 test("injects an SSH channel as a server transport", async () => {
     const outerServer = new Server({
