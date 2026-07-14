@@ -86,6 +86,11 @@ meaningful wire-level behavior.
   possession before awaited policy. Reject invalid CA signatures, non-user roles, and expired or
   not-yet-valid certificates before policy; leave CA trust, principals, critical options, and
   restriction composition to the hook. Validate both peer roles with OpenSSH.
+- Certificate host authentication offers the certificate only when it is paired with the matching
+  private host key, retains the plain-key fallback, and uses underlying signature names in the key
+  exchange reply. Before awaited host policy, verify possession, CA signature, host role, and time;
+  leave CA trust and hostname/address principal matching to the hook. Validate both host roles with
+  OpenSSH.
 - User authentication follows RFC 4252 and RFC 4256. Decode method-specific opcode 60 from the
   active authentication context, never as a globally fixed packet. Honor advertised continuation
   lists and partial success, keep at most one keyboard-interactive request outstanding, and test

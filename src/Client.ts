@@ -47,7 +47,7 @@ import EncodedSignature from "./utils/Signature.js"
 import ExtInfo, { copySSHExtensions, type SSHExtension } from "./packets/ExtInfo.js"
 import Ping from "./packets/Ping.js"
 import Pong from "./packets/Pong.js"
-import PublicKey from "./utils/PublicKey.js"
+import PublicKey, { SSHCertificatePublicKey } from "./utils/PublicKey.js"
 import { Hooker } from "./utils/Hooker.js"
 import NewKeys from "./packets/NewKeys.js"
 import { KeyExchangeError } from "./algorithms/kex/key-exchange.js"
@@ -1291,6 +1291,21 @@ export default class Client extends EventEmitter<ClientEvents> {
             )
             const h = kexAlgorithm.computeHClient(this, serverKexInitBuffer)
             assert(hostKey.verifySignature(h, signature), "Invalid host key signature from server")
+
+            const certificateAlgorithm = hostKey.data.algorithm
+            if (certificateAlgorithm instanceof SSHCertificatePublicKey) {
+                const now = BigInt(Math.floor(Date.now() / 1000))
+                assert(certificateAlgorithm.data.role === "host", "Invalid host certificate role")
+                assert(
+                    now >= certificateAlgorithm.data.validAfter &&
+                        now < certificateAlgorithm.data.validBefore,
+                    "Host certificate is outside its validity interval",
+                )
+                assert(
+                    certificateAlgorithm.verifyCertificateSignature(),
+                    "Invalid host certificate authority signature",
+                )
+            }
 
             await this.verifyConfiguredHostKey(reply.data.K_S)
             this.negotiatedServerHostKey = Buffer.from(reply.data.K_S)

@@ -81,6 +81,12 @@ export default class PublicKey {
     }
 
     signatureAlgorithmFor(algorithm: string): string {
+        if (
+            this.data.algorithm instanceof SSHCertificatePublicKey &&
+            this.data.algorithm.publicKey.supportsSignatureAlgorithm(algorithm)
+        ) {
+            return algorithm
+        }
         assert(
             this.supportsSignatureAlgorithm(algorithm),
             `Signature algorithm ${algorithm} is incompatible with ${this.data.alg}`,

@@ -191,6 +191,28 @@ their original encoding remains part of the serialized key and fingerprint, and 
 values use canonical positive SSH mpints. Signatures select SHA-256, SHA-384, or SHA-512 according
 to the curve size.
 
+### Certificate host keys
+
+Pair issued host certificates with their matching private keys through `hostCertificates`. The
+server retains the plain host key too, so peers that do not offer certificate algorithms can still
+negotiate it:
+
+```ts
+const server = new Server({
+    hostKeys: [PrivateKey.fromString(await readFile("./ssh_host_ed25519_key", "utf8"))],
+    hostCertificates: [await readFile("./ssh_host_ed25519_key-cert.pub")],
+})
+```
+
+Modern certificate algorithms are preferred when a matching certificate is configured. During
+key exchange, the client verifies the possession signature using the certified key and validates
+the CA signature, host role, and validity interval before host policy runs. The awaited `hostKey`
+hook receives the certificate as its `PublicKey`; inspect its `SSHCertificatePublicKey` algorithm
+to trust the CA and match the connection hostname or address against `data.principals`. Host
+certificates define no critical options, so a hook should reject any that appear. Exact certificate
+pinning through `hostVerifier` remains supported because it receives the complete serialized
+certificate blob.
+
 Both `ClientOptions` and `ServerOptions` accept an `algorithms` object with `kex`, `serverHostKey`,
 `cipher`, `hmac`, and `compress` categories. Server values are exact ordered arrays. Client values
 may be exact arrays or `{ remove, prepend, append }` changes whose entries are names or regular

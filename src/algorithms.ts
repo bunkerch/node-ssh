@@ -63,8 +63,9 @@ function hostKeyAlgorithm(
     alg_name: string,
     key_format = alg_name,
     signature_algorithm = alg_name,
+    capabilityKeyFormat = key_format,
 ): HostKeyAlgorithm {
-    const key = PublicKey.algorithms.get(key_format)
+    const key = PublicKey.algorithms.get(capabilityKeyFormat)
     assert(key, `Unsupported host key format: ${key_format}`)
     return Object.freeze({
         alg_name,
@@ -76,6 +77,38 @@ function hostKeyAlgorithm(
 }
 
 export const host_key_algorithms = new Map<string, HostKeyAlgorithm>([
+    [
+        "ssh-ed25519-cert-v01@openssh.com",
+        hostKeyAlgorithm(
+            "ssh-ed25519-cert-v01@openssh.com",
+            "ssh-ed25519-cert-v01@openssh.com",
+            "ssh-ed25519",
+            "ssh-ed25519",
+        ),
+    ],
+    ...["nistp256", "nistp384", "nistp521"].map((curve) => {
+        const plain = `ecdsa-sha2-${curve}`
+        const certificate = `${plain}-cert-v01@openssh.com`
+        return [certificate, hostKeyAlgorithm(certificate, certificate, plain, plain)] as const
+    }),
+    [
+        "rsa-sha2-512-cert-v01@openssh.com",
+        hostKeyAlgorithm(
+            "rsa-sha2-512-cert-v01@openssh.com",
+            "ssh-rsa-cert-v01@openssh.com",
+            "rsa-sha2-512",
+            "ssh-rsa",
+        ),
+    ],
+    [
+        "rsa-sha2-256-cert-v01@openssh.com",
+        hostKeyAlgorithm(
+            "rsa-sha2-256-cert-v01@openssh.com",
+            "ssh-rsa-cert-v01@openssh.com",
+            "rsa-sha2-256",
+            "ssh-rsa",
+        ),
+    ],
     ["ssh-ed25519", hostKeyAlgorithm("ssh-ed25519")],
     ["ecdsa-sha2-nistp256", hostKeyAlgorithm("ecdsa-sha2-nistp256")],
     ["ecdsa-sha2-nistp384", hostKeyAlgorithm("ecdsa-sha2-nistp384")],
@@ -83,7 +116,25 @@ export const host_key_algorithms = new Map<string, HostKeyAlgorithm>([
     ["rsa-sha2-512", hostKeyAlgorithm("rsa-sha2-512", "ssh-rsa")],
     ["rsa-sha2-256", hostKeyAlgorithm("rsa-sha2-256", "ssh-rsa")],
     ["ssh-rsa", hostKeyAlgorithm("ssh-rsa")],
+    [
+        "ssh-rsa-cert-v01@openssh.com",
+        hostKeyAlgorithm(
+            "ssh-rsa-cert-v01@openssh.com",
+            "ssh-rsa-cert-v01@openssh.com",
+            "ssh-rsa",
+            "ssh-rsa",
+        ),
+    ],
     ["ssh-dss", hostKeyAlgorithm("ssh-dss")],
+    [
+        "ssh-dss-cert-v01@openssh.com",
+        hostKeyAlgorithm(
+            "ssh-dss-cert-v01@openssh.com",
+            "ssh-dss-cert-v01@openssh.com",
+            "ssh-dss",
+            "ssh-dss",
+        ),
+    ],
 ])
 
 export abstract class KexAlgorithm {
@@ -249,6 +300,12 @@ export const default_algorithm_names: ResolvedAlgorithmOptions = Object.freeze({
         "diffie-hellman-group14-sha256",
     ]),
     serverHostKey: Object.freeze([
+        "ssh-ed25519-cert-v01@openssh.com",
+        "ecdsa-sha2-nistp256-cert-v01@openssh.com",
+        "ecdsa-sha2-nistp384-cert-v01@openssh.com",
+        "ecdsa-sha2-nistp521-cert-v01@openssh.com",
+        "rsa-sha2-512-cert-v01@openssh.com",
+        "rsa-sha2-256-cert-v01@openssh.com",
         "ssh-ed25519",
         "ecdsa-sha2-nistp256",
         "ecdsa-sha2-nistp384",

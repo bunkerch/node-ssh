@@ -6,11 +6,12 @@ import net from "net"
 import ServerClient from "./ServerClient.js"
 import { Hooker } from "./utils/Hooker.js"
 import PrivateKey from "./utils/PrivateKey.js"
-import PublicKey, { type SSHCertificatePublicKey } from "./utils/PublicKey.js"
+import PublicKey, { SSHCertificatePublicKey } from "./utils/PublicKey.js"
 import EncodedSignature from "./utils/Signature.js"
 import Channel from "./Channel.js"
 import { SSHAuthenticationMethods } from "./constants.js"
 import { DisconnectError } from "./packets/Disconnect.js"
+import { parseKey } from "./KeyParsing.js"
 import type ChannelRequest from "./packets/ChannelRequest.js"
 import { MAX_PREAMBLE_LINE_LENGTH, MAX_PREAMBLE_LINES } from "./IdentificationParser.js"
 import {
@@ -35,6 +36,8 @@ export interface ServerOptions {
     greeting?: string
     algorithms?: ServerAlgorithmOptions
     hostKeys?: PrivateKey[]
+    /** Public host certificates paired with matching entries in `hostKeys`. */
+    hostCertificates?: (PublicKey | string | Buffer)[]
     // by default, the Server will send all available hostkeys
     // to the client after login (USERAUTH_SUCCESS)
     // this allows the client to save them and then to accept unknown
@@ -50,9 +53,10 @@ export interface ServerOptions {
     maxAuthenticationAttempts?: number
 }
 export interface ServerOptionsRequired
-    extends Required<Omit<ServerOptions, "ident" | "algorithms">> {
+    extends Required<Omit<ServerOptions, "ident" | "algorithms" | "hostCertificates">> {
     ident?: string | Buffer
     algorithms?: ServerAlgorithmOptions
+    hostCertificates?: (PublicKey | string | Buffer)[]
 }
 
 function normalizeGreeting(greeting: string): string {
@@ -256,7 +260,7 @@ export default class Server extends EventEmitter<ServerEvents> {
 
     constructor(options: ServerOptions = {}) {
         super()
-        this.options = options as ServerOptionsRequired
+        this.options = { ...options } as ServerOptionsRequired
         if (
             this.options.ident !== undefined &&
             this.options.protocolVersionExchange !== undefined
@@ -270,7 +274,26 @@ export default class Server extends EventEmitter<ServerEvents> {
                 ? (this.options.protocolVersionExchange ?? ProtocolVersionExchange.defaultValue)
                 : ProtocolVersionExchange.fromIdent(this.options.ident)
         this.options.greeting = normalizeGreeting(this.options.greeting ?? "")
-        this.options.hostKeys ??= []
+        this.options.hostKeys = [...(this.options.hostKeys ?? [])]
+        for (const certificateInput of this.options.hostCertificates ?? []) {
+            const certificate =
+                certificateInput instanceof PublicKey
+                    ? certificateInput
+                    : parseKey(certificateInput)
+            if (!(certificate instanceof PublicKey)) {
+                throw new TypeError("SSH host certificate must contain a public key")
+            }
+            const hostKey = this.options.hostKeys.find((key) => {
+                const publicKey = certificate.data.algorithm
+                return (
+                    publicKey instanceof SSHCertificatePublicKey &&
+                    publicKey.publicKey.equals(key.data.publicKey)
+                )
+            })
+            if (!hostKey) throw new TypeError("SSH host certificate does not match a host key")
+            this.options.hostKeys.push(hostKey.withCertificate(certificate))
+        }
+        this.options.hostCertificates = undefined
         this.options.sendAllHostKeys ??= true
         this.options.banner ??= ""
         this.options.authenticationTimeout ??= 600_000

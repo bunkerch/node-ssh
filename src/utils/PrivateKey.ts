@@ -79,7 +79,7 @@ export default class PrivateKey {
             certificate.data.algorithm.publicKey.equals(this.data.publicKey),
             "Certificate does not match the private key",
         )
-        return new PrivateKey({ ...this.data, publicKey: certificate })
+        return new PrivateKey({ ...this.data, alg: certificate.data.alg, publicKey: certificate })
     }
 
     serialize(options?: OpenSSHPrivateKeyEncryptionOptions): Buffer {
