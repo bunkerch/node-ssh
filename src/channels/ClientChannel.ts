@@ -18,6 +18,7 @@ import {
     serializeBuffer,
 } from "../utils/Buffer.js"
 import { Hooker } from "../utils/Hooker.js"
+import { normalizeSSHSignal } from "../utils/Signal.js"
 
 export const DEFAULT_CHANNEL_WINDOW_SIZE = 2 ** 21
 export const DEFAULT_CHANNEL_PACKET_SIZE = 2 ** 15
@@ -88,6 +89,7 @@ export default class ClientChannel extends Duplex {
     exitSignal?: string
     exitCoreDumped?: boolean
     exitErrorMessage?: string
+    exitLanguageTag?: string
 
     private openResolve!: () => void
     private openReject!: (error: Error) => void
@@ -316,6 +318,7 @@ export default class ClientChannel extends Duplex {
         }
 
         if (packet.data.request_type === "exit-status") {
+            this.validateExitRequest(packet)
             const [exitCode, remaining] = readNextUint32(packet.data.args)
             if (remaining.length !== 0) throw new Error("Invalid exit-status channel request")
             this.exitCode = exitCode
@@ -325,23 +328,45 @@ export default class ClientChannel extends Duplex {
         }
 
         if (packet.data.request_type === "exit-signal") {
+            this.validateExitRequest(packet)
             const [signal, afterSignal] = readNextBuffer(packet.data.args)
             const [coreDumped, afterCoreDumped] = readNextBinaryBoolean(afterSignal)
             const [errorMessage, afterErrorMessage] = readNextBuffer(afterCoreDumped)
             const [languageTag, remaining] = readNextBuffer(afterErrorMessage)
             if (remaining.length !== 0) throw new Error("Invalid exit-signal channel request")
 
+            const signalName = signal.toString("ascii")
+            if (signal.some((byte) => byte > 0x7f)) {
+                throw new Error("Invalid exit-signal signal name")
+            }
+            const normalizedSignal = normalizeSSHSignal(signalName)
+            if (normalizedSignal !== signalName) {
+                throw new Error('SSH exit-signal names must omit the "SIG" prefix')
+            }
+            const decodedErrorMessage = new TextDecoder("utf-8", { fatal: true }).decode(
+                errorMessage,
+            )
+            const decodedLanguageTag = languageTag.toString("ascii")
+            if (
+                languageTag.some((byte) => byte > 0x7f) ||
+                (decodedLanguageTag.length > 0 &&
+                    !/^[A-Za-z]{1,8}(?:-[A-Za-z0-9]{1,8})*$/u.test(decodedLanguageTag))
+            ) {
+                throw new Error("Invalid exit-signal language tag")
+            }
+
             this.exitCode = null
-            this.exitSignal = `SIG${signal.toString("ascii")}`
+            this.exitSignal = `SIG${normalizedSignal}`
             this.exitCoreDumped = coreDumped
-            this.exitErrorMessage = errorMessage.toString("utf8")
+            this.exitErrorMessage = decodedErrorMessage
+            this.exitLanguageTag = decodedLanguageTag
             this.emit(
                 "exit",
                 null,
                 this.exitSignal,
                 coreDumped,
                 this.exitErrorMessage,
-                languageTag.toString("ascii"),
+                decodedLanguageTag,
             )
             this.replyToRequest(packet, true)
             return
@@ -355,6 +380,14 @@ export default class ClientChannel extends Duplex {
         const controller: ClientChannelRequestController = { success: false }
         await this.hooker.triggerHook("request", context, controller)
         this.replyToRequest(packet, controller.success)
+    }
+
+    private validateExitRequest(packet: ChannelRequest): void {
+        if (this.type !== "session") throw new Error("Exit requests are only valid on sessions")
+        if (packet.data.want_reply) throw new Error("SSH exit requests must not request a reply")
+        if (this.exitCode !== undefined || this.exitSignal !== undefined) {
+            throw new Error("SSH session received more than one exit result")
+        }
     }
 
     eof(): this {

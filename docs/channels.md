@@ -153,6 +153,9 @@ The implementation follows RFC 4254 channel rules:
   stream consumers make room.
 - Request success and failure replies are matched in request order.
 - `exit-status` and `exit-signal` requests are exposed through the `exit` event and channel fields.
+  Exit signals retain `exitSignal`, `exitCoreDumped`, `exitErrorMessage`, and `exitLanguageTag`.
+  These one-way results are accepted only once on a session channel; signal names, UTF-8 messages,
+  language tags, reply flags, and trailing data are validated before the event is emitted.
 - Data after EOF, oversized data, window overruns, duplicate confirmations, and packets for unknown
   channels are treated as protocol errors.
 

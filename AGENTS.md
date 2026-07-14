@@ -150,6 +150,9 @@ meaningful wire-level behavior.
   empty arguments and false reply flag, await the dedicated hook before changing state, stop
   outbound writes while retaining the readable half, deduplicate it, and capability-gate sends to
   identified OpenSSH peers unless callers explicitly override detection.
+- RFC 4254 session exit results are one-way and singular. Accept `exit-status` and `exit-signal`
+  only on session channels with a false reply flag; validate signal names, fatal UTF-8 decoding,
+  RFC 3066 language tags, and complete framing before publishing any exit metadata.
 - Packet tunnel channels use the `tun@openssh.com` layout from upstream `PROTOCOL`. Preserve each
   IP datagram or Ethernet frame in exactly one channel-data message, wait asynchronously for enough
   remote window rather than splitting it, and validate mode-specific framing before emitting data.

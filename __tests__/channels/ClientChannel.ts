@@ -8,6 +8,7 @@ import ChannelOpenConfirmation from "../../src/packets/ChannelOpenConfirmation.j
 import ChannelRequest from "../../src/packets/ChannelRequest.js"
 import ChannelWindowAdjust from "../../src/packets/ChannelWindowAdjust.js"
 import Packet from "../../src/packet.js"
+import { serializeBuffer } from "../../src/utils/Buffer.js"
 
 function createChannel(options: { initialWindowSize?: number; maximumPacketSize?: number } = {}) {
     const client = new Client({ hostname: "unused" })
@@ -145,6 +146,120 @@ describe("ClientChannel", () => {
             ),
         ).toThrow("trailing data")
         channel.destroy()
+    })
+
+    test("validates and exposes an RFC 4254 exit signal exactly once", async () => {
+        const client = new Client({ hostname: "unused" })
+        client.sendPacket = () => 0
+        const channel = new ClientSessionChannel(client)
+        channel.confirmOpen(
+            new ChannelOpenConfirmation({
+                recipient_channel_id: channel.localId,
+                sender_channel_id: 42,
+                initial_window_size: 32,
+                maximum_packet_size: 32,
+                args: Buffer.alloc(0),
+            }),
+        )
+        const exits: unknown[][] = []
+        channel.on("exit", (...args) => exits.push(args))
+        const request = new ChannelRequest({
+            recipient_channel_id: channel.localId,
+            request_type: "exit-signal",
+            want_reply: false,
+            args: Buffer.concat([
+                serializeBuffer(Buffer.from("TERM", "ascii")),
+                Buffer.from([1]),
+                serializeBuffer(Buffer.from("terminated", "utf8")),
+                serializeBuffer(Buffer.from("en-US", "ascii")),
+            ]),
+        })
+
+        await channel.receiveRequest(request)
+        expect(channel.exitCode).toBeNull()
+        expect(channel.exitSignal).toBe("SIGTERM")
+        expect(channel.exitCoreDumped).toBe(true)
+        expect(channel.exitErrorMessage).toBe("terminated")
+        expect(channel.exitLanguageTag).toBe("en-US")
+        expect(exits).toEqual([[null, "SIGTERM", true, "terminated", "en-US"]])
+        await expect(channel.receiveRequest(request)).rejects.toThrow("more than one exit result")
+        channel.destroy()
+    })
+
+    test("rejects malformed or misplaced RFC 4254 exit results", async () => {
+        const nonSessionClient = new Client({ hostname: "unused" })
+        nonSessionClient.sendPacket = () => 0
+        const channel = new ClientChannel(nonSessionClient, "direct-tcpip")
+        channel.confirmOpen(
+            new ChannelOpenConfirmation({
+                recipient_channel_id: channel.localId,
+                sender_channel_id: 42,
+                initial_window_size: 32,
+                maximum_packet_size: 32,
+                args: Buffer.alloc(0),
+            }),
+        )
+        const request = (
+            recipientChannelId: number,
+            type: string,
+            args: Buffer,
+            wantReply = false,
+        ) =>
+            new ChannelRequest({
+                recipient_channel_id: recipientChannelId,
+                request_type: type,
+                want_reply: wantReply,
+                args,
+            })
+
+        await expect(
+            channel.receiveRequest(request(channel.localId, "exit-status", Buffer.alloc(4))),
+        ).rejects.toThrow("only valid on sessions")
+
+        const client = new Client({ hostname: "unused" })
+        client.sendPacket = () => 0
+        const session = new ClientSessionChannel(client)
+        session.confirmOpen(
+            new ChannelOpenConfirmation({
+                recipient_channel_id: session.localId,
+                sender_channel_id: 43,
+                initial_window_size: 32,
+                maximum_packet_size: 32,
+                args: Buffer.alloc(0),
+            }),
+        )
+        await expect(
+            session.receiveRequest(request(session.localId, "exit-status", Buffer.alloc(4), true)),
+        ).rejects.toThrow("must not request a reply")
+
+        const exitSignal = (signal: Buffer, message: Buffer, language: Buffer) =>
+            request(
+                session.localId,
+                "exit-signal",
+                Buffer.concat([
+                    serializeBuffer(signal),
+                    Buffer.from([0]),
+                    serializeBuffer(message),
+                    serializeBuffer(language),
+                ]),
+            )
+        await expect(
+            session.receiveRequest(
+                exitSignal(Buffer.from("SIGTERM"), Buffer.alloc(0), Buffer.alloc(0)),
+            ),
+        ).rejects.toThrow('omit the "SIG" prefix')
+        await expect(
+            session.receiveRequest(
+                exitSignal(Buffer.from("TERM"), Buffer.from([0xff]), Buffer.alloc(0)),
+            ),
+        ).rejects.toThrow()
+        await expect(
+            session.receiveRequest(
+                exitSignal(Buffer.from("TERM"), Buffer.alloc(0), Buffer.from("en_XX")),
+            ),
+        ).rejects.toThrow("language tag")
+        channel.destroy()
+        session.destroy()
     })
 
     test("handles awaited end-of-write as a one-way writable half-close", async () => {

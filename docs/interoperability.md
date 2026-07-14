@@ -39,7 +39,8 @@ formats. The channel vector suites cover `direct-tcpip`, `forwarded-tcpip`, TCP 
 requests, all four OpenSSH stream-local forwarding messages, allocated-port responses, PTY and
 terminal modes, environment, window changes, signals, RFC 4254 `xon-xoff`, RFC 4335 BREAK,
 subsystems, agent forwarding requests and
-channel opens, X11 requests and channel opens, `no-more-sessions@openssh.com`, window adjustment,
+channel opens, X11 requests and channel opens, session exit status and signal metadata,
+`no-more-sessions@openssh.com`, window adjustment,
 `keepalive@openssh.com`, standard data, stderr extended data, EOF, and CLOSE. Every vector is parsed
 into asserted fields and serialized back to the exact original bytes.
 
