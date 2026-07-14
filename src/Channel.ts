@@ -516,7 +516,12 @@ export default class Channel {
     private sendClose(): void {
         if (this.sentClose || this.remoteId === undefined) return
         this.sentClose = true
-        this.client.sendPacket(new ChannelClose({ recipient_channel_id: this.remoteId }))
+        try {
+            this.client.sendPacket(new ChannelClose({ recipient_channel_id: this.remoteId }))
+        } finally {
+            this.failPendingWrites(new Error(`SSH channel ${this.localId} closed during write`))
+            this.failPendingRequests(new Error(`SSH channel ${this.localId} closed during request`))
+        }
     }
 
     private failPendingWrites(error: Error): void {

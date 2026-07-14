@@ -592,6 +592,15 @@ export default class ClientChannel extends Duplex {
     private sendClose(): void {
         if (this.sentClose || this.remoteId === undefined) return
         this.sentClose = true
-        this.client.sendPacket(new ChannelClose({ recipient_channel_id: this.remoteId }))
+        try {
+            this.client.sendPacket(new ChannelClose({ recipient_channel_id: this.remoteId }))
+        } finally {
+            const writeError = new Error(`SSH channel ${this.localId} closed during write`)
+            while (this.pendingWrites.length > 0) this.pendingWrites.shift()!.reject(writeError)
+            const requestError = new Error(`SSH channel ${this.localId} closed during request`)
+            while (this.pendingRequests.length > 0) {
+                this.pendingRequests.shift()!.reject(requestError)
+            }
+        }
     }
 }

@@ -260,8 +260,9 @@ The implementation follows RFC 4254 channel rules:
   stream consumers make room. A zero adjustment is a valid no-op; an adjustment that would raise
   the current window above `2^32 - 1` causes an RFC protocol-error disconnect.
 - Request success and failure replies are matched in request order.
-- A peer CLOSE promptly tears down the channel and settles pending operations. Late results from
-  request hooks cannot create session resources, emit request events, or send request replies.
+- Local or peer CLOSE promptly settles pending writes and outbound requests; settlement never waits
+  for the peer's CLOSE acknowledgement. Late results from request hooks cannot create session
+  resources, emit request events, or send request replies.
 - Transport termination immediately makes every owned channel report `isOpen === false`, even when
   the connection ended before the channel-level CLOSE exchange completed.
 - `exit-status` and `exit-signal` requests are exposed through the `exit` event and channel fields.
