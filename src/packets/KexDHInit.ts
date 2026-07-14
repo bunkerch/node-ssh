@@ -14,7 +14,7 @@ export default class KexDHInit implements Packet {
 
     data: KexDHInitData
     constructor(data: KexDHInitData) {
-        this.data = data
+        this.data = { e: Buffer.from(data.e), encoding: data.encoding }
     }
 
     serialize(): Buffer {

@@ -56,4 +56,39 @@ describe("RFC 4419 group-exchange packets", () => {
             Packet.parse(Buffer.from("2100000001010000000102000000010300", "hex")),
         ).toThrow()
     })
+
+    test("group-exchange packets own constructor and parsed wire values", () => {
+        const p = Buffer.from([23])
+        const g = Buffer.from([2])
+        const group = new KexDHGexGroup({ p, g })
+        const e = Buffer.from("0080ff", "hex")
+        const init = new KexDHGexInit({ e })
+        const hostKey = Buffer.from("010203", "hex")
+        const f = Buffer.from("1234", "hex")
+        const signature = Buffer.from("05060708", "hex")
+        const reply = new KexDHGexReply({ K_S: hostKey, f, H_sig: signature })
+
+        for (const value of [p, g, e, hostKey, f, signature]) value.fill(0xff)
+
+        expect(group.serialize()).toEqual(Buffer.from("1f00000001170000000102", "hex"))
+        expect(init.serialize()).toEqual(Buffer.from("20000000030080ff", "hex"))
+        expect(reply.serialize()).toEqual(
+            Buffer.from("21000000030102030000000212340000000405060708", "hex"),
+        )
+
+        const frames = [
+            Buffer.from("1f00000001170000000102", "hex"),
+            Buffer.from("20000000030080ff", "hex"),
+            Buffer.from("21000000030102030000000212340000000405060708", "hex"),
+        ]
+        const parsed = [
+            KexDHGexGroup.parse(frames[0]),
+            KexDHGexInit.parse(frames[1]),
+            KexDHGexReply.parse(frames[2]),
+        ]
+        const serialized = parsed.map((packet) => packet.serialize())
+        for (const frame of frames) frame.fill(0xff)
+
+        expect(parsed.map((packet) => packet.serialize())).toEqual(serialized)
+    })
 })

@@ -16,7 +16,12 @@ export default class KexDHReply implements Packet {
 
     data: KexDHReplyData
     constructor(data: KexDHReplyData) {
-        this.data = data
+        this.data = {
+            K_S: Buffer.from(data.K_S),
+            f: Buffer.from(data.f),
+            H_sig: Buffer.from(data.H_sig),
+            encoding: data.encoding,
+        }
     }
 
     serialize(): Buffer {

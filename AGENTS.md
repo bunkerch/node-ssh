@@ -344,6 +344,8 @@ meaningful wire-level behavior.
 - Emit negotiated handshake details only after inbound and outbound NEWKEYS are active. Report both
   directions on initial exchange and rekey, and emit `handshake` before the corresponding `rekey`.
 - RFC 8731 Curve25519 messages use raw 32-byte SSH strings for ephemeral public keys, not mpints.
+  Method-specific KEX packets own ephemeral public values, host-key blobs, and signatures on both
+  construction and parsing paths; exchange verification must not alias external frame storage.
   Interpret the X25519 output as a network-order unsigned integer only when encoding the shared
   secret mpint, reject incorrect point lengths and all-zero secrets, and validate with RFC 7748
   vectors plus OpenSSH in both peer roles.

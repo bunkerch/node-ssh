@@ -178,6 +178,10 @@ Inbound KEXINIT bytes are likewise copied before any packet event is published. 
 the private snapshot, so observers may inspect or mutate their packet objects without changing the
 algorithm offer or exchange hash used by the connection.
 
+Method-specific key-exchange packets also own their ephemeral public values, host-key blobs, and
+signature envelopes. Constructor inputs and parsed transport frames cannot be mutated later to
+change values used for shared-secret computation or exchange-hash verification.
+
 The two optional language preference name-lists use RFC 3066 syntax rather than algorithm-name
 rules. Their order and repeated tags are preserved; malformed tags are rejected in both directions.
 

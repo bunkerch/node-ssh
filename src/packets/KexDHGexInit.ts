@@ -7,7 +7,11 @@ import { serializeMpintBufferToBuffer } from "../utils/mpint.js"
 export default class KexDHGexInit implements Packet {
     static type = PacketNameToType.SSH_MSG_KEX_DH_GEX_INIT
 
-    constructor(readonly data: { e: Buffer }) {}
+    readonly data: { e: Buffer }
+
+    constructor(data: { e: Buffer }) {
+        this.data = { e: Buffer.from(data.e) }
+    }
 
     serialize(): Buffer {
         return Buffer.concat([

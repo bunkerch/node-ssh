@@ -76,4 +76,49 @@ describe("RFC 8731 Curve25519 key exchange", () => {
             }).serialize(),
         ).toEqual(replyVector)
     })
+
+    test("key-exchange packets own constructor and parsed wire values", () => {
+        const initPoint = Buffer.from(alicePublic)
+        const init = new KexDHInit({ e: initPoint, encoding: "string" })
+        initPoint.fill(0xff)
+        expect(init.data.e).toEqual(alicePublic)
+
+        const hostKey = Buffer.from("key")
+        const replyPoint = Buffer.from(bobPublic)
+        const signature = Buffer.from("sig")
+        const reply = new KexDHReply({
+            K_S: hostKey,
+            f: replyPoint,
+            H_sig: signature,
+            encoding: "string",
+        })
+        hostKey.fill(0xff)
+        replyPoint.fill(0xff)
+        signature.fill(0xff)
+        expect(reply.data).toMatchObject({
+            K_S: Buffer.from("key"),
+            f: bobPublic,
+            H_sig: Buffer.from("sig"),
+        })
+
+        const initFrame = Buffer.from(
+            "1e000000208520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a",
+            "hex",
+        )
+        const replyFrame = Buffer.from(
+            "1f000000036b657900000020de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4f00000003736967",
+            "hex",
+        )
+        const parsedInit = KexDHInit.parse(initFrame)
+        const parsedReply = KexDHReply.parse(replyFrame)
+        initFrame.fill(0xff)
+        replyFrame.fill(0xff)
+
+        expect(parsedInit.data.e).toEqual(alicePublic)
+        expect(parsedReply.data).toMatchObject({
+            K_S: Buffer.from("key"),
+            f: bobPublic,
+            H_sig: Buffer.from("sig"),
+        })
+    })
 })

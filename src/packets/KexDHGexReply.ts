@@ -13,7 +13,15 @@ export interface KexDHGexReplyData {
 export default class KexDHGexReply implements Packet {
     static type = PacketNameToType.SSH_MSG_KEX_DH_GEX_REPLY
 
-    constructor(readonly data: KexDHGexReplyData) {}
+    readonly data: KexDHGexReplyData
+
+    constructor(data: KexDHGexReplyData) {
+        this.data = {
+            K_S: Buffer.from(data.K_S),
+            f: Buffer.from(data.f),
+            H_sig: Buffer.from(data.H_sig),
+        }
+    }
 
     serialize(): Buffer {
         return Buffer.concat([

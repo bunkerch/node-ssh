@@ -13,7 +13,11 @@ export default class KexDHGexGroup implements Packet {
     // RFC 4419 assigns 31 in a KEX-specific namespace. It overlaps KEXDH_REPLY.
     static type = PacketNameToType.SSH_MSG_KEXDH_REPLY
 
-    constructor(readonly data: KexDHGexGroupData) {}
+    readonly data: KexDHGexGroupData
+
+    constructor(data: KexDHGexGroupData) {
+        this.data = { p: Buffer.from(data.p), g: Buffer.from(data.g) }
+    }
 
     serialize(): Buffer {
         return Buffer.concat([
