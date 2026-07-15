@@ -102,6 +102,33 @@ describe("RFC 4254 channel identifiers", () => {
         }
     }, 15_000)
 
+    test("does not confirm a server channel aborted during admission policy", async () => {
+        const { server, peer, client } = await createConnectedPeers()
+        let published = false
+        peer.on("channel", () => {
+            published = true
+        })
+        server.hooker.hook("channelOpenRequest", async (_hook, channel) => {
+            await Promise.resolve()
+            channel.abort()
+        })
+        server.hooker.hook("channelOpenRequest", (_hook, _channel, controller) => {
+            controller.allowOpen = true
+        })
+
+        try {
+            await expect(client.openSession()).rejects.toMatchObject({
+                reasonCode: ChannelOpenFailureReasonCodes.SSH_OPEN_ADMINISTRATIVELY_PROHIBITED,
+                message: "Opening channel type not allowed by the server.",
+            })
+            expect(published).toBe(false)
+            expect(client.isConnected).toBe(true)
+        } finally {
+            await closePeers(server, client)
+            peer.terminate()
+        }
+    }, 15_000)
+
     async function openSession(server: Server, peer: ServerClient, client: Client) {
         server.hooker.hook("channelOpenRequest", async (_hook, _channel, controller) => {
             controller.allowOpen = true

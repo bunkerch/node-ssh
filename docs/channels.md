@@ -319,6 +319,8 @@ configure each accepted `SessionChannel`. Request hooks decide whether an indivi
 accepted; channel events provide its duplex stream after the success reply is sent.
 Channel admission also requires every registered `channelOpenRequest` handler to complete without
 rejection; a contained failure discards an allow decision made by an earlier handler.
+Aborting or closing the proposed channel during policy denies it even if a later handler sets
+`allowOpen`; the server never confirms or publishes a proposal that is no longer open.
 When policy intentionally denies an open, it may assign a validated `ChannelOpenError` to
 `decision.rejection`. The peer then receives its exact uint32 reason, UTF-8 description, and RFC
 3066 language tag. Named standard reasons are available through `ChannelOpenFailureReasonCodes`;

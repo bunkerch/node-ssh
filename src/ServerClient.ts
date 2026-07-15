@@ -1309,7 +1309,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                     "Opening channel type not allowed by the server.",
                 )
             }
-            if (!controller.allowOpen) {
+            if (!controller.allowOpen || !channel.isOpen) {
                 throw (
                     controller.rejection ??
                     new ChannelOpenError(
