@@ -1,62 +1,109 @@
 import { makePromise } from "./promise.js"
 
+export const MAX_QUEUED_ACTIONS = 1024
+
+export class ActionQueueCapacityError extends Error {
+    override name = "ActionQueueCapacityError"
+}
+
 export interface ActionQueueLock {
     release: () => void
 }
 
+interface QueuedAction {
+    readonly run: () => Promise<void>
+    readonly reject: (error: Error) => void
+    readonly counted: boolean
+}
+
+interface ActionState {
+    processing: boolean
+    readonly queue: QueuedAction[]
+}
+
 export class ActionQueue<keyType extends string = string> {
-    actionQueues = new Map<
-        keyType,
-        {
-            processing: boolean
-            queue: (() => Promise<void>)[]
+    readonly maximumQueuedActions: number
+    readonly #actionQueues = new Map<keyType, ActionState>()
+    #queuedActions = 0
+    #closedError?: Error
+
+    constructor(maximumQueuedActions = MAX_QUEUED_ACTIONS) {
+        if (!Number.isSafeInteger(maximumQueuedActions) || maximumQueuedActions < 0) {
+            throw new RangeError("Maximum queued actions must be a non-negative safe integer")
         }
-    >()
+        this.maximumQueuedActions = maximumQueuedActions
+    }
+
+    get queuedActions(): number {
+        return this.#queuedActions
+    }
 
     async queueAction<T = void>(key: keyType, nextStep: () => Promise<T>): Promise<T> {
-        if (!this.actionQueues.has(key)) {
-            this.actionQueues.set(key, {
-                processing: false,
-                queue: [],
-            })
+        if (this.#closedError) throw this.#closedError
+
+        let state = this.#actionQueues.get(key)
+        if (!state) {
+            state = { processing: false, queue: [] }
+            this.#actionQueues.set(key, state)
+        }
+        const counted = state.processing
+        if (counted && this.#queuedActions >= this.maximumQueuedActions) {
+            throw new ActionQueueCapacityError(
+                `SSH action queue exceeds ${this.maximumQueuedActions} waiting operations`,
+            )
         }
 
-        const acc = this.actionQueues.get(key)!
-
         const [promise, resolve, reject] = makePromise<T>()
+        state.queue.push({
+            counted,
+            reject,
+            run: async () => {
+                try {
+                    resolve(await nextStep())
+                } catch (error) {
+                    reject(error instanceof Error ? error : new Error(String(error)))
+                }
+            },
+        })
+        if (counted) {
+            this.#queuedActions++
+            return promise
+        }
 
-        acc.queue.push(() => nextStep().then(resolve, reject))
-
-        if (acc.processing) return promise
-        acc.processing = true
-
-        // start a new "thread" that will loop over the queue
-        // and run it
-        ;(async () => {
-            while (acc.queue.length > 0) {
-                const action = acc.queue.shift()!
-                await action()
-            }
-            this.actionQueues.delete(key)
-        })()
-
+        state.processing = true
+        void this.#drain(key, state)
         return promise
     }
 
-    async obtainLock(key: keyType) {
-        const [lockPromise, lockResolve] = makePromise<undefined>()
-        const [obtainLockPromise, obtainLockResolve] = makePromise<undefined>()
+    async obtainLock(key: keyType): Promise<ActionQueueLock> {
+        const [lockPromise, lockResolve] = makePromise<void>()
+        const [obtained, resolveObtained, rejectObtained] = makePromise<void>()
 
-        this.queueAction(key, () => {
-            obtainLockResolve(undefined)
+        void this.queueAction(key, async () => {
+            resolveObtained()
+            await lockPromise
+        }).catch(rejectObtained)
 
-            return lockPromise
-        })
+        await obtained
+        return { release: lockResolve }
+    }
 
-        await obtainLockPromise
+    close(error: Error): void {
+        if (this.#closedError) return
+        this.#closedError = error
+        for (const [key, state] of this.#actionQueues) {
+            for (const action of state.queue.splice(0)) action.reject(error)
+            if (!state.processing) this.#actionQueues.delete(key)
+        }
+        this.#queuedActions = 0
+    }
 
-        return {
-            release: () => lockResolve(undefined),
-        } as ActionQueueLock
+    async #drain(key: keyType, state: ActionState): Promise<void> {
+        while (state.queue.length > 0) {
+            const action = state.queue.shift()!
+            if (action.counted) this.#queuedActions--
+            await action.run()
+        }
+        this.#actionQueues.delete(key)
     }
 }

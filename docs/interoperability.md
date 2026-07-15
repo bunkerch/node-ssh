@@ -67,6 +67,13 @@ outcomes, and window overflow. Held server policy and client agent-provider deci
 that pending-open capacity rejects excess requests with resource shortage before invoking more
 application work, while retaining the authenticated connection.
 
+Action-scheduler tests hold an awaited global-request hook, fill a deliberately small waiting
+allowance with one-way traffic, and prove that the next request reports capacity failure and closes
+the encrypted connection. Focused lifecycle tests verify independent keys still run, queued work
+rejects on close, and no overflowed action executes. A reconnect test releases an old async client
+decision only after the same instance authenticates again, proving the old generation cannot write
+into or close the new transport.
+
 Generic global-request integration sends concurrent requests through an awaited server hook and
 proves their opaque replies remain ordered, covers deny-by-default and one-way notification paths,
 and exercises ordered server-initiated requests through the client's awaited hook using the public

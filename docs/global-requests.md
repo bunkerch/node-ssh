@@ -78,6 +78,13 @@ If the connection closes while a hook is pending, its eventual decision is disca
 particular, a late forwarding-policy result cannot create a listening socket after connection
 cleanup, and a late application result cannot send a reply on the closed transport.
 
+The per-connection action scheduler retains at most 1024 operations waiting behind active global
+or channel work. The operation currently executing does not consume that waiting allowance, and
+independent channel keys may continue concurrently. Exceeding the bound terminates the connection:
+one-way requests have no failure response with which to apply backpressure safely. Transport close
+rejects and removes every queued operation, and a later reconnect uses a fresh scheduler so old
+work cannot run against new connection state.
+
 Built-in protocol requests are processed by their dedicated validation and policy paths before the
 generic hook. Do not treat an unrecognized request name as trusted merely because the SSH peer was
 authenticated; authorize every application operation and validate its opaque payload explicitly.

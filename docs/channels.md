@@ -291,6 +291,10 @@ The implementation follows RFC 4254 channel rules:
 - Local or peer CLOSE promptly settles pending writes and outbound requests; settlement never waits
   for the peer's CLOSE acknowledgement. Late results from request hooks cannot create session
   resources, emit request events, or send request replies.
+- At most 1024 packet operations may wait behind active global or per-channel async work on one
+  connection. Overflow closes the connection because one-way channel requests cannot be rejected
+  individually. Transport teardown rejects and removes queued operations instead of abandoning
+  their Promises.
 - Transport termination immediately makes every owned channel report `isOpen === false`, even when
   the connection ended before the channel-level CLOSE exchange completed.
 - `exit-status` and `exit-signal` requests are exposed through the `exit` event and channel fields.

@@ -4,6 +4,8 @@ import Client from "../../src/Client.js"
 import { SSHAuthenticationMethods } from "../../src/constants.js"
 import Server from "../../src/Server.js"
 import type ServerClient from "../../src/ServerClient.js"
+import GlobalRequest from "../../src/packets/GlobalRequest.js"
+import { ActionQueue, ActionQueueCapacityError } from "../../src/utils/ActionQueue.js"
 import PrivateKey from "../../src/utils/PrivateKey.js"
 
 async function connectedPeers(): Promise<{
@@ -84,4 +86,97 @@ describe("asynchronous packet operation containment", () => {
             await closePeers(client, peer, server)
         }
     })
+
+    test("closes on a one-way request backlog beyond the bounded action queue", async () => {
+        const { client, peer, server } = await connectedPeers()
+        peer.queue = new ActionQueue(1)
+        let releaseRequest!: () => void
+        const requestReleased = new Promise<void>((resolve) => {
+            releaseRequest = resolve
+        })
+        let reportRequest!: () => void
+        const requestStarted = new Promise<void>((resolve) => {
+            reportRequest = resolve
+        })
+        server.hooker.hook("globalRequest", async () => {
+            reportRequest()
+            await requestReleased
+        })
+        const reported = once(peer, "error")
+        const clientClosed = once(client, "close")
+
+        try {
+            client.sendPacket(
+                new GlobalRequest({
+                    request_name: "held@example.test",
+                    want_reply: false,
+                    args: Buffer.alloc(0),
+                }),
+            )
+            await requestStarted
+            for (const name of ["waiting@example.test", "overflow@example.test"]) {
+                client.sendPacket(
+                    new GlobalRequest({
+                        request_name: name,
+                        want_reply: false,
+                        args: Buffer.alloc(0),
+                    }),
+                )
+            }
+
+            const [error] = await reported
+            expect(error).toBeInstanceOf(ActionQueueCapacityError)
+            expect(error.message).toBe("SSH action queue exceeds 1 waiting operations")
+            await clientClosed
+        } finally {
+            releaseRequest()
+            await closePeers(client, peer, server)
+        }
+    })
+
+    test("discards an old async request decision after reconnecting the same client", async () => {
+        const { client, peer, server } = await connectedPeers()
+        let releaseOldRequest!: () => void
+        const oldRequestReleased = new Promise<void>((resolve) => {
+            releaseOldRequest = resolve
+        })
+        let reportOldRequest!: () => void
+        const oldRequestStarted = new Promise<void>((resolve) => {
+            reportOldRequest = resolve
+        })
+        client.hooker.hook("globalRequest", async (_hook, context, controller) => {
+            if (context.name !== "old@example.test") return
+            reportOldRequest()
+            await oldRequestReleased
+            controller.success = true
+        })
+        server.hooker.hook("globalRequest", (_hook, context, controller) => {
+            if (context.name !== "new@example.test") return
+            controller.success = true
+            controller.response = Buffer.from("new connection")
+        })
+
+        try {
+            const oldRequest = peer.globalRequest("old@example.test").then(
+                () => undefined,
+                (error: unknown) => error,
+            )
+            await oldRequestStarted
+            const closed = once(client, "close")
+            client.destroy()
+            await closed
+            expect(await oldRequest).toBeInstanceOf(Error)
+
+            await client.connect()
+            releaseOldRequest()
+            await new Promise<void>((resolve) => setImmediate(resolve))
+            expect(client.isConnected).toBe(true)
+            await expect(client.globalRequest("new@example.test")).resolves.toEqual(
+                Buffer.from("new connection"),
+            )
+        } finally {
+            releaseOldRequest()
+            await closePeers(client, peer, server)
+        }
+    }, 15_000)
 })

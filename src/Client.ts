@@ -921,7 +921,8 @@ export default class Client extends EventEmitter<ClientEvents> {
     private readonly expectedInboundKeyExchangePackets = new Set<PacketType>()
     private discardNextGuessedKeyExchangePacket = false
     private readonly packetsQueuedDuringKeyExchange: Packet[] = []
-    private readonly actionQueue = new ActionQueue()
+    private actionQueue = new ActionQueue()
+    private connectionGeneration = 0
     private initialGSSAPIKeyExchangeContext?: GSSAPIKeyExchangeClientContext
 
     get serverHostKey(): Buffer | undefined {
@@ -988,6 +989,7 @@ export default class Client extends EventEmitter<ClientEvents> {
     }
 
     private resetConnectionState(): void {
+        this.connectionGeneration++
         this.packetEncoder.dispose()
         this.packetDecoder.dispose()
         this.disposeTransportAlgorithms()
@@ -1067,7 +1069,8 @@ export default class Client extends EventEmitter<ClientEvents> {
         this.expectedInboundKeyExchangePackets.clear()
         this.discardNextGuessedKeyExchangePacket = false
         this.packetsQueuedDuringKeyExchange.length = 0
-        this.actionQueue.actionQueues.clear()
+        this.actionQueue.close(new Error("SSH connection action queue was reset"))
+        this.actionQueue = new ActionQueue()
     }
 
     private async closeInitialGSSAPIKeyExchangeContext(): Promise<void> {
@@ -1374,7 +1377,7 @@ export default class Client extends EventEmitter<ClientEvents> {
         }
     }
 
-    private async handleServerHostKeys(packet: GlobalRequest): Promise<void> {
+    private async handleServerHostKeys(packet: GlobalRequest, generation: number): Promise<void> {
         const publicKeys: PublicKey[] = []
         const seen = new Set<string>()
         let raw = packet.data.args
@@ -1392,18 +1395,25 @@ export default class Client extends EventEmitter<ClientEvents> {
             }
         }
         if (publicKeys.length === 0) return
+        if (generation !== this.connectionGeneration) return
         if (!this.isConnected) await this.#waitEvent("connect")
+        if (generation !== this.connectionGeneration) return
         assert(this.sessionID, "SSH host-key proof requires an established session")
         const response = await this.sendGlobalRequest(
             "hostkeys-prove-00@openssh.com",
             Buffer.concat(publicKeys.map((publicKey) => serializeBuffer(publicKey.serialize()))),
         )
+        if (generation !== this.connectionGeneration) return
         const verified = parseHostKeysProofResponse(this.sessionID, publicKeys, response)
         this.debug(`Verified ${verified.length} of ${publicKeys.length} advertised SSH host keys`)
         if (verified.length !== 0) this.emit("hostKeys", verified)
     }
 
-    private async handleServerGlobalRequest(packet: GlobalRequest): Promise<void> {
+    private async handleServerGlobalRequest(
+        packet: GlobalRequest,
+        generation: number,
+    ): Promise<void> {
+        if (generation !== this.connectionGeneration) return
         this.debug(`Received global request packet:`, packet)
 
         if (packet.data.request_name === ELEVATION_EXTENSION && this.#options.elevation !== false) {
@@ -1424,7 +1434,7 @@ export default class Client extends EventEmitter<ClientEvents> {
             if (packet.data.want_reply) {
                 this.sendPacket(new RequestSuccess({ args: Buffer.alloc(0) }))
             }
-            void this.handleServerHostKeys(packet).catch((error: unknown) => {
+            void this.handleServerHostKeys(packet, generation).catch((error: unknown) => {
                 this.debug("Could not verify advertised SSH host keys:", error)
             })
             return
@@ -1442,7 +1452,7 @@ export default class Client extends EventEmitter<ClientEvents> {
             context,
             controller,
         )
-        if (!this.isConnected) return
+        if (!this.isConnected || generation !== this.connectionGeneration) return
         if (!packet.data.want_reply) return
         if (!policyCompleted || !controller.success) {
             this.sendPacket(new RequestFailure({}))
@@ -2223,6 +2233,7 @@ export default class Client extends EventEmitter<ClientEvents> {
                 this.debug("Socket closed")
                 this.socket = undefined
                 const closeError = this.connectionClosedError("SSH connection closed")
+                this.actionQueue.close(closeError)
                 for (const channel of this.channels.values()) channel.abort(closeError)
                 this.channels.clear()
                 this.remoteChannelIds.clear()
@@ -2784,9 +2795,12 @@ export default class Client extends EventEmitter<ClientEvents> {
         if (p instanceof Unimplemented) this.emit("unimplemented", p.data.sequence_number)
 
         if (p instanceof GlobalRequest) {
+            const generation = this.connectionGeneration
             void this.actionQueue
-                .queueAction("globalRequest", () => this.handleServerGlobalRequest(p))
-                .catch((error: Error) => this.socket?.destroy(error))
+                .queueAction("globalRequest", () => this.handleServerGlobalRequest(p, generation))
+                .catch((error: Error) => {
+                    if (this.isConnected) this.socket?.destroy(error)
+                })
         }
         this.routeGlobalRequestReply(p)
         this.routeChannelPacket(p)
@@ -3198,7 +3212,9 @@ export default class Client extends EventEmitter<ClientEvents> {
         } else if (packet instanceof ChannelRequest) {
             void this.actionQueue
                 .queueAction(`channelRequest:${recipient}`, () => channel.receiveRequest(packet))
-                .catch((error: Error) => this.handleMessageError(error))
+                .catch((error: Error) => {
+                    if (this.isConnected) this.handleMessageError(error)
+                })
         } else if (packet instanceof ChannelSuccess) {
             channel.receiveRequestSuccess()
         } else if (packet instanceof ChannelFailure) {

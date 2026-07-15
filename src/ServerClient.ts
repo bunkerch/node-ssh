@@ -302,6 +302,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             this.disposeTransportAlgorithms()
             this.state = SocketState.Disconnected
             const closeError = this.connectionClosedError("SSH connection closed")
+            this.queue.close(closeError)
             for (const forwarding of this.remoteForwardListeners.values()) forwarding.server.close()
             this.remoteForwardListeners.clear()
             for (const forwarding of this.remoteStreamLocalListeners.values()) {
@@ -1231,6 +1232,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             void this.queue
                 .queueAction("globalRequest", () => this.handleGlobalRequest(packet))
                 .catch((error: Error) => {
+                    if (!this.isConnected) return
                     this.emit("error", error)
                     this.terminate()
                 })
@@ -1256,6 +1258,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
 
     private startPacketOperation(operation: Promise<void>, description: string): void {
         void operation.catch((error: unknown) => {
+            if (!this.isConnected) return
             const failure = error instanceof Error ? error : new Error(String(error))
             this.debug(`Unhandled failure while processing SSH ${description}:`, failure)
             // Leave the rejected-promise chain before entering EventEmitter's synchronous error
@@ -3371,6 +3374,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 action(channel)
             })
             .catch((error: Error) => {
+                if (!this.isConnected) return
                 this.handleMessageError(error)
             })
     }
