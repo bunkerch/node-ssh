@@ -165,6 +165,40 @@ describe("RFC 4819 public-key subsystem server", () => {
         server.destroy()
     })
 
+    test("writes an application-defined full-width failure status", async () => {
+        let statusResolve!: (packet: PublicKeySubsystemPacket) => void
+        const status = new Promise<PublicKeySubsystemPacket>((resolve) => {
+            statusResolve = resolve
+        })
+        const fixture = new PublicKeySubsystemClientFixture((packet) => {
+            if (packet.type === "version") {
+                queueMicrotask(() => fixture.send({ type: "version", version: 2 }))
+            } else if (packet.type === "status") {
+                statusResolve(packet)
+            }
+        })
+        const server = new PublicKeySubsystemServer(asShell(fixture))
+        server.hooker.hook("remove", (_hook, _context, controller) => {
+            controller.failureCode = 0x0102_0304
+            controller.description = "private failure"
+        })
+
+        await once(server, "ready")
+        fixture.send({
+            type: "remove",
+            algorithm: "ssh-ed25519",
+            keyBlob: RFC_8709_KEY,
+        })
+
+        expect(await status).toEqual({
+            type: "status",
+            code: 0x0102_0304,
+            description: "private failure",
+            languageTag: "",
+        })
+        server.destroy()
+    })
+
     test("streams listed keys before the final success status", async () => {
         const responses: PublicKeySubsystemPacket[] = []
         let completeResolve!: () => void

@@ -235,11 +235,6 @@ export function decodePublicKeySubsystemPacket(frame: Buffer): PublicKeySubsyste
         }
         case "status": {
             const code = reader.uint32("status code")
-            if (code > 0xff) {
-                throw new PublicKeySubsystemProtocolError(
-                    "Public-key subsystem status code must be between 0 and 255",
-                )
-            }
             packet = {
                 type,
                 code,
@@ -344,9 +339,6 @@ export function encodePublicKeySubsystemPacket(packet: PublicKeySubsystemPacket)
             )
             break
         case "status":
-            if (!Number.isInteger(packet.code) || packet.code < 0 || packet.code > 0xff) {
-                throw new RangeError("Public-key subsystem status code must be between 0 and 255")
-            }
             parts.push(
                 uint32(packet.code, "status code"),
                 string(
