@@ -559,7 +559,9 @@ secret echo, performs Cygwin's discovery and credentialed exchanges on separate 
 and applies a 10-second idle deadline to each handshake. `handshakeTimeout: 0` disables that
 deadline; `maxSocketFileLength` may tighten the descriptor bound. On Windows only, an unreadable
 POSIX-style path is resolved once through `cygpath -w`. The negotiated stream then uses the same
-bounded RFC 9987 protocol client and may be forwarded like another stream-capable agent.
+bounded RFC 9987 protocol client and may be forwarded like another stream-capable agent. Descriptor
+contents, socket secrets, partial handshake reads, and discovered credential buffers are cleared
+after negotiation or failure.
 
 `OnePasswordAgent` uses the same protocol while discovering 1Password's default socket and
 marks signing as interactive. It discovers the application group socket on macOS,

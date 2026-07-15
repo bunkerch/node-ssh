@@ -101,6 +101,7 @@ async function readExactly(socket: Socket, length: number): Promise<Buffer> {
         }
         const fail = (error: Error): void => {
             cleanup()
+            result.fill(0)
             reject(error)
         }
         const onEnd = (): void =>
@@ -190,30 +191,43 @@ export default class CygwinAgent extends Agent<string> {
     async getStream(): Promise<Socket> {
         const descriptor = await this.#readSocketDescriptor()
         const emptyCredentials = Buffer.alloc(12)
-        let discoveredCredentials: Buffer
-        const discovery = await this.#connect(descriptor)
+        let discoveredCredentials: Buffer | undefined
+        let credentials: Buffer | undefined
         try {
-            discoveredCredentials = await this.#negotiate(
-                discovery,
-                descriptor.secret,
-                emptyCredentials,
-            )
-        } finally {
-            handshakeDeadlineCleanup.get(discovery)?.()
-            discovery.destroy()
-        }
+            const discovery = await this.#connect(descriptor)
+            try {
+                discoveredCredentials = await this.#negotiate(
+                    discovery,
+                    descriptor.secret,
+                    emptyCredentials,
+                )
+            } finally {
+                handshakeDeadlineCleanup.get(discovery)?.()
+                discovery.destroy()
+            }
 
-        const credentials = Buffer.from(discoveredCredentials)
-        credentials.writeUInt32LE(process.pid, 0)
-        const socket = await this.#connect(descriptor)
-        try {
-            await this.#negotiate(socket, descriptor.secret, credentials)
-            handshakeDeadlineCleanup.get(socket)?.()
-            return socket
-        } catch (error) {
-            handshakeDeadlineCleanup.get(socket)?.()
-            socket.destroy()
-            throw error
+            credentials = Buffer.from(discoveredCredentials)
+            credentials.writeUInt32LE(process.pid, 0)
+            const socket = await this.#connect(descriptor)
+            try {
+                const peerCredentials = await this.#negotiate(
+                    socket,
+                    descriptor.secret,
+                    credentials,
+                )
+                peerCredentials.fill(0)
+                handshakeDeadlineCleanup.get(socket)?.()
+                return socket
+            } catch (error) {
+                handshakeDeadlineCleanup.get(socket)?.()
+                socket.destroy()
+                throw error
+            }
+        } finally {
+            descriptor.secret.fill(0)
+            emptyCredentials.fill(0)
+            discoveredCredentials?.fill(0)
+            credentials?.fill(0)
         }
     }
 
@@ -249,7 +263,11 @@ export default class CygwinAgent extends Agent<string> {
                 })
             }
         }
-        return parseSocketDescriptor(data)
+        try {
+            return parseSocketDescriptor(data)
+        } finally {
+            data.fill(0)
+        }
     }
 
     async #connect(descriptor: CygwinSocketDescriptor): Promise<Socket> {
@@ -293,9 +311,10 @@ export default class CygwinAgent extends Agent<string> {
     }
 
     async #negotiate(socket: Socket, secret: Buffer, credentials: Buffer): Promise<Buffer> {
+        let echoedSecret: Buffer | undefined
         try {
             await writeAll(socket, secret)
-            const echoedSecret = await readExactly(socket, secret.length)
+            echoedSecret = await readExactly(socket, secret.length)
             if (!timingSafeEqual(echoedSecret, secret)) {
                 throw new CygwinAgentError("Cygwin agent returned the wrong socket secret")
             }
@@ -304,6 +323,8 @@ export default class CygwinAgent extends Agent<string> {
         } catch (error) {
             if (error instanceof CygwinAgentError) throw error
             throw new CygwinAgentError("Cygwin agent security handshake failed", { cause: error })
+        } finally {
+            echoedSecret?.fill(0)
         }
     }
 
