@@ -2,8 +2,8 @@ import crypto from "node:crypto"
 import type { EncryptionAlgorithm } from "../../algorithms.js"
 
 export default class CBC implements EncryptionAlgorithm {
-    private readonly encryptor: crypto.Cipheriv
-    private readonly decryptor: crypto.Decipheriv
+    private readonly encryptor: ReturnType<typeof crypto.createCipheriv>
+    private readonly decryptor: ReturnType<typeof crypto.createDecipheriv>
     private disposed = false
 
     constructor(

@@ -6,8 +6,8 @@ export default class AESNCTR implements EncryptionAlgorithm {
     static iv_length: number
     static block_size: number
 
-    private readonly encryptInstance: crypto.Cipheriv
-    private readonly decryptInstance: crypto.Decipheriv
+    private readonly encryptInstance: ReturnType<typeof crypto.createCipheriv>
+    private readonly decryptInstance: ReturnType<typeof crypto.createDecipheriv>
     private disposed = false
 
     constructor(algorithm: string, key: Buffer, iv: Buffer, expectedKeyLength: number) {

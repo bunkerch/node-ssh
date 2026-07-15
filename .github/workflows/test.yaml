@@ -21,6 +21,9 @@ jobs:
               with:
                   persist-credentials: false
 
+            - name: Install system test tools
+              run: sudo apt-get update && sudo apt-get install --yes libatomic1 putty-tools
+
             - name: Install pnpm
               uses: pnpm/action-setup@v4
               with:
@@ -31,9 +34,6 @@ jobs:
               with:
                   node-version: ${{ matrix.node-version }}
                   cache: pnpm
-
-            - name: Install system test tools
-              run: sudo apt-get update && sudo apt-get install --yes putty-tools
 
             - name: Install dependencies
               run: pnpm install --frozen-lockfile
