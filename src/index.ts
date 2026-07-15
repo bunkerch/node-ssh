@@ -370,6 +370,12 @@ export type {
 } from "./utils/PrivateKey.js"
 export { parseKey, parseKeys } from "./KeyParsing.js"
 export type { ParsedKey } from "./KeyParsing.js"
+export {
+    parseRFC4716PublicKey,
+    parseRFC4716PublicKeyFile,
+    serializeRFC4716PublicKey,
+} from "./utils/RFC4716.js"
+export type { RFC4716Header, RFC4716PublicKeyFile } from "./utils/RFC4716.js"
 export type {
     OpenSSHPrivateKeyCipher,
     OpenSSHPrivateKeyEncryptionOptions,

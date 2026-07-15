@@ -7,7 +7,11 @@ import { promisify } from "node:util"
 import { parseKey, parseKeys } from "../../src/KeyParsing.js"
 import PrivateKey from "../../src/utils/PrivateKey.js"
 import PublicKey from "../../src/utils/PublicKey.js"
-import { parseRFC4716PublicKey } from "../../src/utils/RFC4716.js"
+import {
+    parseRFC4716PublicKey,
+    parseRFC4716PublicKeyFile,
+    serializeRFC4716PublicKey,
+} from "../../src/utils/RFC4716.js"
 
 const execFileAsync = promisify(execFile)
 
@@ -35,6 +39,7 @@ describe("key parsing", () => {
         expect(parsed.data.alg).toBe("ssh-rsa")
         expect(parsed.data.comment).toBe("1024-bit RSA, converted from OpenSSH by me@example.com")
         expect(parsed.serialize().toString("base64")).toBe(rfc4716RSABody)
+        expect(parsed.hash("md5")).toBe("MD5:49:d7:de:af:5d:45:84:56:f8:ae:a0:6a:0c:c7:5d:69")
         expect(
             (parseKey(Buffer.from(rfc4716RSA.replaceAll("\n", "\r"))) as PublicKey).equals(parsed),
         ).toBe(true)
@@ -46,6 +51,49 @@ describe("key parsing", () => {
             "This key is used on production servers",
         )
         expect(() => parseKey(rfc4716RSA, "not-applicable")).toThrow("only valid for private keys")
+    })
+
+    test("preserves and serializes RFC 4716 headers within the physical line limit", () => {
+        const parsed = parseRFC4716PublicKeyFile(rfc4716RSA)
+        expect(parsed.headers).toEqual([
+            {
+                tag: "Comment",
+                value: '"1024-bit RSA, converted from OpenSSH by me@example.com"',
+            },
+            { tag: "x-command", value: "/home/me/bin/lock-in-guest.sh" },
+        ])
+        expect(Object.isFrozen(parsed)).toBe(true)
+        expect(Object.isFrozen(parsed.headers)).toBe(true)
+        expect(Object.isFrozen(parsed.headers[0])).toBe(true)
+        const canonical = serializeRFC4716PublicKey(parsed.publicKey, parsed.headers)
+        expect(parseRFC4716PublicKeyFile(canonical).headers).toEqual(parsed.headers)
+        expect(parseRFC4716PublicKey(canonical).equals(parsed.publicKey)).toBe(true)
+        expect(canonical).toContain(rfc4716RSAWrappedBody)
+
+        const headers = [
+            { tag: "Subject", value: "δοκιμή@example.test" },
+            { tag: "x-policy", value: `${"deploy/".repeat(20)}\\` },
+        ]
+        const serialized = serializeRFC4716PublicKey(parsed.publicKey, headers)
+        expect(
+            serialized
+                .trimEnd()
+                .split("\n")
+                .every((line) => Buffer.byteLength(line, "utf8") <= 72),
+        ).toBe(true)
+        const reparsed = parseRFC4716PublicKeyFile(serialized)
+        expect(reparsed.headers).toEqual(headers)
+        expect(reparsed.publicKey.equals(parsed.publicKey)).toBe(true)
+
+        expect(() => serializeRFC4716PublicKey({} as PublicKey)).toThrow("requires an SSH public")
+        expect(() =>
+            serializeRFC4716PublicKey(parsed.publicKey, [{ tag: "Comment", value: "bad\nvalue" }]),
+        ).toThrow("line ending")
+        expect(() =>
+            serializeRFC4716PublicKey(parsed.publicKey, [
+                { tag: "x".repeat(65), value: "too long" },
+            ]),
+        ).toThrow("tag exceeds 64 bytes")
     })
 
     test("strictly validates RFC 4716 framing, headers, text, and base64", () => {
@@ -98,6 +146,7 @@ describe("key parsing", () => {
         try {
             const keyPath = join(directory, "id_ed25519")
             const fixedPath = join(directory, "rfc-example.pub")
+            const serializedPath = join(directory, "serialized.pub")
             await execFileAsync("ssh-keygen", ["-q", "-t", "ed25519", "-N", "", "-f", keyPath])
             const expected = PublicKey.parseString(await readFile(`${keyPath}.pub`, "utf8"))
             const { stdout: exported } = await execFileAsync("ssh-keygen", [
@@ -120,6 +169,16 @@ describe("key parsing", () => {
             expect(PublicKey.parseString(imported).equals(parseKey(rfc4716RSA) as PublicKey)).toBe(
                 true,
             )
+
+            await writeFile(serializedPath, serializeRFC4716PublicKey(expected))
+            const { stdout: importedSerialized } = await execFileAsync("ssh-keygen", [
+                "-i",
+                "-m",
+                "RFC4716",
+                "-f",
+                serializedPath,
+            ])
+            expect(PublicKey.parseString(importedSerialized).equals(expected)).toBe(true)
         } finally {
             await rm(directory, { recursive: true, force: true })
         }

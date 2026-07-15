@@ -167,7 +167,14 @@ export default class PublicKey {
         return `${this.data.alg} ${this.serialize().toString("base64")}${this.data.comment ? ` ${this.data.comment}` : ""}`
     }
 
-    hash(algorithm: "sha256" | "sha512"): string {
+    hash(algorithm: "md5" | "sha256" | "sha512"): string {
+        if (algorithm === "md5") {
+            return `MD5:${createHash("md5")
+                .update(this.serialize())
+                .digest("hex")
+                .match(/.{2}/gu)!
+                .join(":")}`
+        }
         // generate an hash in the format
         // SHA256:wQpFbMmpXdJJtm6bwaHiBrEq827/0/n8RzBo7yIUlEg
         const hash = createHash(algorithm)

@@ -283,10 +283,10 @@ Public PEM interoperability covers generic SubjectPublicKeyInfo for Ed25519, RSA
 from its independently imported private half, and `ssh-keygen` accepts and fingerprints the
 canonical SSH public-key output. Unsupported X25519 public keys are rejected explicitly.
 
-RFC 4716 public-key import is checked against the document's literal RSA example and strict
-malformed framing, continuation, line-length, UTF-8, and base64 cases. A generated Ed25519 key is
-exported in RFC 4716 form by `ssh-keygen` and parsed through the package's unified key router;
-`ssh-keygen` also imports the fixed RFC example and produces the same canonical SSH key.
+RFC 4716 public-key import, serialization, unknown-header preservation, and legacy MD5 fingerprint
+display are checked against the document's literal RSA example and strict malformed framing,
+continuation, line-length, UTF-8, and base64 cases. Generated Ed25519 files are exchanged in both
+directions with `ssh-keygen`, including package-archive exports.
 
 PPK import uses the RFC 8032 Ed25519 seed, public key, and empty-message signature as a fixed
 private-key vector in both version 2 and version 3 envelopes. The system `puttygen` independently

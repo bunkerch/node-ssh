@@ -56,6 +56,7 @@ import {
     OPEN_MODE,
     parseKey,
     parseKeys,
+    parseRFC4716PublicKeyFile,
     PrivateKey,
     PrivateKeyAgent,
     ProtocolVersionExchange,
@@ -63,6 +64,7 @@ import {
     PublicKeyAlgorithm,
     PublicKeySubsystemClient,
     SecurityKeyAttestation,
+    serializeRFC4716PublicKey,
     PublicKeySubsystemServer,
     PublicKeySubsystemStatusCode,
     Server,
@@ -215,12 +217,14 @@ describe("package exports", () => {
             PageantAgent,
             parseKey,
             parseKeys,
+            parseRFC4716PublicKeyFile,
             PrivateKey,
             PrivateKeyAgent,
             ProtocolVersionExchange,
             PublicKey,
             PublicKeyAlgorithm,
             SecurityKeyAttestation,
+            serializeRFC4716PublicKey,
             Server,
             ServerClient,
             SessionChannel,
@@ -228,7 +232,7 @@ describe("package exports", () => {
             SSHAgent,
             SSHHTTPAgent,
             SSHHTTPSAgent,
-        ]).toHaveLength(46)
+        ]).toHaveLength(48)
         expect(
             new ChannelOpenError(
                 ChannelOpenFailureReasonCodes.SSH_OPEN_ADMINISTRATIVELY_PROHIBITED,
@@ -320,6 +324,8 @@ describe("package exports", () => {
         expect(entry.SecurityKeyAttestation).toBeFunction()
         expect(entry.KnownHosts).toBeFunction()
         expect(entry.parseKeys).toBeFunction()
+        expect(entry.parseRFC4716PublicKeyFile).toBeFunction()
+        expect(entry.serializeRFC4716PublicKey).toBeFunction()
         expect(entry.DirectTCPIPChannel).toBeDefined()
         expect(entry.DirectStreamLocalChannel).toBeDefined()
         expect(entry.DisconnectError).toBeFunction()
@@ -598,7 +604,7 @@ describe("package exports", () => {
                     const { mkdtemp, rm } = await import("node:fs/promises")
                     const { tmpdir } = await import("node:os")
                     const { join } = await import("node:path")
-                    const { ChannelOpenError, ChannelOpenFailureReasonCodes, Client, ClientForwardedStreamLocalChannel, ClientForwardedTCPIPChannel, ClientX11Channel, createSocketAgent, CygwinAgent, CygwinAgentError, DELAY_COMPRESSION_EXTENSION, delayCompressionExtension, discoverPageantAgentSocket, DisconnectError, DisconnectReason, ELEVATION_EXTENSION, EncodedSignature, generateKeyPair, generateKeyPairSync, KeyRevocationList, KnownHosts, MAX_OPENSSH_AGENT_SESSION_BINDINGS, MAX_SSH_AGENT_MESSAGE_LENGTH, NO_FLOW_CONTROL_EXTENSION, OnePasswordAgent, OPENSSH_AGENT_SECURITY_KEY_PROVIDER, OPENSSH_AGENT_SESSION_BIND, PageantAgent, PageantAgentError, parseKey, PrivateKey, PrivateKeyAgent, PublicKey, PublicKeySubsystemClient, PublicKeySubsystemServer, PublicKeySubsystemStatusCode, SecurityKeyAttestation, Server, SessionChannel, SSH_ED25519_SECURITY_KEY_ALGORITHM, SSHAgentConstraintType, SSHAgentExtensionFailureError, SSHAgentMessageType, SSHAgentProtocolClient, SSHAgentProtocolError, SSHAgentProtocolServer, SSHED25519SecurityKeyPrivateKey, SSHED25519SecurityKeyPublicKey } = await import("@bunkerch/modernssh")
+                    const { ChannelOpenError, ChannelOpenFailureReasonCodes, Client, ClientForwardedStreamLocalChannel, ClientForwardedTCPIPChannel, ClientX11Channel, createSocketAgent, CygwinAgent, CygwinAgentError, DELAY_COMPRESSION_EXTENSION, delayCompressionExtension, discoverPageantAgentSocket, DisconnectError, DisconnectReason, ELEVATION_EXTENSION, EncodedSignature, generateKeyPair, generateKeyPairSync, KeyRevocationList, KnownHosts, MAX_OPENSSH_AGENT_SESSION_BINDINGS, MAX_SSH_AGENT_MESSAGE_LENGTH, NO_FLOW_CONTROL_EXTENSION, OnePasswordAgent, OPENSSH_AGENT_SECURITY_KEY_PROVIDER, OPENSSH_AGENT_SESSION_BIND, PageantAgent, PageantAgentError, parseKey, parseRFC4716PublicKeyFile, PrivateKey, PrivateKeyAgent, PublicKey, PublicKeySubsystemClient, PublicKeySubsystemServer, PublicKeySubsystemStatusCode, SecurityKeyAttestation, serializeRFC4716PublicKey, Server, SessionChannel, SSH_ED25519_SECURITY_KEY_ALGORITHM, SSHAgentConstraintType, SSHAgentExtensionFailureError, SSHAgentMessageType, SSHAgentProtocolClient, SSHAgentProtocolError, SSHAgentProtocolServer, SSHED25519SecurityKeyPrivateKey, SSHED25519SecurityKeyPublicKey } = await import("@bunkerch/modernssh")
                     const { privateKey, publicKey } = await generateKeyPair("ed25519", {
                         comment: "packed@example.test",
                     })
@@ -620,6 +626,9 @@ describe("package exports", () => {
                     if (!synchronous.publicKey.verifySignature(message, synchronous.privateKey.sign(message))) process.exit(9)
                     const rfc4716 = "---- BEGIN SSH" + "2 PUBLIC KEY ----\\n" + publicKey.serialize().toString("base64") + "\\n---- END SSH" + "2 PUBLIC KEY ----\\n"
                     if (!parseKey(rfc4716).equals(publicKey)) process.exit(10)
+                    const serializedRFC4716 = serializeRFC4716PublicKey(publicKey, [{ tag: "x-packed", value: "preserve-me" }])
+                    const parsedRFC4716 = parseRFC4716PublicKeyFile(serializedRFC4716)
+                    if (!parsedRFC4716.publicKey.equals(publicKey) || parsedRFC4716.headers[0]?.value !== "preserve-me") process.exit(53)
                     const ppk = Buffer.from("UHVUVFktVXNlci1LZXktRmlsZS0zOiBzc2gtZWQyNTUxOQpFbmNyeXB0aW9uOiBub25lCkNvbW1lbnQ6IFJGQyA4MDMyIHRlc3QgdmVjdG9yIDEKUHVibGljLUxpbmVzOiAyCkFBQUFDM056YUMxbFpESTFOVEU1QUFBQUlOZGFtQUdDc1FxMzFVdiswOGxrQnpvTzRYTHoycVlqSmE4Q0dtajMKQjFFYQpQcml2YXRlLUxpbmVzOiAxCkFBQUFJSjFoc1ozdi9WcGd1b1JLOUpMc0xNUkVTY1ZwZXpKcEdYQTdyQU1jcm45ZwpQcml2YXRlLU1BQzogOWUxNzE1ZjEwNzM2ZWY1NTdiMDI0OWJkNjAxOWVjYTgyOTBhNjQ4ZDk3YjFmZjc1MmVlNmJlMDhkMDNiNzcxOQo=", "base64")
                     const importedPPK = parseKey(ppk)
                     if (!(importedPPK instanceof PrivateKey)) process.exit(11)

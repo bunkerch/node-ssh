@@ -413,11 +413,22 @@ decoded key blob to 8 MiB, and Argon2 settings to 256 MiB of memory, 100 passes,
 Comments must be valid UTF-8 without NUL or line endings. PPK support is import-only; serialize a
 loaded key with `PrivateKey.toString()` when an OpenSSH private-key container is required.
 
-RFC 4716 import accepts CR, LF, and CRLF files, preserves the case-insensitive `Comment` header on
-the returned `PublicKey`, joins backslash-continued headers, and ignores unrecognized headers as
-required by the format. It enforces the exact begin/end markers, 72-byte physical-line limit,
+RFC 4716 files can be read and written directly. Use `parseRFC4716PublicKey()` when only the key is
+needed, or `parseRFC4716PublicKeyFile()` when unknown headers must survive a rewrite:
+
+```ts
+import { parseRFC4716PublicKeyFile, serializeRFC4716PublicKey } from "@bunkerch/modernssh"
+
+const keyFile = parseRFC4716PublicKeyFile(await readFile("./deploy_key.pub"))
+const rewritten = serializeRFC4716PublicKey(keyFile.publicKey, keyFile.headers)
+```
+
+Import accepts CR, LF, and CRLF files, joins backslash-continued headers, and applies a
+case-insensitive `Comment` header to the returned `PublicKey`. Serialization folds headers and the
+base64 body to the format's 72-byte physical-line limit. It enforces the exact begin/end markers,
 64-byte ASCII header tags, 1,024-byte UTF-8 header values, and a body containing one canonical SSH
-public-key blob. No blank PEM-style separator or CRC is accepted.
+public-key blob. No blank PEM-style separator or CRC is accepted. `key.hash("md5")` provides the
+legacy colon-separated RFC 4716 fingerprint display; prefer `key.hash("sha256")` for trust policy.
 
 The private-key container format can hold more than one key. Use `parseKeys()`,
 `PrivateKey.parseAll()`, or `PrivateKey.fromStringAll()` when such a container is allowed; these
