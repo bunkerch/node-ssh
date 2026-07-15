@@ -400,8 +400,7 @@ export interface ClientEvents {
     ]
     "unix connection": [
         details: Readonly<StreamLocalConnectionDetails>,
-        accept: () => ClientForwardedStreamLocalChannel | undefined,
-        reject: () => void,
+        channel: ClientForwardedStreamLocalChannel,
     ]
     x11: [
         details: Readonly<X11ConnectionDetails>,
@@ -493,6 +492,10 @@ export type ClientHooker = {
     ]
     tcpConnection: [
         channel: ClientForwardedTCPIPChannel,
+        controller: ClientHookerIncomingChannelController,
+    ]
+    streamLocalConnection: [
+        channel: ClientForwardedStreamLocalChannel,
         controller: ClientHookerIncomingChannelController,
     ]
 }
@@ -3519,7 +3522,16 @@ export default class Client extends EventEmitter<ClientEvents> {
             return
         }
         if (packet.data.channel_type === ClientForwardedStreamLocalChannel.channelType) {
-            this.handleIncomingStreamLocalChannelOpen(packet)
+            const generation = this.connectionGeneration
+            void this.actionQueue
+                .queueAction(`incomingChannel:${packet.data.sender_channel_id}`, () =>
+                    this.handleIncomingStreamLocalChannelOpen(packet, generation),
+                )
+                .catch((error: Error) => {
+                    if (generation === this.connectionGeneration && this.isConnected) {
+                        this.handleMessageError(error)
+                    }
+                })
             return
         }
         if (packet.data.channel_type !== "forwarded-tcpip") {
@@ -3733,7 +3745,10 @@ export default class Client extends EventEmitter<ClientEvents> {
         )
     }
 
-    private handleIncomingStreamLocalChannelOpen(packet: ChannelOpen): void {
+    private async handleIncomingStreamLocalChannelOpen(
+        packet: ChannelOpen,
+        generation: number,
+    ): Promise<void> {
         const details = Object.freeze(
             ClientForwardedStreamLocalChannel.parseDetails(packet.data.args),
         )
@@ -3745,36 +3760,44 @@ export default class Client extends EventEmitter<ClientEvents> {
             )
             return
         }
-        if (this.listenerCount("unix connection") === 0) {
-            this.rejectIncomingChannel(
-                packet,
-                ChannelOpenFailureReasonCodes.SSH_OPEN_ADMINISTRATIVELY_PROHIBITED,
-                "No stream-local forwarding handler is registered",
+        const channel = new ClientForwardedStreamLocalChannel(this, packet)
+        this.pendingIncomingChannels.add(channel)
+        void channel.waitUntilOpen().catch(() => undefined)
+        try {
+            const controller: ClientHookerIncomingChannelController = { allowOpen: false }
+            const policyCompleted = await this.hooker.triggerHookChecked(
+                "streamLocalConnection",
+                channel,
+                controller,
             )
-            return
-        }
+            if (!this.canReplyToIncomingChannel(packet, generation)) return
+            if (!policyCompleted || !controller.allowOpen) {
+                const rejection =
+                    policyCompleted && controller.rejection
+                        ? controller.rejection
+                        : new ChannelOpenError(
+                              ChannelOpenFailureReasonCodes.SSH_OPEN_ADMINISTRATIVELY_PROHIBITED,
+                              "Remote stream-local forwarding connection was rejected",
+                          )
+                this.rejectIncomingChannel(
+                    packet,
+                    rejection.reasonCode,
+                    rejection.message,
+                    rejection.languageTag,
+                )
+                channel.abort()
+                return
+            }
 
-        let decided = false
-        const accept = (): ClientForwardedStreamLocalChannel | undefined => {
-            if (decided) return undefined
-            decided = true
-            const channel = new ClientForwardedStreamLocalChannel(this, packet)
+            channel.acceptOpen(packet)
             this.channels.set(channel.localId, channel)
             this.sendPacket(channel.getOpenConfirmationPacket())
             this.pendingRemoteChannelOpens.delete(packet.data.sender_channel_id)
-            return channel
+            this.emit("unix connection", channel.details, channel)
+        } finally {
+            this.pendingIncomingChannels.delete(channel)
+            if (!channel.isOpen && !channel.destroyed) channel.abort()
         }
-        const reject = (): void => {
-            if (decided) return
-            decided = true
-            this.rejectIncomingChannel(
-                packet,
-                ChannelOpenFailureReasonCodes.SSH_OPEN_ADMINISTRATIVELY_PROHIBITED,
-                "Remote stream-local forwarding connection was rejected",
-            )
-        }
-        this.emit("unix connection", details, accept, reject)
-        if (!decided) reject()
     }
 
     private rejectIncomingChannel(

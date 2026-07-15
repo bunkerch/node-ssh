@@ -705,11 +705,14 @@ describe("client/server integration", () => {
             await expect(serverPeer!.openssh_forwardOutStreamLocal("bad\0path")).rejects.toThrow(
                 "contain no NUL",
             )
-            const incomingUnix = new Promise<ClientForwardedStreamLocalChannel>((resolve) => {
-                client.once("unix connection", (_details, accept) => resolve(accept()!))
+            client.hooker.hook("streamLocalConnection", (_hook, _channel, controller) => {
+                controller.allowOpen = true
             })
+            const incomingUnix = once(client, "unix connection") as Promise<
+                [unknown, ClientForwardedStreamLocalChannel]
+            >
             const [clientUnix, serverUnix] = await Promise.all([
-                incomingUnix,
+                incomingUnix.then(([, channel]) => channel),
                 serverPeer!.openssh_forwardOutStreamLocal(streamLocalPath),
             ])
             const serverUnixData = new Promise<Buffer>((resolve) =>

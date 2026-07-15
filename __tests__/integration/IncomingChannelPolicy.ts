@@ -1,8 +1,12 @@
 import { once } from "node:events"
+import { mkdtemp, rm } from "node:fs/promises"
 import type { AddressInfo } from "node:net"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import Client from "../../src/Client.js"
 import Server from "../../src/Server.js"
 import type ServerClient from "../../src/ServerClient.js"
+import type ClientForwardedStreamLocalChannel from "../../src/channels/ClientForwardedStreamLocalChannel.js"
 import type ClientForwardedTCPIPChannel from "../../src/channels/ClientForwardedTCPIPChannel.js"
 import { SSHAuthenticationMethods } from "../../src/constants.js"
 import { ChannelOpenError } from "../../src/packets/ChannelOpenFailure.js"
@@ -40,6 +44,9 @@ async function createConnectedPeers(): Promise<{
     server.hooker.hook("tcpipForward", (_hook, context, controller) => {
         controller.allow = context.bindAddress === "127.0.0.1"
     })
+    server.hooker.hook("streamLocalForward", (_hook, _context, controller) => {
+        controller.allow = true
+    })
     let peer: ServerClient | undefined
     server.on("connection", (connection) => {
         peer = connection
@@ -52,6 +59,7 @@ async function createConnectedPeers(): Promise<{
         port: (server.address() as AddressInfo).port,
         username: "incoming-channel-policy-test",
         authenticationMethodsOrder: [SSHAuthenticationMethods.None],
+        strictVendor: false,
     })
     client.hooker.hook("hostKey", (_hook, controller) => {
         controller.allowHostKey = true
@@ -116,6 +124,57 @@ test("awaits client TCP forwarding policy before publishing the accepted channel
     }
 }, 15_000)
 
+test("awaits client stream-local forwarding policy before publishing the channel", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "modernssh-incoming-policy-"))
+    const socketPath = join(directory, "forwarded.sock")
+    const { server, peer, client } = await createConnectedPeers()
+    let releasePolicy!: () => void
+    const policyBlocked = new Promise<void>((resolve) => {
+        releasePolicy = resolve
+    })
+    let reportPolicyStarted!: () => void
+    const policyStarted = new Promise<void>((resolve) => {
+        reportPolicyStarted = resolve
+    })
+    client.hooker.hook("streamLocalConnection", async (_hook, channel, controller) => {
+        reportPolicyStarted()
+        expect(channel.details.socketPath).toBe(socketPath)
+        await policyBlocked
+        controller.allowOpen = true
+    })
+    const observed = once(client, "unix connection") as Promise<
+        [
+            details: Readonly<ClientForwardedStreamLocalChannel["details"]>,
+            channel: ClientForwardedStreamLocalChannel,
+        ]
+    >
+
+    try {
+        await client.openssh_forwardInStreamLocal(socketPath)
+        let serverSettled = false
+        const serverChannel = peer.openssh_forwardOutStreamLocal(socketPath).finally(() => {
+            serverSettled = true
+        })
+        void serverChannel.catch(() => undefined)
+        await within(policyStarted, "stream-local forwarding policy")
+        expect(serverSettled).toBe(false)
+
+        releasePolicy()
+        const [[details, clientChannel], acceptedServerChannel] = await Promise.all([
+            observed,
+            serverChannel,
+        ])
+        expect(details).toEqual(clientChannel.details)
+        expect(clientChannel.isOpen).toBe(true)
+        clientChannel.close()
+        acceptedServerChannel.close()
+    } finally {
+        releasePolicy()
+        await closePeers(server, peer, client)
+        await rm(directory, { recursive: true, force: true })
+    }
+}, 15_000)
+
 test("returns localized TCP policy denial without closing SSH", async () => {
     const { server, peer, client } = await createConnectedPeers()
     const port = await client.forwardIn("127.0.0.1", 0)
@@ -136,6 +195,30 @@ test("returns localized TCP policy denial without closing SSH", async () => {
         expect(client.isConnected).toBe(true)
     } finally {
         await closePeers(server, peer, client)
+    }
+}, 15_000)
+
+test("returns localized stream-local policy denial without closing SSH", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "modernssh-incoming-policy-denial-"))
+    const socketPath = join(directory, "forwarded.sock")
+    const { server, peer, client } = await createConnectedPeers()
+    client.hooker.hook("streamLocalConnection", async (_hook, _channel, controller) => {
+        await Promise.resolve()
+        controller.rejection = new ChannelOpenError(0xfe00_0004, "chemin interdit", "fr")
+    })
+
+    try {
+        await client.openssh_forwardInStreamLocal(socketPath)
+        await expect(peer.openssh_forwardOutStreamLocal(socketPath)).rejects.toMatchObject({
+            name: "ChannelOpenError",
+            reasonCode: 0xfe00_0004,
+            message: "chemin interdit",
+            languageTag: "fr",
+        })
+        expect(client.isConnected).toBe(true)
+    } finally {
+        await closePeers(server, peer, client)
+        await rm(directory, { recursive: true, force: true })
     }
 }, 15_000)
 
@@ -206,5 +289,49 @@ test("discards a TCP policy decision completed after transport teardown", async 
     } finally {
         releasePolicy()
         await closePeers(server, peer, client)
+    }
+}, 15_000)
+
+test("discards a stream-local policy decision completed after transport teardown", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "modernssh-incoming-policy-teardown-"))
+    const socketPath = join(directory, "forwarded.sock")
+    const { server, peer, client } = await createConnectedPeers()
+    let releasePolicy!: () => void
+    const policyBlocked = new Promise<void>((resolve) => {
+        releasePolicy = resolve
+    })
+    let reportPolicyStarted!: () => void
+    const policyStarted = new Promise<void>((resolve) => {
+        reportPolicyStarted = resolve
+    })
+    let proposedChannel: ClientForwardedStreamLocalChannel | undefined
+    let published = false
+    client.on("unix connection", () => {
+        published = true
+    })
+    client.hooker.hook("streamLocalConnection", async (_hook, channel, controller) => {
+        proposedChannel = channel
+        reportPolicyStarted()
+        await policyBlocked
+        controller.allowOpen = true
+    })
+
+    try {
+        await client.openssh_forwardInStreamLocal(socketPath)
+        const serverChannel = peer.openssh_forwardOutStreamLocal(socketPath)
+        void serverChannel.catch(() => undefined)
+        await within(policyStarted, "blocked stream-local forwarding policy")
+        const closed = once(client, "close")
+        client.destroy()
+        await closed
+        releasePolicy()
+
+        await expect(serverChannel).rejects.toThrow("SSH connection closed")
+        expect(proposedChannel?.destroyed).toBe(true)
+        expect(published).toBe(false)
+    } finally {
+        releasePolicy()
+        await closePeers(server, peer, client)
+        await rm(directory, { recursive: true, force: true })
     }
 }, 15_000)

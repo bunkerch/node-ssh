@@ -20,7 +20,6 @@ export default class ClientForwardedStreamLocalChannel extends ClientChannel {
         this.details = Object.freeze(
             ClientForwardedStreamLocalChannel.parseDetails(packet.data.args),
         )
-        this.acceptOpen(packet)
     }
 
     static parseDetails(raw: Buffer): StreamLocalConnectionDetails {

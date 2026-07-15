@@ -411,6 +411,9 @@ describe("package exports", () => {
         expect(client).toContain("tcpConnection: [")
         expect(client).toContain("channel: ClientForwardedTCPIPChannel")
         expect(client).not.toContain("accept: () => ClientForwardedTCPIPChannel")
+        expect(client).toContain("streamLocalConnection: [")
+        expect(client).toContain("channel: ClientForwardedStreamLocalChannel")
+        expect(client).not.toContain("accept: () => ClientForwardedStreamLocalChannel")
         expect(client).toContain("disconnect(error?: DisconnectError): this")
         expect(client).toContain("authenticationMethodsOrder?: readonly SSHAuthenticationMethods[]")
         expect(client).toContain("replyTimeout?: number")
@@ -584,7 +587,10 @@ describe("package exports", () => {
                     "--eval",
                     `
                     const { once } = await import("node:events")
-                    const { ChannelOpenError, ChannelOpenFailureReasonCodes, Client, ClientForwardedTCPIPChannel, createSocketAgent, CygwinAgent, CygwinAgentError, DELAY_COMPRESSION_EXTENSION, delayCompressionExtension, discoverPageantAgentSocket, DisconnectError, DisconnectReason, ELEVATION_EXTENSION, EncodedSignature, generateKeyPair, generateKeyPairSync, KeyRevocationList, KnownHosts, MAX_OPENSSH_AGENT_SESSION_BINDINGS, MAX_SSH_AGENT_MESSAGE_LENGTH, NO_FLOW_CONTROL_EXTENSION, OnePasswordAgent, OPENSSH_AGENT_SECURITY_KEY_PROVIDER, OPENSSH_AGENT_SESSION_BIND, PageantAgent, PageantAgentError, parseKey, PrivateKey, PrivateKeyAgent, PublicKey, PublicKeySubsystemClient, PublicKeySubsystemServer, PublicKeySubsystemStatusCode, SecurityKeyAttestation, Server, SessionChannel, SSH_ED25519_SECURITY_KEY_ALGORITHM, SSHAgentConstraintType, SSHAgentExtensionFailureError, SSHAgentMessageType, SSHAgentProtocolClient, SSHAgentProtocolError, SSHAgentProtocolServer, SSHED25519SecurityKeyPrivateKey, SSHED25519SecurityKeyPublicKey } = await import("@bunkerch/modernssh")
+                    const { mkdtemp, rm } = await import("node:fs/promises")
+                    const { tmpdir } = await import("node:os")
+                    const { join } = await import("node:path")
+                    const { ChannelOpenError, ChannelOpenFailureReasonCodes, Client, ClientForwardedStreamLocalChannel, ClientForwardedTCPIPChannel, createSocketAgent, CygwinAgent, CygwinAgentError, DELAY_COMPRESSION_EXTENSION, delayCompressionExtension, discoverPageantAgentSocket, DisconnectError, DisconnectReason, ELEVATION_EXTENSION, EncodedSignature, generateKeyPair, generateKeyPairSync, KeyRevocationList, KnownHosts, MAX_OPENSSH_AGENT_SESSION_BINDINGS, MAX_SSH_AGENT_MESSAGE_LENGTH, NO_FLOW_CONTROL_EXTENSION, OnePasswordAgent, OPENSSH_AGENT_SECURITY_KEY_PROVIDER, OPENSSH_AGENT_SESSION_BIND, PageantAgent, PageantAgentError, parseKey, PrivateKey, PrivateKeyAgent, PublicKey, PublicKeySubsystemClient, PublicKeySubsystemServer, PublicKeySubsystemStatusCode, SecurityKeyAttestation, Server, SessionChannel, SSH_ED25519_SECURITY_KEY_ALGORITHM, SSHAgentConstraintType, SSHAgentExtensionFailureError, SSHAgentMessageType, SSHAgentProtocolClient, SSHAgentProtocolError, SSHAgentProtocolServer, SSHED25519SecurityKeyPrivateKey, SSHED25519SecurityKeyPublicKey } = await import("@bunkerch/modernssh")
                     const { privateKey, publicKey } = await generateKeyPair("ed25519", {
                         comment: "packed@example.test",
                     })
@@ -663,6 +669,7 @@ describe("package exports", () => {
                     runtimeServer.hooker.hook("noneAuthentication", (_hook, _context, decision) => { decision.allowLogin = true })
                     runtimeServer.hooker.hook("channelOpenRequest", (_hook, channel, decision) => { decision.allowOpen = channel instanceof SessionChannel })
                     runtimeServer.hooker.hook("tcpipForward", (_hook, context, decision) => { decision.allow = context.bindAddress === "127.0.0.1" })
+                    runtimeServer.hooker.hook("streamLocalForward", (_hook, _context, decision) => { decision.allow = true })
                     let runtimeConnection
                     runtimeServer.on("connection", (connection) => {
                         runtimeConnection = connection
@@ -684,7 +691,7 @@ describe("package exports", () => {
                     await Promise.race([once(runtimeServer, "listening"), runtimeFailure])
                     const runtimeAddress = runtimeServer.address()
                     if (!runtimeAddress || typeof runtimeAddress === "string") process.exit(42)
-                    const runtimeClient = new Client({ hostname: "127.0.0.1", port: runtimeAddress.port, username: "packed-node" })
+                    const runtimeClient = new Client({ hostname: "127.0.0.1", port: runtimeAddress.port, username: "packed-node", strictVendor: false })
                     const runtimeBanners = []
                     runtimeClient.on("banner", (message, languageTag) => runtimeBanners.push([message, languageTag]))
                     runtimeClient.on("error", rejectRuntime)
@@ -711,6 +718,21 @@ describe("package exports", () => {
                     runtimeClientTCP.close()
                     runtimeServerTCPChannel.close()
                     await runtimeClient.unforwardIn("127.0.0.1", runtimeForwardedPort)
+                    const runtimeSocketDirectory = await mkdtemp(join(tmpdir(), "modernssh-packed-stream-local-"))
+                    const runtimeSocketPath = join(runtimeSocketDirectory, "forwarded.sock")
+                    runtimeClient.hooker.hook("streamLocalConnection", async (_hook, channel, decision) => {
+                        await Promise.resolve()
+                        if (channel.details.socketPath === runtimeSocketPath) decision.allowOpen = true
+                    })
+                    const runtimeStreamLocalConnection = once(runtimeClient, "unix connection")
+                    await runtimeClient.openssh_forwardInStreamLocal(runtimeSocketPath)
+                    const runtimeServerStreamLocal = runtimeConnection.openssh_forwardOutStreamLocal(runtimeSocketPath)
+                    const [[runtimeStreamLocalDetails, runtimeClientStreamLocal], runtimeServerStreamLocalChannel] = await Promise.all([runtimeStreamLocalConnection, runtimeServerStreamLocal])
+                    if (!(runtimeClientStreamLocal instanceof ClientForwardedStreamLocalChannel) || runtimeStreamLocalDetails !== runtimeClientStreamLocal.details) process.exit(51)
+                    runtimeClientStreamLocal.close()
+                    runtimeServerStreamLocalChannel.close()
+                    await runtimeClient.openssh_unforwardInStreamLocal(runtimeSocketPath)
+                    await rm(runtimeSocketDirectory, { recursive: true, force: true })
                     runtimeServer.hooker.hook("channelOpenRequest", (_hook, _channel, decision) => {
                         decision.allowOpen = false
                         decision.rejection = new ChannelOpenError(0xfe000002, "packed channel policy", "fr")

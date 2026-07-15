@@ -2671,8 +2671,10 @@ describe("OpenSSH interoperability", () => {
                 channel.on("data", (data: Buffer) => channel.write(data.toString().toUpperCase()))
                 channel.on("end", () => channel.close())
             })
-            client.on("unix connection", (_details, accept) => {
-                const channel = accept()!
+            client.hooker.hook("streamLocalConnection", (_hook, _channel, controller) => {
+                controller.allowOpen = true
+            })
+            client.on("unix connection", (_details, channel) => {
                 channel.on("data", (data: Buffer) => channel.write(data.toString().toUpperCase()))
                 channel.on("end", () => channel.close())
             })

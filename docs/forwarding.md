@@ -206,22 +206,21 @@ const socket = await client.openssh_forwardOutStreamLocal("/run/app/control.sock
 localSocket.pipe(socket).pipe(localSocket)
 ```
 
-For remote UNIX-socket forwarding, register a `unix connection` handler before requesting the
-listener. As with TCP forwarding, every incoming channel is denied unless its path exactly matches
-a successful request and the handler synchronously accepts it.
+For remote UNIX-socket forwarding, every incoming channel is denied unless its path exactly
+matches a successful request and the awaited `streamLocalConnection` Hooker policy approves it.
+The hook receives the proposed channel, so policy can authorize the immutable socket-path details
+and finish asynchronous local setup before setting `allowOpen`. The passive `unix connection`
+event runs only after confirmation and receives the already-open channel.
 
 ```ts
-client.on("unix connection", (details, accept, reject) => {
-    if (details.socketPath !== "/run/user/1000/modernssh.sock") {
-        reject()
+client.hooker.hook("streamLocalConnection", async (_hook, channel, decision) => {
+    if (!(await authorizeSocketPath(channel.details.socketPath))) {
         return
     }
 
-    const tunnel = accept()
-    if (tunnel) {
-        const localSocket = net.connect("/run/app/control.sock")
-        localSocket.pipe(tunnel).pipe(localSocket)
-    }
+    const localSocket = net.connect("/run/app/control.sock")
+    localSocket.pipe(channel).pipe(localSocket)
+    decision.allowOpen = true
 })
 
 await client.openssh_forwardInStreamLocal("/run/user/1000/modernssh.sock")
@@ -230,6 +229,9 @@ await client.openssh_unforwardInStreamLocal("/run/user/1000/modernssh.sock")
 
 Socket paths must be non-empty and cannot contain NUL. Filesystem ownership, permissions, stale
 socket replacement, and path visibility are controlled by the SSH server and its operating system.
+Policy can provide a `ChannelOpenError` in `decision.rejection` for a specific failure reason,
+description, and language tag. Decisions completed after transport teardown are discarded and the
+proposed channel is destroyed.
 
 ### Allowing UNIX-socket forwarding on a server
 
