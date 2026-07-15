@@ -329,8 +329,28 @@ describe("key parsing", () => {
         expect(() => PrivateKey.parseAll(empty)).toThrow("at least one key")
 
         const excessive = Buffer.from(raw)
-        excessive.writeUInt32BE(0xffffffff, 35)
+        excessive.writeUInt32BE(1000, 35)
         expect(() => PrivateKey.parseAll(excessive)).toThrow("Invalid private key count")
+
+        const tooMany = Buffer.from(raw)
+        tooMany.writeUInt32BE(1025, 35)
+        expect(() => PrivateKey.parseAll(tooMany)).toThrow("1024-key limit")
+        expect(() => PrivateKey.serializeMany(Array(1025).fill(first))).toThrow("1024-key limit")
+
+        const cipherOffset = raw.indexOf(Buffer.from("none"), 15)
+        const kdfOffset = raw.indexOf(Buffer.from("none"), cipherOffset + 4)
+        expect(cipherOffset).toBeGreaterThan(0)
+        expect(kdfOffset).toBeGreaterThan(cipherOffset)
+        const invalidCipherName = Buffer.from(raw)
+        invalidCipherName[cipherOffset] = 0x80
+        expect(() => PrivateKey.parseAll(invalidCipherName)).toThrow(
+            "OpenSSH private key cipher must be US-ASCII",
+        )
+        const invalidKDFName = Buffer.from(raw)
+        invalidKDFName[kdfOffset] = 0x80
+        expect(() => PrivateKey.parseAll(invalidKDFName)).toThrow(
+            "OpenSSH private key KDF must be US-ASCII",
+        )
 
         const swapped = Buffer.from(raw)
         const firstFrame = Buffer.concat([
@@ -352,6 +372,39 @@ describe("key parsing", () => {
         const badPadding = Buffer.from(raw)
         badPadding[badPadding.length - 1] ^= 0xff
         expect(() => PrivateKey.parseAll(badPadding)).toThrow("Invalid padding byte")
+    })
+
+    test("strictly validates and bounds OpenSSH private-key armor", async () => {
+        const key = await PrivateKey.generate("ssh-ed25519")
+        const armored = key.toString()
+        expect(
+            PrivateKey.fromString(`${armored.replaceAll("\n", "\r\n")}\r\n`).data.publicKey.equals(
+                key.data.publicKey,
+            ),
+        ).toBe(true)
+
+        const lines = armored.split("\n")
+        const invalidCharacter = [...lines]
+        invalidCharacter[1] = `!${invalidCharacter[1]!.slice(1)}`
+        expect(() => PrivateKey.fromString(invalidCharacter.join("\n"))).toThrow(
+            "Invalid private key base64",
+        )
+        expect(() => PrivateKey.fromString([lines[0], "AB==", lines.at(-1)].join("\n"))).toThrow(
+            "Non-canonical private key base64",
+        )
+        expect(() =>
+            PrivateKey.fromString([lines[0], lines[1], "", ...lines.slice(2)].join("\n")),
+        ).toThrow("contains a blank line")
+        expect(() => PrivateKey.fromString(` ${armored}`)).toThrow("begin marker")
+        expect(() => PrivateKey.fromString(armored.replace(lines[1]!, `é${lines[1]}`))).toThrow(
+            "must contain ASCII text",
+        )
+
+        expect(() => PrivateKey.parseAll(Buffer.alloc(16 * 1024 * 1024 + 1))).toThrow(
+            "exceeds 16777216 bytes",
+        )
+        const oversizedArmor = [lines[0], "A".repeat(24 * 1024 * 1024), lines.at(-1)].join("\n")
+        expect(() => PrivateKey.fromString(oversizedArmor)).toThrow("exceeds 25165824 bytes")
     })
 
     test("rejects unsupported public-key families", () => {

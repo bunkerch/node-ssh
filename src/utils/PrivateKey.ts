@@ -59,6 +59,40 @@ import {
     type ParsedPuTTYPrivateKey,
 } from "./PuTTYPrivateKey.js"
 
+const OPENSSH_PRIVATE_KEY_MAGIC = Buffer.from("openssh-key-v1", "ascii")
+const OPENSSH_PRIVATE_KEY_BEGIN_MARKER = "-----BEGIN OPENSSH PRIVATE KEY-----"
+const OPENSSH_PRIVATE_KEY_END_MARKER = "-----END OPENSSH PRIVATE KEY-----"
+const OPENSSH_PRIVATE_KEY_ARMOR_LINE_LENGTH = 70
+const MAX_OPENSSH_PRIVATE_KEY_LENGTH = 16 * 1024 * 1024
+const MAX_OPENSSH_PRIVATE_KEY_ARMOR_LENGTH = 24 * 1024 * 1024
+const MAX_OPENSSH_PRIVATE_KEYS = 1024
+
+function decodeOpenSSHPrivateKeyArmor(data: string): Buffer {
+    assert(
+        Buffer.byteLength(data, "utf8") <= MAX_OPENSSH_PRIVATE_KEY_ARMOR_LENGTH,
+        `OpenSSH private key armor exceeds ${MAX_OPENSSH_PRIVATE_KEY_ARMOR_LENGTH} bytes`,
+    )
+    assert(/^[\x20-\x7e\r\n]*$/u.test(data), "OpenSSH private key armor must contain ASCII text")
+
+    const lines = data.split(/\r\n|\n/u)
+    if (lines.at(-1) === "") lines.pop()
+    assert(lines[0] === OPENSSH_PRIVATE_KEY_BEGIN_MARKER, "Invalid private key begin marker")
+    assert(lines.at(-1) === OPENSSH_PRIVATE_KEY_END_MARKER, "Invalid private key end marker")
+    assert(lines.length >= 3, "OpenSSH private key armor has no body")
+
+    const body = lines.slice(1, -1)
+    assert(
+        body.every((line) => line.length > 0),
+        "OpenSSH private key armor contains a blank line",
+    )
+    const base64 = body.join("")
+    assert(/^[A-Za-z0-9+/]+={0,2}$/u.test(base64), "Invalid private key base64")
+    assert(base64.length % 4 === 0, "Invalid private key base64 length")
+    const decoded = Buffer.from(base64, "base64")
+    assert(decoded.toString("base64") === base64, "Non-canonical private key base64")
+    return decoded
+}
+
 export interface PrivateKeyData {
     publicKey: PublicKey
     alg: string
@@ -123,7 +157,10 @@ export default class PrivateKey {
         options?: OpenSSHPrivateKeyEncryptionOptions,
     ): Buffer {
         assert(keys.length > 0, "At least one private key is required")
-        assert(keys.length <= 0xffffffff, "Too many private keys")
+        assert(
+            keys.length <= MAX_OPENSSH_PRIVATE_KEYS,
+            `Private key container exceeds the ${MAX_OPENSSH_PRIVATE_KEYS}-key limit`,
+        )
         const cipherName = options?.cipher ?? "aes256-ctr"
         const blockLength = options ? getOpenSSHPrivateKeyCipherBlockLength(cipherName) : 8
         const prv: Buffer[] = []
@@ -181,8 +218,8 @@ export default class PrivateKey {
             authenticationTag = encrypted.authenticationTag
         }
 
-        return Buffer.concat([
-            serializeCString(Buffer.from("openssh-key-v1")),
+        const serialized = Buffer.concat([
+            serializeCString(OPENSSH_PRIVATE_KEY_MAGIC),
             serializeBuffer(Buffer.from(serializedCipherName)),
             serializeBuffer(Buffer.from(kdfName)),
             serializeBuffer(kdfOptions),
@@ -191,6 +228,11 @@ export default class PrivateKey {
             serializeBuffer(privatePayload),
             authenticationTag,
         ])
+        assert(
+            serialized.length <= MAX_OPENSSH_PRIVATE_KEY_LENGTH,
+            `OpenSSH private key exceeds ${MAX_OPENSSH_PRIVATE_KEY_LENGTH} bytes`,
+        )
+        return serialized
     }
 
     static parse(raw: Buffer, passphrase?: string | Buffer): PrivateKey {
@@ -200,10 +242,14 @@ export default class PrivateKey {
     }
 
     static parseAll(raw: Buffer, passphrase?: string | Buffer): PrivateKey[] {
+        assert(
+            raw.length <= MAX_OPENSSH_PRIVATE_KEY_LENGTH,
+            `OpenSSH private key exceeds ${MAX_OPENSSH_PRIVATE_KEY_LENGTH} bytes`,
+        )
         let authMagic: Buffer
         ;[authMagic, raw] = readNextCString(raw)
 
-        assert(authMagic.toString() === "openssh-key-v1", "Invalid magic string")
+        assert(authMagic.equals(OPENSSH_PRIVATE_KEY_MAGIC), "Invalid magic string")
 
         let cipherName: Buffer
         ;[cipherName, raw] = readNextBuffer(raw)
@@ -214,8 +260,8 @@ export default class PrivateKey {
         let kdfOptions: Buffer
         ;[kdfOptions, raw] = readNextBuffer(raw)
 
-        const cipher = cipherName.toString("utf8")
-        const kdf = kdfName.toString("utf8")
+        const cipher = decodeSSHName(cipherName, "OpenSSH private key cipher")
+        const kdf = decodeSSHName(kdfName, "OpenSSH private key KDF")
         if (cipher === "none") {
             assert(kdf === "none", "Invalid KDF for unencrypted OpenSSH private key")
             assert(kdfOptions.length === 0, "Invalid unencrypted OpenSSH private key KDF options")
@@ -226,6 +272,10 @@ export default class PrivateKey {
         let numKeys: number
         ;[numKeys, raw] = readNextUint32(raw)
         assert(numKeys > 0, "Private key container must contain at least one key")
+        assert(
+            numKeys <= MAX_OPENSSH_PRIVATE_KEYS,
+            `Private key container exceeds the ${MAX_OPENSSH_PRIVATE_KEYS}-key limit`,
+        )
         assert(numKeys <= Math.floor(raw.length / 4), "Invalid private key count")
 
         const publicKeys: PublicKey[] = []
@@ -311,12 +361,12 @@ export default class PrivateKey {
         keys: readonly PrivateKey[],
         options?: OpenSSHPrivateKeyEncryptionOptions,
     ): string {
-        const lines = [`-----BEGIN OPENSSH PRIVATE KEY-----`]
+        const lines = [OPENSSH_PRIVATE_KEY_BEGIN_MARKER]
         const b64 = PrivateKey.serializeMany(keys, options).toString("base64")
-        for (let i = 0; i < b64.length; i += 70) {
-            lines.push(b64.slice(i, i + 70))
+        for (let i = 0; i < b64.length; i += OPENSSH_PRIVATE_KEY_ARMOR_LINE_LENGTH) {
+            lines.push(b64.slice(i, i + OPENSSH_PRIVATE_KEY_ARMOR_LINE_LENGTH))
         }
-        lines.push(`-----END OPENSSH PRIVATE KEY-----`)
+        lines.push(OPENSSH_PRIVATE_KEY_END_MARKER)
 
         return lines.join("\n")
     }
@@ -334,21 +384,10 @@ export default class PrivateKey {
         if (isPuTTYPrivateKey(data)) {
             return [PrivateKey.fromPuTTY(data, passphrase)]
         }
-        if (!data.trimStart().startsWith("-----BEGIN OPENSSH PRIVATE KEY-----")) {
+        if (!data.trimStart().startsWith(OPENSSH_PRIVATE_KEY_BEGIN_MARKER)) {
             return [PrivateKey.fromPEM(data, passphrase)]
         }
-        const lines = data
-            .trim()
-            .split(/[\n\r]+/)
-            .map((line) => line.trim())
-
-        assert(lines[0] === "-----BEGIN OPENSSH PRIVATE KEY-----")
-        assert(lines[lines.length - 1] === "-----END OPENSSH PRIVATE KEY-----")
-
-        const base64 = lines.slice(1, -1).join("")
-        const raw = Buffer.from(base64, "base64")
-
-        return PrivateKey.parseAll(raw, passphrase)
+        return PrivateKey.parseAll(decodeOpenSSHPrivateKeyArmor(data), passphrase)
     }
 
     static fromPuTTY(data: string | Buffer, passphrase?: string | Buffer): PrivateKey {

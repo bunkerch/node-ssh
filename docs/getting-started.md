@@ -435,7 +435,13 @@ The private-key container format can hold more than one key. Use `parseKeys()`,
 return entries in wire order and verify every public envelope against its private entry. Singular
 parsers reject a multi-key container rather than choosing one implicitly. Create one with
 `PrivateKey.serializeMany(keys)` or `PrivateKey.toStringMany(keys)`, passing the same encryption
-options accepted by a single key.
+options accepted by a single key. Containers are limited to 1,024 keys and 16 MiB of binary data;
+armored input is limited to 24 MiB.
+
+Armored private-key parsing requires exact begin and end markers, ASCII content, non-empty body
+lines, and canonical padded base64. Both LF and CRLF line endings are accepted, with an optional
+final line ending. Whitespace around markers, blank body lines, invalid characters, and
+noncanonical pad bits are rejected instead of being silently discarded by the runtime decoder.
 
 `PrivateKey.fromString()` and `PrivateKey.parse()` accept an optional string or `Buffer`
 passphrase. They read the `openssh-key-v1` format produced by `ssh-keygen`, including Ed25519, RSA,
