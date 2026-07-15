@@ -20,7 +20,7 @@ const client = new Client({ hostname: "keys.example.com", username: "alice" })
 // Configure host-key verification and authentication before connecting.
 await client.connect()
 
-const publicKeys = await client.publicKeySubsystem()
+const publicKeys = await client.publicKeySubsystem({ requestTimeout: 30_000 })
 const key = PublicKey.parseString(await readFile("./id_ed25519.pub", "utf8"))
 
 const capabilities = await publicKeys.listAttributes()
@@ -68,6 +68,11 @@ try {
 RFC 4819 permits only one unacknowledged client request. Concurrent API calls are therefore queued
 and retain call order. `end()` gracefully ends the subsystem channel. `destroy(error?)` aborts it;
 pending and queued operations reject when the channel or SSH connection closes.
+`requestTimeout` bounds version negotiation and each serialized request reply. It defaults to the
+connection's `replyTimeout`; direct `PublicKeySubsystemClient.connect()` calls default to 30
+seconds. Expiry rejects the operation and closes only the subsystem channel, preventing a late
+untagged reply from being mistaken for a later operation while leaving the SSH connection usable.
+The value must be a positive finite number.
 
 ## Server
 

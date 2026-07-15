@@ -26,6 +26,11 @@ export interface PublicKeySubsystemAddOptions {
     readonly attributes?: readonly PublicKeySubsystemAttributeInput[]
 }
 
+export interface PublicKeySubsystemClientOptions {
+    /** Maximum milliseconds for subsystem initialization or a serialized request reply. */
+    requestTimeout?: number
+}
+
 export interface PublicKeySubsystemListedAttribute {
     readonly name: string
     readonly value: Buffer
@@ -64,6 +69,7 @@ interface PendingRequest {
 export default class PublicKeySubsystemClient {
     readonly protocolVersion = PUBLIC_KEY_SUBSYSTEM_VERSION
     readonly channel: ClientSessionChannel
+    readonly requestTimeout: number
 
     private readonly parser = new PublicKeySubsystemPacketParser()
     private initialized = false
@@ -74,8 +80,12 @@ export default class PublicKeySubsystemClient {
     private pending: PendingRequest | undefined
     private operationTail: Promise<void> = Promise.resolve()
 
-    private constructor(channel: ClientSessionChannel) {
+    private constructor(channel: ClientSessionChannel, options: PublicKeySubsystemClientOptions) {
         this.channel = channel
+        this.requestTimeout = options.requestTimeout ?? 30_000
+        if (!Number.isFinite(this.requestTimeout) || this.requestTimeout <= 0) {
+            throw new RangeError("Public-key subsystem request timeout must be a positive number")
+        }
         this.ready = new Promise<void>((resolve, reject) => {
             this.readyResolve = resolve
             this.readyReject = reject
@@ -86,14 +96,22 @@ export default class PublicKeySubsystemClient {
         channel.once("error", (error) => this.fail(error))
     }
 
-    static async connect(channel: ClientSessionChannel): Promise<PublicKeySubsystemClient> {
-        const client = new PublicKeySubsystemClient(channel)
+    static async connect(
+        channel: ClientSessionChannel,
+        options: PublicKeySubsystemClientOptions = {},
+    ): Promise<PublicKeySubsystemClient> {
+        const client = new PublicKeySubsystemClient(channel, { ...options })
         try {
-            await client.writePacket({
-                type: "version",
-                version: PUBLIC_KEY_SUBSYSTEM_VERSION,
-            })
-            await client.ready
+            await client.waitForResponse(
+                Promise.all([
+                    client.writePacket({
+                        type: "version",
+                        version: PUBLIC_KEY_SUBSYSTEM_VERSION,
+                    }),
+                    client.ready,
+                ]).then(() => undefined),
+                "initialization",
+            )
             return client
         } catch (error) {
             if (!client.closed) {
@@ -287,7 +305,24 @@ export default class PublicKeySubsystemClient {
             this.pending = undefined
             pending.reject(error instanceof Error ? error : new Error(String(error)))
         })
-        return response
+        return this.waitForResponse(response, "request reply")
+    }
+
+    private async waitForResponse<T>(operation: Promise<T>, description: string): Promise<T> {
+        let timer: NodeJS.Timeout | undefined
+        const timeout = new Promise<never>((_resolve, reject) => {
+            timer = setTimeout(() => {
+                const error = new Error(`Timed out waiting for public-key subsystem ${description}`)
+                reject(error)
+                this.destroy(error)
+            }, this.requestTimeout)
+            timer.unref()
+        })
+        try {
+            return await Promise.race([operation, timeout])
+        } finally {
+            if (timer !== undefined) clearTimeout(timer)
+        }
     }
 
     private receive(data: Buffer): void {

@@ -104,8 +104,8 @@ in both peer roles. These replies have no independent request identifier and mus
 so expiry closes the connection: accepting a late reply while continuing would risk matching it to
 later work. The value must be a positive number; choose it above the longest application hook that
 is expected to answer a reply-requesting operation.
-New SFTP sessions inherit this value as their tagged `requestTimeout`, which can be overridden per
-session without changing the connection-wide deadline.
+New SFTP and public-key management sessions inherit this value as their `requestTimeout`, which can
+be overridden per session without changing the connection-wide deadline.
 
 For direct TCP connections, `localAddress` and `localPort` select the source binding. Set exactly
 one of `forceIPv4` or `forceIPv6` to restrict hostname resolution to that address family. If both

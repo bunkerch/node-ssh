@@ -294,6 +294,7 @@ export {
 export type {
     PublicKeySubsystemAddOptions,
     PublicKeySubsystemAttributeInput,
+    PublicKeySubsystemClientOptions,
     PublicKeySubsystemKey,
     PublicKeySubsystemListedAttribute,
     PublicKeySubsystemSupportedAttribute,

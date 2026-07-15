@@ -136,7 +136,9 @@ import {
     UserAuthGSSAPIToken,
 } from "./packets/UserAuthGSSAPI.js"
 import SFTPClient, { type SFTPClientOptions } from "./sftp/SFTPClient.js"
-import PublicKeySubsystemClient from "./publickey/PublicKeySubsystemClient.js"
+import PublicKeySubsystemClient, {
+    type PublicKeySubsystemClientOptions,
+} from "./publickey/PublicKeySubsystemClient.js"
 import {
     resolveClientAlgorithmOptions,
     type ClientAlgorithmOptions,
@@ -1236,11 +1238,16 @@ export default class Client extends EventEmitter<ClientEvents> {
         })
     }
 
-    publicKeySubsystem(): Promise<PublicKeySubsystemClient> {
+    publicKeySubsystem(
+        options: PublicKeySubsystemClientOptions = {},
+    ): Promise<PublicKeySubsystemClient> {
+        const subsystemOptions = { ...options }
         return this.openSessionChannel().then(async (channel) => {
             try {
                 await channel.subsystem("publickey")
-                return await PublicKeySubsystemClient.connect(channel)
+                return await PublicKeySubsystemClient.connect(channel, {
+                    requestTimeout: subsystemOptions.requestTimeout ?? this.#options.replyTimeout,
+                })
             } catch (error) {
                 channel.close()
                 throw error

@@ -46,11 +46,71 @@ class PublicKeySubsystemServerFixture extends Duplex {
     }
 }
 
-function asClientChannel(channel: PublicKeySubsystemServerFixture): ClientSessionChannel {
+class BlockedPublicKeySubsystemChannel extends Duplex {
+    _read(): void {
+        void this.readable
+    }
+
+    _write(
+        _chunk: Buffer,
+        _encoding: BufferEncoding,
+        callback: (error?: Error | null) => void,
+    ): void {
+        void callback
+    }
+
+    _destroy(_error: Error | null, callback: (error?: Error | null) => void): void {
+        callback()
+    }
+}
+
+function asClientChannel(channel: Duplex): ClientSessionChannel {
     return channel as unknown as ClientSessionChannel
 }
 
 describe("RFC 4819 public-key subsystem client", () => {
+    test("validates a finite positive request timeout before initialization", async () => {
+        for (const requestTimeout of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+            const fixture = new PublicKeySubsystemServerFixture(() => undefined)
+            await expect(
+                PublicKeySubsystemClient.connect(asClientChannel(fixture), { requestTimeout }),
+            ).rejects.toThrow("Public-key subsystem request timeout must be a positive number")
+            fixture.destroy()
+        }
+    })
+
+    test("closes a session that does not answer initialization", async () => {
+        const fixture = new PublicKeySubsystemServerFixture(() => undefined)
+
+        await expect(
+            PublicKeySubsystemClient.connect(asClientChannel(fixture), { requestTimeout: 20 }),
+        ).rejects.toThrow("Timed out waiting for public-key subsystem initialization")
+        expect(fixture.destroyed).toBe(true)
+    })
+
+    test("bounds an initialization frame blocked by channel flow control", async () => {
+        const channel = new BlockedPublicKeySubsystemChannel()
+
+        await expect(
+            PublicKeySubsystemClient.connect(asClientChannel(channel), { requestTimeout: 20 }),
+        ).rejects.toThrow("Timed out waiting for public-key subsystem initialization")
+        expect(channel.destroyed).toBe(true)
+    })
+
+    test("closes a session that does not acknowledge a request", async () => {
+        const fixture = new PublicKeySubsystemServerFixture((packet) => {
+            if (packet.type === "version") fixture.send({ type: "version", version: 2 })
+        })
+        const client = await PublicKeySubsystemClient.connect(asClientChannel(fixture), {
+            requestTimeout: 20,
+        })
+
+        await expect(client.list()).rejects.toThrow(
+            "Timed out waiting for public-key subsystem request reply",
+        )
+        expect(fixture.destroyed).toBe(true)
+    })
+
     test("exchanges version 2 before exposing the client", async () => {
         const received: PublicKeySubsystemPacket[] = []
         const fixture = new PublicKeySubsystemServerFixture((packet) => {

@@ -376,6 +376,7 @@ describe("package exports", () => {
         expect(client).toContain("authenticationMethodsOrder?: readonly SSHAuthenticationMethods[]")
         expect(client).toContain("replyTimeout?: number")
         expect(client).toContain("options?: SFTPClientOptions")
+        expect(client).toContain("publicKeySubsystem(options?: PublicKeySubsystemClientOptions)")
         expect(client).toContain("hostbased?: Readonly<ClientHostbasedOptions>")
         expect(client).toContain("get elevated(): boolean | undefined")
         expect(client).toContain("delayCompression?: DelayCompressionConfiguration")
@@ -495,6 +496,11 @@ describe("package exports", () => {
         expect(publicKeySubsystemClient).toContain("add(key: PublicKey")
         expect(publicKeySubsystemClient).toContain("remove(key: PublicKey): Promise<void>")
         expect(publicKeySubsystemClient).toContain("list(): Promise<")
+        expect(publicKeySubsystemClient).toContain(
+            "export interface PublicKeySubsystemClientOptions",
+        )
+        expect(publicKeySubsystemClient).toContain("requestTimeout?: number")
+        expect(publicKeySubsystemClient).toContain("readonly requestTimeout: number")
         expect(publicKeySubsystemClient).toContain("listAttributes(): Promise<")
         expect(publicKeySubsystemClient).toContain("end(): void")
         expect(publicKeySubsystemClient).not.toContain("callback")
