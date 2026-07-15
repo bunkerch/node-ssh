@@ -1543,18 +1543,26 @@ export default class Client extends EventEmitter<ClientEvents> {
             const response = await this.sendGlobalRequest("tcpip-forward", args)
             let actualPort = bindPort
             if (bindPort === 0) {
-                let remaining: Buffer
-                ;[actualPort, remaining] = readNextUint32(response)
-                if (remaining.length !== 0 || actualPort === 0 || actualPort > 65_535) {
-                    throw new Error("Invalid allocated port in tcpip-forward success response")
+                if (response.length !== 4) {
+                    this.failGlobalRequestResponse(
+                        "Invalid allocated port in tcpip-forward success response",
+                    )
+                }
+                ;[actualPort] = readNextUint32(response)
+                if (actualPort === 0 || actualPort > 65_535) {
+                    this.failGlobalRequestResponse(
+                        "Invalid allocated port in tcpip-forward success response",
+                    )
                 }
             } else if (response.length !== 0) {
-                throw new Error("Unexpected data in tcpip-forward success response")
+                this.failGlobalRequestResponse("Unexpected data in tcpip-forward success response")
             }
 
             const key = this.remoteForwardingKey(bindAddress, actualPort)
             if (this.remoteForwardings.has(key)) {
-                throw new Error(`Remote forwarding already exists for ${bindAddress}:${actualPort}`)
+                this.failGlobalRequestResponse(
+                    `Server allocated an active remote forwarding port for ${bindAddress}:${actualPort}`,
+                )
             }
             this.remoteForwardings.set(key, { bindAddress, bindPort: actualPort })
             return actualPort
@@ -1570,7 +1578,7 @@ export default class Client extends EventEmitter<ClientEvents> {
             Buffer.alloc(0),
         )
         if (response.length !== 0) {
-            throw new Error("Unexpected data in no-more-sessions success response")
+            this.failGlobalRequestResponse("Unexpected data in no-more-sessions success response")
         }
     }
 
@@ -1580,13 +1588,18 @@ export default class Client extends EventEmitter<ClientEvents> {
         if (!this.remoteForwardings.has(key)) {
             throw new Error(`No remote forwarding exists for ${bindAddress}:${bindPort}`)
         }
-        await this.sendGlobalRequest(
+        const response = await this.sendGlobalRequest(
             "cancel-tcpip-forward",
             Buffer.concat([
                 serializeBuffer(encodeSSHUTF8(bindAddress, "TCP forwarding bind address")),
                 serializeUint32(bindPort),
             ]),
         )
+        if (response.length !== 0) {
+            this.failGlobalRequestResponse(
+                "Unexpected data in cancel-tcpip-forward success response",
+            )
+        }
         this.remoteForwardings.delete(key)
     }
 
@@ -1601,10 +1614,15 @@ export default class Client extends EventEmitter<ClientEvents> {
         }
         this.pendingRemoteStreamLocalForwardings.add(socketPath)
         try {
-            await this.sendGlobalRequest(
+            const response = await this.sendGlobalRequest(
                 "streamlocal-forward@openssh.com",
                 serializeBuffer(encodeSSHUTF8(socketPath, "stream-local forwarding socket path")),
             )
+            if (response.length !== 0) {
+                this.failGlobalRequestResponse(
+                    "Unexpected data in streamlocal-forward success response",
+                )
+            }
             this.remoteStreamLocalForwardings.add(socketPath)
         } finally {
             this.pendingRemoteStreamLocalForwardings.delete(socketPath)
@@ -1617,10 +1635,15 @@ export default class Client extends EventEmitter<ClientEvents> {
         if (!this.remoteStreamLocalForwardings.has(socketPath)) {
             throw new Error(`No remote stream-local forwarding exists for ${socketPath}`)
         }
-        await this.sendGlobalRequest(
+        const response = await this.sendGlobalRequest(
             "cancel-streamlocal-forward@openssh.com",
             serializeBuffer(encodeSSHUTF8(socketPath, "stream-local forwarding socket path")),
         )
+        if (response.length !== 0) {
+            this.failGlobalRequestResponse(
+                "Unexpected data in cancel-streamlocal-forward success response",
+            )
+        }
         this.remoteStreamLocalForwardings.delete(socketPath)
     }
 
@@ -1649,6 +1672,12 @@ export default class Client extends EventEmitter<ClientEvents> {
         if (!Buffer.isBuffer(args)) {
             throw new TypeError("SSH global request arguments must be a buffer")
         }
+    }
+
+    private failGlobalRequestResponse(message: string): never {
+        const error = new ProtocolError(message)
+        this.disconnect(error)
+        throw error
     }
 
     private validatePort(port: number, name: string): void {

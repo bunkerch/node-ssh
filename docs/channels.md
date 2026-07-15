@@ -158,7 +158,8 @@ Promise. The request is irreversible for the connection. Existing session
 channels and non-session channel types are unaffected, while a `modernssh` server rejects later
 session opens before invoking application channel policy. OpenSSH may enforce the request by
 disconnecting a client that attempts another session, so pending channel operations are rejected
-when that disconnect arrives.
+when that disconnect arrives. A successful reply has no response data; unexpected data is a
+protocol error and closes the connection because the peer has already applied irreversible state.
 
 OpenSSH-specific client APIs require a compatible OpenSSH server identification by default. Set
 `strictVendor: false` on `Client` only when a non-OpenSSH peer is known to implement these vendor

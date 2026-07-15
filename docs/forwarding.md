@@ -145,6 +145,11 @@ description, and RFC 3066 language tag. A policy decision that completes after t
 is discarded and its proposed channel is destroyed. Destroying the proposed channel during policy
 denies the open even if a later handler sets `allowOpen`.
 
+Only a successful dynamic-port request carries response data: exactly one nonzero port in the
+unsigned 16-bit range. Successful fixed-port and cancellation replies carry no data. A malformed
+success closes the SSH connection because the peer may already have changed its listener state and
+the client cannot safely continue with an untracked forwarding.
+
 ### Allowing remote forwarding on a server
 
 Server-side remote forwarding is denied by default. The `tcpipForward` policy hook receives the
@@ -245,6 +250,9 @@ Policy can provide a `ChannelOpenError` in `decision.rejection` for a specific f
 description, and language tag. Decisions completed after transport teardown are discarded and the
 proposed channel is destroyed. A channel destroyed during policy cannot be confirmed by a later
 approval.
+
+Stream-local forwarding and cancellation success replies carry no response data. A malformed
+success closes the connection so an accepted but untracked remote listener cannot survive.
 
 ### Allowing UNIX-socket forwarding on a server
 
