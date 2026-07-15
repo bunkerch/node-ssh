@@ -34,6 +34,9 @@ relevant file under `docs/`.
 - `pnpm format:check`: verify formatting.
 - `pnpm pack`: build a consumer-installable archive.
 
+GitHub Actions jobs run on the Linux `bunkerch-sysbox` runner. Do not add Windows-hosted jobs or
+Windows test matrices unless the maintainer explicitly requests them.
+
 Before committing, run the focused tests for the change, then `pnpm build`, `pnpm lint`,
 `pnpm format:check`, and `pnpm test`. Do not bypass the Husky/pre-commit checks.
 

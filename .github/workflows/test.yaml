@@ -42,6 +42,7 @@ jobs:
               run: pnpm test
 
     pageant:
+        if: ${{ false }}
         runs-on: windows-latest
         timeout-minutes: 20
         steps:
