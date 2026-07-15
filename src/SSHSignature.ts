@@ -8,6 +8,7 @@ import PublicKey, { SSHCertificatePublicKey, SSHRSAPublicKey } from "./utils/Pub
 import EncodedSignature from "./utils/Signature.js"
 import { decodeSSHName, encodeSSHName } from "./utils/SSHName.js"
 import { encodeSSHUTF8 } from "./utils/SSHText.js"
+import { isPlainConfigurationObject } from "./utils/Configuration.js"
 
 const MAGIC = Buffer.from("SSHSIG", "ascii")
 const FORMAT_VERSION = 1
@@ -24,6 +25,21 @@ export interface SSHSignatureOptions {
     namespace: string | Buffer
     /** Message digest placed in the signed preimage. Defaults to `sha512`. */
     hashAlgorithm?: SSHSignatureHashAlgorithm
+}
+
+interface NormalizedSSHSignatureOptions {
+    readonly namespace: Buffer
+    readonly hashAlgorithm: SSHSignatureHashAlgorithm
+}
+
+function normalizeSigningOptions(options: SSHSignatureOptions): NormalizedSSHSignatureOptions {
+    if (!isPlainConfigurationObject(options)) {
+        throw new TypeError("SSH signature options must be an object")
+    }
+    return Object.freeze({
+        namespace: normalizeNamespace(options.namespace),
+        hashAlgorithm: normalizeHashAlgorithm(options.hashAlgorithm ?? "sha512"),
+    })
 }
 
 interface SSHSignatureData {
@@ -77,8 +93,7 @@ export default class SSHSignature {
         if (!(privateKey instanceof PrivateKey)) {
             throw new TypeError("SSH signature signing requires a private key")
         }
-        const namespace = normalizeNamespace(options.namespace)
-        const hashAlgorithm = normalizeHashAlgorithm(options.hashAlgorithm ?? "sha512")
+        const { namespace, hashAlgorithm } = normalizeSigningOptions(options)
         const digest = createHash(hashAlgorithm).update(message).digest()
         const signedData = buildSignedData(namespace, hashAlgorithm, digest)
         try {
@@ -112,21 +127,30 @@ export default class SSHSignature {
         if (!(agent instanceof Agent)) {
             throw new TypeError("SSH signature agent signing requires an agent")
         }
+        const { namespace, hashAlgorithm } = normalizeSigningOptions(options)
         const ownedMessage = Buffer.from(message)
-        const namespace = normalizeNamespace(options.namespace)
-        const hashAlgorithm = normalizeHashAlgorithm(options.hashAlgorithm ?? "sha512")
         const digest = createHash(hashAlgorithm).update(ownedMessage).digest()
         const signedData = buildSignedData(namespace, hashAlgorithm, digest)
         ownedMessage.fill(0)
         try {
-            const publicKey = await agent.getPublicKey(id)
-            const signature = await agent.sign(
-                id,
-                signedData,
-                underlyingPublicKey(publicKey).data.algorithm instanceof SSHRSAPublicKey
-                    ? rsaSignatureAlgorithm(hashAlgorithm)
-                    : undefined,
-            )
+            const suppliedPublicKey = await agent.getPublicKey(id)
+            if (!(suppliedPublicKey instanceof PublicKey)) {
+                throw new TypeError("SSH signature agent returned an invalid public key")
+            }
+            const publicKey = PublicKey.parse(suppliedPublicKey.serialize())
+            const agentSignedData = Buffer.from(signedData)
+            let signature: EncodedSignature
+            try {
+                signature = await agent.sign(
+                    id,
+                    agentSignedData,
+                    underlyingPublicKey(publicKey).data.algorithm instanceof SSHRSAPublicKey
+                        ? rsaSignatureAlgorithm(hashAlgorithm)
+                        : undefined,
+                )
+            } finally {
+                agentSignedData.fill(0)
+            }
             assert(
                 publicKey.verifySignature(signedData, signature),
                 "SSH agent returned an invalid detached signature",

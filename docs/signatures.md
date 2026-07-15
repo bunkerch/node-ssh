@@ -90,8 +90,10 @@ apply namespace restrictions. Use `verify()` for a security decision.
 
 Use `signWithAgent()` when private material belongs to a local, forwarded, hardware-backed, or
 application-defined `Agent`. The method resolves the selected public key, requests the signature,
-and cryptographically checks the agent response before returning it. The message is copied before
-the first awaited agent operation.
+and cryptographically checks the agent response before returning it. The message and options are
+validated and copied before the first awaited agent operation. The public key returned by the agent
+is serialized into an owned key before signing, and the agent receives a disposable copy of the
+verification preimage; agent-side mutation cannot rewrite the key or bytes used for verification.
 
 ```ts
 const [[id]] = await agent.getPublicKeys()

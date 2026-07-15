@@ -109,6 +109,49 @@ describe("detached SSH signatures", () => {
                 namespace: "artifact",
             }),
         ).rejects.toThrow("invalid detached signature")
+
+        const expectedPublicKey = PublicKey.parse(privateKey.data.publicKey.serialize())
+        const replacement = PrivateKey.generateSync("ssh-ed25519").data.publicKey
+        class MutatingAgent extends PrivateKeyAgent {
+            override async sign(id: string, data: Buffer, algorithm?: string) {
+                const result = await super.sign(id, data, algorithm)
+                data.fill(0)
+                privateKey.data.publicKey.data = { ...replacement.data }
+                return result
+            }
+        }
+        const isolated = await SSHSignature.signWithAgent(
+            expected,
+            new MutatingAgent(privateKey),
+            "0",
+            { namespace: "artifact" },
+        )
+        expect(isolated.publicKey.equals(expectedPublicKey)).toBeTrue()
+        expect(isolated.verify(expected, "artifact")).toBeTrue()
+    })
+
+    test("validates signing options and agent public keys", async () => {
+        const privateKey = PrivateKey.generateSync("ssh-ed25519")
+        const agent = new PrivateKeyAgent(privateKey)
+        const message = Buffer.from("validation")
+
+        expect(() => SSHSignature.sign(message, privateKey, null as never)).toThrow(
+            "SSH signature options must be an object",
+        )
+        await expect(
+            SSHSignature.signWithAgent(message, agent, "0", null as never),
+        ).rejects.toThrow("SSH signature options must be an object")
+
+        class InvalidPublicKeyAgent extends PrivateKeyAgent {
+            override async getPublicKey(): Promise<PublicKey> {
+                return null as never
+            }
+        }
+        await expect(
+            SSHSignature.signWithAgent(message, new InvalidPublicKeyAgent(privateKey), "0", {
+                namespace: "artifact",
+            }),
+        ).rejects.toThrow("agent returned an invalid public key")
     })
 
     test("rejects malformed armor and unsupported fields", () => {

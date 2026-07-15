@@ -783,6 +783,7 @@ describe("package exports", () => {
                     const message = Buffer.from("packed-key-generation")
                     if (!publicKey.verifySignature(message, privateKey.sign(message))) process.exit(2)
                     const detached = SSHSignature.sign(message, privateKey, { namespace: "package" })
+                    try { SSHSignature.sign(message, privateKey, null); process.exit(102) } catch (error) { if (!String(error).includes("options must be an object")) process.exit(103) }
                     if (!SSHSignature.parse(detached.toString()).verify(message, "package")) process.exit(49)
                     const allowed = AllowedSigners.parse("packed@example.test " + publicKey.toString() + "\\n")
                     if (allowed.matchPrincipals("packed@example.test")[0] !== "packed@example.test") process.exit(54)
