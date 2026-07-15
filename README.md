@@ -2,9 +2,9 @@
 
 A typed, ESM-native SSH client and server library for Node.js.
 
-The project implements SSH from its standards and is actively expanding its client and server
-feature surface. Transport identification, binary packet framing, key exchange, encryption, MAC
-verification, host keys, and core authentication flows are implemented today.
+The project implements SSH from its standards and includes typed client, server, channel,
+forwarding, agent, key-management, and SFTP APIs. Public asynchronous operations return Promises;
+awaited application policy is handled through `Hooker`.
 
 The current release is available from `npm.manaf.ch`:
 
@@ -14,26 +14,62 @@ pnpm add @bunkerch/modernssh --registry https://npm.manaf.ch
 
 The package will also target the public npm registry in a future release.
 
-See [Getting started](docs/getting-started.md) for client and server examples and
-[SSH transport behavior](docs/transport.md) for protocol-level details. The
-[authentication guide](docs/authentication.md) covers passwords, keyboard-interactive prompts,
-banners, and multi-factor flows. The [client channel guide](docs/channels.md) covers commands and
-stream behavior, the [SFTP guide](docs/sftp.md) covers remote file operations, and the
-[TCP/IP forwarding guide](docs/forwarding.md) covers direct and remote forwarding, while the
-[packet tunnel guide](docs/tunnels.md) covers layer-3 and layer-2 tunnel channels. The
-[SSH agent protocol guide](docs/agent-protocol.md) covers identity management, constraints,
-locking, extensions, and restricted agent endpoints. The
-[public-key management guide](docs/public-key-subsystem.md) covers the RFC 4819 subsystem for
-adding, removing, and listing an authenticated user's authorized keys. The
-[global request guide](docs/global-requests.md) covers connection-wide application extensions. The
-[known-hosts guide](docs/known-hosts.md) covers persistent host verification, host certificates,
-revocation, and key rotation, while the
-[key revocation list guide](docs/key-revocation-lists.md) covers binary key and certificate
-revocation policy, and the [detached signature guide](docs/signatures.md) covers namespace-bound
-signing and verification with private keys or agents. The
-[interoperability matrix](docs/interoperability.md) records cross-implementation coverage, and the
-[standards coverage index](docs/rfc-coverage.md) maps each implemented RFC to production code,
-tests, and remaining evidence gaps.
+## Quick start
+
+This example verifies the server against the user's known-hosts file, authenticates, runs a command,
+and waits for the channel to close:
+
+```ts
+import { once } from "node:events"
+import { homedir } from "node:os"
+import { join } from "node:path"
+import { Client, KnownHosts } from "@bunkerch/modernssh"
+
+const hostname = "ssh.example.com"
+const knownHosts = await KnownHosts.load(join(homedir(), ".ssh", "known_hosts"))
+const client = new Client({
+    hostname,
+    username: "deploy",
+    password: process.env.SSH_PASSWORD,
+    hostVerifier: knownHosts.verifier(hostname),
+})
+
+client.on("error", (error) => console.error("SSH connection error", error))
+
+try {
+    await client.connect()
+    const command = await client.exec("uname -a")
+    command.pipe(process.stdout)
+    command.stderr.pipe(process.stderr)
+    await once(command, "close")
+} finally {
+    client.end()
+}
+```
+
+EventEmitter listeners are observation-only and should remain synchronous. Authorization and other
+asynchronous policy decisions belong in awaited `Hooker` handlers.
+
+## Documentation
+
+| Goal                                                              | Guide                                                                                       |
+| ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| Connect a client or create a server                               | [Getting started](docs/getting-started.md)                                                  |
+| Copy practical recipes                                            | [Examples](docs/examples.md)                                                                |
+| Look up every package export and its exact TypeScript declaration | [API reference](docs/api/README.md)                                                         |
+| Configure authentication and multi-factor flows                   | [Authentication](docs/authentication.md)                                                    |
+| Run commands, shells, and subsystems                              | [Channels](docs/channels.md)                                                                |
+| Transfer and manage files                                         | [SFTP](docs/sftp.md)                                                                        |
+| Create direct, remote, HTTP, and tunnel forwarding                | [Forwarding](docs/forwarding.md) and [packet tunnels](docs/tunnels.md)                      |
+| Verify and rotate host keys                                       | [Known hosts](docs/known-hosts.md)                                                          |
+| Use or expose an authentication agent                             | [Agent protocol](docs/agent-protocol.md)                                                    |
+| Check implemented standards and tested peers                      | [Standards coverage](docs/rfc-coverage.md) and [interoperability](docs/interoperability.md) |
+
+Protocol-level and specialist guides cover [transport behavior](docs/transport.md),
+[connection-wide requests](docs/global-requests.md),
+[public-key management](docs/public-key-subsystem.md),
+[key revocation lists](docs/key-revocation-lists.md), and
+[detached signatures](docs/signatures.md).
 
 ## Development
 
@@ -42,6 +78,9 @@ pnpm install
 pnpm test
 pnpm lint
 pnpm format:check
+pnpm docs:api
 ```
 
 `pnpm test` builds the distributable entry point before running unit and integration tests.
+`pnpm docs:api` rebuilds the package and regenerates the complete declaration reference under
+`docs/api/`.

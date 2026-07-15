@@ -592,21 +592,15 @@ socket discovery, transport handshakes, or identity lookup.
 
 ## Public exports
 
-The package root currently exports:
-
-- `Client`, `Server`, and `ServerClient` plus their option, event, and hook types.
-- `ClientChannel`, `ClientSessionChannel`, `Channel`, `SessionChannel`, and `Shell`.
-- `Agent`, `PrivateKeyAgent`, `DiskAgent`, `SSHAgent`, `CygwinAgent`, `PageantAgent`,
-  `createSocketAgent`, `SSHAgentProtocolClient`, `SSHAgentProtocolServer`, `OnePasswordAgent`, and
-  their option, hook, constraint, management, extension, error, and agent-type definitions. See
-  [SSH agent protocol](agent-protocol.md) for the complete Promise API and awaited hook surface.
-- `PublicKey`, `PublicKeyAlgorithm`, `PrivateKey`, `EncodedSignature`,
-  `ProtocolVersionExchange`, `generateKeyPair()`, `generateKeyPairSync()`, `parseKey()`, and
-  `parseKeys()`.
-- Public service, authentication, connection-state, and extended-data enums.
+The [generated API reference](api/README.md) lists every export available from the package root and
+prints its exact shipped TypeScript declaration. Its area pages include every public class
+constructor, property, accessor and method, all function overloads, and every interface, type,
+enum, and constant. Each entry links back to its implementation.
 
 Deep imports into `dist/` are not part of the supported API. New public functionality will be added
-to the root exports as its implementation and tests become library-ready.
+to the root exports as its implementation and tests become library-ready. The generated reference
+is checked during `pnpm test`, so a changed declaration cannot silently leave the documentation
+stale.
 
 ## Socket agent authentication
 

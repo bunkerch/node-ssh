@@ -32,6 +32,8 @@ relevant file under `docs/`.
 - `pnpm lint`: run ESLint, including type-aware async-event checks.
 - `pnpm format`: apply Prettier.
 - `pnpm format:check`: verify formatting.
+- `pnpm docs:api`: rebuild the generated package-root API reference from emitted declarations.
+- `pnpm docs:api:check`: verify that the generated API reference matches the shipped declarations.
 - `pnpm pack`: build a consumer-installable archive.
 
 GitHub Actions jobs run on the Linux `bunkerch-sysbox` runner. Do not add Windows-hosted jobs or
@@ -127,6 +129,8 @@ Before committing, run the focused tests for the change, then `pnpm build`, `pnp
 ## Documentation
 
 - Update the relevant Markdown under `docs/` whenever public behavior changes.
+- Regenerate `docs/api/` with `pnpm docs:api` whenever the package-root declaration surface changes;
+  never edit generated API-reference files by hand.
 - Examples use Promise APIs and awaited Hooker handlers. EventEmitter examples keep listeners
   synchronous and handle async failures explicitly.
 - Event-waiting examples import `once` from `node:events`.
