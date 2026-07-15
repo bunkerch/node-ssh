@@ -453,8 +453,9 @@ The package root currently exports:
   `createSocketAgent`, `SSHAgentProtocolClient`, `SSHAgentProtocolServer`, `OnePasswordAgent`, and
   their option, hook, constraint, management, extension, error, and agent-type definitions. See
   [SSH agent protocol](agent-protocol.md) for the complete Promise API and awaited hook surface.
-- `PublicKey`, `PrivateKey`, `EncodedSignature`, `ProtocolVersionExchange`, `generateKeyPair()`,
-  `generateKeyPairSync()`, `parseKey()`, and `parseKeys()`.
+- `PublicKey`, `PublicKeyAlgorithm`, `PrivateKey`, `EncodedSignature`,
+  `ProtocolVersionExchange`, `generateKeyPair()`, `generateKeyPairSync()`, `parseKey()`, and
+  `parseKeys()`.
 - Public service, authentication, connection-state, and extended-data enums.
 
 Deep imports into `dist/` are not part of the supported API. New public functionality will be added

@@ -294,6 +294,8 @@ describe("package exports", () => {
         expect(entry.ForwardedX11Channel).toBeDefined()
         expect(entry.Server).toBeDefined()
         expect(entry.PrivateKey).toBeDefined()
+        expect(entry.PublicKeyAlgorithm).toBeDefined()
+        expect("PublicKeyAlgoritm" in entry).toBe(false)
         expect(entry.ProtocolVersionExchange).toBeDefined()
         expect(entry.SSHAgent).toBeDefined()
         expect(entry.OnePasswordAgent).toBeDefined()
@@ -335,6 +337,8 @@ describe("package exports", () => {
         const streams = await readFile("dist/sftp/streams.d.ts", "utf8")
         const shell = await readFile("dist/channels/Session/Shell.d.ts", "utf8")
         const privateKey = await readFile("dist/utils/PrivateKey.d.ts", "utf8")
+        const publicKey = await readFile("dist/utils/PublicKey.d.ts", "utf8")
+        const index = await readFile("dist/index.d.ts", "utf8")
         const knownHosts = await readFile("dist/KnownHosts.d.ts", "utf8")
         const keyRevocationList = await readFile("dist/KeyRevocationList.d.ts", "utf8")
         const securityKeyAttestation = await readFile("dist/SecurityKeyAttestation.d.ts", "utf8")
@@ -441,6 +445,9 @@ describe("package exports", () => {
         expect(privateKey).toContain(
             "fromPuTTY(data: string | Buffer, passphrase?: string | Buffer): PrivateKey",
         )
+        expect(publicKey).toContain("export declare abstract class PublicKeyAlgorithm")
+        expect(publicKey).not.toContain("PublicKeyAlgoritm")
+        expect(index).not.toContain("PublicKeyAlgoritm")
         expect(knownHosts).toContain("static load(path: string): Promise<KnownHosts>")
         expect(knownHosts).toContain("replaceHostKeys(")
         expect(knownHosts).toContain("): Promise<void>")

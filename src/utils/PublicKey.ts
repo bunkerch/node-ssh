@@ -66,7 +66,7 @@ export const ECDSA_CURVES: readonly ECDSACurve[] = Object.freeze([
 
 export interface PublicKeyData {
     alg: string
-    algorithm: PublicKeyAlgoritm
+    algorithm: PublicKeyAlgorithm
     comment?: string
 }
 
@@ -78,7 +78,7 @@ export function encodeSSHKeyComment(comment: string, field = "SSH key comment"):
 }
 
 export default class PublicKey {
-    static algorithms = new Map<string, typeof PublicKeyAlgoritm>()
+    static algorithms = new Map<string, typeof PublicKeyAlgorithm>()
 
     data: PublicKeyData
     constructor(data: PublicKeyData) {
@@ -88,7 +88,7 @@ export default class PublicKey {
                 ? data.algorithm.algorithmName
                 : data.algorithm instanceof SSHECDSAPublicKey
                   ? data.algorithm.curve.algorithm
-                  : (data.algorithm.constructor as typeof PublicKeyAlgoritm).alg_name
+                  : (data.algorithm.constructor as typeof PublicKeyAlgorithm).alg_name
         assert(data.alg === expectedAlgorithm, "Public key algorithm does not match key data")
         if (data.comment !== undefined) encodeSSHKeyComment(data.comment)
         this.data = { ...data }
@@ -376,7 +376,7 @@ const CERTIFICATE_KEY_ALGORITHMS = new Map<string, string>([
     ),
 ])
 
-export class SSHCertificatePublicKey implements PublicKeyAlgoritm {
+export class SSHCertificatePublicKey implements PublicKeyAlgorithm {
     static has_encryption = false
     static has_signature = true
 
@@ -437,7 +437,7 @@ export class SSHCertificatePublicKey implements PublicKeyAlgoritm {
         return Buffer.from(this.payload)
     }
 
-    equals(other: PublicKeyAlgoritm): boolean {
+    equals(other: PublicKeyAlgorithm): boolean {
         return other instanceof SSHCertificatePublicKey && this.payload.equals(other.payload)
     }
 
@@ -586,7 +586,7 @@ function positiveMpint(value: Buffer): Buffer {
     return (unsigned[0] & 0x80) === 0 ? unsigned : Buffer.concat([Buffer.from([0]), unsigned])
 }
 
-export abstract class PublicKeyAlgoritm {
+export abstract class PublicKeyAlgorithm {
     static alg_name: string
     static has_encryption: boolean
     static has_signature: boolean
@@ -611,12 +611,12 @@ export abstract class PublicKeyAlgoritm {
     }
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    equals(other: PublicKeyAlgoritm): boolean {
+    equals(other: PublicKeyAlgorithm): boolean {
         throw new Error("Not implemented")
     }
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    static parse(raw: Buffer): PublicKeyAlgoritm {
+    static parse(raw: Buffer): PublicKeyAlgorithm {
         throw new Error("Not implemented")
     }
 }
@@ -624,7 +624,7 @@ export abstract class PublicKeyAlgoritm {
 export interface SSHED25519PublicKeyData {
     publicKey: Buffer
 }
-export class SSHED25519PublicKey implements PublicKeyAlgoritm {
+export class SSHED25519PublicKey implements PublicKeyAlgorithm {
     static alg_name = "ssh-ed25519"
     static has_encryption = false
     static has_signature = true
@@ -650,7 +650,7 @@ export class SSHED25519PublicKey implements PublicKeyAlgoritm {
         return serializeBuffer(this.data.publicKey)
     }
 
-    equals(other: PublicKeyAlgoritm): boolean {
+    equals(other: PublicKeyAlgorithm): boolean {
         if (!(other instanceof SSHED25519PublicKey)) return false
 
         return this.data.publicKey.equals(other.data.publicKey)
@@ -673,7 +673,7 @@ export interface SSHED448PublicKeyData {
     publicKey: Buffer
 }
 
-export class SSHED448PublicKey implements PublicKeyAlgoritm {
+export class SSHED448PublicKey implements PublicKeyAlgorithm {
     static alg_name = "ssh-ed448"
     static has_encryption = false
     static has_signature = true
@@ -701,7 +701,7 @@ export class SSHED448PublicKey implements PublicKeyAlgoritm {
         return serializeBuffer(this.data.publicKey)
     }
 
-    equals(other: PublicKeyAlgoritm): boolean {
+    equals(other: PublicKeyAlgorithm): boolean {
         return (
             other instanceof SSHED448PublicKey && this.data.publicKey.equals(other.data.publicKey)
         )
@@ -718,7 +718,7 @@ PublicKey.algorithms.set(SSHED448PublicKey.alg_name, SSHED448PublicKey)
 
 export type SSHDSSPublicKeyData = DSAParameters
 
-export class SSHDSSPublicKey implements PublicKeyAlgoritm {
+export class SSHDSSPublicKey implements PublicKeyAlgorithm {
     static alg_name = "ssh-dss"
     static has_encryption = false
     static has_signature = true
@@ -751,7 +751,7 @@ export class SSHDSSPublicKey implements PublicKeyAlgoritm {
         ])
     }
 
-    equals(other: PublicKeyAlgoritm): boolean {
+    equals(other: PublicKeyAlgorithm): boolean {
         return (
             other instanceof SSHDSSPublicKey &&
             this.data.p.equals(other.data.p) &&
@@ -780,7 +780,7 @@ export interface SSHRSAData {
     publicExponent: Buffer
     modulus: Buffer
 }
-export class SSHRSAPublicKey implements PublicKeyAlgoritm {
+export class SSHRSAPublicKey implements PublicKeyAlgorithm {
     static alg_name = "ssh-rsa"
     static has_encryption = false
     static has_signature = true
@@ -856,7 +856,7 @@ export class SSHRSAPublicKey implements PublicKeyAlgoritm {
         return Buffer.concat(buffers)
     }
 
-    equals(other: PublicKeyAlgoritm): boolean {
+    equals(other: PublicKeyAlgorithm): boolean {
         if (!(other instanceof SSHRSAPublicKey)) return false
 
         return (
@@ -886,7 +886,7 @@ export interface SSHECDSAPublicKeyData {
     publicKey: Buffer
 }
 
-export class SSHECDSAPublicKey implements PublicKeyAlgoritm {
+export class SSHECDSAPublicKey implements PublicKeyAlgorithm {
     static alg_name: string
     static has_encryption = false
     static has_signature = true
@@ -950,7 +950,7 @@ export class SSHECDSAPublicKey implements PublicKeyAlgoritm {
         ])
     }
 
-    equals(other: PublicKeyAlgoritm): boolean {
+    equals(other: PublicKeyAlgorithm): boolean {
         return (
             other instanceof SSHECDSAPublicKey &&
             other.curve.algorithm === this.curve.algorithm &&
@@ -1057,7 +1057,7 @@ export interface SSHED25519SecurityKeyPublicKeyData {
     application: string
 }
 
-export class SSHED25519SecurityKeyPublicKey implements PublicKeyAlgoritm {
+export class SSHED25519SecurityKeyPublicKey implements PublicKeyAlgorithm {
     static alg_name = SSH_ED25519_SECURITY_KEY_ALGORITHM
     static has_encryption = false
     static has_signature = true
@@ -1104,7 +1104,7 @@ export class SSHED25519SecurityKeyPublicKey implements PublicKeyAlgoritm {
         ])
     }
 
-    equals(other: PublicKeyAlgoritm): boolean {
+    equals(other: PublicKeyAlgorithm): boolean {
         return (
             other instanceof SSHED25519SecurityKeyPublicKey &&
             this.data.publicKey.equals(other.data.publicKey) &&
@@ -1131,7 +1131,7 @@ export interface SSHECDSASecurityKeyPublicKeyData {
     application: string
 }
 
-export class SSHECDSASecurityKeyPublicKey implements PublicKeyAlgoritm {
+export class SSHECDSASecurityKeyPublicKey implements PublicKeyAlgorithm {
     static alg_name = SSH_ECDSA_SECURITY_KEY_ALGORITHM
     static has_encryption = false
     static has_signature = true
@@ -1183,7 +1183,7 @@ export class SSHECDSASecurityKeyPublicKey implements PublicKeyAlgoritm {
         ])
     }
 
-    equals(other: PublicKeyAlgoritm): boolean {
+    equals(other: PublicKeyAlgorithm): boolean {
         return (
             other instanceof SSHECDSASecurityKeyPublicKey &&
             this.data.publicKey.equals(other.data.publicKey) &&

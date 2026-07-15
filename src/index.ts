@@ -339,8 +339,7 @@ export {
 } from "./ProtocolVersionExchange.js"
 export {
     default as PublicKey,
-    PublicKeyAlgoritm,
-    PublicKeyAlgoritm as PublicKeyAlgorithm,
+    PublicKeyAlgorithm,
     SSHCertificatePublicKey,
     SSHECDSASecurityKeyPublicKey,
     SSHED25519SecurityKeyPublicKey,
