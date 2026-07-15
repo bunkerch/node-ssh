@@ -259,10 +259,12 @@ When `limits@openssh.com` version 1 is advertised, session setup requests it aut
 exact unsigned 64-bit reply remains available as `sftp.limits`; safe request sizes are reflected in
 `maxReadLength` and `maxWriteLength`, and `maxOpenHandles` is `Infinity` when the server reports no
 fixed handle limit. Pending `open` and `opendir` operations count toward a finite handle limit;
-attempts beyond it reject locally without sending a request. A successful `close` releases the
-tracked handle, while a failed close keeps it counted because the server may still hold it. A server
-status failure leaves the conservative 32 KiB defaults in place, but a malformed successful reply
-aborts setup as a protocol error.
+attempts beyond it reject locally without sending a request. Once the server responds to `close`,
+the client releases the tracked handle even when the response reports a close or flush failure:
+the SFTP protocol makes the handle invalid when the request is sent. A local failure that prevents
+the request from being sent keeps the handle tracked. A server status failure while negotiating
+limits leaves the conservative 32 KiB defaults in place, but a malformed successful reply aborts
+setup as a protocol error.
 
 ```ts
 const handle = await sftp.open("incoming/archive.bin", "r")

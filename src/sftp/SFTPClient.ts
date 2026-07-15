@@ -566,11 +566,17 @@ export default class SFTPClient {
 
     async close(handle: Buffer): Promise<void> {
         const ownedHandle = ownHandle(handle)
-        await this.statusRequest({
-            type: SFTPPacketType.Close,
-            requestId: this.allocateRequestId(),
-            handle: ownedHandle,
-        })
+        try {
+            await this.statusRequest({
+                type: SFTPPacketType.Close,
+                requestId: this.allocateRequestId(),
+                handle: ownedHandle,
+            })
+        } catch (error) {
+            if (!(error instanceof SFTPStatusError)) throw error
+            this.releaseHandle(ownedHandle)
+            throw error
+        }
         this.releaseHandle(ownedHandle)
     }
 

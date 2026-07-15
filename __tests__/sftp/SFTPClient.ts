@@ -884,6 +884,53 @@ describe("SFTP client request engine", () => {
         fixture.destroy()
     })
 
+    test("releases handle capacity after a failed close", async () => {
+        const openedPaths: string[] = []
+        const fixture = new SFTPServerFixture((packet) => {
+            if (packet.type === SFTPPacketType.Init) {
+                fixture.send({
+                    type: SFTPPacketType.Version,
+                    version: 3,
+                    extensions: [{ name: "limits@openssh.com", data: Buffer.from("1") }],
+                })
+            } else if (packet.type === SFTPPacketType.Extended) {
+                fixture.send({
+                    type: SFTPPacketType.ExtendedReply,
+                    requestId: packet.requestId,
+                    data: Buffer.from(
+                        "0000000000000000000000000000000000000000000000000000000000000001",
+                        "hex",
+                    ),
+                })
+            } else if (packet.type === SFTPPacketType.Open) {
+                const path = packet.filename.toString()
+                openedPaths.push(path)
+                fixture.send({
+                    type: SFTPPacketType.Handle,
+                    requestId: packet.requestId,
+                    handle: Buffer.from(path),
+                })
+            } else if (packet.type === SFTPPacketType.Close) {
+                fixture.send({
+                    type: SFTPPacketType.Status,
+                    requestId: packet.requestId,
+                    code: SFTPStatusCode.Failure,
+                    message: "flush failed",
+                    languageTag: "",
+                })
+            }
+        })
+
+        const client = await SFTPClient.connect(asClientChannel(fixture))
+        const firstHandle = await client.open("one", "w")
+        await expect(client.close(firstHandle)).rejects.toThrow("flush failed")
+        const secondHandle = await client.open("two", "w")
+
+        expect(secondHandle).toEqual(Buffer.from("two"))
+        expect(openedPaths).toEqual(["one", "two"])
+        fixture.destroy()
+    })
+
     test("gates OpenSSH requests by exact advertised version and preserves wire paths", async () => {
         const requests: string[] = []
         const fixture = new SFTPServerFixture((packet) => {
