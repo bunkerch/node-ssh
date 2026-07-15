@@ -264,7 +264,11 @@ export default class SessionChannel extends Channel {
             case "env": {
                 this.assertNotConsumed()
                 const { key, value } = this.parseEnvRequest(request.data.args)
-                this.debug(`Received environment`, key, `=`, value)
+                this.debug("Received environment request:", {
+                    name: key,
+                    valueBytes: Buffer.byteLength(value),
+                    value: "<redacted>",
+                })
 
                 const controller: SessionChannelHookerEnvRequestController = {
                     success: false,
@@ -292,7 +296,10 @@ export default class SessionChannel extends Channel {
             }
             case "exec": {
                 const { command } = this.parseExecRequest(request.data.args)
-                this.debug(`Received "exec" command:`, [command])
+                this.debug("Received exec request:", {
+                    commandBytes: Buffer.byteLength(command),
+                    command: "<redacted>",
+                })
                 this.assertNotConsumed()
 
                 const controller: SessionChannelHookerExecRequestController = {

@@ -62,16 +62,20 @@ of being silently ignored.
 
 Both `Client` and `Server` accept a `debug(...message)` option for diagnostics that must be
 available from the start of their lifecycle. It receives the same arguments as the corresponding
-`debug` event; applications may use either or both. Authentication secrets and key material are
-redacted before this surface is called. The constructor diagnostic is an allow-listed summary: it
-never forwards the configuration object, private keys, agents, sockets, or policy functions.
-Configured secret-bearing objects are represented only by `"<configured>"`. Treat all remaining
-values as operationally sensitive and ensure the diagnostic handler does not throw. Public-key
-authentication diagnostics identify a candidate by its algorithm and SHA-256 fingerprint; they do
-not expose the agent's opaque identity ID, key encoding, or key comment. Errors thrown by a signing
-agent are reduced to a fixed failure-stage message rather than forwarded to diagnostic handlers.
-The same rule applies to errors thrown while creating, advancing, or closing application-provided
-GSS-API contexts; peer-supplied GSS-API status remains available through the typed protocol event.
+`debug` event; applications may use either or both. Authentication secrets, key material, GSS-API
+tokens, commands, environment values, channel data, and opaque channel/global request and response
+payloads are redacted before this surface is called. Packet diagnostics retain useful structural
+metadata such as packet/request names, channel identifiers, response direction, and byte counts.
+The constructor diagnostic is an allow-listed summary: it never forwards the configuration object,
+private keys, agents, sockets, or policy functions. Configured secret-bearing objects are
+represented only by `"<configured>"`. Treat all remaining values—particularly peer diagnostic text
+and transport errors—as operationally sensitive and ensure the diagnostic handler does not throw.
+Public-key authentication diagnostics identify a candidate by its algorithm and SHA-256
+fingerprint; they do not expose the agent's opaque identity ID, key encoding, or key comment. Errors
+thrown by a signing agent are reduced to a fixed failure-stage message rather than forwarded to
+diagnostic handlers. The same rule applies to errors thrown while creating, advancing, or closing
+application-provided GSS-API contexts; peer-supplied GSS-API status remains available through the
+typed protocol event.
 
 ```ts
 const client = new Client({

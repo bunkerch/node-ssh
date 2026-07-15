@@ -189,6 +189,7 @@ import PacketEventQueue, {
     onPacketEvent,
     waitForPacketEvent,
 } from "./utils/PacketEventQueue.js"
+import packetDiagnostic from "./utils/PacketDiagnostic.js"
 import {
     AGENT_FORWARDING_EXTENSION,
     AGENT_FORWARDING_EXTENSION_VERSION,
@@ -1303,7 +1304,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     }
 
     private async handleChannelOpenRequest(packet: ChannelOpen): Promise<void> {
-        this.debug(`ChannelOpenRequest`, packet)
+        this.debug("ChannelOpenRequest", packetDiagnostic(packet))
 
         let accepted = false
         try {
@@ -1352,7 +1353,11 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 )
             }
 
-            this.debug(`Opening channel`, channel)
+            this.debug("Opening channel", {
+                type: channel.channel_type,
+                localId: channel.localId,
+                remoteId: channel.remoteId,
+            })
             this.pendingRemoteChannelOpens.delete(packet.data.sender_channel_id)
             this.channels.set(channel.localId, channel)
             accepted = true
@@ -1416,7 +1421,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     }
 
     private async handleGlobalRequest(packet: GlobalRequest): Promise<void> {
-        this.debug(`Received global request packet:`, packet)
+        this.debug("Received global request packet:", packetDiagnostic(packet))
         if (!this.isConnected) return
 
         switch (packet.data.request_name) {
@@ -3414,32 +3419,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     }
 
     private packetForDebug(packet: Packet): unknown {
-        if (packet instanceof UserAuthRequest) {
-            return {
-                type: "SSH_MSG_USERAUTH_REQUEST",
-                username: packet.data.username,
-                serviceName: packet.data.service_name,
-                method: packet.data.method.method_name,
-            }
-        }
-        if (packet instanceof UserAuthInfoResponse) {
-            return {
-                type: "SSH_MSG_USERAUTH_INFO_RESPONSE",
-                responseCount: packet.data.responses.length,
-                responses: "<redacted>",
-            }
-        }
-        if (
-            packet instanceof UserAuthGSSAPIToken ||
-            packet instanceof UserAuthGSSAPIErrorToken ||
-            packet instanceof UserAuthGSSAPIMIC
-        ) {
-            return {
-                type: packet.constructor.name,
-                token: "<redacted>",
-            }
-        }
-        return packet
+        return packetDiagnostic(packet)
     }
 
     private queueChannelAction(localId: number, action: (channel: Channel) => void): void {

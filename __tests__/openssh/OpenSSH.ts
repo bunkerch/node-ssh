@@ -18,7 +18,6 @@ import PublicKey from "../../src/utils/PublicKey.js"
 import { SSHAuthenticationMethods } from "../../src/constants.js"
 import { SFTPStatusError } from "../../src/sftp/SFTPClient.js"
 import { SFTPPacketType, SFTPStatusCode } from "../../src/sftp/constants.js"
-import GlobalRequest from "../../src/packets/GlobalRequest.js"
 import Packet from "../../src/packet.js"
 import { attachFilesystemSFTPServer } from "./SFTPServerFixture.js"
 
@@ -2647,8 +2646,10 @@ describe("OpenSSH interoperability", () => {
             client.on("debug", (message, packet) => {
                 if (
                     message === "Sending packet:" &&
-                    packet instanceof GlobalRequest &&
-                    packet.data.request_name === "keepalive@openssh.com"
+                    typeof packet === "object" &&
+                    packet !== null &&
+                    "requestName" in packet &&
+                    packet.requestName === "keepalive@openssh.com"
                 ) {
                     keepalives++
                 }

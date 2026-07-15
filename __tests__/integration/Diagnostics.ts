@@ -7,6 +7,21 @@ import PrivateKeyAgent from "../../src/publickey/PrivateKeyAgent.js"
 import PrivateKey from "../../src/utils/PrivateKey.js"
 import { AgentType, type Agent } from "../../src/publickey/Agent.js"
 import { SSHAuthenticationMethods } from "../../src/constants.js"
+import SessionChannel from "../../src/channels/SessionChannel.js"
+import type Shell from "../../src/channels/Session/Shell.js"
+
+function containsDiagnosticValue(
+    value: unknown,
+    expected: string,
+    seen = new WeakSet<object>(),
+): boolean {
+    if (typeof value === "string") return value.includes(expected)
+    if (Buffer.isBuffer(value)) return value.includes(Buffer.from(expected))
+    if (typeof value !== "object" || value === null) return false
+    if (seen.has(value)) return false
+    seen.add(value)
+    return Object.values(value).some((nested) => containsDiagnosticValue(nested, expected, seen))
+}
 
 describe("configured diagnostic sinks", () => {
     test("receives an allow-listed client configuration summary without secret-bearing objects", async () => {
@@ -87,6 +102,100 @@ describe("configured diagnostic sinks", () => {
         expect(configured).toEqual([["server diagnostic", { ready: true }]])
         expect(configured).toEqual(emitted)
     })
+
+    test("does not expose session or opaque request payloads", async () => {
+        const secrets = {
+            command: "command-secret-9c183f",
+            environment: "environment-secret-d2b760",
+            input: "input-secret-257e1a",
+            output: "output-secret-bf4890",
+            request: "request-secret-0a3e71",
+            response: "response-secret-d6624e",
+        }
+        const serverDiagnostics: unknown[][] = []
+        const clientDiagnostics: unknown[][] = []
+        const hostKey = await PrivateKey.generate("ssh-ed25519")
+        const server = new Server({
+            hostKeys: [hostKey],
+            sendAllHostKeys: false,
+            algorithms: { kex: ["curve25519-sha256"] },
+            debug: (...message) => serverDiagnostics.push(message),
+        })
+        server.hooker.hook("noneAuthentication", (_hook, _context, controller) => {
+            controller.allowLogin = true
+        })
+        server.hooker.hook("channelOpenRequest", (_hook, channel, controller) => {
+            controller.allowOpen = channel instanceof SessionChannel
+        })
+        server.hooker.hook("globalRequest", (_hook, context, controller) => {
+            if (context.name !== "sensitive-query@example.test") return
+            expect(context.args).toEqual(Buffer.from(secrets.request))
+            controller.success = true
+            controller.response = Buffer.from(secrets.response)
+        })
+        let resolveShell!: (shell: Shell) => void
+        const shellReady = new Promise<Shell>((resolve) => {
+            resolveShell = resolve
+        })
+        server.on("connection", (connection) => {
+            connection.on("channel", (channel) => {
+                if (!(channel instanceof SessionChannel)) return
+                channel.hooker.hook("envRequest", (_hook, _environment, controller) => {
+                    controller.success = true
+                })
+                channel.hooker.hook("execRequest", (_hook, _command, controller) => {
+                    controller.success = true
+                })
+                channel.events.once("exec", (_command, shell) => resolveShell(shell))
+            })
+        })
+        server.listen({ host: "127.0.0.1", port: 0 })
+        await once(server, "listening")
+
+        const client = new Client({
+            hostname: "127.0.0.1",
+            port: (server.address() as AddressInfo).port,
+            username: "diagnostic-payload-user",
+            authenticationMethodsOrder: [SSHAuthenticationMethods.None],
+            algorithms: { kex: ["curve25519-sha256"] },
+            debug: (...message) => clientDiagnostics.push(message),
+        })
+        client.hooker.hook("hostKey", (_hook, controller) => {
+            controller.allowHostKey = true
+        })
+
+        try {
+            await client.connect()
+            const session = await client.exec(secrets.command, {
+                env: { API_TOKEN: secrets.environment },
+            })
+            const shell = await shellReady
+            const inputReceived = once(shell, "data")
+            session.write(Buffer.from(secrets.input))
+            await inputReceived
+            const outputReceived = once(session, "data")
+            await shell.writeStdout(secrets.output)
+            await outputReceived
+            expect(
+                await client.globalRequest(
+                    "sensitive-query@example.test",
+                    Buffer.from(secrets.request),
+                ),
+            ).toEqual(Buffer.from(secrets.response))
+
+            for (const secret of Object.values(secrets)) {
+                expect(
+                    [...serverDiagnostics, ...clientDiagnostics].some((message) =>
+                        containsDiagnosticValue(message, secret),
+                    ),
+                ).toBe(false)
+            }
+        } finally {
+            client.destroy()
+            for (const connection of server.clients) connection.terminate()
+            await server.close()
+        }
+    }, 15_000)
 
     test("does not expose opaque agent identity IDs or key comments", async () => {
         const hostKey = await PrivateKey.generate("ssh-ed25519")

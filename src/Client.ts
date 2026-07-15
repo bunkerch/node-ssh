@@ -131,13 +131,7 @@ import UserAuthFailure from "./packets/UserAuthFailure.js"
 import UserAuthPKOK from "./packets/UserAuthPKOK.js"
 import UserAuthPasswordChangeRequest from "./packets/UserAuthPasswordChangeRequest.js"
 import UserAuthInfoRequest, { UserAuthPrompt } from "./packets/UserAuthInfoRequest.js"
-import UserAuthInfoResponse from "./packets/UserAuthInfoResponse.js"
-import {
-    UserAuthGSSAPIErrorToken,
-    UserAuthGSSAPIMIC,
-    UserAuthGSSAPIResponse,
-    UserAuthGSSAPIToken,
-} from "./packets/UserAuthGSSAPI.js"
+import { UserAuthGSSAPIResponse, UserAuthGSSAPIToken } from "./packets/UserAuthGSSAPI.js"
 import SFTPClient, {
     normalizeSFTPClientOptions,
     type SFTPClientOptions,
@@ -232,6 +226,7 @@ import PacketEventQueue, {
     offPacketEvent,
     onPacketEvent,
 } from "./utils/PacketEventQueue.js"
+import packetDiagnostic from "./utils/PacketDiagnostic.js"
 import { registerReplyTimeout, waitForReply } from "./ReplyTimeout.js"
 import { isPlainConfigurationObject } from "./utils/Configuration.js"
 
@@ -1734,7 +1729,7 @@ export default class Client extends EventEmitter<ClientEvents> {
         generation: number,
     ): Promise<void> {
         if (generation !== this.connectionGeneration) return
-        this.debug(`Received global request packet:`, packet)
+        this.debug("Received global request packet:", packetDiagnostic(packet))
 
         if (packet.data.request_name === ELEVATION_EXTENSION && this.#options.elevation !== false) {
             if (packet.data.want_reply || packet.data.args.length !== 1) {
@@ -3606,32 +3601,7 @@ export default class Client extends EventEmitter<ClientEvents> {
     }
 
     private packetForDebug(packet: Packet): unknown {
-        if (packet instanceof UserAuthRequest) {
-            return {
-                type: "SSH_MSG_USERAUTH_REQUEST",
-                username: packet.data.username,
-                serviceName: packet.data.service_name,
-                method: packet.data.method.method_name,
-            }
-        }
-        if (packet instanceof UserAuthInfoResponse) {
-            return {
-                type: "SSH_MSG_USERAUTH_INFO_RESPONSE",
-                responseCount: packet.data.responses.length,
-                responses: "<redacted>",
-            }
-        }
-        if (
-            packet instanceof UserAuthGSSAPIToken ||
-            packet instanceof UserAuthGSSAPIErrorToken ||
-            packet instanceof UserAuthGSSAPIMIC
-        ) {
-            return {
-                type: packet.constructor.name,
-                token: "<redacted>",
-            }
-        }
-        return packet
+        return packetDiagnostic(packet)
     }
 
     private routeChannelPacket(packet: Packet): void {
