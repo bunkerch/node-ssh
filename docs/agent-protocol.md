@@ -11,6 +11,11 @@ client serializes requests and requires each reply before sending the next reque
 reply deadline is 10 seconds. A timeout destroys the stream because a late, untagged reply could
 otherwise be mistaken for the reply to a later request.
 
+Invalid framing, oversized messages, non-buffer stream data, and unsolicited response bytes also
+destroy the persistent stream and clear buffered input. These violations make it unsafe to match a
+later untagged reply to a request. A well-formed one-byte failure response only rejects that request
+and leaves the connection available for later operations.
+
 `sign()` snapshots its message when called, before queued identity lookup or earlier agent requests
 can delay the signing frame. Later mutation of a caller-owned buffer cannot change what is signed.
 

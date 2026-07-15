@@ -1034,17 +1034,19 @@ export class SSHAgentProtocolClient extends Agent<string> {
         while (this.#buffer.length < 4) await this.#readChunk()
         const length = this.#buffer.readUInt32BE(0)
         if (length < 1 || length > this.options.maxMessageLength) {
-            throw new SSHAgentProtocolError("SSH agent response has an invalid length")
+            throw this.#failProtocol("SSH agent response has an invalid length")
         }
         while (this.#buffer.length < length + 4) await this.#readChunk()
         const payload = Buffer.from(this.#buffer.subarray(4, length + 4))
         this.#buffer = this.#buffer.subarray(length + 4)
         if (this.#buffer.length !== 0) {
-            throw new SSHAgentProtocolError("SSH agent sent unsolicited response data")
+            payload.fill(0)
+            throw this.#failProtocol("SSH agent sent unsolicited response data")
         }
         if (payload[0] === SSHAgentMessageType.Failure) {
             if (payload.length !== 1) {
-                throw new SSHAgentProtocolError("SSH agent returned a malformed failure response")
+                payload.fill(0)
+                throw this.#failProtocol("SSH agent returned a malformed failure response")
             }
             throw new SSHAgentProtocolError("SSH agent refused the request")
         }
@@ -1055,12 +1057,20 @@ export class SSHAgentProtocolClient extends Agent<string> {
         const result = await this.#iterator.next()
         if (result.done) throw new SSHAgentProtocolError("SSH agent closed before replying")
         if (!Buffer.isBuffer(result.value)) {
-            throw new SSHAgentProtocolError("SSH agent stream returned non-buffer data")
+            throw this.#failProtocol("SSH agent stream returned non-buffer data")
         }
         this.#buffer = Buffer.concat([this.#buffer, result.value])
         if (this.#buffer.length > this.options.maxMessageLength + 4) {
-            throw new SSHAgentProtocolError("SSH agent response exceeds the configured limit")
+            throw this.#failProtocol("SSH agent response exceeds the configured limit")
         }
+    }
+
+    #failProtocol(message: string): SSHAgentProtocolError {
+        const error = new SSHAgentProtocolError(message)
+        this.#buffer.fill(0)
+        this.#buffer = Buffer.alloc(0)
+        this.stream.destroy(error)
+        return error
     }
 }
 

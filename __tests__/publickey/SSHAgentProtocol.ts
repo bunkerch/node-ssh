@@ -275,21 +275,43 @@ describe("SSH agent protocol", () => {
         malformedServer.destroy()
     })
 
-    test("rejects unsolicited response bytes and validates resource limits", async () => {
+    test("closes after response framing violations and validates resource limits", async () => {
         expect(() => new SSHAgentProtocolServer({ maxMessageLength: 0 })).toThrow("positive uint32")
-        const [clientStream, fixtureStream] = streamPair()
-        expect(() => new SSHAgentProtocolClient(clientStream, { requestTimeout: 0.5 })).toThrow(
+        const [validationStream, validationPeer] = streamPair()
+        expect(() => new SSHAgentProtocolClient(validationStream, { requestTimeout: 0.5 })).toThrow(
             "integer between zero and 2147483647",
         )
-        const fixture = (async () => {
-            await readFrames(fixtureStream, 1)
-            fixtureStream.end(Buffer.concat([identitiesAnswer, Buffer.from([0])]))
-        })()
-        const client = new SSHAgentProtocolClient(clientStream)
-        await expect(client.getPublicKeys()).rejects.toThrow("unsolicited response data")
-        client.destroy()
-        fixtureStream.destroy()
-        await fixture
+        validationStream.destroy()
+        validationPeer.destroy()
+
+        const violations = [
+            {
+                response: Buffer.from("00000000", "hex"),
+                message: "response has an invalid length",
+            },
+            {
+                response: Buffer.from("000000020500", "hex"),
+                message: "malformed failure response",
+            },
+            {
+                response: Buffer.concat([identitiesAnswer, Buffer.from([0])]),
+                message: "unsolicited response data",
+            },
+        ]
+        for (const violation of violations) {
+            const [clientStream, fixtureStream] = streamPair()
+            const fixture = (async () => {
+                await readFrames(fixtureStream, 1)
+                fixtureStream.end(violation.response)
+            })()
+            const client = new SSHAgentProtocolClient(clientStream)
+
+            await expect(client.getPublicKeys()).rejects.toThrow(violation.message)
+            expect(clientStream.destroyed).toBeTrue()
+            await expect(client.getPublicKeys()).rejects.toThrow("stream is not writable")
+            fixtureStream.destroy()
+            await fixture
+        }
     })
 
     test("converts an oversized policy response into a bounded failure", async () => {
