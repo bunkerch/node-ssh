@@ -4,6 +4,7 @@ import type { EncryptionAlgorithm } from "../../algorithms.js"
 export default class CBC implements EncryptionAlgorithm {
     private readonly encryptor: crypto.Cipher
     private readonly decryptor: crypto.Decipher
+    private disposed = false
 
     constructor(
         algorithm: string,
@@ -23,11 +24,13 @@ export default class CBC implements EncryptionAlgorithm {
     }
 
     encrypt(plaintext: Buffer): Buffer {
+        this.assertUsable()
         this.validateBlockLength(plaintext)
         return this.encryptor.update(plaintext)
     }
 
     decrypt(ciphertext: Buffer): Buffer {
+        this.assertUsable()
         this.validateBlockLength(ciphertext)
         return this.decryptor.update(ciphertext)
     }
@@ -36,5 +39,19 @@ export default class CBC implements EncryptionAlgorithm {
         if (input.length % this.blockSize !== 0) {
             throw new Error(`SSH CBC input must be a multiple of ${this.blockSize} bytes`)
         }
+    }
+
+    dispose(): void {
+        if (this.disposed) return
+        this.disposed = true
+        try {
+            this.encryptor.final()
+        } finally {
+            this.decryptor.final()
+        }
+    }
+
+    private assertUsable(): void {
+        if (this.disposed) throw new Error("SSH CBC cipher is disposed")
     }
 }

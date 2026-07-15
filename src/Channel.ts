@@ -327,7 +327,7 @@ export default class Channel {
     }
 
     sendEOF(): void {
-        if (this.sentEOF || this.remoteId === undefined || this.sentClose) return
+        if (this.aborted || this.sentEOF || this.remoteId === undefined || this.sentClose) return
         this.sentEOF = true
         this.client.sendPacket(new ChannelEOF({ recipient_channel_id: this.remoteId }))
     }
@@ -514,7 +514,7 @@ export default class Channel {
     }
 
     private sendClose(): void {
-        if (this.sentClose || this.remoteId === undefined) return
+        if (this.aborted || this.sentClose || this.remoteId === undefined) return
         this.sentClose = true
         try {
             this.client.sendPacket(new ChannelClose({ recipient_channel_id: this.remoteId }))

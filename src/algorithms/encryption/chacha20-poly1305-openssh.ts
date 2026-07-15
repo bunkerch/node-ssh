@@ -16,6 +16,7 @@ export default class ChaCha20Poly1305OpenSSH implements EncryptionAlgorithm {
     private readonly payloadKey: Buffer
     private readonly lengthKey: Buffer
     private lastSequenceNumber?: number
+    private disposed = false
 
     static instantiate(key: Buffer, iv: Buffer): EncryptionAlgorithm {
         return new ChaCha20Poly1305OpenSSH(key, iv)
@@ -41,6 +42,7 @@ export default class ChaCha20Poly1305OpenSSH implements EncryptionAlgorithm {
         sequenceNumber: number,
         plaintext: Buffer,
     ): { ciphertext: Buffer; authenticationTag: Buffer } {
+        this.assertUsable()
         assert(plaintext.length >= 4, "SSH ChaCha20-Poly1305 packet is missing its length")
         this.consumeSequenceNumber(sequenceNumber)
         const nonce = sequenceNonce(sequenceNumber)
@@ -56,12 +58,14 @@ export default class ChaCha20Poly1305OpenSSH implements EncryptionAlgorithm {
     }
 
     decryptPacketLength(sequenceNumber: number, encryptedLength: Buffer): Buffer {
+        this.assertUsable()
         assert(encryptedLength.length === 4, "SSH ChaCha20-Poly1305 length must be 4 bytes")
         this.validateNextSequenceNumber(sequenceNumber)
         return chacha20(encryptedLength, this.lengthKey, 0n, sequenceNonce(sequenceNumber))
     }
 
     decryptPacket(sequenceNumber: number, ciphertext: Buffer, authenticationTag: Buffer): Buffer {
+        this.assertUsable()
         assert(ciphertext.length >= 4, "SSH ChaCha20-Poly1305 packet is missing its length")
         assert(
             authenticationTag.length === 16,
@@ -99,6 +103,17 @@ export default class ChaCha20Poly1305OpenSSH implements EncryptionAlgorithm {
                 "SSH ChaCha20-Poly1305 nonce reuse; rekey is required",
             )
         }
+    }
+
+    dispose(): void {
+        if (this.disposed) return
+        this.disposed = true
+        this.payloadKey.fill(0)
+        this.lengthKey.fill(0)
+    }
+
+    private assertUsable(): void {
+        if (this.disposed) throw new Error("SSH ChaCha20-Poly1305 cipher is disposed")
     }
 }
 

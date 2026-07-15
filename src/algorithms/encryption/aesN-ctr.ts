@@ -8,6 +8,7 @@ export default class AESNCTR implements EncryptionAlgorithm {
 
     private readonly encryptInstance: crypto.Cipher
     private readonly decryptInstance: crypto.Decipher
+    private disposed = false
 
     constructor(algorithm: string, key: Buffer, iv: Buffer, expectedKeyLength: number) {
         if (!Buffer.isBuffer(key) || key.length !== expectedKeyLength) {
@@ -29,10 +30,26 @@ export default class AESNCTR implements EncryptionAlgorithm {
     }
 
     encrypt(plaintext: Buffer): Buffer {
+        this.assertUsable()
         return this.encryptInstance.update(plaintext)
     }
 
     decrypt(ciphertext: Buffer): Buffer {
+        this.assertUsable()
         return this.decryptInstance.update(ciphertext)
+    }
+
+    dispose(): void {
+        if (this.disposed) return
+        this.disposed = true
+        try {
+            this.encryptInstance.final()
+        } finally {
+            this.decryptInstance.final()
+        }
+    }
+
+    private assertUsable(): void {
+        if (this.disposed) throw new Error("SSH AES-CTR cipher is disposed")
     }
 }

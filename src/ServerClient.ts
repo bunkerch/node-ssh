@@ -46,7 +46,7 @@ import {
     createOutboundPacketProtection,
     createPacketCompressor,
     createPacketDecompressor,
-    instantiateMACAlgorithm,
+    instantiateTransportAlgorithms,
     describeNegotiatedAlgorithms,
     compression_algorithms,
     host_key_algorithms,
@@ -291,6 +291,9 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             this.clearHandshakeTimeout()
             this.clearKeepalive()
             this.clearRekeyTimer()
+            this.packetEncoder.dispose()
+            this.packetDecoder.dispose()
+            this.disposeTransportAlgorithms()
             this.state = SocketState.Disconnected
             const closeError = this.connectionClosedError("SSH connection closed")
             for (const forwarding of this.remoteForwardListeners.values()) forwarding.server.close()
@@ -2580,24 +2583,37 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 clientIntegrity: this.#clientMacAlgorithm?.key_length ?? 0,
                 serverIntegrity: this.#serverMacAlgorithm?.key_length ?? 0,
             })
-            this.#clientEncryption = this.#clientEncryptionAlgorithm.instantiate(
-                keys.clientEncryption,
-                keys.clientIV,
+            const instantiated = instantiateTransportAlgorithms(
+                {
+                    clientEncryption: this.#clientEncryptionAlgorithm,
+                    serverEncryption: this.#serverEncryptionAlgorithm,
+                    clientMac: this.#clientMacAlgorithm,
+                    serverMac: this.#serverMacAlgorithm,
+                },
+                keys,
             )
-            this.#serverEncryption = this.#serverEncryptionAlgorithm.instantiate(
-                keys.serverEncryption,
-                keys.serverIV,
-            )
-            this.#clientMac = this.#clientMacAlgorithm
-                ? instantiateMACAlgorithm(this.#clientMacAlgorithm, keys.clientIntegrity)
-                : undefined
-            this.#serverMac = this.#serverMacAlgorithm
-                ? instantiateMACAlgorithm(this.#serverMacAlgorithm, keys.serverIntegrity)
-                : undefined
+            this.#clientEncryption = instantiated.clientEncryption
+            this.#serverEncryption = instantiated.serverEncryption
+            this.#clientMac = instantiated.clientMac
+            this.#serverMac = instantiated.serverMac
         } finally {
             if (keys) for (const key of Object.values(keys)) key.fill(0)
             kex.dispose()
         }
+    }
+
+    private disposeTransportAlgorithms(): void {
+        const algorithms = [
+            this.#clientEncryption,
+            this.#serverEncryption,
+            this.#clientMac,
+            this.#serverMac,
+        ]
+        this.#clientEncryption = undefined
+        this.#serverEncryption = undefined
+        this.#clientMac = undefined
+        this.#serverMac = undefined
+        for (const algorithm of algorithms) algorithm?.dispose?.()
     }
 
     private installOutboundCompression(): void {

@@ -12,14 +12,22 @@ export default class HMACMD5 implements MACAlgorithm {
     }
 
     readonly #key: Buffer
+    #disposed = false
 
     constructor(key: Buffer) {
         this.#key = Buffer.from(key)
     }
 
     computeMAC(sequenceNumber: number, packet: Buffer): Buffer {
+        if (this.#disposed) throw new Error("SSH HMAC-MD5 is disposed")
         const sequence = Buffer.allocUnsafe(4)
         sequence.writeUInt32BE(sequenceNumber)
         return crypto.createHmac("md5", this.#key).update(sequence).update(packet).digest()
+    }
+
+    dispose(): void {
+        if (this.#disposed) return
+        this.#disposed = true
+        this.#key.fill(0)
     }
 }

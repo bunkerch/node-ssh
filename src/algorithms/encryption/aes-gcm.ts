@@ -13,6 +13,7 @@ export default abstract class AESGCM implements EncryptionAlgorithm {
     private readonly initialIV: Buffer
     private invocationCounter: bigint
     private exhausted = false
+    private disposed = false
 
     protected constructor(
         private readonly algorithm: "aes-128-gcm" | "aes-256-gcm",
@@ -50,6 +51,7 @@ export default abstract class AESGCM implements EncryptionAlgorithm {
     }
 
     decryptPacketLength(_sequenceNumber: number, encryptedLength: Buffer): Buffer {
+        this.assertUsable()
         return encryptedLength
     }
 
@@ -66,6 +68,7 @@ export default abstract class AESGCM implements EncryptionAlgorithm {
         plaintext: Buffer,
         associatedData: Buffer,
     ): { ciphertext: Buffer; authenticationTag: Buffer } {
+        this.assertUsable()
         const cipher = crypto.createCipheriv(this.algorithm, this.key, this.nextIV(), {
             authTagLength: 16,
         })
@@ -80,6 +83,7 @@ export default abstract class AESGCM implements EncryptionAlgorithm {
         associatedData: Buffer,
         authenticationTag: Buffer,
     ): Buffer {
+        this.assertUsable()
         if (authenticationTag.length !== 16) {
             throw new Error("SSH AES-GCM authentication tag must be 16 bytes")
         }
@@ -107,5 +111,16 @@ export default abstract class AESGCM implements EncryptionAlgorithm {
         if (this.invocationCounter === UINT64_MAX) this.exhausted = true
         else this.invocationCounter++
         return iv
+    }
+
+    dispose(): void {
+        if (this.disposed) return
+        this.disposed = true
+        this.key.fill(0)
+        this.initialIV.fill(0)
+    }
+
+    private assertUsable(): void {
+        if (this.disposed) throw new Error("SSH AES-GCM cipher is disposed")
     }
 }

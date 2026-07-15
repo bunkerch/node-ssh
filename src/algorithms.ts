@@ -316,6 +316,7 @@ export abstract class EncryptionAlgorithm {
     static auth_tag_length?: number
     /** RFC AEAD algorithms that occupy both negotiation lists require this exact MAC name. */
     static required_mac?: string
+    dispose?(): void
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     constructor(key: Buffer, iv: Buffer) {
@@ -372,6 +373,7 @@ export abstract class MACAlgorithm {
     static key_length: number
     static digest_length: number
     static encrypt_then_mac = false
+    dispose?(): void
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     constructor(key: Buffer) {
@@ -395,6 +397,22 @@ export function instantiateMACAlgorithm(algorithm: typeof MACAlgorithm, key: Buf
         `${algorithm.alg_name} MAC key must be ${algorithm.key_length} bytes`,
     )
     return algorithm.instantiate(key)
+}
+
+export function instantiateEncryptionAlgorithm(
+    algorithm: typeof EncryptionAlgorithm,
+    key: Buffer,
+    iv: Buffer,
+): EncryptionAlgorithm {
+    assert(
+        Buffer.isBuffer(key) && key.length === algorithm.key_length,
+        `${algorithm.alg_name} cipher key must be ${algorithm.key_length} bytes`,
+    )
+    assert(
+        Buffer.isBuffer(iv) && iv.length === algorithm.iv_length,
+        `${algorithm.alg_name} cipher IV must be ${algorithm.iv_length} bytes`,
+    )
+    return algorithm.instantiate(key, iv)
 }
 
 export const mac_algorithms = new Map<string, typeof MACAlgorithm>([
@@ -502,6 +520,51 @@ export interface ChosenAlgorithms {
     readonly serverMac?: typeof MACAlgorithm
     readonly clientCompression: CompressionAlgorithm
     readonly serverCompression: CompressionAlgorithm
+}
+
+export interface InstantiatedTransportAlgorithms {
+    readonly clientEncryption: EncryptionAlgorithm
+    readonly serverEncryption: EncryptionAlgorithm
+    readonly clientMac?: MACAlgorithm
+    readonly serverMac?: MACAlgorithm
+}
+
+export function instantiateTransportAlgorithms(
+    algorithms: Pick<
+        ChosenAlgorithms,
+        "clientEncryption" | "serverEncryption" | "clientMac" | "serverMac"
+    >,
+    keys: DerivedTransportKeys,
+): InstantiatedTransportAlgorithms {
+    let clientEncryption: EncryptionAlgorithm | undefined
+    let serverEncryption: EncryptionAlgorithm | undefined
+    let clientMac: MACAlgorithm | undefined
+    let serverMac: MACAlgorithm | undefined
+    try {
+        clientEncryption = instantiateEncryptionAlgorithm(
+            algorithms.clientEncryption,
+            keys.clientEncryption,
+            keys.clientIV,
+        )
+        serverEncryption = instantiateEncryptionAlgorithm(
+            algorithms.serverEncryption,
+            keys.serverEncryption,
+            keys.serverIV,
+        )
+        clientMac = algorithms.clientMac
+            ? instantiateMACAlgorithm(algorithms.clientMac, keys.clientIntegrity)
+            : undefined
+        serverMac = algorithms.serverMac
+            ? instantiateMACAlgorithm(algorithms.serverMac, keys.serverIntegrity)
+            : undefined
+        return { clientEncryption, serverEncryption, clientMac, serverMac }
+    } catch (error) {
+        clientEncryption?.dispose?.()
+        serverEncryption?.dispose?.()
+        clientMac?.dispose?.()
+        serverMac?.dispose?.()
+        throw error
+    }
 }
 
 export interface AlgorithmSelectionInput {
@@ -678,6 +741,7 @@ export function createOutboundPacketProtection(
             cipher: { encryptPacket: cipher.encryptPacket.bind(cipher) },
             blockSize: algorithm.block_size,
             authTagLength,
+            dispose: () => cipher.dispose?.(),
         }
     }
     assert(macAlgorithm, "MAC algorithm not selected for non-AEAD cipher")
@@ -688,6 +752,10 @@ export function createOutboundPacketProtection(
         blockSize: algorithm.block_size,
         macLength: macAlgorithm.digest_length,
         encryptThenMac: macAlgorithm.encrypt_then_mac,
+        dispose: () => {
+            cipher.dispose?.()
+            mac.dispose?.()
+        },
     }
 }
 
@@ -709,6 +777,7 @@ export function createInboundPacketProtection(
             },
             blockSize: algorithm.block_size,
             authTagLength,
+            dispose: () => cipher.dispose?.(),
         }
     }
     assert(macAlgorithm, "MAC algorithm not selected for non-AEAD cipher")
@@ -719,6 +788,10 @@ export function createInboundPacketProtection(
         blockSize: algorithm.block_size,
         macLength: macAlgorithm.digest_length,
         encryptThenMac: macAlgorithm.encrypt_then_mac,
+        dispose: () => {
+            cipher.dispose?.()
+            mac.dispose?.()
+        },
     }
 }
 

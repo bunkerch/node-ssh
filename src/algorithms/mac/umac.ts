@@ -9,11 +9,13 @@ abstract class UMACAlgorithm implements MACAlgorithm {
 
     private readonly umac: UMAC
     private lastSequenceNumber?: number
+    private disposed = false
     protected constructor(key: Buffer, tagLength: UMACTagLength) {
         this.umac = new UMAC(key, tagLength)
     }
 
     computeMAC(sequenceNumber: number, packet: Buffer): Buffer {
+        if (this.disposed) throw new Error("SSH UMAC is disposed")
         if (this.lastSequenceNumber !== undefined && sequenceNumber <= this.lastSequenceNumber) {
             throw new Error("SSH UMAC sequence number reuse requires rekeying")
         }
@@ -21,6 +23,12 @@ abstract class UMACAlgorithm implements MACAlgorithm {
         const nonce = Buffer.alloc(8)
         nonce.writeUInt32BE(sequenceNumber, 4)
         return this.umac.compute(packet, nonce)
+    }
+
+    dispose(): void {
+        if (this.disposed) return
+        this.disposed = true
+        this.umac.dispose()
     }
 }
 

@@ -412,7 +412,12 @@ export default class ClientChannel extends Duplex {
     }
 
     eof(): this {
-        if (!this.sentEOF && this.remoteId !== undefined && !this.sentClose) {
+        if (
+            !this.transportClosed &&
+            !this.sentEOF &&
+            this.remoteId !== undefined &&
+            !this.sentClose
+        ) {
             this.sentEOF = true
             this.client.sendPacket(new ChannelEOF({ recipient_channel_id: this.remoteId }))
         }
@@ -590,7 +595,7 @@ export default class ClientChannel extends Duplex {
     }
 
     private sendClose(): void {
-        if (this.sentClose || this.remoteId === undefined) return
+        if (this.transportClosed || this.sentClose || this.remoteId === undefined) return
         this.sentClose = true
         try {
             this.client.sendPacket(new ChannelClose({ recipient_channel_id: this.remoteId }))

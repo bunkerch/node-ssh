@@ -12,12 +12,14 @@ export default class HMACSHA2256 implements MACAlgorithm {
     }
 
     readonly #key: Buffer
+    #disposed = false
 
     constructor(key: Buffer) {
         this.#key = Buffer.from(key)
     }
 
     computeMAC(sequenceNumber: number, packet: Buffer): Buffer {
+        if (this.#disposed) throw new Error("SSH HMAC-SHA2-256 is disposed")
         const sequence = Buffer.allocUnsafe(4)
 
         sequence.writeUInt32BE(sequenceNumber)
@@ -26,5 +28,11 @@ export default class HMACSHA2256 implements MACAlgorithm {
         hmac.update(sequence)
         hmac.update(packet)
         return hmac.digest()
+    }
+
+    dispose(): void {
+        if (this.#disposed) return
+        this.#disposed = true
+        this.#key.fill(0)
     }
 }

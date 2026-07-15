@@ -120,6 +120,7 @@ export default class BlowfishCBC implements EncryptionAlgorithm {
     readonly #state = new Uint32Array(INITIAL_STATE)
     #encryptIV: Buffer
     #decryptIV: Buffer
+    #disposed = false
 
     constructor(key: Buffer, iv: Buffer) {
         if (key.length !== BlowfishCBC.key_length) {
@@ -134,6 +135,7 @@ export default class BlowfishCBC implements EncryptionAlgorithm {
     }
 
     encrypt(plaintext: Buffer): Buffer {
+        this.assertUsable()
         this.validateBlockLength(plaintext)
         const ciphertext = Buffer.allocUnsafe(plaintext.length)
 
@@ -151,6 +153,7 @@ export default class BlowfishCBC implements EncryptionAlgorithm {
     }
 
     decrypt(ciphertext: Buffer): Buffer {
+        this.assertUsable()
         this.validateBlockLength(ciphertext)
         const plaintext = Buffer.allocUnsafe(ciphertext.length)
 
@@ -226,5 +229,17 @@ export default class BlowfishCBC implements EncryptionAlgorithm {
         if (input.length % BLOCK_SIZE !== 0) {
             throw new Error(`SSH Blowfish-CBC input must be a multiple of ${BLOCK_SIZE} bytes`)
         }
+    }
+
+    dispose(): void {
+        if (this.#disposed) return
+        this.#disposed = true
+        this.#state.fill(0)
+        this.#encryptIV.fill(0)
+        this.#decryptIV.fill(0)
+    }
+
+    private assertUsable(): void {
+        if (this.#disposed) throw new Error("SSH Blowfish-CBC cipher is disposed")
     }
 }

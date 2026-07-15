@@ -193,6 +193,7 @@ describe("ClientChannel", () => {
         const { channel, sent } = createChannel()
 
         channel.abort()
+        channel.close()
 
         expect(sent.some((packet) => packet instanceof ChannelClose)).toBe(false)
     })

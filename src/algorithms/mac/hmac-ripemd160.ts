@@ -13,6 +13,7 @@ export default class HMACRIPEMD160 implements MACAlgorithm {
     }
 
     readonly #key: Buffer
+    #disposed = false
 
     constructor(key: Buffer) {
         if (key.length !== HMACRIPEMD160.key_length) {
@@ -22,8 +23,15 @@ export default class HMACRIPEMD160 implements MACAlgorithm {
     }
 
     computeMAC(sequenceNumber: number, packet: Buffer): Buffer {
+        if (this.#disposed) throw new Error("SSH HMAC-RIPEMD160 is disposed")
         const sequence = Buffer.allocUnsafe(4)
         sequence.writeUInt32BE(sequenceNumber)
         return createHmac("ripemd160", this.#key).update(sequence).update(packet).digest()
+    }
+
+    dispose(): void {
+        if (this.#disposed) return
+        this.#disposed = true
+        this.#key.fill(0)
     }
 }

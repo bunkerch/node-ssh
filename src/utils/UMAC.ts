@@ -163,6 +163,7 @@ export class UMAC {
     private readonly l3Key1: Buffer
     private readonly l3Key2: Buffer
     private readonly pdfKey: Buffer
+    private disposed = false
 
     constructor(key: Buffer, tagLength: UMACTagLength) {
         assert(key.length === KEY_LENGTH, "UMAC requires a 16-byte key")
@@ -178,6 +179,7 @@ export class UMAC {
     }
 
     compute(message: Buffer, nonce: Buffer): Buffer {
+        if (this.disposed) throw new Error("UMAC is disposed")
         assert(nonce.length >= 1 && nonce.length <= BLOCK_LENGTH, "Invalid UMAC nonce length")
         const iterations = this.tagLength / 4
         const hashParts: Buffer[] = []
@@ -212,5 +214,16 @@ export class UMAC {
         const tag = Buffer.allocUnsafe(this.tagLength)
         for (let index = 0; index < tag.length; index++) tag[index] = pad[index] ^ hash[index]
         return tag
+    }
+
+    dispose(): void {
+        if (this.disposed) return
+        this.disposed = true
+        this.key.fill(0)
+        this.l1Key.fill(0)
+        this.l2Key.fill(0)
+        this.l3Key1.fill(0)
+        this.l3Key2.fill(0)
+        this.pdfKey.fill(0)
     }
 }

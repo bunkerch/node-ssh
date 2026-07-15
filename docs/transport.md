@@ -737,7 +737,11 @@ KEXINIT transcripts and method-specific key-exchange packets are likewise intern
 `handshake` event for exchange-completion observations. Completed and failed exchanges explicitly
 zero retained shared-secret and software private-scalar buffers, release native ephemeral key
 objects, erase temporary RSA key-exchange plaintexts and secret encodings, and discard derived key
-buffers after constructing packet protection.
+buffers after constructing packet protection. Directional `NEWKEYS` replacement deterministically
+disposes the superseded packet protection. Connection failure and close dispose both active and
+not-yet-activated protection, erase JavaScript-managed cipher keys, MAC keys, expanded subkeys, and
+IV state, and make those algorithm objects unusable. Native cipher contexts are finalized before
+their JavaScript wrappers are released.
 
 ## Key re-exchange
 

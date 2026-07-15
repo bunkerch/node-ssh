@@ -290,17 +290,21 @@ function deriveSubkeys(key: Buffer): Uint32Array {
     const x = Buffer.from(key)
     const z = Buffer.alloc(16)
     const keys = new Uint32Array(32)
-
-    for (let half = 0; half < 2; half++) {
-        const offset = half * 16
-        zFromX(x, z)
-        writeZKeysA(keys, offset, z)
-        xFromZ(x, z)
-        writeXKeysB(keys, offset + 4, x)
-        zFromX(x, z)
-        writeZKeysC(keys, offset + 8, z)
-        xFromZ(x, z)
-        writeXKeysD(keys, offset + 12, x)
+    try {
+        for (let half = 0; half < 2; half++) {
+            const offset = half * 16
+            zFromX(x, z)
+            writeZKeysA(keys, offset, z)
+            xFromZ(x, z)
+            writeXKeysB(keys, offset + 4, x)
+            zFromX(x, z)
+            writeZKeysC(keys, offset + 8, z)
+            xFromZ(x, z)
+            writeXKeysD(keys, offset + 12, x)
+        }
+    } finally {
+        x.fill(0)
+        z.fill(0)
     }
 
     for (let index = 16; index < 32; index++) keys[index] &= 0x1f
@@ -320,6 +324,7 @@ export default class Cast128CBC implements EncryptionAlgorithm {
     readonly #subkeys: Uint32Array
     #encryptIV: Buffer
     #decryptIV: Buffer
+    #disposed = false
 
     constructor(key: Buffer, iv: Buffer) {
         if (key.length !== Cast128CBC.key_length) {
@@ -334,6 +339,7 @@ export default class Cast128CBC implements EncryptionAlgorithm {
     }
 
     encrypt(plaintext: Buffer): Buffer {
+        this.assertUsable()
         this.validateBlockLength(plaintext)
         const ciphertext = Buffer.allocUnsafe(plaintext.length)
 
@@ -351,6 +357,7 @@ export default class Cast128CBC implements EncryptionAlgorithm {
     }
 
     decrypt(ciphertext: Buffer): Buffer {
+        this.assertUsable()
         this.validateBlockLength(ciphertext)
         const plaintext = Buffer.allocUnsafe(ciphertext.length)
 
@@ -422,5 +429,17 @@ export default class Cast128CBC implements EncryptionAlgorithm {
         if (input.length % BLOCK_SIZE !== 0) {
             throw new Error(`SSH CAST-128-CBC input must be a multiple of ${BLOCK_SIZE} bytes`)
         }
+    }
+
+    dispose(): void {
+        if (this.#disposed) return
+        this.#disposed = true
+        this.#subkeys.fill(0)
+        this.#encryptIV.fill(0)
+        this.#decryptIV.fill(0)
+    }
+
+    private assertUsable(): void {
+        if (this.#disposed) throw new Error("SSH CAST-128-CBC cipher is disposed")
     }
 }

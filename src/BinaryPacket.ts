@@ -43,6 +43,7 @@ export interface OutboundPacketCipherProtection {
     macLength: number
     encryptThenMac?: boolean
     aead?: false
+    dispose?: () => void
 }
 
 export interface InboundPacketCipherProtection {
@@ -52,6 +53,7 @@ export interface InboundPacketCipherProtection {
     macLength: number
     encryptThenMac?: boolean
     aead?: false
+    dispose?: () => void
 }
 
 export interface OutboundPacketAEADProtection {
@@ -59,6 +61,7 @@ export interface OutboundPacketAEADProtection {
     blockSize: number
     authTagLength: number
     aead: true
+    dispose?: () => void
 }
 
 export interface InboundPacketAEADProtection {
@@ -66,6 +69,7 @@ export interface InboundPacketAEADProtection {
     blockSize: number
     authTagLength: number
     aead: true
+    dispose?: () => void
 }
 
 export type OutboundPacketProtection = OutboundPacketCipherProtection | OutboundPacketAEADProtection
@@ -133,6 +137,7 @@ export class BinaryPacketEncoder {
     private sequenceNumber = 0
     private sequenceNumberWrapped = false
     private protectedBytes = 0
+    private disposed = false
 
     constructor(options: BinaryPacketEncoderOptions = {}) {
         this.maximumPacketSize = options.maximumPacketSize ?? MAXIMUM_BINARY_PACKET_SIZE
@@ -141,13 +146,24 @@ export class BinaryPacketEncoder {
     }
 
     setProtection(protection: OutboundPacketProtection): void {
+        if (this.disposed) throw new Error("SSH binary packet encoder is disposed")
         validateProtection(protection)
+        if (this.protection !== protection) this.protection?.dispose?.()
         this.protection = protection
         this.protectedBytes = 0
     }
 
     setCompression(compressor: PacketCompressor | undefined): void {
+        if (this.disposed) throw new Error("SSH binary packet encoder is disposed")
         this.compressor = compressor
+    }
+
+    dispose(): void {
+        if (this.disposed) return
+        this.disposed = true
+        this.protection?.dispose?.()
+        this.protection = undefined
+        this.compressor = undefined
     }
 
     resetSequenceNumber(): void {
@@ -165,6 +181,7 @@ export class BinaryPacketEncoder {
     }
 
     encode(payload: Buffer): EncodedBinaryPacket {
+        if (this.disposed) throw new Error("SSH binary packet encoder is disposed")
         if (payload.length === 0) {
             throw new Error("SSH binary packet payload must not be empty")
         }
@@ -268,6 +285,7 @@ export class BinaryPacketDecoder {
     private sequenceNumber = 0
     private sequenceNumberWrapped = false
     private protectedBytes = 0
+    private disposed = false
 
     constructor(options: BinaryPacketOptions = {}) {
         this.maximumPacketSize = options.maximumPacketSize ?? MAXIMUM_BINARY_PACKET_SIZE
@@ -293,27 +311,44 @@ export class BinaryPacketDecoder {
     }
 
     push(chunk: Buffer): void {
+        if (this.disposed) throw new Error("SSH binary packet decoder is disposed")
         if (chunk.length === 0) return
         this.buffered = Buffer.concat([this.buffered, chunk])
     }
 
     setProtection(protection: InboundPacketProtection): void {
+        if (this.disposed) throw new Error("SSH binary packet decoder is disposed")
         if (this.decryptedFirstBlock) {
             throw new Error("Cannot change SSH packet protection while decoding a packet")
         }
         validateProtection(protection)
+        if (this.protection !== protection) this.protection?.dispose?.()
         this.protection = protection
         this.protectedBytes = 0
     }
 
     setCompression(decompressor: PacketDecompressor | undefined): void {
+        if (this.disposed) throw new Error("SSH binary packet decoder is disposed")
         if (this.decryptedFirstBlock) {
             throw new Error("Cannot change SSH compression while decoding a packet")
         }
         this.decompressor = decompressor
     }
 
+    dispose(): void {
+        if (this.disposed) return
+        this.disposed = true
+        this.protection?.dispose?.()
+        this.protection = undefined
+        this.decompressor = undefined
+        this.decryptedFirstBlock?.fill(0)
+        this.decryptedFirstBlock = undefined
+        this.buffered.fill(0)
+        this.buffered = Buffer.alloc(0)
+    }
+
     read(): DecodedBinaryPacket | undefined {
+        if (this.disposed) throw new Error("SSH binary packet decoder is disposed")
         const blockSize = Math.max(8, this.protection?.blockSize ?? 8)
         const aead = this.protection?.aead === true
         const encryptThenMac =
