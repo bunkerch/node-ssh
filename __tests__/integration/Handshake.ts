@@ -1045,9 +1045,11 @@ describe("client/server integration", () => {
 
             let accept
             const accepted = new Promise((resolve) => { accept = resolve })
-            const server = net.createServer((socket) =>
-                accept({ address: socket.remoteAddress, port: socket.remotePort }),
-            )
+            let peerSocket
+            const server = net.createServer((socket) => {
+                peerSocket = socket
+                accept({ address: socket.remoteAddress, port: socket.remotePort })
+            })
             await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve))
             const client = new Client({
                 hostname: "localhost",
@@ -1062,6 +1064,7 @@ describe("client/server integration", () => {
             const remote = await accepted
             const closed = new Promise((resolve) => client.once("close", resolve))
             client.destroy()
+            peerSocket.destroy()
             await closed
             await new Promise((resolve, reject) =>
                 server.close((error) => error ? reject(error) : resolve()),

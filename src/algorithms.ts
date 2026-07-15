@@ -209,7 +209,7 @@ function securityKeyCertificateAlgorithm(algorithm: string): string {
 }
 
 export const public_key_signature_algorithms: readonly string[] = Object.freeze([
-    ...host_key_algorithms.keys().filter((name) => name !== "null"),
+    ...Array.from(host_key_algorithms.keys()).filter((name) => name !== "null"),
     SSH_ED25519_SECURITY_KEY_ALGORITHM,
     securityKeyCertificateAlgorithm(SSH_ED25519_SECURITY_KEY_ALGORITHM),
     SSH_ECDSA_SECURITY_KEY_ALGORITHM,
