@@ -1,20 +1,4 @@
 export { default as Client, GlobalRequestError } from "./Client.js"
-export { default as ControlMaster } from "./control/ControlMaster.js"
-export type {
-    ControlMasterEvents,
-    ControlMasterHooker,
-    ControlMasterOptions,
-    ControlMasterPolicyRequest,
-    ControlMasterRequestController,
-} from "./control/ControlMaster.js"
-export {
-    CONTROL_MULTIPLEX_MAX_PACKET_SIZE,
-    CONTROL_MULTIPLEX_STREAM_LOCAL_PORT,
-    CONTROL_MULTIPLEX_VERSION,
-    ControlMultiplexForwardType,
-    ControlMultiplexMessageType,
-    ControlMultiplexProtocolError,
-} from "./control/ControlMultiplexCodec.js"
 export {
     SSHHTTPAgent,
     SSHHTTPAgent as HTTPAgent,

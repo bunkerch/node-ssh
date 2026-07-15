@@ -17,7 +17,6 @@ import {
     ClientForwardedTCPIPChannel,
     ClientTCPIPChannel,
     ClientX11Channel,
-    ControlMaster,
     createSocketAgent,
     CygwinAgent,
     CygwinAgentError,
@@ -248,7 +247,6 @@ describe("package exports", () => {
             ClientForwardedTCPIPChannel,
             ClientTCPIPChannel,
             ClientX11Channel,
-            ControlMaster,
             DirectTCPIPChannel,
             DirectStreamLocalChannel,
             DisconnectError,
@@ -287,7 +285,7 @@ describe("package exports", () => {
             SSHHTTPAgent,
             SSHHTTPSAgent,
             SSHSignature,
-        ]).toHaveLength(51)
+        ]).toHaveLength(50)
         expect(
             new ChannelOpenError(
                 ChannelOpenFailureReasonCodes.SSH_OPEN_ADMINISTRATIVELY_PROHIBITED,
