@@ -32,6 +32,11 @@ export default class ProtocolVersionExchange {
         this.protocol_version = protocol_version
         this.protocol_software = protocol_software
         this.comments = comments
+        Object.defineProperties(this, {
+            protocol_version: { configurable: false, writable: false },
+            protocol_software: { configurable: false, writable: false },
+            comments: { configurable: false, writable: false },
+        })
 
         if (Buffer.byteLength(this.toString(), "utf8") > MAX_IDENTIFICATION_LENGTH) {
             throw new Error(`SSH identification must not exceed ${MAX_IDENTIFICATION_LENGTH} bytes`)
@@ -87,4 +92,15 @@ export default class ProtocolVersionExchange {
     toString(): string {
         return `SSH-${this.protocol_version}-${this.protocol_software}${this.comments ? ` ${this.comments}` : ""}\r\n`
     }
+}
+
+/** Copy a possibly subclassed configuration into the validated base representation. */
+export function copyProtocolVersionExchange(
+    value: ProtocolVersionExchange,
+): ProtocolVersionExchange {
+    return new ProtocolVersionExchange(
+        value.protocol_version,
+        value.protocol_software,
+        value.comments,
+    )
 }

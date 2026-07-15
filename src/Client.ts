@@ -10,7 +10,7 @@ import {
     PacketType,
     PacketTypeToName,
 } from "./constants.js"
-import ProtocolVersionExchange from "./ProtocolVersionExchange.js"
+import ProtocolVersionExchange, { copyProtocolVersionExchange } from "./ProtocolVersionExchange.js"
 import assert from "node:assert"
 import Packet, { packets, protocolPacketMetadata, type ProtocolPacketMetadata } from "./packet.js"
 import KexInit from "./packets/KexInit.js"
@@ -664,7 +664,9 @@ export default class Client extends EventEmitter<ClientEvents> {
         }
         this.#options.protocolVersionExchange =
             this.#options.ident === undefined
-                ? (this.#options.protocolVersionExchange ?? ProtocolVersionExchange.defaultValue)
+                ? copyProtocolVersionExchange(
+                      this.#options.protocolVersionExchange ?? ProtocolVersionExchange.defaultValue,
+                  )
                 : ProtocolVersionExchange.fromIdent(this.#options.ident)
         this.#options.authenticationMethodsOrder ??= [
             SSHAuthenticationMethods.None,

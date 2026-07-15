@@ -10,7 +10,7 @@ import type {
 } from "./AlgorithmOptions.js"
 import { normalizeDelayCompression } from "./DelayCompression.js"
 import { normalizeGSSAPIClientMechanisms } from "./GSSAPI.js"
-import ProtocolVersionExchange from "./ProtocolVersionExchange.js"
+import { copyProtocolVersionExchange } from "./ProtocolVersionExchange.js"
 import type ClientTCPIPChannel from "./channels/ClientTCPIPChannel.js"
 
 export interface SSHAgentOptions {
@@ -87,11 +87,7 @@ function snapshotClientOptions(options: Readonly<ClientOptions>): Readonly<Clien
         protocolVersionExchange:
             options.protocolVersionExchange === undefined
                 ? undefined
-                : new ProtocolVersionExchange(
-                      options.protocolVersionExchange.protocol_version,
-                      options.protocolVersionExchange.protocol_software,
-                      options.protocolVersionExchange.comments,
-                  ),
+                : copyProtocolVersionExchange(options.protocolVersionExchange),
         algorithms: snapshotAlgorithms(options.algorithms),
         agent,
         privateKey: undefined,

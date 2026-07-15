@@ -1,7 +1,7 @@
 // this causes issues with the Server#listen method.
 
 import EventEmitter from "node:events"
-import ProtocolVersionExchange from "./ProtocolVersionExchange.js"
+import ProtocolVersionExchange, { copyProtocolVersionExchange } from "./ProtocolVersionExchange.js"
 import net from "net"
 import { isReadable, type Duplex } from "node:stream"
 import ServerClient from "./ServerClient.js"
@@ -381,7 +381,9 @@ export default class Server extends EventEmitter<ServerEvents> {
         }
         this.#options.protocolVersionExchange =
             this.#options.ident === undefined
-                ? (this.#options.protocolVersionExchange ?? ProtocolVersionExchange.defaultValue)
+                ? copyProtocolVersionExchange(
+                      this.#options.protocolVersionExchange ?? ProtocolVersionExchange.defaultValue,
+                  )
                 : ProtocolVersionExchange.fromIdent(this.#options.ident)
         this.#options.greeting = normalizeGreeting(this.#options.greeting ?? "")
         this.#options.hostKeys = (options.hostKeys ?? []).map((input) => {

@@ -24,6 +24,11 @@ without the `SSH-2.0-` prefix. A `Buffer` is accepted for byte-exact configurati
 validated as an RFC 4253 identifier. `ident` and the lower-level `protocolVersionExchange` option
 are mutually exclusive.
 
+`ProtocolVersionExchange` fields are runtime-immutable as well as readonly in TypeScript. Client
+and server construction copy a supplied instance into the validated base representation before
+retaining it, so later caller mutation, subclass overrides, or an observational event listener
+cannot change the identification used on the wire or in the exchange hash.
+
 Servers accept the same `ident` shorthand. The `greeting` server option sends informational lines
 before that identifier; line endings are normalized to CRLF and the same line-length and line-count
 bounds enforced by the client parser are applied before listening.
