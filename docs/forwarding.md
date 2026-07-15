@@ -95,26 +95,30 @@ backpressure, EOF, and CLOSE implementation as other server channels. A server-i
 
 ## Remote forwarding
 
-`forwardIn()` asks the SSH server to listen on an address and port. Each accepted connection emits
-`tcp connection`; call `accept()` synchronously to obtain its flow-controlled
-`ClientForwardedTCPIPChannel`, or call `reject()` to deny it. Incoming forwarding channels are
-denied unless they match a successfully requested listener, and are also denied when no handler is
-registered.
+`forwardIn()` asks the SSH server to listen on an address and port. Every matching incoming channel
+passes through the awaited `tcpConnection` Hooker policy and is denied by default. The hook receives
+the proposed `ClientForwardedTCPIPChannel`; its immutable `details` contain the destination and
+source endpoints. Set `allowOpen` only after asynchronous authorization and local setup succeed.
+After confirmation, the client emits the passive `tcp connection` event with the details and
+already-open channel. A rejected Hooker handler discards an earlier approval.
 
 ```ts
 import net from "node:net"
+import { ChannelOpenError, ChannelOpenFailureReasonCodes } from "@bunkerch/modernssh"
 
-client.on("tcp connection", (details, accept, reject) => {
-    if (details.sourceHost !== "192.0.2.10") {
-        reject()
+client.hooker.hook("tcpConnection", async (_hook, channel, decision) => {
+    if (!(await authorizeForwardedSource(channel.details.sourceHost))) {
+        decision.rejection = new ChannelOpenError(
+            ChannelOpenFailureReasonCodes.SSH_OPEN_ADMINISTRATIVELY_PROHIBITED,
+            "forwarded source denied by policy",
+            "en-US",
+        )
         return
     }
 
-    const tunnel = accept()
-    if (tunnel) {
-        const localService = net.connect({ host: "127.0.0.1", port: 8080 })
-        localService.pipe(tunnel).pipe(localService)
-    }
+    const localService = net.connect({ host: "127.0.0.1", port: 8080 })
+    localService.pipe(channel).pipe(localService)
+    decision.allowOpen = true
 })
 
 const allocatedPort = await client.forwardIn("127.0.0.1", 0)
@@ -125,7 +129,10 @@ await client.unforwardIn("127.0.0.1", allocatedPort)
 A port of zero requests dynamic allocation; `forwardIn()` resolves to the allocated port reported
 by the server. Bind addresses have server-specific exposure rules. In particular, wildcard binds
 can expose a listener beyond loopback when the SSH server permits gateway ports, so validate both
-the requested bind and every connection's source metadata.
+the requested bind and every connection's source metadata. Policy can set `decision.rejection` to
+a validated `ChannelOpenError` when the server should receive a specific uint32 reason, UTF-8
+description, and RFC 3066 language tag. A policy decision that completes after transport teardown
+is discarded and its proposed channel is destroyed.
 
 ### Allowing remote forwarding on a server
 

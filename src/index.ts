@@ -25,6 +25,7 @@ export type {
     ClientHostbasedOptions,
     ClientHookerGlobalRequestContext,
     ClientHookerGlobalRequestController,
+    ClientHookerIncomingChannelController,
     ClientHookerHostKeyController,
     ClientHookerKeyboardInteractiveContext,
     ClientHookerKeyboardInteractiveController,

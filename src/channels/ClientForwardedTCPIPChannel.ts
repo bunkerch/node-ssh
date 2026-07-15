@@ -13,7 +13,6 @@ export default class ClientForwardedTCPIPChannel extends ClientChannel {
         assert(packet.data.channel_type === "forwarded-tcpip")
         super(client, "forwarded-tcpip")
         this.details = Object.freeze(ClientForwardedTCPIPChannel.parseDetails(packet.data.args))
-        this.acceptOpen(packet)
     }
 
     static parseDetails(raw: Buffer): TCPIPConnectionDetails {

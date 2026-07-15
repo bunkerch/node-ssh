@@ -2663,9 +2663,11 @@ describe("OpenSSH interoperability", () => {
                       sourcePort: number
                   }
                 | undefined
-            client.on("tcp connection", (details, accept) => {
+            client.hooker.hook("tcpConnection", (_hook, _channel, controller) => {
+                controller.allowOpen = true
+            })
+            client.on("tcp connection", (details, channel) => {
                 forwardingDetails = details
-                const channel = accept()!
                 channel.on("data", (data: Buffer) => channel.write(data.toString().toUpperCase()))
                 channel.on("end", () => channel.close())
             })

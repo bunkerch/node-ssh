@@ -114,7 +114,10 @@ import ClientX11Channel, { X11ConnectionDetails } from "./channels/ClientX11Chan
 import type { TCPIPConnectionDetails } from "./channels/ClientTCPIPChannel.js"
 import ChannelOpen from "./packets/ChannelOpen.js"
 import ChannelOpenConfirmation from "./packets/ChannelOpenConfirmation.js"
-import ChannelOpenFailure, { ChannelOpenFailureReasonCodes } from "./packets/ChannelOpenFailure.js"
+import ChannelOpenFailure, {
+    ChannelOpenError,
+    ChannelOpenFailureReasonCodes,
+} from "./packets/ChannelOpenFailure.js"
 import ChannelWindowAdjust from "./packets/ChannelWindowAdjust.js"
 import ChannelData from "./packets/ChannelData.js"
 import ChannelExtendedData from "./packets/ChannelExtendedData.js"
@@ -393,8 +396,7 @@ export interface ClientEvents {
     elevation: [elevated: boolean]
     "tcp connection": [
         details: Readonly<TCPIPConnectionDetails>,
-        accept: () => ClientForwardedTCPIPChannel | undefined,
-        reject: () => void,
+        channel: ClientForwardedTCPIPChannel,
     ]
     "unix connection": [
         details: Readonly<StreamLocalConnectionDetails>,
@@ -445,6 +447,10 @@ export interface ClientHookerGlobalRequestController {
     success: boolean
     response?: Buffer
 }
+export interface ClientHookerIncomingChannelController {
+    allowOpen: boolean
+    rejection?: ChannelOpenError
+}
 export type ClientHookerAuthenticationMethodContext = Readonly<{
     /** Configured methods that have already failed during the current authentication stage. */
     attemptedMethods: readonly SSHAuthenticationMethods[]
@@ -484,6 +490,10 @@ export type ClientHooker = {
     globalRequest: [
         globalRequestContext: ClientHookerGlobalRequestContext,
         globalRequestController: ClientHookerGlobalRequestController,
+    ]
+    tcpConnection: [
+        channel: ClientForwardedTCPIPChannel,
+        controller: ClientHookerIncomingChannelController,
     ]
 }
 
@@ -898,6 +908,7 @@ export default class Client extends EventEmitter<ClientEvents> {
     channels = new Map<number, ClientChannel>()
     private readonly remoteChannelIds = new Set<number>()
     private readonly pendingRemoteChannelOpens = new Set<number>()
+    private readonly pendingIncomingChannels = new Set<ClientChannel>()
     private readonly pendingGlobalRequests: PendingGlobalRequest[] = []
     private readonly pendingPings: PendingPing[] = []
     private transportPingSupported = false
@@ -1051,6 +1062,8 @@ export default class Client extends EventEmitter<ClientEvents> {
         this.channels.clear()
         this.remoteChannelIds.clear()
         this.pendingRemoteChannelOpens.clear()
+        for (const channel of this.pendingIncomingChannels) channel.abort()
+        this.pendingIncomingChannels.clear()
         this.pendingGlobalRequests.length = 0
         this.pendingPings.length = 0
         this.transportPingSupported = false
@@ -2286,6 +2299,8 @@ export default class Client extends EventEmitter<ClientEvents> {
                 this.actionQueue.close(closeError)
                 for (const channel of this.channels.values()) channel.abort(closeError)
                 this.channels.clear()
+                for (const channel of this.pendingIncomingChannels) channel.abort()
+                this.pendingIncomingChannels.clear()
                 this.remoteChannelIds.clear()
                 this.pendingRemoteChannelOpens.clear()
                 while (this.pendingGlobalRequests.length > 0) {
@@ -3516,6 +3531,22 @@ export default class Client extends EventEmitter<ClientEvents> {
             return
         }
 
+        const generation = this.connectionGeneration
+        void this.actionQueue
+            .queueAction(`incomingChannel:${packet.data.sender_channel_id}`, () =>
+                this.handleIncomingTCPChannelOpen(packet, generation),
+            )
+            .catch((error: Error) => {
+                if (generation === this.connectionGeneration && this.isConnected) {
+                    this.handleMessageError(error)
+                }
+            })
+    }
+
+    private async handleIncomingTCPChannelOpen(
+        packet: ChannelOpen,
+        generation: number,
+    ): Promise<void> {
         const details = Object.freeze(ClientForwardedTCPIPChannel.parseDetails(packet.data.args))
         if (!this.isRemoteForwardAuthorized(details)) {
             this.rejectIncomingChannel(
@@ -3525,36 +3556,44 @@ export default class Client extends EventEmitter<ClientEvents> {
             )
             return
         }
-        if (this.listenerCount("tcp connection") === 0) {
-            this.rejectIncomingChannel(
-                packet,
-                ChannelOpenFailureReasonCodes.SSH_OPEN_ADMINISTRATIVELY_PROHIBITED,
-                "No remote forwarding handler is registered",
+        const channel = new ClientForwardedTCPIPChannel(this, packet)
+        this.pendingIncomingChannels.add(channel)
+        void channel.waitUntilOpen().catch(() => undefined)
+        try {
+            const controller: ClientHookerIncomingChannelController = { allowOpen: false }
+            const policyCompleted = await this.hooker.triggerHookChecked(
+                "tcpConnection",
+                channel,
+                controller,
             )
-            return
-        }
+            if (!this.canReplyToIncomingChannel(packet, generation)) return
+            if (!policyCompleted || !controller.allowOpen) {
+                const rejection =
+                    policyCompleted && controller.rejection
+                        ? controller.rejection
+                        : new ChannelOpenError(
+                              ChannelOpenFailureReasonCodes.SSH_OPEN_ADMINISTRATIVELY_PROHIBITED,
+                              "Remote forwarding connection was rejected",
+                          )
+                this.rejectIncomingChannel(
+                    packet,
+                    rejection.reasonCode,
+                    rejection.message,
+                    rejection.languageTag,
+                )
+                channel.abort()
+                return
+            }
 
-        let decided = false
-        const accept = (): ClientForwardedTCPIPChannel | undefined => {
-            if (decided) return undefined
-            decided = true
-            const channel = new ClientForwardedTCPIPChannel(this, packet)
+            channel.acceptOpen(packet)
             this.channels.set(channel.localId, channel)
             this.sendPacket(channel.getOpenConfirmationPacket())
             this.pendingRemoteChannelOpens.delete(packet.data.sender_channel_id)
-            return channel
+            this.emit("tcp connection", channel.details, channel)
+        } finally {
+            this.pendingIncomingChannels.delete(channel)
+            if (!channel.isOpen && !channel.destroyed) channel.abort()
         }
-        const reject = (): void => {
-            if (decided) return
-            decided = true
-            this.rejectIncomingChannel(
-                packet,
-                ChannelOpenFailureReasonCodes.SSH_OPEN_ADMINISTRATIVELY_PROHIBITED,
-                "Remote forwarding connection was rejected",
-            )
-        }
-        this.emit("tcp connection", details, accept, reject)
-        if (!decided) reject()
     }
 
     private handleIncomingX11ChannelOpen(packet: ChannelOpen): void {
@@ -3740,8 +3779,9 @@ export default class Client extends EventEmitter<ClientEvents> {
 
     private rejectIncomingChannel(
         packet: ChannelOpen,
-        reasonCode: ChannelOpenFailureReasonCodes,
+        reasonCode: number,
         description: string,
+        languageTag = "",
     ): void {
         this.remoteChannelIds.delete(packet.data.sender_channel_id)
         this.pendingRemoteChannelOpens.delete(packet.data.sender_channel_id)
@@ -3750,7 +3790,7 @@ export default class Client extends EventEmitter<ClientEvents> {
                 recipient_channel_id: packet.data.sender_channel_id,
                 reason_code: reasonCode,
                 description,
-                language_tag: "",
+                language_tag: languageTag,
             }),
         )
     }

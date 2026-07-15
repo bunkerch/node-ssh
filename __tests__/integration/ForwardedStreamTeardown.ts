@@ -57,9 +57,12 @@ test("destroying a server forwarding stream closes its SSH channel", async () =>
     try {
         await client.connect()
         const forwardedPort = await client.forwardIn("127.0.0.1", 0)
+        client.hooker.hook("tcpConnection", (_hook, _channel, controller) => {
+            controller.allowOpen = true
+        })
         let clientChannel: ClientForwardedTCPIPChannel | undefined
-        client.once("tcp connection", (_details, accept) => {
-            clientChannel = accept()
+        client.once("tcp connection", (_details, channel) => {
+            clientChannel = channel
         })
         const serverChannel = await peer!.forwardOut(
             "127.0.0.1",

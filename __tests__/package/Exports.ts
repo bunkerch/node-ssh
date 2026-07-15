@@ -92,6 +92,7 @@ import {
     TerminalModes,
     type ClientOptions,
     type ClientSessionOptions,
+    type ClientHookerIncomingChannelController,
     type CygwinAgentOptions,
     type DelayCompressionOptions,
     type ElevationPreference,
@@ -116,6 +117,9 @@ describe("package exports", () => {
         const sessionOptions: ClientSessionOptions = { env: { LANG: "C" }, pty: true }
         const serverOptions: ServerOptions = { sendAllHostKeys: false }
         const connectionInfo: ServerConnectionInfo = { remoteAddress: "127.0.0.1" }
+        const incomingChannelDecision: ClientHookerIncomingChannelController = {
+            allowOpen: false,
+        }
         const noFlowControl: NoFlowControlPreference = "supported"
         const elevation: ElevationPreference = "unelevated"
         const delayCompression: DelayCompressionOptions = {
@@ -164,6 +168,7 @@ describe("package exports", () => {
         expect(serverOptions.sendAllHostKeys).toBe(false)
         expect(serverOptions.bannerLanguageTag).toBe("en-US")
         expect(connectionInfo.remoteAddress).toBe("127.0.0.1")
+        expect(incomingChannelDecision.allowOpen).toBe(false)
         expect(keyExchangeOptions.service).toBe("host")
         expect(agentProtocolOptions.requestTimeout).toBe(250)
         expect(agentProtocolServerOptions.maxMessageLength).toBe(2048)
@@ -403,6 +408,9 @@ describe("package exports", () => {
         expect(client).not.toContain("options: ClientOptionsRequired")
         expect(server).not.toContain("options: ServerOptionsRequired")
         expect(client).toContain("globalRequest(name: string, args?: Buffer): Promise<Buffer>")
+        expect(client).toContain("tcpConnection: [")
+        expect(client).toContain("channel: ClientForwardedTCPIPChannel")
+        expect(client).not.toContain("accept: () => ClientForwardedTCPIPChannel")
         expect(client).toContain("disconnect(error?: DisconnectError): this")
         expect(client).toContain("authenticationMethodsOrder?: readonly SSHAuthenticationMethods[]")
         expect(client).toContain("replyTimeout?: number")
@@ -576,7 +584,7 @@ describe("package exports", () => {
                     "--eval",
                     `
                     const { once } = await import("node:events")
-                    const { ChannelOpenError, ChannelOpenFailureReasonCodes, Client, createSocketAgent, CygwinAgent, CygwinAgentError, DELAY_COMPRESSION_EXTENSION, delayCompressionExtension, discoverPageantAgentSocket, DisconnectError, DisconnectReason, ELEVATION_EXTENSION, EncodedSignature, generateKeyPair, generateKeyPairSync, KeyRevocationList, KnownHosts, MAX_OPENSSH_AGENT_SESSION_BINDINGS, MAX_SSH_AGENT_MESSAGE_LENGTH, NO_FLOW_CONTROL_EXTENSION, OnePasswordAgent, OPENSSH_AGENT_SECURITY_KEY_PROVIDER, OPENSSH_AGENT_SESSION_BIND, PageantAgent, PageantAgentError, parseKey, PrivateKey, PrivateKeyAgent, PublicKey, PublicKeySubsystemClient, PublicKeySubsystemServer, PublicKeySubsystemStatusCode, SecurityKeyAttestation, Server, SessionChannel, SSH_ED25519_SECURITY_KEY_ALGORITHM, SSHAgentConstraintType, SSHAgentExtensionFailureError, SSHAgentMessageType, SSHAgentProtocolClient, SSHAgentProtocolError, SSHAgentProtocolServer, SSHED25519SecurityKeyPrivateKey, SSHED25519SecurityKeyPublicKey } = await import("@bunkerch/modernssh")
+                    const { ChannelOpenError, ChannelOpenFailureReasonCodes, Client, ClientForwardedTCPIPChannel, createSocketAgent, CygwinAgent, CygwinAgentError, DELAY_COMPRESSION_EXTENSION, delayCompressionExtension, discoverPageantAgentSocket, DisconnectError, DisconnectReason, ELEVATION_EXTENSION, EncodedSignature, generateKeyPair, generateKeyPairSync, KeyRevocationList, KnownHosts, MAX_OPENSSH_AGENT_SESSION_BINDINGS, MAX_SSH_AGENT_MESSAGE_LENGTH, NO_FLOW_CONTROL_EXTENSION, OnePasswordAgent, OPENSSH_AGENT_SECURITY_KEY_PROVIDER, OPENSSH_AGENT_SESSION_BIND, PageantAgent, PageantAgentError, parseKey, PrivateKey, PrivateKeyAgent, PublicKey, PublicKeySubsystemClient, PublicKeySubsystemServer, PublicKeySubsystemStatusCode, SecurityKeyAttestation, Server, SessionChannel, SSH_ED25519_SECURITY_KEY_ALGORITHM, SSHAgentConstraintType, SSHAgentExtensionFailureError, SSHAgentMessageType, SSHAgentProtocolClient, SSHAgentProtocolError, SSHAgentProtocolServer, SSHED25519SecurityKeyPrivateKey, SSHED25519SecurityKeyPublicKey } = await import("@bunkerch/modernssh")
                     const { privateKey, publicKey } = await generateKeyPair("ed25519", {
                         comment: "packed@example.test",
                     })
@@ -654,7 +662,10 @@ describe("package exports", () => {
                     runtimeServer.on("error", rejectRuntime)
                     runtimeServer.hooker.hook("noneAuthentication", (_hook, _context, decision) => { decision.allowLogin = true })
                     runtimeServer.hooker.hook("channelOpenRequest", (_hook, channel, decision) => { decision.allowOpen = channel instanceof SessionChannel })
+                    runtimeServer.hooker.hook("tcpipForward", (_hook, context, decision) => { decision.allow = context.bindAddress === "127.0.0.1" })
+                    let runtimeConnection
                     runtimeServer.on("connection", (connection) => {
+                        runtimeConnection = connection
                         connection.on("error", rejectRuntime)
                         connection.once("disconnect", resolveRuntimeDisconnect)
                         connection.on("channel", (channel) => {
@@ -688,6 +699,18 @@ describe("package exports", () => {
                     if (Buffer.concat(runtimeStdout).toString() !== "node-stdout") process.exit(43)
                     if (Buffer.concat(runtimeStderr).toString() !== "node-stderr") process.exit(44)
                     if (runtimeCommand.exitCode !== 7) process.exit(45)
+                    runtimeClient.hooker.hook("tcpConnection", async (_hook, channel, decision) => {
+                        await Promise.resolve()
+                        if (channel.details.sourceHost === "192.0.2.30") decision.allowOpen = true
+                    })
+                    const runtimeTCPConnection = once(runtimeClient, "tcp connection")
+                    const runtimeForwardedPort = await runtimeClient.forwardIn("127.0.0.1", 0)
+                    const runtimeServerTCP = runtimeConnection.forwardOut("127.0.0.1", runtimeForwardedPort, "192.0.2.30", 51238)
+                    const [[runtimeTCPDetails, runtimeClientTCP], runtimeServerTCPChannel] = await Promise.all([runtimeTCPConnection, runtimeServerTCP])
+                    if (!(runtimeClientTCP instanceof ClientForwardedTCPIPChannel) || runtimeTCPDetails !== runtimeClientTCP.details) process.exit(50)
+                    runtimeClientTCP.close()
+                    runtimeServerTCPChannel.close()
+                    await runtimeClient.unforwardIn("127.0.0.1", runtimeForwardedPort)
                     runtimeServer.hooker.hook("channelOpenRequest", (_hook, _channel, decision) => {
                         decision.allowOpen = false
                         decision.rejection = new ChannelOpenError(0xfe000002, "packed channel policy", "fr")

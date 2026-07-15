@@ -647,6 +647,9 @@ describe("client/server integration", () => {
             await expect(
                 serverPeer!.forwardOut("127.0.0.1", -1, "192.0.2.50", 51_234),
             ).rejects.toThrow("between 0 and 65535")
+            client.hooker.hook("tcpConnection", (_hook, _channel, controller) => {
+                controller.allowOpen = true
+            })
             const incomingTCP = new Promise<{
                 details: {
                     destinationHost: string
@@ -656,8 +659,8 @@ describe("client/server integration", () => {
                 }
                 channel: ClientForwardedTCPIPChannel
             }>((resolve) => {
-                client.once("tcp connection", (details, accept) => {
-                    resolve({ details, channel: accept()! })
+                client.once("tcp connection", (details, channel) => {
+                    resolve({ details, channel })
                 })
             })
             const serverTCP = serverPeer!.forwardOut(
