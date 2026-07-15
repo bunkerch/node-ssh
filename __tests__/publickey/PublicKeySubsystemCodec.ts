@@ -36,6 +36,14 @@ const STATUS = hex(`
     00000002 656e
 `)
 
+const EXTENDED_STATUS = hex(`
+    00000016
+    00000006 737461747573
+    01020304
+    00000000
+    00000000
+`)
+
 const REMOVE = hex(`
     00000020
     00000006 72656d6f7665
@@ -94,6 +102,17 @@ describe("RFC 4819 public-key subsystem fixed packet vectors", () => {
             languageTag: "en",
         })
         expect(encodePublicKeySubsystemPacket(packet)).toEqual(STATUS)
+    })
+
+    test("preserves the complete RFC uint32 status-code field", () => {
+        const packet = decodePublicKeySubsystemPacket(EXTENDED_STATUS)
+        expect(packet).toEqual({
+            type: "status",
+            code: 0x0102_0304,
+            description: "",
+            languageTag: "",
+        })
+        expect(encodePublicKeySubsystemPacket(packet)).toEqual(EXTENDED_STATUS)
     })
 
     test("covers remove, list, publickey, and capability response layouts", () => {
@@ -175,5 +194,13 @@ describe("RFC 4819 bounded packet parser", () => {
                 keyBlob: Buffer.alloc(MAX_PUBLIC_KEY_SUBSYSTEM_PACKET_LENGTH),
             }),
         ).toThrow(`exceeds ${MAX_PUBLIC_KEY_SUBSYSTEM_PACKET_LENGTH}`)
+        expect(() =>
+            encodePublicKeySubsystemPacket({
+                type: "status",
+                code: 0x1_0000_0000,
+                description: "",
+                languageTag: "",
+            }),
+        ).toThrow("status code must be a uint32")
     })
 })

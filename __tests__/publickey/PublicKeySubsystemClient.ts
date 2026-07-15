@@ -233,6 +233,30 @@ describe("RFC 4819 public-key subsystem client", () => {
         fixture.destroy()
     })
 
+    test("preserves an unrecognized full-width status failure", async () => {
+        const fixture = new PublicKeySubsystemServerFixture((packet) => {
+            if (packet.type === "version") {
+                fixture.send({ type: "version", version: 2 })
+            } else if (packet.type === "list") {
+                fixture.send({
+                    type: "status",
+                    code: 0x0102_0304,
+                    description: "private failure",
+                    languageTag: "",
+                })
+            }
+        })
+        const client = await PublicKeySubsystemClient.connect(asClientChannel(fixture))
+
+        await expect(client.list()).rejects.toMatchObject({
+            name: "PublicKeySubsystemStatusError",
+            code: 0x0102_0304,
+            message: "private failure",
+        })
+        expect(fixture.destroyed).toBe(false)
+        fixture.destroy()
+    })
+
     test("collects listed keys until the final success status", async () => {
         const fixture = new PublicKeySubsystemServerFixture((packet) => {
             if (packet.type === "version") {

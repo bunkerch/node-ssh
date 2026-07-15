@@ -47,7 +47,8 @@ array, and explicit `null` is rejected for the overwrite and critical boolean fl
 
 Every unsuccessful status rejects with `PublicKeySubsystemStatusError`. Its `code` can be compared
 with `PublicKeySubsystemStatusCode`, while `message` and `languageTag` preserve the server's status
-text:
+text. RFC 4819 encodes the code as a full `uint32`; unrecognized or private values are preserved in
+the error instead of being treated as malformed protocol data:
 
 ```ts
 import { PublicKeySubsystemStatusCode, PublicKeySubsystemStatusError } from "@bunkerch/modernssh"
@@ -186,7 +187,8 @@ Frames are bounded to 256 KiB before allocation. `list()` and `listAttributes()`
 1024 response packets and 4 MiB of encoded response data. Key blobs are parsed and their embedded
 algorithm must match the outer algorithm name. Malformed framing, invalid text, contradictory key
 metadata, unexpected response types, and responses without a pending request close the subsystem
-and reject pending work.
+and reject pending work. Status codes must fit the RFC's unsigned 32-bit field; the nine assigned
+failure constants do not narrow that wire field or prevent future assignments.
 
 EOF in the middle of a frame is also fatal. Both client and server close the public-key subsystem
 channel, reject pending client operations, and leave the authenticated SSH connection available for
