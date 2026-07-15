@@ -115,6 +115,27 @@ describe("RFC 4819 public-key subsystem fixed packet vectors", () => {
         expect(encodePublicKeySubsystemPacket(packet)).toEqual(EXTENDED_STATUS)
     })
 
+    test("accepts every non-zero RFC boolean and serializes canonical true values", () => {
+        const add = Buffer.from(ADD)
+        add[33] = 2
+        add[add.length - 1] = 0xff
+        const addPacket = decodePublicKeySubsystemPacket(add)
+        expect(addPacket).toMatchObject({
+            type: "add",
+            overwrite: true,
+            attributes: [{ critical: true }],
+        })
+        const canonicalAdd = encodePublicKeySubsystemPacket(addPacket)
+        expect(canonicalAdd[33]).toBe(1)
+        expect(canonicalAdd[canonicalAdd.length - 1]).toBe(1)
+
+        const attribute = Buffer.from(ATTRIBUTE)
+        attribute[attribute.length - 1] = 0x80
+        const attributePacket = decodePublicKeySubsystemPacket(attribute)
+        expect(attributePacket).toEqual({ type: "attribute", name: "shell", compulsory: true })
+        expect(encodePublicKeySubsystemPacket(attributePacket)).toEqual(ATTRIBUTE)
+    })
+
     test("covers remove, list, publickey, and capability response layouts", () => {
         const cases = [
             [
@@ -177,10 +198,6 @@ describe("RFC 4819 bounded packet parser", () => {
         expect(() => decodePublicKeySubsystemPacket(hex(`00040001`))).toThrow(
             `exceeds ${MAX_PUBLIC_KEY_SUBSYSTEM_PACKET_LENGTH}`,
         )
-        const invalidBoolean = Buffer.from(ADD)
-        invalidBoolean[33] = 2
-        expect(() => decodePublicKeySubsystemPacket(invalidBoolean)).toThrow("must be 0 or 1")
-
         const impossibleCount = Buffer.from(ADD)
         impossibleCount.writeUInt32BE(0xffff_ffff, 34)
         expect(() => decodePublicKeySubsystemPacket(impossibleCount)).toThrow(

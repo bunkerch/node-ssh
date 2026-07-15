@@ -149,12 +149,7 @@ class Reader {
     boolean(field: string): boolean {
         this.require(1, field)
         const value = this.buffer[this.offset++]!
-        if (value > 1) {
-            throw new PublicKeySubsystemProtocolError(
-                `Public-key subsystem ${field} must be 0 or 1`,
-            )
-        }
-        return value === 1
+        return value !== 0
     }
 
     string(field: string): Buffer {

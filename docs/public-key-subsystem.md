@@ -190,6 +190,9 @@ metadata, unexpected response types, and responses without a pending request clo
 and reject pending work. Status codes must fit the RFC's unsigned 32-bit field; the nine assigned
 failure constants do not narrow that wire field or prevent future assignments.
 
+RFC 4251 boolean decoding applies to overwrite, critical, and compulsory flags: zero is false and
+every non-zero byte is true. Outbound packets always use the canonical bytes zero and one.
+
 EOF in the middle of a frame is also fatal. Both client and server close the public-key subsystem
 channel, reject pending client operations, and leave the authenticated SSH connection available for
 other channels.
