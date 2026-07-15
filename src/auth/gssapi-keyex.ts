@@ -1,7 +1,7 @@
 import assert from "node:assert"
 
 import type Client from "../Client.js"
-import { clientConfigurationFor } from "../ConnectionConfiguration.js"
+import { clientAuthenticationConfigurationFor } from "../ConnectionConfiguration.js"
 import { SSHAuthenticationMethods, SSHServiceNames } from "../constants.js"
 import UserAuthSuccess from "../packets/UserAuthSuccess.js"
 import { readNextBuffer, serializeBuffer } from "../utils/Buffer.js"
@@ -40,13 +40,13 @@ export default class GSSAPIKeyExchangeAuthMethod implements AuthMethod {
         const { default: UserAuthRequest } = await import("../packets/UserAuthRequest.js")
         assertCurrent()
         const mic = await client.createGSSAPIKeyExchangeAuthenticationMIC(
-            clientConfigurationFor(client).username,
+            clientAuthenticationConfigurationFor(client).username,
             SSHServiceNames.Connection,
         )
         assertCurrent()
         client.sendPacket(
             new UserAuthRequest({
-                username: clientConfigurationFor(client).username,
+                username: clientAuthenticationConfigurationFor(client).username,
                 service_name: SSHServiceNames.Connection,
                 method: new GSSAPIKeyExchangeAuthMethod(mic),
             }),

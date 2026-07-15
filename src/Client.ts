@@ -60,7 +60,10 @@ import NewKeys from "./packets/NewKeys.js"
 import NewCompress from "./packets/NewCompress.js"
 import { KeyExchangeError } from "./algorithms/kex/key-exchange.js"
 import { registerKeyExchanges } from "./KeyExchangeRegistry.js"
-import { registerClientConfiguration } from "./ConnectionConfiguration.js"
+import {
+    registerClientConfiguration,
+    setClientAuthenticationConfiguration,
+} from "./ConnectionConfiguration.js"
 import RSA2048SHA256 from "./algorithms/kex/rsa2048-sha256.js"
 import KexRSAPublicKey from "./packets/KexRSAPublicKey.js"
 import KexRSASecret from "./packets/KexRSASecret.js"
@@ -436,6 +439,29 @@ function validateAuthenticationAgent(agent: unknown): asserts agent is Agent {
     }
 }
 
+function normalizeClientHostbasedOptions(
+    options: Readonly<ClientHostbasedOptions>,
+): Readonly<ClientHostbasedOptions> {
+    if (!isPlainConfigurationObject(options)) {
+        throw new TypeError("SSH hostbased option must be an object")
+    }
+    if (!(options.key instanceof PrivateKey)) {
+        throw new TypeError("SSH hostbased key must be a private key")
+    }
+    if (typeof options.localHostname !== "string") {
+        throw new TypeError("SSH hostbased local hostname must be a string")
+    }
+    if (typeof options.localUsername !== "string") {
+        throw new TypeError("SSH hostbased local username must be a string")
+    }
+    encodeSSHUTF8(options.localHostname, "SSH hostbased local hostname")
+    encodeSSHUTF8(options.localUsername, "SSH hostbased local username")
+    if (options.algorithm !== undefined) {
+        encodeSSHName(options.algorithm, "SSH hostbased signature algorithm")
+    }
+    return Object.freeze({ ...options })
+}
+
 export type ClientHostVerifier = (key: Buffer | string) => boolean | Promise<boolean>
 
 export interface ClientEvents {
@@ -535,18 +561,28 @@ export interface ClientHookerIncomingChannelController {
     rejection?: ChannelOpenError
 }
 export type ClientHookerAuthenticationMethodContext = Readonly<{
+    /** Zero-based attempt number for this connection. */
+    attempt: number
     /** Configured methods that have already failed during the current authentication stage. */
     attemptedMethods: readonly SSHAuthenticationMethods[]
     /** Method the configured order would select when the hook does not override it. */
-    defaultMethod: SSHAuthenticationMethods
+    defaultMethod: SSHAuthenticationMethods | undefined
     /** The latest server continuation list, or undefined before the first failure. */
     methodsRemaining: readonly SSHAuthenticationMethods[] | undefined
     /** Whether the server accepted a factor before entering the current stage. */
     partialSuccess: boolean
+    /** Username that will be used unless the controller replaces it. */
+    username: string
 }>
 export interface ClientHookerAuthenticationMethodController {
     /** Select the next method, or set undefined to stop authentication. */
     method: SSHAuthenticationMethods | undefined
+    /** Replace the username for this attempt. It cannot change after partial success. */
+    username?: string
+    /** Replace the signing agent for this attempt. */
+    agent?: Agent | string
+    /** Replace the host-based identity for this attempt. */
+    hostbased?: Readonly<ClientHostbasedOptions>
 }
 // eslint-disable-next-line @typescript-eslint/consistent-type-definitions
 export type ClientHooker = {
@@ -831,27 +867,7 @@ export default class Client extends EventEmitter<ClientEvents> {
             "gssapiKeyExchangeAuthentication",
         )
         if (this.#options.hostbased !== undefined) {
-            if (!isPlainConfigurationObject(this.#options.hostbased)) {
-                throw new TypeError("SSH hostbased option must be an object")
-            }
-            if (!(this.#options.hostbased.key instanceof PrivateKey)) {
-                throw new TypeError("SSH hostbased key must be a private key")
-            }
-            if (typeof this.#options.hostbased.localHostname !== "string") {
-                throw new TypeError("SSH hostbased local hostname must be a string")
-            }
-            if (typeof this.#options.hostbased.localUsername !== "string") {
-                throw new TypeError("SSH hostbased local username must be a string")
-            }
-            encodeSSHUTF8(this.#options.hostbased.localHostname, "SSH hostbased local hostname")
-            encodeSSHUTF8(this.#options.hostbased.localUsername, "SSH hostbased local username")
-            if (this.#options.hostbased.algorithm !== undefined) {
-                encodeSSHName(
-                    this.#options.hostbased.algorithm,
-                    "SSH hostbased signature algorithm",
-                )
-            }
-            this.#options.hostbased = Object.freeze({ ...this.#options.hostbased })
+            this.#options.hostbased = normalizeClientHostbasedOptions(this.#options.hostbased)
         }
         this.#options.agent = normalizeClientAuthenticationAgent(this.#options)
         this.#options.privateKey = undefined
@@ -2803,6 +2819,8 @@ export default class Client extends EventEmitter<ClientEvents> {
             )
         }
         const attemptedMethods = new Set<SSHAuthenticationMethods>()
+        let attempt = 0
+        let partialAuthenticationUsername: string | undefined
         this.authenticationInProgress = true
         try {
             authentication: while (true) {
@@ -2812,7 +2830,9 @@ export default class Client extends EventEmitter<ClientEvents> {
                         (!this.authenticationMethodsRemaining ||
                             this.authenticationMethodsRemaining.has(candidate)),
                 )
-                if (!defaultMethod) throw new Error("All authentication methods failed.")
+                if (!defaultMethod && !this.hooker.hasHooks("authenticationMethod")) {
+                    throw new Error("All authentication methods failed.")
+                }
 
                 const selection: ClientHookerAuthenticationMethodController = {
                     method: defaultMethod,
@@ -2822,10 +2842,12 @@ export default class Client extends EventEmitter<ClientEvents> {
                         ? Object.freeze([...this.authenticationMethodsRemaining])
                         : undefined
                     const context: ClientHookerAuthenticationMethodContext = Object.freeze({
+                        attempt,
                         attemptedMethods: Object.freeze([...attemptedMethods]),
                         defaultMethod,
                         methodsRemaining,
                         partialSuccess: this.partialAuthenticationSuccess,
+                        username: partialAuthenticationUsername ?? this.#options.username,
                     })
                     const policyCompleted = await this.hooker.triggerHookChecked(
                         "authenticationMethod",
@@ -2845,11 +2867,6 @@ export default class Client extends EventEmitter<ClientEvents> {
                         `Selected SSH authentication method is not configured: ${method}`,
                     )
                 }
-                if (attemptedMethods.has(method)) {
-                    throw new TypeError(
-                        `Selected SSH authentication method already failed in this stage: ${method}`,
-                    )
-                }
                 if (
                     this.authenticationMethodsRemaining &&
                     !this.authenticationMethodsRemaining.has(method)
@@ -2863,12 +2880,39 @@ export default class Client extends EventEmitter<ClientEvents> {
                     attemptedMethods.add(method)
                     continue
                 }
+                const username =
+                    selection.username ?? partialAuthenticationUsername ?? this.#options.username
+                if (typeof username !== "string") {
+                    throw new TypeError("SSH authentication username must be a string")
+                }
+                encodeSSHUTF8(username, "SSH authentication username")
+                if (
+                    partialAuthenticationUsername !== undefined &&
+                    username !== partialAuthenticationUsername
+                ) {
+                    throw new TypeError("SSH username cannot change after partial authentication")
+                }
+                const agent =
+                    selection.agent === undefined
+                        ? this.#options.agent
+                        : normalizeClientAuthenticationAgent({ agent: selection.agent })
+                const hostbased =
+                    selection.hostbased === undefined
+                        ? this.#options.hostbased
+                        : normalizeClientHostbasedOptions(selection.hostbased)
+                const authenticationConfiguration: ClientOptionsRequired = {
+                    ...this.#options,
+                    username,
+                    agent,
+                    hostbased,
+                }
                 this.debug(`Trying auth method`, m.method_name)
 
                 this.activeAuthenticationMethod = m.method_name
                 const failureSequence = this.authenticationFailureSequence
                 let success: boolean
                 try {
+                    setClientAuthenticationConfiguration(this, authenticationConfiguration)
                     success = await m.handleAuthentication(this, () =>
                         this.assertConnectionGeneration(generation, "authentication"),
                     )
@@ -2876,19 +2920,26 @@ export default class Client extends EventEmitter<ClientEvents> {
                 } finally {
                     if (generation === this.connectionGeneration) {
                         this.activeAuthenticationMethod = undefined
+                        setClientAuthenticationConfiguration(this, undefined)
                     }
                 }
                 if (success) {
                     this.debug(`Authentication successful with method`, m.method_name)
-                    this.debug("Authenticated as", this.#options.username)
+                    this.debug("Authenticated as", username)
 
                     break authentication
+                }
+
+                attempt++
+                if (attempt >= 32) {
+                    throw new Error("SSH authentication policy exceeded 32 attempts")
                 }
 
                 if (
                     this.authenticationFailureSequence > failureSequence &&
                     this.partialAuthenticationSuccess
                 ) {
+                    partialAuthenticationUsername = username
                     attemptedMethods.clear()
                     this.debug(`Authentication method completed partially; continuing with`, [
                         ...(this.authenticationMethodsRemaining ?? []),
@@ -2898,7 +2949,10 @@ export default class Client extends EventEmitter<ClientEvents> {
                 }
             }
         } finally {
-            if (generation === this.connectionGeneration) this.authenticationInProgress = false
+            if (generation === this.connectionGeneration) {
+                this.authenticationInProgress = false
+                setClientAuthenticationConfiguration(this, undefined)
+            }
         }
         this.hasAuthenticated = true
         await this.closeInitialGSSAPIKeyExchangeContext()

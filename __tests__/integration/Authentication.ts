@@ -1110,10 +1110,12 @@ describe("RFC 4252 multi-method authentication", () => {
         const passwordCompleted = new WeakSet<ServerClient>()
         const attempts: string[] = []
         const selections: {
+            attempt: number
             attemptedMethods: readonly SSHAuthenticationMethods[]
-            defaultMethod: SSHAuthenticationMethods
+            defaultMethod: SSHAuthenticationMethods | undefined
             methodsRemaining: readonly SSHAuthenticationMethods[] | undefined
             partialSuccess: boolean
+            username: string
         }[] = []
         const errors: Error[] = []
         const debugOutput: unknown[] = []
@@ -1184,16 +1186,20 @@ describe("RFC 4252 multi-method authentication", () => {
             expect(attempts).toEqual(["password", "keyboard:0", "keyboard:1"])
             expect(selections).toEqual([
                 {
+                    attempt: 0,
                     attemptedMethods: [],
                     defaultMethod: SSHAuthenticationMethods.None,
                     methodsRemaining: undefined,
                     partialSuccess: false,
+                    username: "interop",
                 },
                 {
+                    attempt: 1,
                     attemptedMethods: [],
                     defaultMethod: SSHAuthenticationMethods.KeyboardInteractive,
                     methodsRemaining: [SSHAuthenticationMethods.KeyboardInteractive],
                     partialSuccess: true,
+                    username: "interop",
                 },
             ])
             expect(errors).toEqual([])
@@ -1208,6 +1214,118 @@ describe("RFC 4252 multi-method authentication", () => {
             await new Promise<void>((resolve, reject) => {
                 server.server!.close((error) => (error ? reject(error) : resolve()))
             })
+        }
+    }, 15_000)
+
+    test("retries a method with per-attempt username and signing agent", async () => {
+        const hostKey = await PrivateKey.generate("ssh-ed25519")
+        const rejectedKey = await PrivateKey.generate("ssh-ed25519")
+        const acceptedKey = await PrivateKey.generate("ssh-ed25519")
+        const server = new Server({ hostKeys: [hostKey], sendAllHostKeys: false })
+        const serverAttempts: string[] = []
+        server.hooker.hook("publicKeyAuthentication", (_hook, context, decision) => {
+            serverAttempts.push(`${context.username}:${context.publicKey.hash("sha256")}`)
+            decision.allowLogin =
+                context.username === "selected-user" &&
+                context.publicKey.equals(acceptedKey.data.publicKey) &&
+                context.signature !== undefined &&
+                context.publicKey.verifySignature(context.signatureMessage, context.signature)
+        })
+        server.listen({ host: "127.0.0.1", port: 0 })
+        await once(server, "listening")
+
+        const client = new Client({
+            hostname: "127.0.0.1",
+            port: (server.address() as AddressInfo).port,
+            username: "configured-user",
+            authenticationMethodsOrder: [SSHAuthenticationMethods.PublicKey],
+        })
+        client.hooker.hook("hostKey", (_hook, decision) => {
+            decision.allowHostKey = true
+        })
+        const selections: unknown[] = []
+        client.hooker.hook("authenticationMethod", async (_hook, context, decision) => {
+            await Promise.resolve()
+            selections.push(context)
+            decision.method = SSHAuthenticationMethods.PublicKey
+            decision.username = "selected-user"
+            decision.agent = new PrivateKeyAgent(context.attempt === 0 ? rejectedKey : acceptedKey)
+        })
+
+        try {
+            await client.connect()
+            expect(client.isConnected).toBe(true)
+            expect(selections).toEqual([
+                {
+                    attempt: 0,
+                    attemptedMethods: [],
+                    defaultMethod: SSHAuthenticationMethods.PublicKey,
+                    methodsRemaining: undefined,
+                    partialSuccess: false,
+                    username: "configured-user",
+                },
+                {
+                    attempt: 1,
+                    attemptedMethods: [SSHAuthenticationMethods.PublicKey],
+                    defaultMethod: undefined,
+                    methodsRemaining: [SSHAuthenticationMethods.PublicKey],
+                    partialSuccess: false,
+                    username: "configured-user",
+                },
+            ])
+            expect(serverAttempts).toEqual([
+                `selected-user:${rejectedKey.data.publicKey.hash("sha256")}`,
+                `selected-user:${acceptedKey.data.publicKey.hash("sha256")}`,
+            ])
+        } finally {
+            client.destroy()
+            for (const connection of server.clients) connection.terminate()
+            await server.close()
+        }
+    }, 15_000)
+
+    test("does not combine partial authentication factors across usernames", async () => {
+        const hostKey = await PrivateKey.generate("ssh-ed25519")
+        const server = new Server({ hostKeys: [hostKey], sendAllHostKeys: false })
+        let keyboardAttempts = 0
+        server.hooker.hook("passwordAuthentication", (_hook, context, decision) => {
+            if (context.username === "first-user" && context.password === "first-factor") {
+                decision.partialSuccess = true
+                decision.authenticationMethods = [SSHAuthenticationMethods.KeyboardInteractive]
+            }
+        })
+        server.hooker.hook("keyboardInteractiveAuthentication", () => {
+            keyboardAttempts++
+        })
+        server.listen({ host: "127.0.0.1", port: 0 })
+        await once(server, "listening")
+
+        const client = new Client({
+            hostname: "127.0.0.1",
+            port: (server.address() as AddressInfo).port,
+            username: "first-user",
+            password: "first-factor",
+            authenticationMethodsOrder: [
+                SSHAuthenticationMethods.Password,
+                SSHAuthenticationMethods.KeyboardInteractive,
+            ],
+        })
+        client.hooker.hook("hostKey", (_hook, decision) => {
+            decision.allowHostKey = true
+        })
+        client.hooker.hook("authenticationMethod", (_hook, context, decision) => {
+            if (context.partialSuccess) decision.username = "second-user"
+        })
+
+        try {
+            await expect(client.connect()).rejects.toThrow(
+                "SSH username cannot change after partial authentication",
+            )
+            expect(keyboardAttempts).toBe(0)
+        } finally {
+            client.destroy()
+            for (const connection of server.clients) connection.terminate()
+            await server.close()
         }
     }, 15_000)
 

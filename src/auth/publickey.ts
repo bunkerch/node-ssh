@@ -4,7 +4,7 @@ import AuthMethod, { type AuthenticationGenerationGuard } from "./AuthMethod.js"
 import { readNextBinaryBoolean, readNextBuffer, serializeBuffer } from "../utils/Buffer.js"
 import { serializeBinaryBoolean } from "../utils/BinaryBoolean.js"
 import type Client from "../Client.js"
-import { clientConfigurationFor } from "../ConnectionConfiguration.js"
+import { clientAuthenticationConfigurationFor } from "../ConnectionConfiguration.js"
 import PublicKey from "../utils/PublicKey.js"
 import Agent, { AgentType } from "../publickey/Agent.js"
 import { SSHAuthenticationMethods, SSHServiceNames } from "../constants.js"
@@ -170,7 +170,7 @@ export default class PublicKeyAuthMethod implements AuthMethod {
         client: Client,
         assertCurrent: AuthenticationGenerationGuard,
     ): Promise<boolean> {
-        const agent = clientConfigurationFor(client).agent
+        const agent = clientAuthenticationConfigurationFor(client).agent
         const keys = snapshotAgentIdentities(await agent.getPublicKeys())
         assertCurrent()
         for (const key of keys) {
@@ -197,7 +197,7 @@ export default class PublicKeyAuthMethod implements AuthMethod {
                           })
                         : new PublicKeyAuthMethod({ publicKey: key.publicKey, algorithm })
                     const packet = new UserAuthRequest({
-                        username: clientConfigurationFor(client).username,
+                        username: clientAuthenticationConfigurationFor(client).username,
                         service_name: SSHServiceNames.Connection,
                         method: method,
                     })
@@ -206,7 +206,10 @@ export default class PublicKeyAuthMethod implements AuthMethod {
                     // that would be otherwise annoying, we directly sign
                     // the packet. That will save us one packet if the pk
                     // is correct.
-                    if (clientConfigurationFor(client).agent.type === AgentType.NonInteractive) {
+                    if (
+                        clientAuthenticationConfigurationFor(client).agent.type ===
+                        AgentType.NonInteractive
+                    ) {
                         method.data.signature = await signAuthenticationRequest(
                             agent,
                             key.id,

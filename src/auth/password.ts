@@ -4,7 +4,7 @@ import AuthMethod, { type AuthenticationGenerationGuard } from "./AuthMethod.js"
 import { readNextBinaryBoolean, readNextBuffer, serializeBuffer } from "../utils/Buffer.js"
 import { serializeBinaryBoolean } from "../utils/BinaryBoolean.js"
 import type Client from "../Client.js"
-import { clientConfigurationFor } from "../ConnectionConfiguration.js"
+import { clientAuthenticationConfigurationFor } from "../ConnectionConfiguration.js"
 import type { ClientHookerPasswordAuthController } from "../Client.js"
 import { SSHAuthenticationMethods, SSHServiceNames } from "../constants.js"
 import UserAuthSuccess from "../packets/UserAuthSuccess.js"
@@ -91,7 +91,7 @@ export default class PasswordAuthMethod implements AuthMethod {
         }
         const policyCompleted = await client.hooker.triggerHookChecked(
             "passwordAuth",
-            Object.freeze({ username: clientConfigurationFor(client).username! }),
+            Object.freeze({ username: clientAuthenticationConfigurationFor(client).username }),
             controller,
         )
         assertCurrent()
@@ -114,7 +114,7 @@ export default class PasswordAuthMethod implements AuthMethod {
         while (true) {
             client.sendPacket(
                 new UserAuthRequest({
-                    username: clientConfigurationFor(client).username!,
+                    username: clientAuthenticationConfigurationFor(client).username,
                     service_name: SSHServiceNames.Connection,
                     method,
                 }),
@@ -129,7 +129,7 @@ export default class PasswordAuthMethod implements AuthMethod {
             const policyCompleted = await client.hooker.triggerHookChecked(
                 "passwordChange",
                 Object.freeze({
-                    username: clientConfigurationFor(client).username,
+                    username: clientAuthenticationConfigurationFor(client).username,
                     prompt: answer.data.prompt,
                     languageTag: answer.data.languageTag,
                 }),

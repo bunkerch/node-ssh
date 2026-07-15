@@ -2,6 +2,7 @@ import type { ClientOptionsRequired } from "./Client.js"
 import type { ServerOptionsRequired } from "./Server.js"
 
 const clientConfigurations = new WeakMap<object, ClientOptionsRequired>()
+const clientAuthenticationConfigurations = new WeakMap<object, ClientOptionsRequired>()
 const serverConfigurations = new WeakMap<object, ServerOptionsRequired>()
 
 export function registerClientConfiguration(
@@ -16,6 +17,18 @@ export function clientConfigurationFor(owner: object): ClientOptionsRequired {
     const configuration = clientConfigurations.get(owner)
     if (!configuration) throw new Error("SSH client configuration is unavailable")
     return configuration
+}
+
+export function clientAuthenticationConfigurationFor(owner: object): ClientOptionsRequired {
+    return clientAuthenticationConfigurations.get(owner) ?? clientConfigurationFor(owner)
+}
+
+export function setClientAuthenticationConfiguration(
+    owner: object,
+    configuration: ClientOptionsRequired | undefined,
+): void {
+    if (configuration === undefined) clientAuthenticationConfigurations.delete(owner)
+    else clientAuthenticationConfigurations.set(owner, configuration)
 }
 
 export function registerServerConfiguration(

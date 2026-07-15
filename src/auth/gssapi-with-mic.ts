@@ -1,6 +1,9 @@
 import assert from "node:assert"
 import type Client from "../Client.js"
-import { clientConfigurationFor } from "../ConnectionConfiguration.js"
+import {
+    clientAuthenticationConfigurationFor,
+    clientConfigurationFor,
+} from "../ConnectionConfiguration.js"
 import { SSHAuthenticationMethods, SSHServiceNames } from "../constants.js"
 import {
     buildGSSAPIUserAuthMIC,
@@ -95,7 +98,7 @@ export default class GSSAPIWithMICAuthMethod implements AuthMethod {
         try {
             client.sendPacket(
                 new UserAuthRequest({
-                    username: clientConfigurationFor(client).username,
+                    username: clientAuthenticationConfigurationFor(client).username,
                     service_name: SSHServiceNames.Connection,
                     method: new GSSAPIWithMICAuthMethod({
                         mechanismOIDs: mechanisms.map(({ oid }) => oid),
@@ -115,7 +118,7 @@ export default class GSSAPIWithMICAuthMethod implements AuthMethod {
             context = await mechanism.createContext(
                 Object.freeze({
                     hostname: clientConfigurationFor(client).hostname,
-                    username: clientConfigurationFor(client).username,
+                    username: clientAuthenticationConfigurationFor(client).username,
                     service: SSHServiceNames.Connection,
                     delegateCredentials: clientConfigurationFor(client).gssapiDelegateCredentials,
                 }),
@@ -131,7 +134,7 @@ export default class GSSAPIWithMICAuthMethod implements AuthMethod {
                     if (step.integrity) {
                         const micInput = buildGSSAPIUserAuthMIC(
                             client.sessionID,
-                            clientConfigurationFor(client).username,
+                            clientAuthenticationConfigurationFor(client).username,
                             SSHServiceNames.Connection,
                         )
                         const mic = normalizeGSSAPIToken(
