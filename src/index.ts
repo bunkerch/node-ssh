@@ -97,7 +97,9 @@ export type {
     SFTPPath,
     SFTPPosition,
     SFTPReadFileOptions,
+    SFTPReadResult,
     SFTPWriteFileOptions,
+    SFTPWriteResult,
 } from "./sftp/SFTPClient.js"
 export { SFTPReadStream, SFTPWriteStream } from "./sftp/streams.js"
 export type { SFTPReadStreamOptions, SFTPWriteStreamOptions } from "./sftp/streams.js"

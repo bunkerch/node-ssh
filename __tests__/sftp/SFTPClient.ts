@@ -181,6 +181,110 @@ describe("SFTP client request engine", () => {
         fixture.destroy()
     })
 
+    test("reads into a selected caller buffer range", async () => {
+        const reads: { handle: Buffer; offset: bigint; length: number }[] = []
+        const fixture = new SFTPServerFixture((packet) => {
+            if (packet.type === SFTPPacketType.Init) {
+                fixture.send({ type: SFTPPacketType.Version, version: 3, extensions: [] })
+            } else if (packet.type === SFTPPacketType.Read) {
+                reads.push({
+                    handle: Buffer.from(packet.handle),
+                    offset: packet.offset,
+                    length: packet.length,
+                })
+                fixture.send({
+                    type: SFTPPacketType.Data,
+                    requestId: packet.requestId,
+                    data: Buffer.from("abc"),
+                })
+            }
+        })
+
+        const client = await SFTPClient.connect(asClientChannel(fixture))
+        const buffer = Buffer.from("--------")
+        const result = await client.read(Buffer.from("file"), buffer, 2, 4, 9n)
+
+        expect(result).toEqual({ bytesRead: 3, buffer: Buffer.from("--abc---") })
+        expect(result.buffer).toBe(buffer)
+        expect(reads).toEqual([{ handle: Buffer.from("file"), offset: 9n, length: 4 }])
+        fixture.destroy()
+    })
+
+    test("writes a snapshotted selected buffer range in bounded requests", async () => {
+        const writes: { data: Buffer; offset: bigint }[] = []
+        let firstRequestId: number | undefined
+        const fixture = new SFTPServerFixture((packet) => {
+            if (packet.type === SFTPPacketType.Init) {
+                fixture.send({ type: SFTPPacketType.Version, version: 3, extensions: [] })
+            } else if (packet.type === SFTPPacketType.Write) {
+                writes.push({ data: Buffer.from(packet.data), offset: packet.offset })
+                if (firstRequestId === undefined) {
+                    firstRequestId = packet.requestId
+                } else {
+                    fixture.send({
+                        type: SFTPPacketType.Status,
+                        requestId: packet.requestId,
+                        code: SFTPStatusCode.Ok,
+                        message: "",
+                        languageTag: "",
+                    })
+                }
+            }
+        })
+
+        const client = await SFTPClient.connect(asClientChannel(fixture))
+        client.maxWriteLength = 2
+        const buffer = Buffer.from("--abcde--")
+        const resultPromise = client.write(Buffer.from("file"), buffer, 2, 5, 11n)
+        buffer.fill(0x78)
+        if (firstRequestId === undefined) throw new Error("First WRITE was not sent")
+        fixture.send({
+            type: SFTPPacketType.Status,
+            requestId: firstRequestId,
+            code: SFTPStatusCode.Ok,
+            message: "",
+            languageTag: "",
+        })
+
+        const result = await resultPromise
+        expect(result).toEqual({ bytesWritten: 5, buffer })
+        expect(result.buffer).toBe(buffer)
+        expect(writes).toEqual([
+            { data: Buffer.from("ab"), offset: 11n },
+            { data: Buffer.from("cd"), offset: 13n },
+            { data: Buffer.from("e"), offset: 15n },
+        ])
+        fixture.destroy()
+    })
+
+    test("rejects invalid caller buffer ranges before sending a request", async () => {
+        let requests = 0
+        const fixture = new SFTPServerFixture((packet) => {
+            if (packet.type === SFTPPacketType.Init) {
+                fixture.send({ type: SFTPPacketType.Version, version: 3, extensions: [] })
+            } else {
+                requests++
+            }
+        })
+
+        const client = await SFTPClient.connect(asClientChannel(fixture))
+        const buffer = Buffer.alloc(4)
+        await expect(client.read(Buffer.from("file"), buffer, -1, 1, 0)).rejects.toThrow(
+            "SFTP read buffer offset must be a non-negative safe integer",
+        )
+        await expect(client.read(Buffer.from("file"), buffer, 3, 2, 0)).rejects.toThrow(
+            "SFTP read buffer range exceeds the buffer length",
+        )
+        await expect(client.write(Buffer.from("file"), buffer, 0, -1, 0)).rejects.toThrow(
+            "SFTP write length must be a non-negative safe integer",
+        )
+        await expect(client.write(Buffer.from("file"), buffer, 4, 1, 0)).rejects.toThrow(
+            "SFTP write buffer range exceeds the buffer length",
+        )
+        expect(requests).toBe(0)
+        fixture.destroy()
+    })
+
     test("rejects an invalid fast-transfer limit before opening the remote file", async () => {
         const requests: SFTPPacketType[] = []
         const fixture = new SFTPServerFixture((packet) => {

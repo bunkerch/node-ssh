@@ -110,7 +110,9 @@ import {
     type SSHAgentProtocolServerOptions,
     type SSHAgentConstraint,
     type SSHSignatureOptions,
+    type SFTPReadResult,
     type SFTPServerOptions,
+    type SFTPWriteResult,
     type ServerConnectionInfo,
     type ServerOptions,
     type PublicKeySubsystemAddOptions,
@@ -171,6 +173,8 @@ describe("package exports", () => {
             attributes: [{ name: "comment" }],
         }
         const sftpServerOptions: SFTPServerOptions = { maxConcurrentRequests: 32 }
+        const sftpReadResult: SFTPReadResult = { bytesRead: 0, buffer: Buffer.alloc(0) }
+        const sftpWriteResult: SFTPWriteResult = { bytesWritten: 0, buffer: Buffer.alloc(0) }
         const detachedSignatureOptions: SSHSignatureOptions = { namespace: "package" }
         const allowedSignerOptions: AllowedSignerVerificationOptions = {
             principal: "packed@example.test",
@@ -194,6 +198,8 @@ describe("package exports", () => {
         expect(publicKeyAddOptions.overwrite).toBe(true)
         expect(publicKeyServerOptions.attributes?.[0]?.name).toBe("comment")
         expect(sftpServerOptions.maxConcurrentRequests).toBe(32)
+        expect(sftpReadResult.bytesRead).toBe(0)
+        expect(sftpWriteResult.bytesWritten).toBe(0)
         expect(detachedSignatureOptions.namespace).toBe("package")
         expect(allowedSignerOptions.principal).toBe("packed@example.test")
         expect(allowedSignerLookupOptions.at).toBe(0n)
@@ -554,6 +560,17 @@ describe("package exports", () => {
         expect(sftpClient).toContain("export interface SFTPClientOptions")
         expect(sftpClient).toContain("requestTimeout?: number")
         expect(sftpClient).toContain("readonly requestTimeout: number")
+        expect(sftpClient).toContain("export interface SFTPReadResult")
+        expect(sftpClient).toContain("export interface SFTPWriteResult")
+        expect(sftpClient).not.toContain("callback")
+        expect(sftpClient).toContain(
+            "read(handle: Buffer, buffer: Buffer, bufferOffset: number, length: number, position: SFTPPosition): Promise<SFTPReadResult>",
+        )
+        expect(sftpClient).toContain(
+            "write(handle: Buffer, buffer: Buffer, bufferOffset: number, length: number, position: SFTPPosition): Promise<SFTPWriteResult>",
+        )
+        expect(index).toContain("SFTPReadResult")
+        expect(index).toContain("SFTPWriteResult")
         expect(sftpServer).toContain(
             "status(requestId: number, code: SFTPStatusCode, message?: string, languageTag?: string): Promise<void>",
         )

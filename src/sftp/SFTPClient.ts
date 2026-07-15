@@ -183,6 +183,16 @@ export interface SFTPFastPutOptions extends SFTPFastGetOptions {
     mode?: number | string
 }
 
+export interface SFTPReadResult {
+    bytesRead: number
+    buffer: Buffer
+}
+
+export interface SFTPWriteResult {
+    bytesWritten: number
+    buffer: Buffer
+}
+
 export class SFTPStatusError extends Error {
     readonly code: number
     readonly requestId: number
@@ -564,9 +574,41 @@ export default class SFTPClient {
         this.releaseHandle(ownedHandle)
     }
 
-    async read(handle: Buffer, length: number, position: SFTPPosition): Promise<Buffer> {
+    read(handle: Buffer, length: number, position: SFTPPosition): Promise<Buffer>
+    read(
+        handle: Buffer,
+        buffer: Buffer,
+        bufferOffset: number,
+        length: number,
+        position: SFTPPosition,
+    ): Promise<SFTPReadResult>
+    async read(
+        handle: Buffer,
+        lengthOrBuffer: number | Buffer,
+        positionOrBufferOffset: SFTPPosition,
+        bufferLength?: number,
+        bufferPosition?: SFTPPosition,
+    ): Promise<Buffer | SFTPReadResult> {
         const ownedHandle = ownHandle(handle)
-        const offset = positionBigInt(position)
+        let target: Buffer | undefined
+        let bufferOffset = 0
+        let length: number
+        let offset: bigint
+        if (Buffer.isBuffer(lengthOrBuffer)) {
+            target = lengthOrBuffer
+            const range = validateBufferRange(
+                target,
+                positionOrBufferOffset,
+                bufferLength,
+                "SFTP read",
+            )
+            bufferOffset = range.offset
+            length = range.length
+            offset = positionBigInt(bufferPosition)
+        } else {
+            length = lengthOrBuffer
+            offset = positionBigInt(positionOrBufferOffset)
+        }
         const maximumReadLength = this.maxReadLength
         if (!Number.isSafeInteger(maximumReadLength) || maximumReadLength < 1) {
             throw new RangeError("SFTP maximum read length must be a positive safe integer")
@@ -574,7 +616,9 @@ export default class SFTPClient {
         if (!Number.isSafeInteger(length) || length < 0 || length > maximumReadLength) {
             throw new RangeError(`SFTP read length must be between 0 and ${maximumReadLength}`)
         }
-        if (length === 0) return Buffer.alloc(0)
+        if (length === 0) {
+            return target === undefined ? Buffer.alloc(0) : { bytesRead: 0, buffer: target }
+        }
         const response = await this.request(
             {
                 type: SFTPPacketType.Read,
@@ -589,18 +633,38 @@ export default class SFTPClient {
         if (response.data.length > length) {
             throw new SFTPProtocolError("SFTP server returned more data than requested")
         }
-        return response.data
+        if (target === undefined) return response.data
+        response.data.copy(target, bufferOffset)
+        return { bytesRead: response.data.length, buffer: target }
     }
 
-    async write(handle: Buffer, data: Buffer, position: SFTPPosition): Promise<void> {
+    write(handle: Buffer, data: Buffer, position: SFTPPosition): Promise<void>
+    write(
+        handle: Buffer,
+        buffer: Buffer,
+        bufferOffset: number,
+        length: number,
+        position: SFTPPosition,
+    ): Promise<SFTPWriteResult>
+    async write(
+        handle: Buffer,
+        data: Buffer,
+        positionOrBufferOffset: SFTPPosition,
+        bufferLength?: number,
+        bufferPosition?: SFTPPosition,
+    ): Promise<void | SFTPWriteResult> {
         const ownedHandle = ownHandle(handle)
         if (!Buffer.isBuffer(data)) throw new TypeError("SFTP write data must be a buffer")
-        const ownedData = Buffer.from(data)
+        const writesBufferRange = bufferLength !== undefined || bufferPosition !== undefined
+        const range = writesBufferRange
+            ? validateBufferRange(data, positionOrBufferOffset, bufferLength, "SFTP write")
+            : { offset: 0, length: data.length }
+        const ownedData = Buffer.from(data.subarray(range.offset, range.offset + range.length))
         const maximumWriteLength = this.maxWriteLength
         if (!Number.isSafeInteger(maximumWriteLength) || maximumWriteLength < 1) {
             throw new RangeError("SFTP maximum write length must be a positive safe integer")
         }
-        let offset = positionBigInt(position)
+        let offset = positionBigInt(writesBufferRange ? bufferPosition : positionOrBufferOffset)
         for (let start = 0; start < ownedData.length; start += maximumWriteLength) {
             const chunk = ownedData.subarray(start, start + maximumWriteLength)
             await this.statusRequest({
@@ -612,6 +676,7 @@ export default class SFTPClient {
             })
             offset += BigInt(chunk.length)
         }
+        if (writesBufferRange) return { bytesWritten: ownedData.length, buffer: data }
     }
 
     stat(path: SFTPPath): Promise<SFTPStats> {
@@ -1368,18 +1433,38 @@ function decodeSFTPName(value: Buffer, encoding: SFTPNameEncoding): string | Buf
         : decodeSSHUTF8(value, "SFTP returned filename")
 }
 
-function positionBigInt(position: SFTPPosition): bigint {
+function positionBigInt(position: unknown): bigint {
     return uint64BigInt(position, "SFTP position")
 }
 
-function uint64BigInt(value: SFTPPosition, name: string): bigint {
+function validateBufferRange(
+    buffer: Buffer,
+    offset: unknown,
+    length: unknown,
+    operation: string,
+): { offset: number; length: number } {
+    if (!Number.isSafeInteger(offset) || (offset as number) < 0) {
+        throw new RangeError(`${operation} buffer offset must be a non-negative safe integer`)
+    }
+    if (!Number.isSafeInteger(length) || (length as number) < 0) {
+        throw new RangeError(`${operation} length must be a non-negative safe integer`)
+    }
+    const numericOffset = offset as number
+    const numericLength = length as number
+    if (numericOffset > buffer.length || numericLength > buffer.length - numericOffset) {
+        throw new RangeError(`${operation} buffer range exceeds the buffer length`)
+    }
+    return { offset: numericOffset, length: numericLength }
+}
+
+function uint64BigInt(value: unknown, name: string): bigint {
     if (typeof value === "bigint") {
         if (value < 0n || value > 0xffff_ffff_ffff_ffffn) {
             throw new RangeError(`${name} must be a uint64`)
         }
         return value
     }
-    if (!Number.isSafeInteger(value) || value < 0) {
+    if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
         throw new RangeError(`Numeric ${name} must be a non-negative safe integer`)
     }
     return BigInt(value)

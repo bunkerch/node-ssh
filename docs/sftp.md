@@ -34,15 +34,20 @@ calls also require an actual boolean compatibility flag.
 
 The baseline operations are Promise-based:
 
-- `open`, `close`, `read`, and `write` operate on opaque handles. `write` splits large buffers into
-  server-safe requests; independent requests may be outstanding concurrently and responses are
-  matched by request identifier. A write snapshots its handle and data when it starts, so caller
+- `open`, `close`, `read`, and `write` operate on opaque handles. The three-argument `read` returns a
+  newly allocated `Buffer`; its five-argument overload reads into a selected range of a caller
+  buffer and returns `{ bytesRead, buffer }`. The corresponding five-argument `write` overload
+  writes only the selected caller-buffer range and returns `{ bytesWritten, buffer }`. These are
+  Promise APIs and do not accept completion callbacks. `write` splits large buffers into server-safe
+  requests; independent requests may be outstanding concurrently and responses are matched by
+  request identifier. A write snapshots its handle and selected data when it starts, so caller
   mutation while an earlier chunk awaits acknowledgement cannot alter later chunks. The negotiated
   chunk limit is also fixed for the operation, preventing overlap if public limit metadata is
   changed while a chunk is pending. Assigning an invalid `maxWriteLength` rejects locally before a
   request is sent; the value must be a positive safe integer. `read` applies the same requirement
   to `maxReadLength` before treating a zero requested length as an empty result, so whole-file reads
-  cannot mistake an invalid limit for end-of-file.
+  cannot mistake an invalid limit for end-of-file. Buffer offsets and lengths must be non-negative
+  safe integers whose range fits within the supplied buffer.
 - `writeFile` copies Buffer input before opening the remote file; mutation during the open request
   cannot change the eventual contents.
 - `stat`, `lstat`, `fstat`, `setstat`, and `fsetstat` retrieve or change attributes. `chmod`,
@@ -59,6 +64,9 @@ For example:
 const handle = await sftp.open("incoming/archive.bin", "wx", { permissions: 0o640 })
 try {
     await sftp.write(handle, archive, 0n)
+    const header = Buffer.alloc(16)
+    const { bytesRead } = await sftp.read(handle, header, 0, header.length, 0n)
+    await sftp.write(handle, header, 0, bytesRead, 4096n)
     await sftp.ftruncate(handle, 4_294_967_297n)
     const attributes = await sftp.fstat(handle)
     console.log(attributes.size) // bigint | undefined
