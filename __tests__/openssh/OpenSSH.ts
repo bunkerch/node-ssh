@@ -1455,8 +1455,16 @@ describe("OpenSSH interoperability", () => {
         }
     }, 30_000)
 
-    test("OpenSSH client exchanges legacy CBC traffic with a modernssh server across rekey", async () => {
-        const ciphers = ["aes128-cbc", "aes192-cbc", "aes256-cbc", "3des-cbc"] as const
+    test("OpenSSH client exchanges stateful and legacy cipher traffic across rekey", async () => {
+        const ciphers = [
+            "aes128-ctr",
+            "aes192-ctr",
+            "aes256-ctr",
+            "aes128-cbc",
+            "aes192-cbc",
+            "aes256-cbc",
+            "3des-cbc",
+        ] as const
         const hostKey = await PrivateKey.generate("ssh-ed25519")
         const server = new Server({
             hostKeys: [hostKey],
@@ -1488,7 +1496,7 @@ describe("OpenSSH interoperability", () => {
                 channel.events.on("exec", (_command, shell) => {
                     shell.resume()
                     shell.on("end", () => {
-                        shell.stdout.write("cbc-ok\n", () => shell.exit(0).close())
+                        shell.stdout.write("cipher-ok\n", () => shell.exit(0).close())
                     })
                 })
             })
@@ -1526,11 +1534,11 @@ describe("OpenSSH interoperability", () => {
                         "-o",
                         "LogLevel=ERROR",
                         "interop@127.0.0.1",
-                        "cbc-test",
+                        "cipher-test",
                     ],
                     "x".repeat(65_536),
                 )
-                expect(result).toEqual({ code: 0, stdout: "cbc-ok\n", stderr: "" })
+                expect(result).toEqual({ code: 0, stdout: "cipher-ok\n", stderr: "" })
             }
 
             expect(new Set(handshakes.map(({ cipher }) => cipher))).toEqual(new Set(ciphers))
@@ -2496,7 +2504,15 @@ describe("OpenSSH interoperability", () => {
                 await aeadClosed
             }
 
-            for (const cipher of ["aes128-cbc", "aes192-cbc", "aes256-cbc", "3des-cbc"] as const) {
+            for (const cipher of [
+                "aes128-ctr",
+                "aes192-ctr",
+                "aes256-ctr",
+                "aes128-cbc",
+                "aes192-cbc",
+                "aes256-cbc",
+                "3des-cbc",
+            ] as const) {
                 const cbcClient = new Client({
                     hostname: "127.0.0.1",
                     port,

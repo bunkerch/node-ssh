@@ -12,6 +12,6 @@ export default class AES128CTR extends AESNCTR {
     }
 
     constructor(key: Buffer, iv: Buffer) {
-        super("aes-128-ctr", key, iv)
+        super("aes-128-ctr", key, iv, AES128CTR.key_length)
     }
 }

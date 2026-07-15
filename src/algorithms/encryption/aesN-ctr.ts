@@ -1,4 +1,4 @@
-import crypto from "crypto"
+import crypto from "node:crypto"
 import { EncryptionAlgorithm } from "../../algorithms.js"
 
 export default class AESNCTR implements EncryptionAlgorithm {
@@ -6,22 +6,33 @@ export default class AESNCTR implements EncryptionAlgorithm {
     static iv_length: number
     static block_size: number
 
-    key: Buffer
-    iv: Buffer
-    encrypt_instance: crypto.Cipher
-    decrypt_instance: crypto.Cipher
-    constructor(algorithm: string, key: Buffer, iv: Buffer) {
-        this.key = key
-        this.iv = iv
-        this.encrypt_instance = crypto.createCipheriv(algorithm, this.key, this.iv)
-        this.decrypt_instance = crypto.createDecipheriv(algorithm, this.key, this.iv)
+    private readonly encryptInstance: crypto.Cipher
+    private readonly decryptInstance: crypto.Decipher
+
+    constructor(algorithm: string, key: Buffer, iv: Buffer, expectedKeyLength: number) {
+        if (!Buffer.isBuffer(key) || key.length !== expectedKeyLength) {
+            throw new Error(`SSH AES-CTR key must be ${expectedKeyLength} bytes`)
+        }
+        if (!Buffer.isBuffer(iv) || iv.length !== 16) {
+            throw new Error("SSH AES-CTR IV must be 16 bytes")
+        }
+
+        const ownedKey = Buffer.from(key)
+        const ownedIV = Buffer.from(iv)
+        try {
+            this.encryptInstance = crypto.createCipheriv(algorithm, ownedKey, ownedIV)
+            this.decryptInstance = crypto.createDecipheriv(algorithm, ownedKey, ownedIV)
+        } finally {
+            ownedKey.fill(0)
+            ownedIV.fill(0)
+        }
     }
 
     encrypt(plaintext: Buffer): Buffer {
-        return this.encrypt_instance.update(plaintext)
+        return this.encryptInstance.update(plaintext)
     }
 
     decrypt(ciphertext: Buffer): Buffer {
-        return this.decrypt_instance.update(ciphertext)
+        return this.decryptInstance.update(ciphertext)
     }
 }

@@ -12,6 +12,6 @@ export default class AES192CTR extends AESNCTR {
     }
 
     constructor(key: Buffer, iv: Buffer) {
-        super("aes-192-ctr", key, iv)
+        super("aes-192-ctr", key, iv, AES192CTR.key_length)
     }
 }

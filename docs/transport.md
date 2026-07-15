@@ -372,6 +372,12 @@ other encrypts the body and derives a one-time Poly1305 key for the full encrypt
 the full 16-byte tag is verified before the body is decrypted. A separate MAC is not negotiated.
 Sequence-number reuse or wrap under one transport key is rejected and requires rekeying.
 
+RFC 4344 `aes128-ctr`, `aes192-ctr`, and `aes256-ctr` use AES with 128-, 192-, and 256-bit keys and
+a 128-bit initial counter. Each direction keeps one continuous counter stream across packet
+boundaries until `NEWKEYS` installs fresh key and IV material. All three are available in the
+default offer. Transport construction validates the exact key and IV sizes and does not retain or
+expose the caller-owned buffers.
+
 The RFC 4253 `aes128-cbc`, `aes192-cbc`, `aes256-cbc`, `blowfish-cbc`, `cast128-cbc`, and
 three-key `3des-cbc` ciphers are supported as explicit compatibility choices but excluded from
 defaults. `blowfish-cbc` and `cast128-cbc` use the RFC-required 128-bit keys and have 64-bit block
