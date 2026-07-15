@@ -273,6 +273,12 @@ With the default `sendAllHostKeys: true`, advertised public identities must be u
 than 64 may be configured. Set `sendAllHostKeys: false` when the server should select among a
 larger key inventory without announcing it after authentication.
 
+Server construction validates option shapes at runtime as well as through TypeScript. Host-key,
+certificate, GSS-API, and algorithm collections require their documented arrays or objects, and
+`sendAllHostKeys` requires an actual boolean. Only `undefined` selects a default: explicit `null`
+for a banner, timeout, protocol identification, or collection is rejected instead of silently
+enabling a default or generating a temporary identity.
+
 `Server` mirrors useful Node TCP-server controls without exposing callback completion flows.
 `getConnections()` and `close()` return Promises, `listen()` reports readiness through the
 `listening` event, and `address()`, `ref()`, and `unref()` remain synchronous. The readonly
