@@ -284,7 +284,7 @@ describe("client/server integration", () => {
             ])
             expect(serverPeer!.clientSupportsAuthenticationExtensionInfo).toBe(true)
             expect(receivedServerExtensions).toEqual([
-                ["server-sig-algs", "ping@openssh.com", "agent-forward"],
+                ["server-sig-algs", "ping@openssh.com", "agent-forward", "hostkeys"],
             ])
             expect(client.rfc9987AgentForwarding).toBe(true)
             const serverExtensionSnapshot = client.serverExtensions

@@ -557,8 +557,9 @@ signature.
 RFC 8308 extension messages are position-checked. A client message is accepted only immediately
 after its first `NEWKEYS`. When the server offered `ext-info-s`, the client sends that message with
 the `ext-info-in-auth@openssh.com` capability. A server message is accepted immediately after its
-first `NEWKEYS`. Without the negotiated authentication capability, the only later RFC 8308
-opportunity is immediately before `USERAUTH_SUCCESS`.
+first `NEWKEYS`; a server with host keys includes exact `hostkeys=0` support for standardized
+post-authentication key updates. Without the negotiated authentication capability, the only later
+RFC 8308 opportunity is immediately before `USERAUTH_SUCCESS`.
 
 The advertised authentication capability lets a server send one replacement extension set after
 receiving the first `USERAUTH_REQUEST` and before authentication completes. This is useful when
@@ -585,7 +586,9 @@ server.hooker.hook("passwordAuthentication", async (_hook, context, decision, co
 request is active, authentication already completed, or an update was already sent. Every valid
 later message replaces the complete first set, so capabilities omitted from it stop being active.
 In particular, a replacement `server-sig-algs` value supersedes the initial value. Messages outside
-these opportunities terminate the connection.
+these opportunities terminate the connection. A replacement set that omits `hostkeys=0` also
+clears standard host-key-update negotiation, so a later compatibility advertisement uses its
+compatibility proof domain.
 
 `client.serverExtensions` and `serverConnection.clientExtensions` expose deep-copied snapshots that
 preserve unknown binary values. Their corresponding `serverExtensions` and `clientExtensions`

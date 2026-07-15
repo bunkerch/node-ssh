@@ -90,3 +90,7 @@ file-backed database first so unrelated changes made since `load()` are retained
 Updating known hosts after the `hostKeys` rotation event is safe only when the current connection
 was authenticated from an already trusted entry. The rotation proof establishes that the current
 server owns the advertised keys; it does not establish the identity of an initially unknown host.
+The client verifies every proof against the initial transport session identifier before emitting
+the event. Standard version-0 negotiation and the deployed compatibility flow use distinct signed
+domains, so proofs cannot be substituted between them. A failed, malformed, repeated, or
+RSA-SHA1-based proof flow emits no replacement keys.

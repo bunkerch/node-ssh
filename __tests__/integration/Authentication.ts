@@ -483,7 +483,7 @@ describe("RFC 4252 multi-method authentication", () => {
         try {
             await client.connect()
             expect(extensionSets).toEqual([
-                ["server-sig-algs", "ping@openssh.com", "agent-forward"],
+                ["server-sig-algs", "ping@openssh.com", "agent-forward", "hostkeys"],
                 ["authenticated@example.test"],
             ])
             expect(client.rfc9987AgentForwarding).toBe(false)
@@ -584,7 +584,7 @@ describe("RFC 4252 multi-method authentication", () => {
                 { name: "ext-info-in-auth@openssh.com", value: Buffer.alloc(0) },
             ])
             expect(extensionSets).toEqual([
-                ["server-sig-algs", "ping@openssh.com", "agent-forward"],
+                ["server-sig-algs", "ping@openssh.com", "agent-forward", "hostkeys"],
                 ["server-sig-algs", "per-user@example.test"],
             ])
             expect(client.serverSignatureAlgorithms).toEqual(["ssh-ed25519"])

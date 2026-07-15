@@ -142,7 +142,19 @@ import UserAuthInfoRequest from "./packets/UserAuthInfoRequest.js"
 import UserAuthInfoResponse from "./packets/UserAuthInfoResponse.js"
 import UserAuthPasswordChangeRequest from "./packets/UserAuthPasswordChangeRequest.js"
 import UserAuthBanner from "./packets/UserAuthBanner.js"
-import { createHostKeysProofMessage } from "./utils/HostKeysProof.js"
+import {
+    createHostKeysProofMessage,
+    HOST_KEYS_EXTENSION,
+    HOST_KEYS_EXTENSION_VERSION,
+    HOST_KEYS_PROOF_DOMAIN,
+    HOST_KEYS_PROOF_REQUEST,
+    isRSAHostKey,
+    LEGACY_HOST_KEYS_PROOF_REQUEST,
+    LEGACY_HOST_KEYS_REQUEST,
+    MAX_HOST_KEYS_PER_REQUEST,
+    type HostKeysProofDomain,
+    type RSASHA2SignatureAlgorithm,
+} from "./utils/HostKeysProof.js"
 import GSSAPIWithMICAuthMethod from "./auth/gssapi-with-mic.js"
 import GSSAPIKeyExchangeAuthMethod from "./auth/gssapi-keyex.js"
 import {
@@ -382,6 +394,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     #serverKexInitPayload?: Buffer
     #kexAlgorithm?: KexAlgorithm
     #hostKeyAlgorithm?: HostKeyAlgorithm
+    private initialHostKeySignatureAlgorithm?: string
     #clientEncryptionAlgorithm?: typeof EncryptionAlgorithm
     #serverEncryptionAlgorithm?: typeof EncryptionAlgorithm
     #clientEncryption?: EncryptionAlgorithm
@@ -970,6 +983,9 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             })
             this.#kexAlgorithm = algorithms.keyExchange
             this.#hostKeyAlgorithm = algorithms.hostKey
+            if (!isRekey) {
+                this.initialHostKeySignatureAlgorithm = algorithms.hostKey.signature_algorithm
+            }
             this.#clientEncryptionAlgorithm = algorithms.clientEncryption
             this.#serverEncryptionAlgorithm = algorithms.serverEncryption
             this.#clientMacAlgorithm = algorithms.clientMac
@@ -1124,6 +1140,14 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                                 name: AGENT_FORWARDING_EXTENSION,
                                 value: AGENT_FORWARDING_EXTENSION_VERSION,
                             },
+                            ...(this.#configuration.hostKeys.length > 0
+                                ? [
+                                      {
+                                          name: HOST_KEYS_EXTENSION,
+                                          value: HOST_KEYS_EXTENSION_VERSION,
+                                      },
+                                  ]
+                                : []),
                             ...(this.server.hooker.hasHooks("publicKeyAuthentication")
                                 ? [
                                       {
@@ -1254,7 +1278,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             // section 2.5 (ctrl + f search for "hostkeys-00@openssh.com")
             this.sendPacket(
                 new GlobalRequest({
-                    request_name: "hostkeys-00@openssh.com",
+                    request_name: LEGACY_HOST_KEYS_REQUEST,
                     want_reply: false,
                     args: Buffer.concat(
                         this.#configuration.hostKeys.map((key) => {
@@ -1395,8 +1419,11 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         if (!this.isConnected) return
 
         switch (packet.data.request_name) {
-            case "hostkeys-prove-00@openssh.com":
-                this.handleHostKeysProof(packet)
+            case HOST_KEYS_PROOF_REQUEST:
+                this.handleHostKeysProof(packet, HOST_KEYS_PROOF_DOMAIN)
+                return
+            case LEGACY_HOST_KEYS_PROOF_REQUEST:
+                this.handleHostKeysProof(packet, LEGACY_HOST_KEYS_PROOF_REQUEST)
                 return
             case "no-more-sessions@openssh.com":
                 this.handleNoMoreSessions(packet)
@@ -1455,39 +1482,67 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         if (packet.data.want_reply) this.sendPacket(new RequestSuccess({ args: Buffer.alloc(0) }))
     }
 
-    private handleHostKeysProof(packet: GlobalRequest): void {
-        const hostkeys = []
-        let raw = packet.data.args
-        while (raw.length !== 0) {
-            let arg: Buffer
-            ;[arg, raw] = readNextBuffer(raw)
+    private handleHostKeysProof(packet: GlobalRequest, proofDomain: HostKeysProofDomain): void {
+        if (!packet.data.want_reply) return
+        if (this.initialHostKeySignatureAlgorithm === "ssh-rsa") {
+            this.sendPacket(new RequestFailure({}))
+            return
+        }
 
-            try {
-                hostkeys.push(PublicKey.parse(arg))
-            } catch (error) {
-                this.debug(`Error while trying to parse host key:`, error)
+        const hostkeys: PublicKey[] = []
+        const seen = new Set<string>()
+        const parsed = new Set<string>()
+        let raw = packet.data.args
+        try {
+            while (raw.length !== 0) {
+                let arg: Buffer
+                ;[arg, raw] = readNextBuffer(raw)
+                if (hostkeys.length >= MAX_HOST_KEYS_PER_REQUEST) throw new Error("too many keys")
+                const identity = arg.toString("base64")
+                if (seen.has(identity)) throw new Error("duplicate key")
+                seen.add(identity)
+                const publicKey = PublicKey.parse(arg)
+                const parsedIdentity = publicKey.serialize().toString("base64")
+                if (parsed.has(parsedIdentity)) throw new Error("duplicate key")
+                parsed.add(parsedIdentity)
+                hostkeys.push(publicKey)
             }
+        } catch (error) {
+            this.debug("Rejecting malformed SSH host-key proof request:", error)
+            this.sendPacket(new RequestFailure({}))
+            return
+        }
+
+        if (hostkeys.length === 0) {
+            this.sendPacket(new RequestFailure({}))
+            return
         }
 
         this.debug(`Client asked us to prove ownership of`, hostkeys.length, `keys.`)
-        const signatures = []
+        const signatures: Buffer[] = []
         for (const publicKey of hostkeys) {
             const hostKey = this.#configuration.hostKeys.find((privateKey) =>
                 privateKey.data.publicKey.equals(publicKey),
             )
             if (!hostKey) {
                 this.debug(`Client requested proof for a public key the server does not control`)
-                if (packet.data.want_reply) this.sendPacket(new RequestFailure({}))
+                this.sendPacket(new RequestFailure({}))
                 return
             }
 
-            const message = createHostKeysProofMessage(this.sessionID!, publicKey)
-            signatures.push(serializeBuffer(hostKey.sign(message).serialize()))
+            const message = createHostKeysProofMessage(proofDomain, this.#sessionID!, publicKey)
+            let signatureAlgorithm: RSASHA2SignatureAlgorithm | undefined
+            if (isRSAHostKey(publicKey)) {
+                signatureAlgorithm =
+                    this.initialHostKeySignatureAlgorithm === "rsa-sha2-256" ||
+                    this.initialHostKeySignatureAlgorithm === "rsa-sha2-512"
+                        ? this.initialHostKeySignatureAlgorithm
+                        : "rsa-sha2-512"
+            }
+            signatures.push(serializeBuffer(hostKey.sign(message, signatureAlgorithm).serialize()))
         }
 
-        if (packet.data.want_reply) {
-            this.sendPacket(new RequestSuccess({ args: Buffer.concat(signatures) }))
-        }
+        this.sendPacket(new RequestSuccess({ args: Buffer.concat(signatures) }))
     }
 
     private async handleTCPIPForward(packet: GlobalRequest): Promise<void> {

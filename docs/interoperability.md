@@ -355,8 +355,10 @@ algorithm and `ssh-rsa` key-format fields.
 Host-key rotation interoperability verifies the server's `hostkeys-00@openssh.com` announcement by
 requesting `hostkeys-prove-00@openssh.com`, checking each signature against the session-bound proof
 message, and matching the resulting RSA key to the real containerized server key. Independent fixed
-bytes cover the proof preimage, while focused cryptographic tests reject modified, truncated, and
-extra signatures.
+bytes cover that proof preimage. Separate encrypted role tests negotiate `hostkeys=0`, select the
+standard `hostkeys-prove` request, verify the distinct `hostkeys-prove-0` signed domain, accept a
+standard `hostkeys` advertisement, bind RSA proofs to the initially negotiated RSA-SHA2 algorithm,
+and reject RSA-SHA1, duplicates, empty requests, modified, truncated, and extra signatures.
 
 Known-hosts interoperability hashes a real database with `ssh-keygen -H` and verifies that the
 library finds its hidden hostname. In the other direction, `ssh-keygen -F` finds an independently

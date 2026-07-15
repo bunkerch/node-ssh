@@ -47,6 +47,7 @@ import {
     type NormalizedDelayCompression,
 } from "./DelayCompression.js"
 import { encodeSSHLanguageTag, encodeSSHUTF8 } from "./utils/SSHText.js"
+import { MAX_HOST_KEYS_PER_REQUEST } from "./utils/HostKeysProof.js"
 
 export interface ServerOptions {
     protocolVersionExchange?: ProtocolVersionExchange
@@ -425,6 +426,24 @@ export default class Server extends EventEmitter<ServerEvents> {
         }
         this.#options.hostCertificates = undefined
         this.#options.sendAllHostKeys ??= true
+        if (
+            this.#options.sendAllHostKeys &&
+            this.#options.hostKeys.length > MAX_HOST_KEYS_PER_REQUEST
+        ) {
+            throw new RangeError(
+                `SSH host-key advertisements are limited to ${MAX_HOST_KEYS_PER_REQUEST} keys`,
+            )
+        }
+        if (this.#options.sendAllHostKeys) {
+            const advertised = new Set<string>()
+            for (const hostKey of this.#options.hostKeys) {
+                const identity = hostKey.data.publicKey.serialize().toString("base64")
+                if (advertised.has(identity)) {
+                    throw new TypeError("SSH host-key advertisements cannot contain duplicate keys")
+                }
+                advertised.add(identity)
+            }
+        }
         this.#options.gssapi = normalizeGSSAPIServerMechanisms(this.#options.gssapi ?? [])
         this.#options.noFlowControl = normalizeNoFlowControlPreference(this.#options.noFlowControl)
         this.#options.delayCompression = normalizeDelayCompression(this.#options.delayCompression)

@@ -78,7 +78,8 @@ host key implicitly, which does not authenticate an unknown server.
 
 After authentication, a server may advertise additional host keys for rotation. The client
 automatically requests an ownership proof bound to the current session and emits `hostKeys` only
-with keys whose signatures verify:
+with keys whose signatures verify. Exact `hostkeys=0` extension negotiation selects the standard
+proof request and signed domain; servers without it retain compatibility behavior:
 
 ```ts
 import { homedir } from "node:os"
@@ -265,6 +266,9 @@ parses every entry eagerly, rejects public keys and incorrect passphrases, and r
 private-key objects in private server configuration; it does not expose encoded containers,
 passphrases, or host private keys through a public options bag. If `hostKeys` is empty, the server
 generates a temporary Ed25519 key, which changes identity after every restart.
+With the default `sendAllHostKeys: true`, advertised public identities must be unique and no more
+than 64 may be configured. Set `sendAllHostKeys: false` when the server should select among a
+larger key inventory without announcing it after authentication.
 
 `Server` mirrors useful Node TCP-server controls without exposing callback completion flows.
 `getConnections()` and `close()` return Promises, `listen()` reports readiness through the

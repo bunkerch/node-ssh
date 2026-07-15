@@ -149,7 +149,19 @@ import {
     type ResolvedAlgorithmOptions,
 } from "./AlgorithmOptions.js"
 import PrivateKey from "./utils/PrivateKey.js"
-import { parseHostKeysProofResponse } from "./utils/HostKeysProof.js"
+import {
+    HOST_KEYS_EXTENSION,
+    HOST_KEYS_EXTENSION_VERSION,
+    HOST_KEYS_PROOF_DOMAIN,
+    HOST_KEYS_PROOF_REQUEST,
+    HOST_KEYS_REQUEST,
+    LEGACY_HOST_KEYS_PROOF_REQUEST,
+    LEGACY_HOST_KEYS_REQUEST,
+    MAX_HOST_KEYS_PER_REQUEST,
+    parseHostKeysProofResponse,
+    type HostKeysProofDomain,
+    type RSASHA2SignatureAlgorithm,
+} from "./utils/HostKeysProof.js"
 import { ActionQueue } from "./utils/ActionQueue.js"
 import PrivateKeyAgent from "./publickey/PrivateKeyAgent.js"
 import { createSocketAgent } from "./publickey/SocketAgent.js"
@@ -862,10 +874,13 @@ export default class Client extends EventEmitter<ClientEvents> {
     #serverKexInitPayload?: Buffer
     #kexAlgorithm?: KexAlgorithm
     #hostKeyAlgorithm?: HostKeyAlgorithm
+    private initialHostKeySignatureAlgorithm?: string
     serverSignatureAlgorithms?: readonly string[]
     private negotiatedServerHostKey?: Buffer
     private hostboundAuthenticationSupported = false
     private negotiatedServerExtensions: readonly Readonly<SSHExtension>[] = Object.freeze([])
+    private hostKeyUpdateSupported = false
+    private hostKeysAdvertisementReceived = false
     private initialServerNewKeysReceived = false
     private serverExtInfoAfterNewKeys = false
     private serverExtInfoMustPrecedeSuccess = false
@@ -1058,10 +1073,13 @@ export default class Client extends EventEmitter<ClientEvents> {
         this.#serverKexInitPayload = undefined
         this.#kexAlgorithm = undefined
         this.#hostKeyAlgorithm = undefined
+        this.initialHostKeySignatureAlgorithm = undefined
         this.serverSignatureAlgorithms = undefined
         this.negotiatedServerHostKey = undefined
         this.hostboundAuthenticationSupported = false
         this.negotiatedServerExtensions = Object.freeze([])
+        this.hostKeyUpdateSupported = false
+        this.hostKeysAdvertisementReceived = false
         this.initialServerNewKeysReceived = false
         this.serverExtInfoAfterNewKeys = false
         this.serverExtInfoMustPrecedeSuccess = false
@@ -1437,31 +1455,98 @@ export default class Client extends EventEmitter<ClientEvents> {
     private async handleServerHostKeys(packet: GlobalRequest, generation: number): Promise<void> {
         const publicKeys: PublicKey[] = []
         const seen = new Set<string>()
+        const parsed = new Set<string>()
+        let count = 0
         let raw = packet.data.args
         while (raw.length !== 0) {
             let encoded: Buffer
-            ;[encoded, raw] = readNextBuffer(raw)
+            try {
+                ;[encoded, raw] = readNextBuffer(raw)
+            } catch {
+                throw new ProtocolError("Malformed SSH host-key advertisement")
+            }
+            count++
+            if (count > MAX_HOST_KEYS_PER_REQUEST) {
+                throw new ProtocolError(
+                    `SSH host-key advertisement exceeds the ${MAX_HOST_KEYS_PER_REQUEST}-key limit`,
+                )
+            }
+            const identity = encoded.toString("base64")
+            if (seen.has(identity)) {
+                if (packet.data.request_name === HOST_KEYS_REQUEST) {
+                    throw new ProtocolError("Standard SSH host-key advertisement repeats a key")
+                }
+                continue
+            }
+            seen.add(identity)
             try {
                 const publicKey = PublicKey.parse(encoded)
-                const identity = publicKey.serialize().toString("base64")
-                if (seen.has(identity)) continue
-                seen.add(identity)
+                const parsedIdentity = publicKey.serialize().toString("base64")
+                if (parsed.has(parsedIdentity)) {
+                    if (packet.data.request_name === HOST_KEYS_REQUEST) {
+                        throw new ProtocolError("Standard SSH host-key advertisement repeats a key")
+                    }
+                    continue
+                }
+                parsed.add(parsedIdentity)
                 publicKeys.push(publicKey)
             } catch (error) {
+                if (error instanceof ProtocolError) throw error
                 this.debug("Ignoring an unsupported advertised SSH host key:", error)
             }
         }
+        if (count === 0) {
+            throw new ProtocolError("SSH host-key advertisement contains no keys")
+        }
         if (publicKeys.length === 0) return
         if (generation !== this.connectionGeneration) return
-        if (!this.isConnected) await this.#waitEvent("connect")
-        if (generation !== this.connectionGeneration) return
         assert(this.sessionID, "SSH host-key proof requires an established session")
-        const response = await this.sendGlobalRequest(
-            "hostkeys-prove-00@openssh.com",
-            Buffer.concat(publicKeys.map((publicKey) => serializeBuffer(publicKey.serialize()))),
-        )
+        const useStandardNames =
+            packet.data.request_name === HOST_KEYS_REQUEST || this.hostKeyUpdateSupported
+        const proofRequest = useStandardNames
+            ? HOST_KEYS_PROOF_REQUEST
+            : LEGACY_HOST_KEYS_PROOF_REQUEST
+        const proofDomain: HostKeysProofDomain = useStandardNames
+            ? HOST_KEYS_PROOF_DOMAIN
+            : LEGACY_HOST_KEYS_PROOF_REQUEST
+        const initialSignatureAlgorithm = this.initialHostKeySignatureAlgorithm
+        if (initialSignatureAlgorithm === "ssh-rsa") {
+            this.debug("Not requesting SSH host-key proofs after an initial RSA-SHA1 exchange")
+            return
+        }
+        const rsaSignatureAlgorithm: RSASHA2SignatureAlgorithm | undefined =
+            initialSignatureAlgorithm === "rsa-sha2-256" ||
+            initialSignatureAlgorithm === "rsa-sha2-512"
+                ? initialSignatureAlgorithm
+                : undefined
+        let response: Buffer
+        try {
+            response = await this.sendGlobalRequest(
+                proofRequest,
+                Buffer.concat(
+                    publicKeys.map((publicKey) => serializeBuffer(publicKey.serialize())),
+                ),
+            )
+        } catch (error) {
+            if (error instanceof GlobalRequestError) {
+                this.debug("SSH server declined the host-key proof request")
+                return
+            }
+            throw error
+        }
         if (generation !== this.connectionGeneration) return
-        const verified = parseHostKeysProofResponse(this.sessionID, publicKeys, response)
+        let verified: readonly PublicKey[]
+        try {
+            verified = parseHostKeysProofResponse(
+                this.sessionID,
+                publicKeys,
+                response,
+                proofDomain,
+                rsaSignatureAlgorithm,
+            )
+        } catch {
+            throw new ProtocolError("Malformed SSH host-key proof response")
+        }
         this.debug(`Verified ${verified.length} of ${publicKeys.length} advertised SSH host keys`)
         if (verified.length !== 0) this.emit("hostKeys", verified)
     }
@@ -1487,13 +1572,20 @@ export default class Client extends EventEmitter<ClientEvents> {
             return
         }
 
-        if (packet.data.request_name === "hostkeys-00@openssh.com") {
+        if (
+            packet.data.request_name === HOST_KEYS_REQUEST ||
+            packet.data.request_name === LEGACY_HOST_KEYS_REQUEST
+        ) {
+            if (!this.isConnected) await this.#waitEvent("connect")
+            if (generation !== this.connectionGeneration) return
             if (packet.data.want_reply) {
-                this.sendPacket(new RequestSuccess({ args: Buffer.alloc(0) }))
+                throw new ProtocolError("SSH host-key advertisements must not request a reply")
             }
-            void this.handleServerHostKeys(packet, generation).catch((error: unknown) => {
-                this.debug("Could not verify advertised SSH host keys:", error)
-            })
+            if (this.hostKeysAdvertisementReceived) {
+                throw new ProtocolError("SSH server sent more than one host-key advertisement")
+            }
+            this.hostKeysAdvertisementReceived = true
+            await this.handleServerHostKeys(packet, generation)
             return
         }
 
@@ -2060,6 +2152,9 @@ export default class Client extends EventEmitter<ClientEvents> {
             })
             this.#kexAlgorithm = algorithms.keyExchange
             this.#hostKeyAlgorithm = algorithms.hostKey
+            if (!isRekey) {
+                this.initialHostKeySignatureAlgorithm = algorithms.hostKey.signature_algorithm
+            }
             this.#clientEncryptionAlgorithm = algorithms.clientEncryption
             this.#serverEncryptionAlgorithm = algorithms.serverEncryption
             this.#clientMacAlgorithm = algorithms.clientMac
@@ -2964,7 +3059,11 @@ export default class Client extends EventEmitter<ClientEvents> {
             void this.actionQueue
                 .queueAction("globalRequest", () => this.handleServerGlobalRequest(p, generation))
                 .catch((error: Error) => {
-                    if (generation === this.connectionGeneration && this.isConnected) {
+                    if (
+                        generation === this.connectionGeneration &&
+                        this.socket !== undefined &&
+                        !this.socket.destroyed
+                    ) {
                         this.socket?.destroy(error)
                     }
                 })
@@ -3276,6 +3375,7 @@ export default class Client extends EventEmitter<ClientEvents> {
         this.transportPingSupported = false
         this.hostboundAuthenticationSupported = false
         this.rfc9987AgentForwardingSupported = false
+        this.hostKeyUpdateSupported = false
         this.noFlowControlEnabled = false
 
         const signatureAlgorithms = extensions.find(({ name }) => name === "server-sig-algs")
@@ -3295,6 +3395,8 @@ export default class Client extends EventEmitter<ClientEvents> {
         const agentForwarding = extensions.find(({ name }) => name === AGENT_FORWARDING_EXTENSION)
         this.rfc9987AgentForwardingSupported =
             agentForwarding?.value.equals(AGENT_FORWARDING_EXTENSION_VERSION) === true
+        const hostKeys = extensions.find(({ name }) => name === HOST_KEYS_EXTENSION)
+        this.hostKeyUpdateSupported = hostKeys?.value.equals(HOST_KEYS_EXTENSION_VERSION) === true
         this.noFlowControlEnabled = negotiateNoFlowControl(
             noFlowControlValue(this.#options.noFlowControl),
             extensions,

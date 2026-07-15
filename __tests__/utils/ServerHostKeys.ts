@@ -36,4 +36,13 @@ describe("server host-key input normalization", () => {
         )
         expect(() => new Server({ hostKeys: [{} as never] })).toThrow()
     })
+
+    test("bounds advertised keys and rejects duplicate public identities", () => {
+        const key = PrivateKey.generateSync("ssh-ed25519")
+        expect(() => new Server({ hostKeys: [key, key] })).toThrow("duplicate keys")
+
+        const hostKeys = Array.from({ length: 65 }, () => PrivateKey.generateSync("ssh-ed25519"))
+        expect(() => new Server({ hostKeys })).toThrow("limited to 64 keys")
+        expect(() => new Server({ hostKeys, sendAllHostKeys: false })).not.toThrow()
+    })
 })

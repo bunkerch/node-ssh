@@ -88,3 +88,30 @@ work cannot run against new connection state.
 Built-in protocol requests are processed by their dedicated validation and policy paths before the
 generic hook. Do not treat an unrecognized request name as trusted merely because the SSH peer was
 authenticated; authorize every application operation and validate its opaque payload explicitly.
+
+## Host-key updates
+
+The client and server implement the current
+[SSHM host-key update draft](https://datatracker.ietf.org/doc/draft-ietf-sshm-hostkey-update/)
+alongside its deployed compatibility names. A server with host keys advertises the exact RFC 8308
+extension value `hostkeys=0`. When `sendAllHostKeys` is enabled, it sends one post-authentication
+host-key advertisement. The compatibility advertisement remains usable by clients that predate
+extension negotiation; a client that received `hostkeys=0` requests possession proofs with the
+standard `hostkeys-prove` request. Standard `hostkeys` advertisements from other servers are also
+accepted.
+
+The standard request name and its signed domain separator are intentionally different:
+`hostkeys-prove` is the global request, while each proof signs `hostkeys-prove-0`, the initial
+session identifier, and the exact public-key blob. Compatibility proofs use
+`hostkeys-prove-00@openssh.com` in both places. Keeping the domains separate prevents a signature
+from one form being replayed as the other.
+
+Advertisements are one-way, may occur at most once per transport, must contain unique keys, and
+are limited to 64 entries. Proof requests use the same entry limit and reject empty, duplicate,
+malformed, or uncontrolled keys as one failed request. The client emits `hostKeys` only for keys
+whose ordered proof verifies; a failure never turns an advertised key into a trusted key.
+
+RSA proofs follow the signature algorithm selected by the initial key exchange. An initial
+`rsa-sha2-256` or `rsa-sha2-512` exchange requires that same algorithm for every RSA proof. With a
+non-RSA initial host key, the server uses RSA-SHA2 for any additional RSA key. Proof requests fail
+after an explicitly configured RSA-SHA1 initial exchange.
