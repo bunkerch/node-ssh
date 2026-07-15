@@ -45,8 +45,10 @@ client.end()
 Both `Client` and `Server` accept a `debug(...message)` option for diagnostics that must be
 available from the start of their lifecycle. It receives the same arguments as the corresponding
 `debug` event; applications may use either or both. Authentication secrets and key material are
-redacted before this surface is called. Treat all remaining values as operationally sensitive and
-ensure the diagnostic handler does not throw.
+redacted before this surface is called. The constructor diagnostic is an allow-listed summary: it
+never forwards the configuration object, private keys, agents, sockets, or policy functions.
+Configured secret-bearing objects are represented only by `"<configured>"`. Treat all remaining
+values as operationally sensitive and ensure the diagnostic handler does not throw.
 
 ```ts
 const client = new Client({

@@ -512,6 +512,29 @@ function snapshotSessionOptions(options: ClientSessionOptions): ClientSessionOpt
     }
 }
 
+function clientDiagnosticSummary(
+    options: ClientOptionsRequired,
+): Readonly<Record<string, unknown>> {
+    return Object.freeze({
+        hostname: options.hostname,
+        port: options.port,
+        localAddress: options.localAddress,
+        localPort: options.localPort,
+        forceIPv4: options.forceIPv4,
+        forceIPv6: options.forceIPv6,
+        strictVendor: options.strictVendor,
+        username: options.username,
+        password: options.password ? "<redacted>" : "",
+        agent: options.agent instanceof NoneAgent ? "" : "<configured>",
+        agentForward: options.agentForward,
+        hostVerifier: options.hostVerifier ? "<configured>" : "",
+        hostbased: options.hostbased ? "<configured>" : "",
+        gssapi: `${options.gssapi.length} configured mechanism(s)`,
+        sock: options.sock ? "<configured>" : "",
+        debug: options.debug ? "<configured>" : "",
+    })
+}
+
 export class GlobalRequestError extends Error {
     name = "GlobalRequestError"
 }
@@ -731,16 +754,7 @@ export default class Client extends EventEmitter<ClientEvents> {
         )
 
         setImmediate(() => {
-            this.debug("Client created with options:", {
-                ...this.#options,
-                password: this.#options.password ? "<redacted>" : "",
-                privateKey: undefined,
-                certificate: undefined,
-                passphrase: undefined,
-                agent: this.#options.agent.constructor.name,
-                gssapi: `${this.#options.gssapi.length} configured mechanism(s)`,
-                debug: this.#options.debug ? "<configured>" : undefined,
-            })
+            this.debug("Client created with options:", clientDiagnosticSummary(this.#options))
         })
 
         if (this.#options.password) {
