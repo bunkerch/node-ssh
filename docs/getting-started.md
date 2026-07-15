@@ -43,6 +43,12 @@ await once(command, "close")
 client.end()
 ```
 
+`connect()` resolves after authentication and is the preferred completion API. The client also
+emits synchronous `connect` and `ready` observation events once at that same transition. On the
+server role, each accepted `ServerClient` emits the same pair after user authentication succeeds.
+`ready` preserves the conventional event spelling for event-driven consumers; neither event is a
+completion callback, and listeners must not be `async` functions.
+
 Policy and credential decisions use `Hooker`, whose handlers may be asynchronous and are awaited
 in registration order. Observe contained handler failures through the Hooker's
 `uncaughtException` event; it always supplies an `Error`, including when JavaScript code rejects

@@ -536,6 +536,8 @@ describe("package exports", () => {
         expect(client).toContain("replyTimeout?: number")
         expect(client).toContain("timeout?: number")
         expect(client).toContain("timeout: []")
+        expect(client).toContain("ready: []")
+        expect(serverClient).toContain("ready: []")
         expect(client).toContain("maxPendingChannelOpens?: number")
         expect(client).toContain("maxChannels?: number")
         expect(client).toContain("options?: SFTPClientOptions")
@@ -921,6 +923,7 @@ describe("package exports", () => {
                     let resolveRuntimeDisconnect
                     const runtimeDisconnect = new Promise((resolve) => { resolveRuntimeDisconnect = resolve })
                     let runtimeConstructorConnections = 0
+                    let runtimeServerReady = 0
                     const runtimeServer = new Server({ hostKeys: [privateKey], sendAllHostKeys: false, banner: "packed-banner", bannerLanguageTag: "en-US" }, () => { runtimeConstructorConnections++ })
                     runtimeServer.on("error", rejectRuntime)
                     runtimeServer.hooker.hook("noneAuthentication", (_hook, _context, decision) => { decision.allowLogin = true })
@@ -930,6 +933,7 @@ describe("package exports", () => {
                     let runtimeConnection
                     runtimeServer.on("connection", (connection) => {
                         runtimeConnection = connection
+                        connection.on("ready", () => { runtimeServerReady++ })
                         connection.on("error", rejectRuntime)
                         connection.once("disconnect", resolveRuntimeDisconnect)
                         connection.on("channel", (channel) => {
@@ -951,10 +955,13 @@ describe("package exports", () => {
                     if (!runtimeAddress || typeof runtimeAddress === "string") process.exit(42)
                     const runtimeClient = new Client({ hostname: "127.0.0.1", port: runtimeAddress.port, username: "packed-node", strictVendor: false })
                     const runtimeBanners = []
+                    let runtimeClientReady = 0
                     runtimeClient.on("banner", (message, languageTag) => runtimeBanners.push([message, languageTag]))
+                    runtimeClient.on("ready", () => { runtimeClientReady++ })
                     runtimeClient.on("error", rejectRuntime)
                     await Promise.race([runtimeClient.connect(), runtimeFailure])
                     if (runtimeConstructorConnections !== 1) process.exit(107)
+                    if (runtimeClientReady !== 1 || runtimeServerReady !== 1) process.exit(108)
                     if (JSON.stringify(runtimeBanners) !== JSON.stringify([["packed-banner", "en-US"]])) process.exit(46)
                     const runtimeCommand = await Promise.race([runtimeClient.exec("packed-node-runtime"), runtimeFailure])
                     const runtimeStdout = []

@@ -449,6 +449,8 @@ export interface ClientEvents {
     /** Human-readable transport diagnostic sent by the peer. */
     protocolDebug: [info: Readonly<ProtocolDebugMessage>]
     connect: []
+    /** Authentication completed and connection-layer operations are available. */
+    ready: []
     /** The direct TCP transport reached its configured inactivity timeout. */
     timeout: []
     /** Payload-free metadata for an inbound binary packet. */
@@ -2910,6 +2912,7 @@ export default class Client extends EventEmitter<ClientEvents> {
         this.clearReadyTimeout()
         this.resetKeepalive()
         this.emit("connect")
+        this.emit("ready")
     }
 
     end(): this {

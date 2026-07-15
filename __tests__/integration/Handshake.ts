@@ -91,6 +91,7 @@ describe("client/server integration", () => {
             controller.allowOpen = channel instanceof SessionChannel
         })
         let serverPeer: ServerClient | undefined
+        let serverReadyEvents = 0
         let serverRekeys = 0
         const serverHandshakes: unknown[] = []
         const serverExchangeEvents: string[] = []
@@ -152,6 +153,7 @@ describe("client/server integration", () => {
         })
         server.on("connection", (peer) => {
             serverPeer = peer
+            peer.on("ready", () => serverReadyEvents++)
             peer.once("clientKexInit", (packet) => {
                 initialClientKexInit = packet
             })
@@ -246,6 +248,7 @@ describe("client/server integration", () => {
         })
         const clientErrors: Error[] = []
         let connectEvents = 0
+        let readyEvents = 0
         let clientRekeys = 0
         const clientHandshakes: unknown[] = []
         const clientExchangeEvents: string[] = []
@@ -254,6 +257,7 @@ describe("client/server integration", () => {
         client.on("error", (error) => clientErrors.push(error))
         client.on("greeting", (greeting) => greetings.push(greeting))
         client.on("connect", () => connectEvents++)
+        client.on("ready", () => readyEvents++)
         client.on("rekey", () => clientRekeys++)
         client.on("handshake", (negotiated) => {
             clientHandshakes.push(negotiated)
@@ -406,6 +410,8 @@ describe("client/server integration", () => {
             expect(client.isConnected).toBe(true)
             expect(client.setNoDelay()).toBe(client)
             expect(connectEvents).toBe(1)
+            expect(readyEvents).toBe(1)
+            expect(serverReadyEvents).toBe(1)
             expect(serverErrors).toEqual([])
             expect(clientErrors).toEqual([])
             expect(greetings).toEqual([

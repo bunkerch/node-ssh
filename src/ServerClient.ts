@@ -255,6 +255,8 @@ export interface ServerClientEvents {
     /** Human-readable transport diagnostic sent by the peer. */
     protocolDebug: [info: Readonly<ProtocolDebugMessage>]
     connect: []
+    /** Authentication completed and connection-layer operations are available. */
+    ready: []
     debug: [...message: unknown[]]
     clientProtocolVersion: [version: ProtocolVersionExchange]
     tcpWrapperLog: [message: string]
@@ -1276,6 +1278,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         this.resetKeepalive()
         // emit the event
         this.emit("connect")
+        this.emit("ready")
 
         // now that we have received USERAUTH_SUCCESS, we need
         // to handle GLOBAL_REQUEST.
