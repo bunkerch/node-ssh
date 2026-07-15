@@ -46,6 +46,7 @@ import {
     createOutboundPacketProtection,
     createPacketCompressor,
     createPacketDecompressor,
+    instantiateMACAlgorithm,
     describeNegotiatedAlgorithms,
     compression_algorithms,
     host_key_algorithms,
@@ -2587,8 +2588,12 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 keys.serverEncryption,
                 keys.serverIV,
             )
-            this.#clientMac = this.#clientMacAlgorithm?.instantiate(keys.clientIntegrity)
-            this.#serverMac = this.#serverMacAlgorithm?.instantiate(keys.serverIntegrity)
+            this.#clientMac = this.#clientMacAlgorithm
+                ? instantiateMACAlgorithm(this.#clientMacAlgorithm, keys.clientIntegrity)
+                : undefined
+            this.#serverMac = this.#serverMacAlgorithm
+                ? instantiateMACAlgorithm(this.#serverMacAlgorithm, keys.serverIntegrity)
+                : undefined
         } finally {
             if (keys) for (const key of Object.values(keys)) key.fill(0)
             kex.dispose()

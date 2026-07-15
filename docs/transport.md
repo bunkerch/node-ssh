@@ -302,7 +302,9 @@ name as the server-authentication trust boundary.
 
 The RFC 6668 `hmac-sha2-256` and `hmac-sha2-512` integrity methods are available for both
 directions. Their full 32- and 64-byte outputs authenticate the RFC 4253 sequence number followed
-by the plaintext packet. The OpenSSH `hmac-sha2-256-etm@openssh.com`,
+by the plaintext packet. Transport setup validates every negotiated MAC key against the exact size
+declared by its SSH method before constructing packet protection. The OpenSSH
+`hmac-sha2-256-etm@openssh.com`,
 `hmac-sha2-512-etm@openssh.com`, and `hmac-sha1-etm@openssh.com` methods instead leave the
 four-byte packet length unencrypted, encrypt the remaining packet body, and authenticate the
 sequence number followed by that header and ciphertext. Inbound ETM verifies the tag before any

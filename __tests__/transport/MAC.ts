@@ -16,8 +16,24 @@ import {
     UMAC64OpenSSH,
 } from "../../src/algorithms/mac/umac.js"
 import { UMAC } from "../../src/utils/UMAC.js"
+import { instantiateMACAlgorithm, mac_algorithms } from "../../src/algorithms.js"
 
 describe("SSH MAC algorithms", () => {
+    test.each([...mac_algorithms])(
+        "%s enforces its declared transport key size",
+        (name, algorithm) => {
+            expect(
+                instantiateMACAlgorithm(algorithm, Buffer.alloc(algorithm.key_length)).constructor,
+            ).toBe(algorithm)
+            expect(() =>
+                instantiateMACAlgorithm(algorithm, Buffer.alloc(algorithm.key_length - 1)),
+            ).toThrow(`${name} MAC key must be ${algorithm.key_length} bytes`)
+            expect(() =>
+                instantiateMACAlgorithm(algorithm, Buffer.alloc(algorithm.key_length + 1)),
+            ).toThrow(`${name} MAC key must be ${algorithm.key_length} bytes`)
+        },
+    )
+
     test.each([
         [Buffer.alloc(0), "6e155fad26900be1"],
         [Buffer.alloc(3, 0x61), "44b5cb542f220104"],

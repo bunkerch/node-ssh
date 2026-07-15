@@ -388,6 +388,15 @@ export abstract class MACAlgorithm {
         throw new Error("Not implemented")
     }
 }
+
+export function instantiateMACAlgorithm(algorithm: typeof MACAlgorithm, key: Buffer): MACAlgorithm {
+    assert(
+        Buffer.isBuffer(key) && key.length === algorithm.key_length,
+        `${algorithm.alg_name} MAC key must be ${algorithm.key_length} bytes`,
+    )
+    return algorithm.instantiate(key)
+}
+
 export const mac_algorithms = new Map<string, typeof MACAlgorithm>([
     ["umac-64-etm@openssh.com", UMAC64ETMOpenSSH],
     ["umac-128-etm@openssh.com", UMAC128ETMOpenSSH],
