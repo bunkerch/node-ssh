@@ -106,7 +106,7 @@ import Unimplemented from "./packets/Unimplemented.js"
 import Channel from "./Channel.js"
 import GlobalRequest from "./packets/GlobalRequest.js"
 import { readNextBuffer, readNextUint32, serializeBuffer, serializeUint32 } from "./utils/Buffer.js"
-import { decodeSSHUTF8 } from "./utils/SSHText.js"
+import { decodeSSHUTF8, encodeSSHUTF8 } from "./utils/SSHText.js"
 import RequestFailure from "./packets/RequestFailure.js"
 import RequestSuccess from "./packets/RequestSuccess.js"
 import ChannelOpen from "./packets/ChannelOpen.js"
@@ -604,14 +604,15 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         ) {
             throw new RangeError("X11 originator port must be between 0 and 65535")
         }
+        encodeSSHUTF8(originatorAddress, "X11 originator address")
         const authorizations = [...this.x11Forwardings.entries()]
         const authorization =
             authorizations.find(([, candidate]) => !candidate.single) ?? authorizations[0]
         if (!authorization) throw new Error("The SSH client has not authorized X11 forwarding")
-        if (authorization[1].single) this.x11Forwardings.delete(authorization[0])
 
         this.assertChannelCapacity()
         const channel = new ForwardedX11Channel(this, { originatorAddress, originatorPort })
+        if (authorization[1].single) this.x11Forwardings.delete(authorization[0])
         this.channels.set(channel.localId, channel)
         try {
             this.sendPacket(channel.getChannelOpenPacket())

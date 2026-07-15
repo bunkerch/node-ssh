@@ -488,6 +488,8 @@ setup packet with the real cookie; the normalized request returned by `requestX1
 generated value for this purpose. Alternatively, explicitly supply the real cookie and accept the
 greater exposure. Cookies are validated as non-empty hexadecimal data. `single: true` authorizes
 exactly one incoming channel, and all unused authorization is removed when its session closes.
+Local argument-validation and channel-capacity failures occur before an outgoing X11 open and do
+not consume that single authorization.
 Policy may set `decision.rejection` to a `ChannelOpenError` with a specific failure reason,
 description, and language tag. A decision completed after transport teardown is discarded and its
 proposed channel is destroyed. Destroying a proposal during policy denies it even if a later hook

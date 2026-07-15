@@ -31,7 +31,7 @@ function within<T>(promise: Promise<T>, label: string): Promise<T> {
     })
 }
 
-async function createConnectedPeers(): Promise<{
+async function createConnectedPeers(maxChannels?: number): Promise<{
     server: Server
     peer: ServerClient
     client: Client
@@ -39,6 +39,7 @@ async function createConnectedPeers(): Promise<{
     const server = new Server({
         hostKeys: [await PrivateKey.generate("ssh-ed25519")],
         sendAllHostKeys: false,
+        ...(maxChannels === undefined ? {} : { maxChannels }),
     })
     server.hooker.hook("noneAuthentication", (_hook, _context, controller) => {
         controller.allowLogin = true
@@ -181,6 +182,56 @@ test("awaits client X11 policy before publishing the accepted channel", async ()
         session.close()
     } finally {
         releasePolicy()
+        await closePeers(server, peer, client)
+    }
+}, 15_000)
+
+test("preserves single X11 authorization across local validation failure", async () => {
+    const { server, peer, client } = await createConnectedPeers()
+    const session = await client.openSession()
+    await session.requestX11({ single: true })
+    client.hooker.hook("x11Connection", (_hook, _channel, controller) => {
+        controller.allowOpen = true
+    })
+
+    try {
+        await expect(peer.x11("\ud800", 60_040)).rejects.toThrow("not valid UTF-8")
+        const channel = await peer.x11("192.0.2.40", 60_040)
+        channel.close()
+        await expect(peer.x11("192.0.2.41", 60_041)).rejects.toThrow(
+            "has not authorized X11 forwarding",
+        )
+        session.close()
+    } finally {
+        await closePeers(server, peer, client)
+    }
+}, 15_000)
+
+test("preserves single X11 authorization across local channel exhaustion", async () => {
+    const { server, peer, client } = await createConnectedPeers(2)
+    const session = await client.openSession()
+    await session.requestX11({ single: true })
+    const occupyingSession = await client.openSession()
+    client.hooker.hook("x11Connection", (_hook, _channel, controller) => {
+        controller.allowOpen = true
+    })
+
+    try {
+        await expect(peer.x11("192.0.2.42", 60_042)).rejects.toThrow("simultaneous channel limit")
+        occupyingSession.close()
+        await within(
+            (async () => {
+                while (peer.channels.size > 1) {
+                    await new Promise<void>((resolve) => setImmediate(resolve))
+                }
+            })(),
+            "the occupying server channel to close",
+        )
+        const channel = await peer.x11("192.0.2.42", 60_042)
+        channel.close()
+        session.close()
+    } finally {
+        occupyingSession.close()
         await closePeers(server, peer, client)
     }
 }, 15_000)
