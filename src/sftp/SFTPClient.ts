@@ -71,6 +71,8 @@ export function normalizeSFTPClientOptions(
 const MAX_PENDING_REQUESTS = 1024
 const DEFAULT_READ_WRITE_LENGTH = 32768
 const MAX_EXTENSION_READ_WRITE_LENGTH = MAX_SFTP_PACKET_LENGTH - 2048
+const DEFAULT_DIRECTORY_MAX_ENTRIES = 100_000
+const DEFAULT_DIRECTORY_MAX_BYTES = 16 * 1024 * 1024
 const UINT32_MAX = 0xffff_ffff
 
 const STATUS_MESSAGES: Readonly<Record<number, string>> = {
@@ -164,6 +166,13 @@ export type SFTPNameEncoding = "utf8" | "buffer"
 export interface SFTPReadFileOptions {
     encoding?: BufferEncoding | null
     flag?: string | number
+    maxBytes?: number
+}
+
+export interface SFTPReadDirectoryOptions {
+    /** Maximum non-dot entries retained by readDirectory. Defaults to 100,000. */
+    maxEntries?: number
+    /** Maximum bytes retained in entry names and extended attributes. Defaults to 16 MiB. */
     maxBytes?: number
 }
 
@@ -773,32 +782,63 @@ export default class SFTPClient {
         }
     }
 
-    async readDirectory(path: SFTPPath): Promise<readonly SFTPClientNameEntry[]> {
-        const directory = await this.opendir(path)
+    iterateDirectory(path: SFTPPath): AsyncGenerator<SFTPClientNameEntry, void, void> {
+        return this.iterateOwnedDirectory(Buffer.from(pathBuffer(path)))
+    }
+
+    async readDirectory(
+        path: SFTPPath,
+        options: SFTPReadDirectoryOptions = {},
+    ): Promise<readonly SFTPClientNameEntry[]> {
+        const limits = normalizeReadDirectoryOptions(options)
         const entries: SFTPClientNameEntry[] = []
+        let retainedBytes = 0
+        for await (const entry of this.iterateDirectory(path)) {
+            if (entries.length >= limits.maxEntries) {
+                const noun = limits.maxEntries === 1 ? "entry" : "entries"
+                throw new RangeError(
+                    `SFTP directory exceeds the ${limits.maxEntries}-${noun} collection limit`,
+                )
+            }
+            const entryBytes = retainedDirectoryEntryBytes(entry)
+            if (entryBytes > limits.maxBytes - retainedBytes) {
+                throw new RangeError(
+                    `SFTP directory exceeds the ${limits.maxBytes}-byte collection limit`,
+                )
+            }
+            entries.push(entry)
+            retainedBytes += entryBytes
+        }
+        return entries
+    }
+
+    private async *iterateOwnedDirectory(
+        path: Buffer,
+    ): AsyncGenerator<SFTPClientNameEntry, void, void> {
+        const directory = await this.opendir(path)
         let operationError: unknown
         try {
             while (true) {
                 const batch = await this.readdir(directory)
                 if (batch === null) break
-                entries.push(
-                    ...batch.filter(
-                        (entry) =>
-                            !entry.filename.equals(Buffer.from(".")) &&
-                            !entry.filename.equals(Buffer.from("..")),
-                    ),
-                )
+                for (const entry of batch) {
+                    if (!isDotDirectoryEntry(entry.filename)) yield entry
+                }
             }
         } catch (error) {
             operationError = error
+            throw error
+        } finally {
+            await this.closeDirectoryIterator(directory, operationError)
         }
+    }
+
+    private async closeDirectoryIterator(handle: Buffer, operationError: unknown): Promise<void> {
         try {
-            await this.close(directory)
+            await this.close(handle)
         } catch (closeError) {
             if (operationError === undefined) throw closeError
         }
-        if (operationError !== undefined) throw operationError
-        return entries
     }
 
     async unlink(path: SFTPPath): Promise<void> {
@@ -1527,6 +1567,38 @@ function normalizeReadFileOptions(
         validateEncoding(normalized.encoding)
     }
     return normalized
+}
+
+function normalizeReadDirectoryOptions(
+    options: SFTPReadDirectoryOptions,
+): Readonly<Required<SFTPReadDirectoryOptions>> {
+    if (!isPlainConfigurationObject(options)) {
+        throw new TypeError("SFTP readDirectory options must be an object")
+    }
+    const maxEntries = options.maxEntries ?? DEFAULT_DIRECTORY_MAX_ENTRIES
+    const maxBytes = options.maxBytes ?? DEFAULT_DIRECTORY_MAX_BYTES
+    if (!Number.isSafeInteger(maxEntries) || maxEntries < 0) {
+        throw new RangeError("SFTP readDirectory maxEntries must be a non-negative safe integer")
+    }
+    if (!Number.isSafeInteger(maxBytes) || maxBytes < 0) {
+        throw new RangeError("SFTP readDirectory maxBytes must be a non-negative safe integer")
+    }
+    return Object.freeze({ maxEntries, maxBytes })
+}
+
+function isDotDirectoryEntry(filename: Buffer): boolean {
+    return (
+        (filename.length === 1 && filename[0] === 0x2e) ||
+        (filename.length === 2 && filename[0] === 0x2e && filename[1] === 0x2e)
+    )
+}
+
+function retainedDirectoryEntryBytes(entry: SFTPClientNameEntry): number {
+    let bytes = entry.filename.length + entry.longname.length
+    for (const attribute of entry.attributes.extended ?? []) {
+        bytes += attribute.type.length + attribute.data.length
+    }
+    return bytes
 }
 
 function normalizeWriteFileOptions(

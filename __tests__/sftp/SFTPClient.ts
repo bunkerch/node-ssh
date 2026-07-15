@@ -315,6 +315,7 @@ describe("SFTP client request engine", () => {
             }
             requests.push(packet.type)
             if (packet.type === SFTPPacketType.OpenDir) {
+                expect(packet.path).toEqual(Buffer.from("remote"))
                 fixture.send({
                     type: SFTPPacketType.Handle,
                     requestId: packet.requestId,
@@ -352,6 +353,166 @@ describe("SFTP client request engine", () => {
         await expect(client.readDirectory("remote")).rejects.toThrow(
             "SFTP directory response must contain at least one name",
         )
+        expect(requests).toEqual([
+            SFTPPacketType.OpenDir,
+            SFTPPacketType.ReadDir,
+            SFTPPacketType.Close,
+        ])
+        fixture.destroy()
+    })
+
+    test.each([
+        ["entry count", { maxEntries: 1 }, "SFTP directory exceeds the 1-entry collection limit"],
+        [
+            "retained bytes",
+            { maxEntries: 10, maxBytes: 9 },
+            "SFTP directory exceeds the 9-byte collection limit",
+        ],
+    ])(
+        "bounds collected directory entries by %s and still closes the handle",
+        async (_limit, options, expectedMessage) => {
+            const requests: SFTPPacketType[] = []
+            let readRequests = 0
+            const fixture = new SFTPServerFixture((packet) => {
+                if (packet.type === SFTPPacketType.Init) {
+                    fixture.send({ type: SFTPPacketType.Version, version: 3, extensions: [] })
+                    return
+                }
+                requests.push(packet.type)
+                if (packet.type === SFTPPacketType.OpenDir) {
+                    fixture.send({
+                        type: SFTPPacketType.Handle,
+                        requestId: packet.requestId,
+                        handle: Buffer.from("directory"),
+                    })
+                } else if (packet.type === SFTPPacketType.ReadDir) {
+                    readRequests++
+                    if (readRequests === 1) {
+                        fixture.send({
+                            type: SFTPPacketType.Name,
+                            requestId: packet.requestId,
+                            names: [
+                                {
+                                    filename: Buffer.from("first"),
+                                    longname: Buffer.from("first"),
+                                    attributes: {},
+                                },
+                                {
+                                    filename: Buffer.from("second"),
+                                    longname: Buffer.from("second"),
+                                    attributes: {},
+                                },
+                            ],
+                        })
+                    } else {
+                        fixture.send({
+                            type: SFTPPacketType.Status,
+                            requestId: packet.requestId,
+                            code: SFTPStatusCode.Failure,
+                            message: "client continued after the directory limit",
+                            languageTag: "",
+                        })
+                    }
+                } else if (packet.type === SFTPPacketType.Close) {
+                    fixture.send({
+                        type: SFTPPacketType.Status,
+                        requestId: packet.requestId,
+                        code: SFTPStatusCode.Ok,
+                        message: "",
+                        languageTag: "",
+                    })
+                }
+            })
+
+            const client = await SFTPClient.connect(asClientChannel(fixture))
+            await expect(client.readDirectory("remote", options)).rejects.toThrow(expectedMessage)
+            expect(requests).toEqual([
+                SFTPPacketType.OpenDir,
+                SFTPPacketType.ReadDir,
+                SFTPPacketType.Close,
+            ])
+            fixture.destroy()
+        },
+    )
+
+    test("rejects invalid directory collection limits before opening a handle", async () => {
+        let requests = 0
+        const fixture = new SFTPServerFixture((packet) => {
+            if (packet.type === SFTPPacketType.Init) {
+                fixture.send({ type: SFTPPacketType.Version, version: 3, extensions: [] })
+            } else {
+                requests++
+            }
+        })
+
+        const client = await SFTPClient.connect(asClientChannel(fixture))
+        await expect(client.readDirectory("remote", { maxEntries: -1 })).rejects.toThrow(
+            "maxEntries must be a non-negative safe integer",
+        )
+        await expect(client.readDirectory("remote", { maxBytes: 1.5 })).rejects.toThrow(
+            "maxBytes must be a non-negative safe integer",
+        )
+        await expect(client.readDirectory("remote", null as never)).rejects.toThrow(
+            "options must be an object",
+        )
+        expect(requests).toBe(0)
+        fixture.destroy()
+    })
+
+    test("closes an incremental directory iterator after an early exit", async () => {
+        const requests: SFTPPacketType[] = []
+        const fixture = new SFTPServerFixture((packet) => {
+            if (packet.type === SFTPPacketType.Init) {
+                fixture.send({ type: SFTPPacketType.Version, version: 3, extensions: [] })
+                return
+            }
+            requests.push(packet.type)
+            if (packet.type === SFTPPacketType.OpenDir) {
+                expect(packet.path).toEqual(Buffer.from("remote"))
+                fixture.send({
+                    type: SFTPPacketType.Handle,
+                    requestId: packet.requestId,
+                    handle: Buffer.from("directory"),
+                })
+            } else if (packet.type === SFTPPacketType.ReadDir) {
+                fixture.send({
+                    type: SFTPPacketType.Name,
+                    requestId: packet.requestId,
+                    names: [
+                        {
+                            filename: Buffer.from("first"),
+                            longname: Buffer.from("first"),
+                            attributes: {},
+                        },
+                        {
+                            filename: Buffer.from("second"),
+                            longname: Buffer.from("second"),
+                            attributes: {},
+                        },
+                    ],
+                })
+            } else if (packet.type === SFTPPacketType.Close) {
+                fixture.send({
+                    type: SFTPPacketType.Status,
+                    requestId: packet.requestId,
+                    code: SFTPStatusCode.Ok,
+                    message: "",
+                    languageTag: "",
+                })
+            }
+        })
+
+        const client = await SFTPClient.connect(asClientChannel(fixture))
+        const path = Buffer.from("remote")
+        const directory = client.iterateDirectory(path)
+        path.fill(0)
+        const filenames: string[] = []
+        for await (const entry of directory) {
+            filenames.push(entry.filename.toString())
+            break
+        }
+
+        expect(filenames).toEqual(["first"])
         expect(requests).toEqual([
             SFTPPacketType.OpenDir,
             SFTPPacketType.ReadDir,

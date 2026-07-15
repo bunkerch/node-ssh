@@ -285,6 +285,7 @@ describe("package exports", () => {
         expect(SFTPPacketParser).toBeFunction()
         expect(SFTPPacketType.Init).toBe(1)
         expect(SFTPClient).toBeFunction()
+        expect(SFTPClient.prototype.iterateDirectory).toBeFunction()
         expect(SFTPReadStream).toBeFunction()
         expect(SFTPServer).toBeFunction()
         expect(SFTPStats).toBeFunction()
@@ -369,6 +370,7 @@ describe("package exports", () => {
         expect(entry.SFTPPacketParser).toBeDefined()
         expect(entry.SFTPPacketType.Status).toBe(101)
         expect(entry.SFTPClient).toBeDefined()
+        expect(entry.SFTPClient.prototype.iterateDirectory).toBeFunction()
         expect(entry.SFTPReadStream).toBeDefined()
         expect(entry.SFTPServer).toBeDefined()
         expect(entry.SFTPStats).toBeDefined()
@@ -558,10 +560,14 @@ describe("package exports", () => {
         expect(agentProtocol).not.toContain("callback")
         expect(streams.match(/close\(\): Promise<void>/gu)).toHaveLength(2)
         expect(sftpClient).toContain("export interface SFTPClientOptions")
+        expect(sftpClient).toContain("export interface SFTPReadDirectoryOptions")
         expect(sftpClient).toContain("requestTimeout?: number")
         expect(sftpClient).toContain("readonly requestTimeout: number")
         expect(sftpClient).toContain("export interface SFTPReadResult")
         expect(sftpClient).toContain("export interface SFTPWriteResult")
+        expect(sftpClient).toContain(
+            "iterateDirectory(path: SFTPPath): AsyncGenerator<SFTPClientNameEntry, void, void>",
+        )
         expect(sftpClient).not.toContain("callback")
         expect(sftpClient).toContain(
             "read(handle: Buffer, buffer: Buffer, bufferOffset: number, length: number, position: SFTPPosition): Promise<SFTPReadResult>",

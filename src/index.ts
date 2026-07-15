@@ -96,6 +96,7 @@ export type {
     SFTPNameEncoding,
     SFTPPath,
     SFTPPosition,
+    SFTPReadDirectoryOptions,
     SFTPReadFileOptions,
     SFTPReadResult,
     SFTPWriteFileOptions,

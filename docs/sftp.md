@@ -52,9 +52,12 @@ The baseline operations are Promise-based:
   cannot change the eventual contents.
 - `stat`, `lstat`, `fstat`, `setstat`, and `fsetstat` retrieve or change attributes. `chmod`,
   `fchmod`, `chown`, `fchown`, `utimes`, `futimes`, `truncate`, and `ftruncate` are focused helpers.
-- `opendir` and `readdir` expose incremental directory scanning. `readDirectory` reads all batches,
-  filters the conventional `.` and `..` entries, and closes the directory handle even after an
-  error.
+- `opendir` and `readdir` expose individual directory requests. `iterateDirectory` provides a
+  bounded-memory async iterator, filters the conventional `.` and `..` entries, snapshots Buffer
+  paths, and closes its handle on completion, failure, or early loop exit. `readDirectory` collects
+  that iterator with default limits of 100,000 entries and 16 MiB of retained name and extended
+  attribute bytes. Set `maxEntries` or `maxBytes` to a smaller or larger non-negative safe integer;
+  exceeding either limit rejects after closing the handle.
 - `mkdir`, `rmdir`, `unlink`/`remove`, `rename`, `realpath`, `readlink`, and `symlink` cover the
   remaining version 3 operations.
 
@@ -74,9 +77,14 @@ try {
     await sftp.close(handle)
 }
 
-for (const entry of await sftp.readDirectory("incoming")) {
+for await (const entry of sftp.iterateDirectory("incoming")) {
     console.log(entry.filename.toString("utf8"), entry.attributes.size)
 }
+
+const boundedEntries = await sftp.readDirectory("incoming", {
+    maxEntries: 1_000,
+    maxBytes: 4 * 1024 * 1024,
+})
 ```
 
 Whole-file helpers follow Node-style flags while returning Promises:
