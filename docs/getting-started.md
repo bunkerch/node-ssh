@@ -72,10 +72,12 @@ import { join } from "node:path"
 import { KnownHosts } from "@bunkerch/modernssh"
 
 const knownHosts = await KnownHosts.load(join(homedir(), ".ssh", "known_hosts"))
+const hostname = "ssh.example.com"
+const port = 22
 
 client.on("hostKeys", (publicKeys) => {
     void knownHosts
-        .replaceHostKeys(client.options.hostname, publicKeys, { port: client.options.port })
+        .replaceHostKeys(hostname, publicKeys, { port })
         .catch((error) => logger.error({ error }, "Could not update known hosts"))
 })
 ```
@@ -217,9 +219,9 @@ server.listen(22, "127.0.0.1")
 Supply persistent host keys in production. Entries may be loaded `PrivateKey` objects, encoded
 strings or buffers, or `{ key, passphrase }` objects for encrypted containers. The constructor
 parses every entry eagerly, rejects public keys and incorrect passphrases, and retains only parsed
-private-key objects in `server.options`; it does not retain encoded containers or passphrases. If
-`hostKeys` is empty, the server generates a temporary Ed25519 key, which changes identity after
-every restart.
+private-key objects in private server configuration; it does not expose encoded containers,
+passphrases, or host private keys through a public options bag. If `hostKeys` is empty, the server
+generates a temporary Ed25519 key, which changes identity after every restart.
 
 `Server` mirrors useful Node TCP-server controls without exposing callback completion flows.
 `getConnections()` and `close()` return Promises, `listen()` reports readiness through the

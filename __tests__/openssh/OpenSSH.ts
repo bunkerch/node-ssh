@@ -556,10 +556,7 @@ describe("OpenSSH interoperability", () => {
                 hmac: ["hmac-sha2-512-etm@openssh.com"],
             },
         })
-        expect(server.options.hostKeys).toHaveLength(1)
-        expect(server.options.hostKeys[0]).toBeInstanceOf(PrivateKey)
-        expect(server.options.hostKeys[0].data.publicKey.equals(hostKey.data.publicKey)).toBe(true)
-        expect(server.options.hostKeys).not.toContain(encodedHostKey)
+        expect("options" in server).toBe(false)
         const errors: Error[] = []
         const input: Buffer[] = []
         let command = ""

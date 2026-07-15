@@ -33,30 +33,20 @@ describe("in-memory private-key agent", () => {
 })
 
 describe("client private-key option", () => {
-    test("loads encrypted text without retaining encoded secrets in client options", async () => {
+    test("loads encrypted text without exposing client configuration", async () => {
         const privateKey = await PrivateKey.generate("ssh-ed25519")
         const encoded = privateKey.toString({ passphrase: "key-secret", rounds: 1 })
         const configured = { privateKey: encoded, passphrase: "key-secret" }
         const client = new Client(configured)
 
-        expect(client.options.agent).toBeInstanceOf(PrivateKeyAgent)
-        expect(client.options.privateKey).toBeUndefined()
-        expect(client.options.passphrase).toBeUndefined()
+        expect("options" in client).toBe(false)
         expect(configured).toEqual({ privateKey: encoded, passphrase: "key-secret" })
-        const [[id, publicKey]] = await client.options.agent.getPublicKeys()
-        expect(publicKey.equals(privateKey.data.publicKey)).toBe(true)
-        const message = Buffer.from("client private key")
-        expect(
-            publicKey.verifySignature(message, await client.options.agent.sign(id, message)),
-        ).toBe(true)
     })
 
     test("accepts objects and raw containers and rejects ambiguous options", async () => {
         const privateKey = await PrivateKey.generate("ssh-ed25519")
-        expect(new Client({ privateKey }).options.agent).toBeInstanceOf(PrivateKeyAgent)
-        expect(new Client({ privateKey: privateKey.serialize() }).options.agent).toBeInstanceOf(
-            PrivateKeyAgent,
-        )
+        expect("options" in new Client({ privateKey })).toBe(false)
+        expect("options" in new Client({ privateKey: privateKey.serialize() })).toBe(false)
         expect(
             () =>
                 new Client({

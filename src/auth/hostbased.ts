@@ -1,5 +1,6 @@
 import assert from "node:assert"
 import type Client from "../Client.js"
+import { clientConfigurationFor } from "../ConnectionConfiguration.js"
 import { SSHAuthenticationMethods, SSHServiceNames } from "../constants.js"
 import UserAuthFailure from "../packets/UserAuthFailure.js"
 import UserAuthRequest from "../packets/UserAuthRequest.js"
@@ -87,7 +88,7 @@ export default class HostbasedAuthMethod implements AuthMethod {
     }
 
     static async handleAuthentication(client: Client): Promise<boolean> {
-        const options = client.options.hostbased
+        const options = clientConfigurationFor(client).hostbased
         if (!options) return false
 
         const publicKey = options.key.data.publicKey
@@ -108,7 +109,7 @@ export default class HostbasedAuthMethod implements AuthMethod {
             signature: placeholder,
         })
         const request = new UserAuthRequest({
-            username: client.options.username,
+            username: clientConfigurationFor(client).username,
             service_name: SSHServiceNames.Connection,
             method,
         })

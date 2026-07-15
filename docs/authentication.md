@@ -32,7 +32,7 @@ explicit `authenticationMethodsOrder` is a strict allow-list and is never broade
 constructor accepts mutable or readonly arrays and snapshots the configured order; later mutation
 of the caller's array cannot change authentication behavior. Empty orders, duplicate entries, and
 unsupported methods are rejected during construction. The resolved per-connection strategy does
-not mutate `client.options.authenticationMethodsOrder`.
+not mutate the caller's configured array.
 
 ```ts
 import { Client, SSHAuthenticationMethods } from "@bunkerch/modernssh"
@@ -92,8 +92,8 @@ keyboard-interactive method constructors apply the same rule to credentials, lan
 submethod lists.
 
 For a single identity, pass a loaded `PrivateKey`, encoded private-key string, or `Buffer` directly.
-Encrypted input uses `passphrase`; the client parses it during construction and does not retain the
-encoded key or passphrase in `client.options`.
+Encrypted input uses `passphrase`; the client parses it during construction and does not expose a
+public configuration bag containing the encoded key or passphrase.
 
 ```ts
 import { readFile } from "node:fs/promises"

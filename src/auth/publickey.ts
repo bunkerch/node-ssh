@@ -4,6 +4,7 @@ import AuthMethod from "./AuthMethod.js"
 import { readNextBinaryBoolean, readNextBuffer, serializeBuffer } from "../utils/Buffer.js"
 import { serializeBinaryBoolean } from "../utils/BinaryBoolean.js"
 import type Client from "../Client.js"
+import { clientConfigurationFor } from "../ConnectionConfiguration.js"
 import PublicKey from "../utils/PublicKey.js"
 import { AgentType } from "../publickey/Agent.js"
 import { SSHAuthenticationMethods, SSHServiceNames } from "../constants.js"
@@ -112,7 +113,7 @@ export default class PublicKeyAuthMethod implements AuthMethod {
     }
 
     static async handleAuthentication(client: Client): Promise<boolean> {
-        const keys = await client.options.agent.getPublicKeys()
+        const keys = await clientConfigurationFor(client).agent.getPublicKeys()
         for (const key of keys) {
             const algorithms = key[1].signatureAlgorithms.filter(
                 (algorithm) =>
@@ -137,7 +138,7 @@ export default class PublicKeyAuthMethod implements AuthMethod {
                           })
                         : new PublicKeyAuthMethod({ publicKey: key[1], algorithm })
                     const packet = new UserAuthRequest({
-                        username: client.options.username,
+                        username: clientConfigurationFor(client).username,
                         service_name: SSHServiceNames.Connection,
                         method: method,
                     })
@@ -146,8 +147,8 @@ export default class PublicKeyAuthMethod implements AuthMethod {
                     // that would be otherwise annoying, we directly sign
                     // the packet. That will save us one packet if the pk
                     // is correct.
-                    if (client.options.agent.type === AgentType.NonInteractive) {
-                        method.data.signature = await client.options.agent.sign(
+                    if (clientConfigurationFor(client).agent.type === AgentType.NonInteractive) {
+                        method.data.signature = await clientConfigurationFor(client).agent.sign(
                             key[0],
                             packet.serializeForSignature(client),
                             algorithm,
@@ -172,7 +173,7 @@ export default class PublicKeyAuthMethod implements AuthMethod {
                                 "Server requested a public key signature, but a signature was already provided.",
                             )
 
-                            const keys = await client.options.agent.getPublicKeys()
+                            const keys = await clientConfigurationFor(client).agent.getPublicKeys()
                             const key = keys.find((key) => key[1].equals(method.data.publicKey))
                             assert(
                                 key,
@@ -184,7 +185,7 @@ export default class PublicKeyAuthMethod implements AuthMethod {
                                 "Server requested a different public key algorithm",
                             )
 
-                            method.data.signature = await client.options.agent.sign(
+                            method.data.signature = await clientConfigurationFor(client).agent.sign(
                                 key[0],
                                 packet.serializeForSignature(client),
                                 algorithm,

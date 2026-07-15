@@ -3,6 +3,7 @@ import UserAuthRequest from "../packets/UserAuthRequest.js"
 import AuthMethod from "./AuthMethod.js"
 import { serializeBuffer } from "../utils/Buffer.js"
 import type Client from "../Client.js"
+import { clientConfigurationFor } from "../ConnectionConfiguration.js"
 import { SSHAuthenticationMethods, SSHServiceNames } from "../constants.js"
 import UserAuthSuccess from "../packets/UserAuthSuccess.js"
 import UserAuthFailure from "../packets/UserAuthFailure.js"
@@ -32,7 +33,7 @@ export default class NoneAuthMethod implements AuthMethod {
     static async handleAuthentication(client: Client) {
         const seqno = client.sendPacket(
             new UserAuthRequest({
-                username: client.options.username,
+                username: clientConfigurationFor(client).username,
                 service_name: SSHServiceNames.Connection,
                 method: new NoneAuthMethod({}),
             }),

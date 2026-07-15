@@ -1,5 +1,6 @@
 import assert from "node:assert"
 import type Client from "../Client.js"
+import { clientConfigurationFor } from "../ConnectionConfiguration.js"
 import type { ClientHookerKeyboardInteractiveController } from "../Client.js"
 import { SSHAuthenticationMethods, SSHServiceNames } from "../constants.js"
 import UserAuthRequest from "../packets/UserAuthRequest.js"
@@ -64,7 +65,7 @@ export default class KeyboardInteractiveAuthMethod implements AuthMethod {
 
         client.sendPacket(
             new UserAuthRequest({
-                username: client.options.username,
+                username: clientConfigurationFor(client).username,
                 service_name: SSHServiceNames.Connection,
                 method: new KeyboardInteractiveAuthMethod({ languageTag: "", submethods: "" }),
             }),
@@ -81,7 +82,7 @@ export default class KeyboardInteractiveAuthMethod implements AuthMethod {
             const policyCompleted = await client.hooker.triggerHookChecked(
                 "keyboardInteractive",
                 Object.freeze({
-                    username: client.options.username,
+                    username: clientConfigurationFor(client).username,
                     name: answer.data.name,
                     instruction: answer.data.instruction,
                     languageTag: answer.data.languageTag,

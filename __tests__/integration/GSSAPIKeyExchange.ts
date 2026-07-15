@@ -360,7 +360,7 @@ describe("RFC 8732 GSS-API key exchange", () => {
             gssapi: [serverMechanism],
             algorithms: { kex: [method], serverHostKey: ["null"] },
         })
-        expect(server.options.hostKeys).toEqual([])
+        expect("options" in server).toBe(false)
         server.hooker.hook("noneAuthentication", (_hook, _context, decision) => {
             decision.allowLogin = true
         })

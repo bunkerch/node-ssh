@@ -1,5 +1,6 @@
 import assert from "node:assert"
 import type Client from "../Client.js"
+import { clientConfigurationFor } from "../ConnectionConfiguration.js"
 import { SSHAuthenticationMethods, SSHServiceNames } from "../constants.js"
 import {
     buildGSSAPIUserAuthMIC,
@@ -72,7 +73,7 @@ export default class GSSAPIWithMICAuthMethod implements AuthMethod {
     }
 
     static async handleAuthentication(client: Client): Promise<boolean> {
-        const mechanisms = client.options.gssapi.filter(
+        const mechanisms = clientConfigurationFor(client).gssapi.filter(
             (mechanism) => mechanism.createContext !== undefined,
         )
         if (mechanisms.length === 0) return false
@@ -90,7 +91,7 @@ export default class GSSAPIWithMICAuthMethod implements AuthMethod {
         try {
             client.sendPacket(
                 new UserAuthRequest({
-                    username: client.options.username,
+                    username: clientConfigurationFor(client).username,
                     service_name: SSHServiceNames.Connection,
                     method: new GSSAPIWithMICAuthMethod({
                         mechanismOIDs: mechanisms.map(({ oid }) => oid),
@@ -108,10 +109,10 @@ export default class GSSAPIWithMICAuthMethod implements AuthMethod {
 
             context = await mechanism.createContext(
                 Object.freeze({
-                    hostname: client.options.hostname,
-                    username: client.options.username,
+                    hostname: clientConfigurationFor(client).hostname,
+                    username: clientConfigurationFor(client).username,
                     service: SSHServiceNames.Connection,
-                    delegateCredentials: client.options.gssapiDelegateCredentials,
+                    delegateCredentials: clientConfigurationFor(client).gssapiDelegateCredentials,
                 }),
             )
             assertClientContext(context)
@@ -123,7 +124,7 @@ export default class GSSAPIWithMICAuthMethod implements AuthMethod {
                     if (step.integrity) {
                         const micInput = buildGSSAPIUserAuthMIC(
                             client.sessionID,
-                            client.options.username,
+                            clientConfigurationFor(client).username,
                             SSHServiceNames.Connection,
                         )
                         const mic = normalizeGSSAPIToken(

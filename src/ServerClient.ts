@@ -21,8 +21,10 @@ import Server, {
     ServerHookerElevationController,
     ServerHookerStreamLocalForwardContext,
     ServerHookerTCPIPForwardContext,
+    type ServerOptionsRequired,
     type ServerTransport,
 } from "./Server.js"
+import { serverConfigurationFor } from "./ConnectionConfiguration.js"
 import ProtocolVersionExchange from "./ProtocolVersionExchange.js"
 import crypto from "node:crypto"
 import EventEmitter from "node:events"
@@ -252,6 +254,7 @@ export interface ServerClientEvents {
 
 export default class ServerClient extends EventEmitter<ServerClientEvents> {
     private socket: ServerTransport
+    readonly #configuration: ServerOptionsRequired
     connectionId: string
     peerDisconnect?: Readonly<PeerDisconnectInfo>
     server: Server
@@ -262,8 +265,9 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         super()
         this.socket = socket
         this.server = server
+        this.#configuration = serverConfigurationFor(server)
         this.connectionId = randomBase36(9)
-        this.delayCompressionRekeyBlocked = server.options.delayCompression !== false
+        this.delayCompressionRekeyBlocked = this.#configuration.delayCompression !== false
 
         this.socket.on("data", (data) => {
             try {
@@ -759,7 +763,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 ...this.server.algorithmOffer.serverHostKey.filter((name) => {
                     if (name === "null") return true
                     const algorithm = host_key_algorithms.get(name)
-                    return this.server.options.hostKeys.some(
+                    return this.#configuration.hostKeys.some(
                         (key) => key.data.alg === algorithm?.key_format,
                     )
                 }),
@@ -786,7 +790,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         assert(this.#serverKexInitPayload, "Missing exact server KEXINIT payload")
         return {
             clientVersion: this.clientProtocolVersion.toString().slice(0, -2),
-            serverVersion: this.server.options.protocolVersionExchange!.toString().slice(0, -2),
+            serverVersion: this.#configuration.protocolVersionExchange!.toString().slice(0, -2),
             clientKexInit: this.#clientKexInitPayload,
             serverKexInit: this.#serverKexInitPayload,
             serverHostKey,
@@ -942,7 +946,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             const hostKey =
                 this.#hostKeyAlgorithm!.alg_name === "null"
                     ? undefined
-                    : this.server.options.hostKeys.find(
+                    : this.#configuration.hostKeys.find(
                           (key) => key.data.alg === this.#hostKeyAlgorithm!.key_format,
                       )
             const publicKey = hostKey?.data.publicKey.serialize() ?? Buffer.alloc(0)
@@ -1055,18 +1059,18 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             )
             this.installOutboundCompression()
             if (!isRekey && clientKexInit.data.kex_algorithms.includes("ext-info-c")) {
-                const noFlowControl = noFlowControlExtension(this.server.options.noFlowControl)
+                const noFlowControl = noFlowControlExtension(this.#configuration.noFlowControl)
                 this.advertisedNoFlowControlValue = noFlowControlValue(
-                    this.server.options.noFlowControl,
+                    this.#configuration.noFlowControl,
                 )
                 const delayCompression =
-                    this.server.options.delayCompression === false
+                    this.#configuration.delayCompression === false
                         ? undefined
-                        : delayCompressionExtension(this.server.options.delayCompression)
+                        : delayCompressionExtension(this.#configuration.delayCompression)
                 this.advertisedDelayCompressionOffers =
-                    this.server.options.delayCompression === false
+                    this.#configuration.delayCompression === false
                         ? undefined
-                        : this.server.options.delayCompression
+                        : this.#configuration.delayCompression
                 this.sendPacket(
                     new ExtInfo({
                         extensions: [
@@ -1134,7 +1138,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
 
         this.debug(`Socket connected, sending protocol version exchange packet...`)
         this.socket.write(
-            this.server.options.greeting + this.server.options.protocolVersionExchange.toString(),
+            this.#configuration.greeting + this.#configuration.protocolVersionExchange.toString(),
         )
         if (this.buffering.length > 0) {
             this.onMessage(Buffer.alloc(0))
@@ -1172,10 +1176,10 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         )
         this.clearHandshakeTimeout()
 
-        if (this.server.options.banner) {
+        if (this.#configuration.banner) {
             this.sendPacket(
                 new UserAuthBanner({
-                    message: this.server.options.banner,
+                    message: this.#configuration.banner,
                     languageTag: "",
                 }),
             )
@@ -1206,7 +1210,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 })
         })
 
-        if (this.server.options.sendAllHostKeys && this.server.options.hostKeys.length > 0) {
+        if (this.#configuration.sendAllHostKeys && this.#configuration.hostKeys.length > 0) {
             // we can send every host key we have
             // https://cvsweb.openbsd.org/src/usr.bin/ssh/PROTOCOL?annotate=HEAD
             // section 2.5 (ctrl + f search for "hostkeys-00@openssh.com")
@@ -1215,7 +1219,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                     request_name: "hostkeys-00@openssh.com",
                     want_reply: false,
                     args: Buffer.concat(
-                        this.server.options.hostKeys.map((key) => {
+                        this.#configuration.hostKeys.map((key) => {
                             return serializeBuffer(key.data.publicKey.serialize())
                         }),
                     ),
@@ -1430,7 +1434,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         this.debug(`Client asked us to prove ownership of`, hostkeys.length, `keys.`)
         const signatures = []
         for (const publicKey of hostkeys) {
-            const hostKey = this.server.options.hostKeys.find((privateKey) =>
+            const hostKey = this.#configuration.hostKeys.find((privateKey) =>
                 privateKey.data.publicKey.equals(publicKey),
             )
             if (!hostKey) {
@@ -1754,7 +1758,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     }
 
     private async handleAuthenticationWithinLimits(): Promise<void> {
-        const timeout = this.server.options.authenticationTimeout
+        const timeout = this.#configuration.authenticationTimeout
         if (timeout === 0) {
             await this.handleAuthentication()
             return
@@ -1808,7 +1812,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             authenticationMethods.push(SSHAuthenticationMethods.KeyboardInteractive)
         }
         if (
-            this.server.options.gssapi.some((mechanism) => mechanism.createContext !== undefined) &&
+            this.#configuration.gssapi.some((mechanism) => mechanism.createContext !== undefined) &&
             this.server.hooker.hasHooks("gssapiAuthentication")
         ) {
             authenticationMethods.push(SSHAuthenticationMethods.GSSAPIWithMIC)
@@ -1830,7 +1834,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         ): void => {
             if (!continuation.partialSuccess) {
                 failedAttempts++
-                if (failedAttempts >= this.server.options.maxAuthenticationAttempts) {
+                if (failedAttempts >= this.#configuration.maxAuthenticationAttempts) {
                     throw new DisconnectError(
                         DisconnectReason.SSH_DISCONNECT_NO_MORE_AUTH_METHODS_AVAILABLE,
                         "Too many authentication failures",
@@ -1906,7 +1910,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                         const hostbound = method instanceof HostboundPublicKeyAuthMethod
                         let boundServerHostKey: PublicKey | undefined
                         if (hostbound) {
-                            const hostKey = this.server.options.hostKeys.find(
+                            const hostKey = this.#configuration.hostKeys.find(
                                 (key) => key.data.alg === this.#hostKeyAlgorithm!.key_format,
                             )
                             assert(hostKey, "Negotiated server host key is unavailable")
@@ -2265,7 +2269,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         assert(method instanceof GSSAPIWithMICAuthMethod)
         const mechanism = method.data.mechanismOIDs
             .map((oid) =>
-                this.server.options.gssapi.find(
+                this.#configuration.gssapi.find(
                     (candidate) =>
                         candidate.createContext !== undefined && candidate.oid.equals(oid),
                 ),
@@ -3149,18 +3153,18 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     }
 
     private startHandshakeTimeout(): void {
-        if (this.server.options.handshakeTimeout === 0) return
+        if (this.#configuration.handshakeTimeout === 0) return
         this.handshakeTimer = setTimeout(() => {
             this.socket.destroy(new Error("Timed out while waiting for SSH handshake"))
-        }, this.server.options.handshakeTimeout)
+        }, this.#configuration.handshakeTimeout)
         this.handshakeTimer.unref()
     }
 
     private scheduleKeepalive(): void {
-        if (this.server.options.keepaliveInterval === 0 || !this.isConnected) return
+        if (this.#configuration.keepaliveInterval === 0 || !this.isConnected) return
         this.keepaliveTimer = setTimeout(
             () => this.sendKeepalive(),
-            this.server.options.keepaliveInterval,
+            this.#configuration.keepaliveInterval,
         )
         this.keepaliveTimer.unref()
     }
@@ -3173,7 +3177,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     private resetRekeyTimer(): void {
         this.clearRekeyTimer()
         if (
-            this.server.options.rekeyInterval === 0 ||
+            this.#configuration.rekeyInterval === 0 ||
             this.sessionID === undefined ||
             this.socket.destroyed
         ) {
@@ -3181,7 +3185,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         }
         this.rekeyTimer = setTimeout(
             () => this.scheduleAutomaticRekey("time limit"),
-            this.server.options.rekeyInterval,
+            this.#configuration.rekeyInterval,
         )
         this.rekeyTimer.unref()
     }
@@ -3192,7 +3196,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     }
 
     private checkRekeyByteLimit(): void {
-        const limit = this.server.options.rekeyBytes
+        const limit = this.#configuration.rekeyBytes
         if (
             limit > 0 &&
             (this.packetEncoder.bytesProtected >= limit ||
@@ -3227,7 +3231,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         this.keepaliveTimer = undefined
         if (!this.isConnected) return
         this.unansweredKeepalives++
-        if (this.unansweredKeepalives > this.server.options.keepaliveCountMax) {
+        if (this.unansweredKeepalives > this.#configuration.keepaliveCountMax) {
             this.emit("error", new Error("SSH keepalive timeout"))
             this.terminate()
             return

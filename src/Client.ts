@@ -59,6 +59,7 @@ import NewKeys from "./packets/NewKeys.js"
 import NewCompress from "./packets/NewCompress.js"
 import { KeyExchangeError } from "./algorithms/kex/key-exchange.js"
 import { registerKeyExchanges } from "./KeyExchangeRegistry.js"
+import { registerClientConfiguration } from "./ConnectionConfiguration.js"
 import RSA2048SHA256 from "./algorithms/kex/rsa2048-sha256.js"
 import KexRSAPublicKey from "./packets/KexRSAPublicKey.js"
 import KexRSASecret from "./packets/KexRSASecret.js"
@@ -533,7 +534,7 @@ interface RemoteForwarding {
 }
 
 export default class Client extends EventEmitter<ClientEvents> {
-    options: ClientOptionsRequired
+    readonly #options: ClientOptionsRequired
     peerDisconnect?: Readonly<PeerDisconnectInfo>
     private readonly explicitAuthenticationMethodsOrder: boolean
 
@@ -541,101 +542,101 @@ export default class Client extends EventEmitter<ClientEvents> {
         super()
 
         this.explicitAuthenticationMethodsOrder = options.authenticationMethodsOrder !== undefined
-        this.options = { ...options } as ClientOptionsRequired
-        this.options.hostname ??= "localhost"
-        this.options.port ??= 22
-        this.options.forceIPv4 ??= false
-        this.options.forceIPv6 ??= false
-        this.options.strictVendor ??= true
-        this.options.username ??= "root"
-        this.options.password ??= ""
-        if (this.options.debug !== undefined && typeof this.options.debug !== "function") {
+        this.#options = { ...options } as ClientOptionsRequired
+        this.#options.hostname ??= "localhost"
+        this.#options.port ??= 22
+        this.#options.forceIPv4 ??= false
+        this.#options.forceIPv6 ??= false
+        this.#options.strictVendor ??= true
+        this.#options.username ??= "root"
+        this.#options.password ??= ""
+        if (this.#options.debug !== undefined && typeof this.#options.debug !== "function") {
             throw new TypeError("SSH debug option must be a function")
         }
-        this.options.agentForward ??= false
-        this.options.noFlowControl = normalizeNoFlowControlPreference(this.options.noFlowControl)
-        this.options.elevation = normalizeElevationPreference(this.options.elevation)
-        this.options.delayCompression = normalizeDelayCompression(this.options.delayCompression)
-        this.options.gssapi = normalizeGSSAPIClientMechanisms(this.options.gssapi ?? [])
-        this.options.gssapiDelegateCredentials ??= false
-        this.options.gssapiKeyExchangeAuthentication ??= true
-        if (this.options.hostbased !== undefined) {
-            this.options.hostbased = Object.freeze({ ...this.options.hostbased })
+        this.#options.agentForward ??= false
+        this.#options.noFlowControl = normalizeNoFlowControlPreference(this.#options.noFlowControl)
+        this.#options.elevation = normalizeElevationPreference(this.#options.elevation)
+        this.#options.delayCompression = normalizeDelayCompression(this.#options.delayCompression)
+        this.#options.gssapi = normalizeGSSAPIClientMechanisms(this.#options.gssapi ?? [])
+        this.#options.gssapiDelegateCredentials ??= false
+        this.#options.gssapiKeyExchangeAuthentication ??= true
+        if (this.#options.hostbased !== undefined) {
+            this.#options.hostbased = Object.freeze({ ...this.#options.hostbased })
         }
-        if (typeof this.options.agent === "string") {
-            this.options.agent = createSocketAgent(this.options.agent)
+        if (typeof this.#options.agent === "string") {
+            this.#options.agent = createSocketAgent(this.#options.agent)
         }
-        if (this.options.agent !== undefined && this.options.privateKey !== undefined) {
+        if (this.#options.agent !== undefined && this.#options.privateKey !== undefined) {
             throw new TypeError("SSH agent and privateKey options are mutually exclusive")
         }
-        if (this.options.certificate !== undefined && this.options.privateKey === undefined) {
+        if (this.#options.certificate !== undefined && this.#options.privateKey === undefined) {
             throw new TypeError("SSH certificate option requires privateKey")
         }
-        if (this.options.privateKey !== undefined) {
+        if (this.#options.privateKey !== undefined) {
             if (
-                this.options.privateKey instanceof PrivateKey &&
-                this.options.passphrase !== undefined
+                this.#options.privateKey instanceof PrivateKey &&
+                this.#options.passphrase !== undefined
             ) {
                 throw new TypeError("SSH passphrase is only valid for an encoded privateKey")
             }
             const key =
-                this.options.privateKey instanceof PrivateKey
-                    ? this.options.privateKey
-                    : parseKey(this.options.privateKey, this.options.passphrase)
+                this.#options.privateKey instanceof PrivateKey
+                    ? this.#options.privateKey
+                    : parseKey(this.#options.privateKey, this.#options.passphrase)
             if (!(key instanceof PrivateKey)) {
                 throw new TypeError("SSH privateKey option must contain a private key")
             }
             let authenticationKey = key
-            if (this.options.certificate !== undefined) {
+            if (this.#options.certificate !== undefined) {
                 const certificate =
-                    this.options.certificate instanceof PublicKey
-                        ? this.options.certificate
-                        : parseKey(this.options.certificate)
+                    this.#options.certificate instanceof PublicKey
+                        ? this.#options.certificate
+                        : parseKey(this.#options.certificate)
                 if (!(certificate instanceof PublicKey)) {
                     throw new TypeError("SSH certificate option must contain a public key")
                 }
                 authenticationKey = key.withCertificate(certificate)
             }
-            this.options.agent = new PrivateKeyAgent(authenticationKey)
-            this.options.privateKey = undefined
-            this.options.certificate = undefined
-            this.options.passphrase = undefined
-        } else if (this.options.passphrase !== undefined) {
+            this.#options.agent = new PrivateKeyAgent(authenticationKey)
+            this.#options.privateKey = undefined
+            this.#options.certificate = undefined
+            this.#options.passphrase = undefined
+        } else if (this.#options.passphrase !== undefined) {
             throw new TypeError("SSH passphrase option requires privateKey")
         }
-        this.options.agent ??= new NoneAgent()
+        this.#options.agent ??= new NoneAgent()
         if (
-            this.options.ident !== undefined &&
-            this.options.protocolVersionExchange !== undefined
+            this.#options.ident !== undefined &&
+            this.#options.protocolVersionExchange !== undefined
         ) {
             throw new TypeError(
                 "SSH ident and protocolVersionExchange options are mutually exclusive",
             )
         }
-        this.options.protocolVersionExchange =
-            this.options.ident === undefined
-                ? (this.options.protocolVersionExchange ?? ProtocolVersionExchange.defaultValue)
-                : ProtocolVersionExchange.fromIdent(this.options.ident)
-        this.options.authenticationMethodsOrder ??= [
+        this.#options.protocolVersionExchange =
+            this.#options.ident === undefined
+                ? (this.#options.protocolVersionExchange ?? ProtocolVersionExchange.defaultValue)
+                : ProtocolVersionExchange.fromIdent(this.#options.ident)
+        this.#options.authenticationMethodsOrder ??= [
             SSHAuthenticationMethods.None,
-            ...(this.options.gssapi.some(
+            ...(this.#options.gssapi.some(
                 (mechanism) => mechanism.createKeyExchangeContext !== undefined,
-            ) && this.options.gssapiKeyExchangeAuthentication
+            ) && this.#options.gssapiKeyExchangeAuthentication
                 ? [SSHAuthenticationMethods.GSSAPIKeyExchange]
                 : []),
-            ...(this.options.gssapi.some((mechanism) => mechanism.createContext !== undefined)
+            ...(this.#options.gssapi.some((mechanism) => mechanism.createContext !== undefined)
                 ? [SSHAuthenticationMethods.GSSAPIWithMIC]
                 : []),
             SSHAuthenticationMethods.PublicKey,
             SSHAuthenticationMethods.Password,
             SSHAuthenticationMethods.Hostbased,
         ]
-        this.options.authenticationMethodsOrder = [...this.options.authenticationMethodsOrder]
-        if (this.options.authenticationMethodsOrder.length === 0) {
+        this.#options.authenticationMethodsOrder = [...this.#options.authenticationMethodsOrder]
+        if (this.#options.authenticationMethodsOrder.length === 0) {
             throw new TypeError("SSH authentication method order must contain at least one method")
         }
         const configuredAuthenticationMethods = new Set<SSHAuthenticationMethods>()
-        for (const method of this.options.authenticationMethodsOrder) {
+        for (const method of this.#options.authenticationMethodsOrder) {
             if (!UserAuthRequest.auth_methods.has(method)) {
                 throw new TypeError(
                     `SSH authentication method order contains an unsupported method: ${method}`,
@@ -649,20 +650,20 @@ export default class Client extends EventEmitter<ClientEvents> {
             configuredAuthenticationMethods.add(method)
         }
         if (
-            this.options.authenticationMethodsOrder.includes(
+            this.#options.authenticationMethodsOrder.includes(
                 SSHAuthenticationMethods.GSSAPIKeyExchange,
             ) &&
-            !this.options.gssapiKeyExchangeAuthentication
+            !this.#options.gssapiKeyExchangeAuthentication
         ) {
             throw new TypeError(
                 "gssapi-keyex authentication is disabled by gssapiKeyExchangeAuthentication",
             )
         }
         if (
-            this.options.authenticationMethodsOrder.includes(
+            this.#options.authenticationMethodsOrder.includes(
                 SSHAuthenticationMethods.GSSAPIKeyExchange,
             ) &&
-            !this.options.gssapi.some(
+            !this.#options.gssapi.some(
                 (mechanism) => mechanism.createKeyExchangeContext !== undefined,
             )
         ) {
@@ -670,52 +671,52 @@ export default class Client extends EventEmitter<ClientEvents> {
                 "gssapi-keyex authentication requires a GSS-API key-exchange mechanism",
             )
         }
-        this.options.keepaliveInterval ??= 0
-        this.options.keepaliveCountMax ??= 3
-        this.options.rekeyBytes ??= DEFAULT_REKEY_BYTES
-        this.options.rekeyInterval ??= DEFAULT_REKEY_INTERVAL
-        this.options.readyTimeout ??= 20_000
+        this.#options.keepaliveInterval ??= 0
+        this.#options.keepaliveCountMax ??= 3
+        this.#options.rekeyBytes ??= DEFAULT_REKEY_BYTES
+        this.#options.rekeyInterval ??= DEFAULT_REKEY_INTERVAL
+        this.#options.readyTimeout ??= 20_000
         if (
-            !Number.isFinite(this.options.keepaliveInterval) ||
-            this.options.keepaliveInterval < 0
+            !Number.isFinite(this.#options.keepaliveInterval) ||
+            this.#options.keepaliveInterval < 0
         ) {
             throw new RangeError("SSH keepalive interval must be a non-negative number")
         }
         if (
-            !Number.isInteger(this.options.keepaliveCountMax) ||
-            this.options.keepaliveCountMax < 0
+            !Number.isInteger(this.#options.keepaliveCountMax) ||
+            this.#options.keepaliveCountMax < 0
         ) {
             throw new RangeError("SSH keepalive count maximum must be a non-negative integer")
         }
-        validateRekeyBytes(this.options.rekeyBytes)
-        validateRekeyInterval(this.options.rekeyInterval)
-        if (!Number.isFinite(this.options.readyTimeout) || this.options.readyTimeout < 0) {
+        validateRekeyBytes(this.#options.rekeyBytes)
+        validateRekeyInterval(this.#options.rekeyInterval)
+        if (!Number.isFinite(this.#options.readyTimeout) || this.#options.readyTimeout < 0) {
             throw new RangeError("SSH ready timeout must be a non-negative number")
         }
         if (
-            this.options.localPort !== undefined &&
-            (!Number.isInteger(this.options.localPort) ||
-                this.options.localPort < 0 ||
-                this.options.localPort > 65_535)
+            this.#options.localPort !== undefined &&
+            (!Number.isInteger(this.#options.localPort) ||
+                this.#options.localPort < 0 ||
+                this.#options.localPort > 65_535)
         ) {
             throw new RangeError("SSH local port must be an integer between 0 and 65535")
         }
-        if (this.options.hostHash !== undefined) {
+        if (this.#options.hostHash !== undefined) {
             try {
-                crypto.createHash(this.options.hostHash)
+                crypto.createHash(this.#options.hostHash)
             } catch {
                 throw new RangeError(
-                    `Unsupported SSH host hash algorithm: ${this.options.hostHash}`,
+                    `Unsupported SSH host hash algorithm: ${this.#options.hostHash}`,
                 )
             }
         }
-        const gssapiKeyExchangeAlgorithms = createGSSAPIKeyExchangeAlgorithms(this.options.gssapi)
+        const gssapiKeyExchangeAlgorithms = createGSSAPIKeyExchangeAlgorithms(this.#options.gssapi)
         this.#kexAlgorithms = registerKeyExchanges(this, [
             ...kex_algorithms,
             ...gssapiKeyExchangeAlgorithms,
         ])
         this.algorithmOffer = resolveClientAlgorithmOptions(
-            this.options.algorithms,
+            this.#options.algorithms,
             {
                 kex: [...this.#kexAlgorithms.keys()],
                 serverHostKey: [...host_key_algorithms.keys()],
@@ -731,30 +732,31 @@ export default class Client extends EventEmitter<ClientEvents> {
 
         setImmediate(() => {
             this.debug("Client created with options:", {
-                ...this.options,
-                password: this.options.password ? "<redacted>" : "",
+                ...this.#options,
+                password: this.#options.password ? "<redacted>" : "",
                 privateKey: undefined,
                 certificate: undefined,
                 passphrase: undefined,
-                agent: this.options.agent.constructor.name,
-                gssapi: `${this.options.gssapi.length} configured mechanism(s)`,
-                debug: this.options.debug ? "<configured>" : undefined,
+                agent: this.#options.agent.constructor.name,
+                gssapi: `${this.#options.gssapi.length} configured mechanism(s)`,
+                debug: this.#options.debug ? "<configured>" : undefined,
             })
         })
 
-        if (this.options.password) {
+        if (this.#options.password) {
             this.hooker.hook("passwordAuth", async (controller, context, answer) => {
                 // should not happen, but we've been given a
                 // pair of username and password, we want them
                 // to be used together.
-                if (context.username != this.options.username) return
-                answer.password = this.options.password
+                if (context.username != this.#options.username) return
+                answer.password = this.#options.password
             })
 
             setImmediate(() => {
                 this.debug("Password authentication handled by client options")
             })
         }
+        registerClientConfiguration(this, this.#options)
     }
 
     hooker = new Hooker<ClientHooker>()
@@ -1005,7 +1007,7 @@ export default class Client extends EventEmitter<ClientEvents> {
         this.noFlowControlEnabled = false
         this.elevationResult = undefined
         this.pendingDelayCompression = undefined
-        this.delayCompressionRekeyBlocked = this.options.delayCompression !== false
+        this.delayCompressionRekeyBlocked = this.#options.delayCompression !== false
         this.remoteForwardings.clear()
         this.remoteStreamLocalForwardings.clear()
         this.x11Forwardings.clear()
@@ -1028,7 +1030,7 @@ export default class Client extends EventEmitter<ClientEvents> {
     }
 
     debug(...message: unknown[]): void {
-        this.options.debug?.(...message)
+        this.#options.debug?.(...message)
         this.emit("debug", ...message)
     }
 
@@ -1040,7 +1042,7 @@ export default class Client extends EventEmitter<ClientEvents> {
     }
 
     assertOpenSSHVendor(): void {
-        if (!this.options.strictVendor) return
+        if (!this.#options.strictVendor) return
         const software = this.serverProtocolVersion?.protocol_software ?? ""
         if (/^OpenSSH_(?:[5-9]|[1-9]\d)/u.test(software)) return
         throw new Error("strictVendor enabled and server is not OpenSSH or compatible version")
@@ -1265,7 +1267,7 @@ export default class Client extends EventEmitter<ClientEvents> {
         defaultPty: boolean,
     ): Promise<void> {
         channel.allowHalfOpen = options.allowHalfOpen !== false
-        if (options.agentForward ?? this.options.agentForward) {
+        if (options.agentForward ?? this.#options.agentForward) {
             await channel.forwardAgent()
         }
         for (const [name, value] of Object.entries(options.env ?? {})) {
@@ -1339,7 +1341,7 @@ export default class Client extends EventEmitter<ClientEvents> {
     private async handleServerGlobalRequest(packet: GlobalRequest): Promise<void> {
         this.debug(`Received global request packet:`, packet)
 
-        if (packet.data.request_name === ELEVATION_EXTENSION && this.options.elevation !== false) {
+        if (packet.data.request_name === ELEVATION_EXTENSION && this.#options.elevation !== false) {
             if (packet.data.want_reply || packet.data.args.length !== 1) {
                 throw new ProtocolError(
                     "SSH elevation result must be a one-way request containing one boolean",
@@ -1644,7 +1646,7 @@ export default class Client extends EventEmitter<ClientEvents> {
         assert(this.#clientKexInitPayload, "Missing exact client KEXINIT payload")
         assert(this.#serverKexInitPayload, "Missing exact server KEXINIT payload")
         return {
-            clientVersion: this.options.protocolVersionExchange.toString().slice(0, -2),
+            clientVersion: this.#options.protocolVersionExchange.toString().slice(0, -2),
             serverVersion: this.serverProtocolVersion.toString().slice(0, -2),
             clientKexInit: this.#clientKexInitPayload,
             serverKexInit: this.#serverKexInitPayload,
@@ -1663,9 +1665,9 @@ export default class Client extends EventEmitter<ClientEvents> {
         context?: GSSAPIKeyExchangeClientContext
     }> {
         const context = await algorithm.createClientContext({
-            hostname: this.options.hostname,
+            hostname: this.#options.hostname,
             service: "host",
-            delegateCredentials: this.options.gssapiDelegateCredentials,
+            delegateCredentials: this.#options.gssapiDelegateCredentials,
             anonymous: !retainContext,
             mutualAuthentication: true,
             integrity: true,
@@ -1859,7 +1861,7 @@ export default class Client extends EventEmitter<ClientEvents> {
                 const result = await this.performGSSAPIKeyExchange(
                     kexAlgorithm,
                     !isRekey &&
-                        this.options.authenticationMethodsOrder.includes(
+                        this.#options.authenticationMethodsOrder.includes(
                             SSHAuthenticationMethods.GSSAPIKeyExchange,
                         ),
                 )
@@ -1967,7 +1969,8 @@ export default class Client extends EventEmitter<ClientEvents> {
                         certificateAlgorithm.data.principals.length === 0 ||
                             certificateAlgorithm.data.principals.some(
                                 (principal) =>
-                                    principal.toLowerCase() === this.options.hostname.toLowerCase(),
+                                    principal.toLowerCase() ===
+                                    this.#options.hostname.toLowerCase(),
                             ),
                         "Host certificate is not valid for the requested hostname",
                     )
@@ -2010,12 +2013,12 @@ export default class Client extends EventEmitter<ClientEvents> {
             )
             this.installOutboundCompression()
             if (!isRekey && serverKexInit.data.kex_algorithms.includes("ext-info-s")) {
-                const noFlowControl = noFlowControlExtension(this.options.noFlowControl)
-                const elevation = elevationExtension(this.options.elevation)
+                const noFlowControl = noFlowControlExtension(this.#options.noFlowControl)
+                const elevation = elevationExtension(this.#options.elevation)
                 const delayCompression =
-                    this.options.delayCompression === false
+                    this.#options.delayCompression === false
                         ? undefined
-                        : delayCompressionExtension(this.options.delayCompression)
+                        : delayCompressionExtension(this.#options.delayCompression)
                 this.sendPacket(
                     new ExtInfo({
                         extensions: [
@@ -2075,7 +2078,7 @@ export default class Client extends EventEmitter<ClientEvents> {
         }
         this.resetConnectionState()
         this.state = SocketState.Connecting
-        const suppliedSocket = this.options.sock
+        const suppliedSocket = this.#options.sock
         if (
             suppliedSocket !== undefined &&
             (!isReadable(suppliedSocket) || !suppliedSocket.writable || suppliedSocket.destroyed)
@@ -2086,21 +2089,21 @@ export default class Client extends EventEmitter<ClientEvents> {
         this.socket =
             suppliedSocket ??
             net.createConnection({
-                host: this.options.hostname,
-                port: this.options.port,
-                localAddress: this.options.localAddress,
-                localPort: this.options.localPort,
+                host: this.#options.hostname,
+                port: this.#options.port,
+                localAddress: this.#options.localAddress,
+                localPort: this.#options.localPort,
                 family:
-                    this.options.forceIPv4 === this.options.forceIPv6
+                    this.#options.forceIPv4 === this.#options.forceIPv6
                         ? undefined
-                        : this.options.forceIPv4
+                        : this.#options.forceIPv4
                           ? 4
                           : 6,
             })
-        if (this.options.readyTimeout > 0) {
+        if (this.#options.readyTimeout > 0) {
             this.readyTimer = setTimeout(() => {
                 this.socket?.destroy(new Error("Timed out while waiting for handshake"))
-            }, this.options.readyTimeout)
+            }, this.#options.readyTimeout)
         }
 
         let connected = suppliedSocket !== undefined
@@ -2178,7 +2181,7 @@ export default class Client extends EventEmitter<ClientEvents> {
         })
 
         this.debug(`Socket connected, sending protocol version exchange packet...`)
-        this.socket!.write(this.options.protocolVersionExchange.toString())
+        this.socket!.write(this.#options.protocolVersionExchange.toString())
 
         const [serverProtocolVersion] = await this.waitEvent("serverProtocolVersion")
         this.debug("Server protocol version:", serverProtocolVersion)
@@ -2217,7 +2220,7 @@ export default class Client extends EventEmitter<ClientEvents> {
         }
         assert(serviceAnswer.data.service_name == SSHServiceNames.UserAuth)
 
-        const methodList = [...this.options.authenticationMethodsOrder]
+        const methodList = [...this.#options.authenticationMethodsOrder]
         if (
             !this.explicitAuthenticationMethodsOrder &&
             this.hooker.hasHooks("keyboardInteractive") &&
@@ -2302,7 +2305,7 @@ export default class Client extends EventEmitter<ClientEvents> {
                 }
                 if (success) {
                     this.debug(`Authentication successful with method`, m.method_name)
-                    this.debug("Authenticated as", this.options.username)
+                    this.debug("Authenticated as", this.#options.username)
 
                     break authentication
                 }
@@ -3052,12 +3055,14 @@ export default class Client extends EventEmitter<ClientEvents> {
         this.rfc9987AgentForwardingSupported =
             agentForwarding?.value.equals(AGENT_FORWARDING_EXTENSION_VERSION) === true
         this.noFlowControlEnabled = negotiateNoFlowControl(
-            noFlowControlValue(this.options.noFlowControl),
+            noFlowControlValue(this.#options.noFlowControl),
             extensions,
         )
         try {
             this.pendingDelayCompression = negotiateDelayCompression(
-                this.options.delayCompression === false ? undefined : this.options.delayCompression,
+                this.#options.delayCompression === false
+                    ? undefined
+                    : this.#options.delayCompression,
                 findDelayCompressionOffers(extensions),
             )
         } catch (error) {
@@ -3166,8 +3171,11 @@ export default class Client extends EventEmitter<ClientEvents> {
     }
 
     private scheduleKeepalive(): void {
-        if (this.options.keepaliveInterval === 0 || !this.isConnected) return
-        this.keepaliveTimer = setTimeout(() => this.sendKeepalive(), this.options.keepaliveInterval)
+        if (this.#options.keepaliveInterval === 0 || !this.isConnected) return
+        this.keepaliveTimer = setTimeout(
+            () => this.sendKeepalive(),
+            this.#options.keepaliveInterval,
+        )
         this.keepaliveTimer.unref()
     }
 
@@ -3179,7 +3187,7 @@ export default class Client extends EventEmitter<ClientEvents> {
     private resetRekeyTimer(): void {
         this.clearRekeyTimer()
         if (
-            this.options.rekeyInterval === 0 ||
+            this.#options.rekeyInterval === 0 ||
             this.sessionID === undefined ||
             !this.socket ||
             this.socket.destroyed
@@ -3188,7 +3196,7 @@ export default class Client extends EventEmitter<ClientEvents> {
         }
         this.rekeyTimer = setTimeout(
             () => this.scheduleAutomaticRekey("time limit"),
-            this.options.rekeyInterval,
+            this.#options.rekeyInterval,
         )
         this.rekeyTimer.unref()
     }
@@ -3199,7 +3207,7 @@ export default class Client extends EventEmitter<ClientEvents> {
     }
 
     private checkRekeyByteLimit(): void {
-        const limit = this.options.rekeyBytes
+        const limit = this.#options.rekeyBytes
         if (
             limit > 0 &&
             (this.packetEncoder.bytesProtected >= limit ||
@@ -3253,11 +3261,11 @@ export default class Client extends EventEmitter<ClientEvents> {
     }
 
     private async verifyConfiguredHostKey(serializedHostKey: Buffer): Promise<void> {
-        const verifier = this.options.hostVerifier
+        const verifier = this.#options.hostVerifier
         if (!verifier) return
 
-        const presentedKey: Buffer | string = this.options.hostHash
-            ? crypto.createHash(this.options.hostHash).update(serializedHostKey).digest("hex")
+        const presentedKey: Buffer | string = this.#options.hostHash
+            ? crypto.createHash(this.#options.hostHash).update(serializedHostKey).digest("hex")
             : Buffer.from(serializedHostKey)
         let rejectClosed!: (error: Error) => void
         const closed = new Promise<never>((_resolve, reject) => {
@@ -3283,7 +3291,7 @@ export default class Client extends EventEmitter<ClientEvents> {
         this.keepaliveTimer = undefined
         if (!this.isConnected) return
         this.unansweredKeepalives++
-        if (this.unansweredKeepalives > this.options.keepaliveCountMax) {
+        if (this.unansweredKeepalives > this.#options.keepaliveCountMax) {
             this.emit("error", new Error("SSH keepalive timeout"))
             this.destroy()
             return
@@ -3441,7 +3449,7 @@ export default class Client extends EventEmitter<ClientEvents> {
             )
             return
         }
-        const getStream = this.options.agent.getStream
+        const getStream = this.#options.agent.getStream
         if (!this.agentForwardingEnabled || !getStream) {
             this.rejectIncomingChannel(
                 packet,
@@ -3453,7 +3461,7 @@ export default class Client extends EventEmitter<ClientEvents> {
 
         let stream: Awaited<ReturnType<NonNullable<Agent["getStream"]>>>
         try {
-            stream = await getStream.call(this.options.agent)
+            stream = await getStream.call(this.#options.agent)
         } catch (error) {
             this.debug("Could not connect an incoming channel to the SSH agent", error)
             this.rejectIncomingChannel(

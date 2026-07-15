@@ -4,6 +4,7 @@ import AuthMethod from "./AuthMethod.js"
 import { readNextBinaryBoolean, readNextBuffer, serializeBuffer } from "../utils/Buffer.js"
 import { serializeBinaryBoolean } from "../utils/BinaryBoolean.js"
 import type Client from "../Client.js"
+import { clientConfigurationFor } from "../ConnectionConfiguration.js"
 import type { ClientHookerPasswordAuthController } from "../Client.js"
 import { SSHAuthenticationMethods, SSHServiceNames } from "../constants.js"
 import UserAuthSuccess from "../packets/UserAuthSuccess.js"
@@ -87,7 +88,7 @@ export default class PasswordAuthMethod implements AuthMethod {
         }
         const policyCompleted = await client.hooker.triggerHookChecked(
             "passwordAuth",
-            Object.freeze({ username: client.options.username! }),
+            Object.freeze({ username: clientConfigurationFor(client).username! }),
             controller,
         )
         // no hook, or no password was provided by the user
@@ -109,7 +110,7 @@ export default class PasswordAuthMethod implements AuthMethod {
         while (true) {
             client.sendPacket(
                 new UserAuthRequest({
-                    username: client.options.username!,
+                    username: clientConfigurationFor(client).username!,
                     service_name: SSHServiceNames.Connection,
                     method,
                 }),
@@ -123,7 +124,7 @@ export default class PasswordAuthMethod implements AuthMethod {
             const policyCompleted = await client.hooker.triggerHookChecked(
                 "passwordChange",
                 Object.freeze({
-                    username: client.options.username,
+                    username: clientConfigurationFor(client).username,
                     prompt: answer.data.prompt,
                     languageTag: answer.data.languageTag,
                 }),

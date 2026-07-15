@@ -239,6 +239,6 @@ describe("client agent-forwarding defaults", () => {
     }, 15_000)
 
     test("keeps the connection default disabled", () => {
-        expect(new Client({}).options.agentForward).toBe(false)
+        expect("options" in new Client({})).toBe(false)
     })
 })

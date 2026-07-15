@@ -85,10 +85,11 @@ describe("SSHAgent", () => {
         await new Promise<void>((resolve) => server.once("listening", resolve))
 
         try {
-            const client = new Client({ agent: socketPath })
-            expect(client.options.agent).toBeInstanceOf(SSHAgent)
-            expect((client.options.agent as SSHAgent).socketPath).toBe(socketPath)
-            const agent = client.options.agent
+            const agent = createSocketAgent(socketPath)
+            const client = new Client({ agent })
+            expect(agent).toBeInstanceOf(SSHAgent)
+            expect((agent as SSHAgent).socketPath).toBe(socketPath)
+            expect("options" in client).toBe(false)
             const identities = await agent.getPublicKeys()
             expect(identities).toHaveLength(1)
             const [id, publicKey] = identities[0]

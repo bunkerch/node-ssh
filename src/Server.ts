@@ -29,6 +29,7 @@ import {
     default_algorithm_names,
 } from "./algorithms.js"
 import { registerKeyExchanges } from "./KeyExchangeRegistry.js"
+import { registerServerConfiguration } from "./ConnectionConfiguration.js"
 import {
     DEFAULT_REKEY_BYTES,
     DEFAULT_REKEY_INTERVAL,
@@ -352,28 +353,28 @@ export type ServerHooker = {
 }
 
 export default class Server extends EventEmitter<ServerEvents> {
-    options: ServerOptionsRequired
+    readonly #options: ServerOptionsRequired
 
     constructor(options: ServerOptions = {}) {
         super()
-        this.options = { ...options } as ServerOptionsRequired
-        if (this.options.debug !== undefined && typeof this.options.debug !== "function") {
+        this.#options = { ...options } as ServerOptionsRequired
+        if (this.#options.debug !== undefined && typeof this.#options.debug !== "function") {
             throw new TypeError("SSH debug option must be a function")
         }
         if (
-            this.options.ident !== undefined &&
-            this.options.protocolVersionExchange !== undefined
+            this.#options.ident !== undefined &&
+            this.#options.protocolVersionExchange !== undefined
         ) {
             throw new TypeError(
                 "SSH ident and protocolVersionExchange options are mutually exclusive",
             )
         }
-        this.options.protocolVersionExchange =
-            this.options.ident === undefined
-                ? (this.options.protocolVersionExchange ?? ProtocolVersionExchange.defaultValue)
-                : ProtocolVersionExchange.fromIdent(this.options.ident)
-        this.options.greeting = normalizeGreeting(this.options.greeting ?? "")
-        this.options.hostKeys = (options.hostKeys ?? []).map((input) => {
+        this.#options.protocolVersionExchange =
+            this.#options.ident === undefined
+                ? (this.#options.protocolVersionExchange ?? ProtocolVersionExchange.defaultValue)
+                : ProtocolVersionExchange.fromIdent(this.#options.ident)
+        this.#options.greeting = normalizeGreeting(this.#options.greeting ?? "")
+        this.#options.hostKeys = (options.hostKeys ?? []).map((input) => {
             const wrapped =
                 typeof input === "object" &&
                 input !== null &&
@@ -390,7 +391,7 @@ export default class Server extends EventEmitter<ServerEvents> {
             }
             return key
         })
-        for (const certificateInput of this.options.hostCertificates ?? []) {
+        for (const certificateInput of this.#options.hostCertificates ?? []) {
             const certificate =
                 certificateInput instanceof PublicKey
                     ? certificateInput
@@ -398,7 +399,7 @@ export default class Server extends EventEmitter<ServerEvents> {
             if (!(certificate instanceof PublicKey)) {
                 throw new TypeError("SSH host certificate must contain a public key")
             }
-            const hostKey = this.options.hostKeys.find((key) => {
+            const hostKey = this.#options.hostKeys.find((key) => {
                 const publicKey = certificate.data.algorithm
                 return (
                     publicKey instanceof SSHCertificatePublicKey &&
@@ -406,57 +407,60 @@ export default class Server extends EventEmitter<ServerEvents> {
                 )
             })
             if (!hostKey) throw new TypeError("SSH host certificate does not match a host key")
-            this.options.hostKeys.push(hostKey.withCertificate(certificate))
+            this.#options.hostKeys.push(hostKey.withCertificate(certificate))
         }
-        this.options.hostCertificates = undefined
-        this.options.sendAllHostKeys ??= true
-        this.options.gssapi = normalizeGSSAPIServerMechanisms(this.options.gssapi ?? [])
-        this.options.noFlowControl = normalizeNoFlowControlPreference(this.options.noFlowControl)
-        this.options.delayCompression = normalizeDelayCompression(this.options.delayCompression)
-        this.options.banner ??= ""
-        this.options.handshakeTimeout ??= 20_000
-        this.options.authenticationTimeout ??= 600_000
-        this.options.maxAuthenticationAttempts ??= 20
-        this.options.keepaliveInterval ??= 0
-        this.options.keepaliveCountMax ??= 3
-        this.options.rekeyBytes ??= DEFAULT_REKEY_BYTES
-        this.options.rekeyInterval ??= DEFAULT_REKEY_INTERVAL
-        if (!Number.isFinite(this.options.handshakeTimeout) || this.options.handshakeTimeout < 0) {
+        this.#options.hostCertificates = undefined
+        this.#options.sendAllHostKeys ??= true
+        this.#options.gssapi = normalizeGSSAPIServerMechanisms(this.#options.gssapi ?? [])
+        this.#options.noFlowControl = normalizeNoFlowControlPreference(this.#options.noFlowControl)
+        this.#options.delayCompression = normalizeDelayCompression(this.#options.delayCompression)
+        this.#options.banner ??= ""
+        this.#options.handshakeTimeout ??= 20_000
+        this.#options.authenticationTimeout ??= 600_000
+        this.#options.maxAuthenticationAttempts ??= 20
+        this.#options.keepaliveInterval ??= 0
+        this.#options.keepaliveCountMax ??= 3
+        this.#options.rekeyBytes ??= DEFAULT_REKEY_BYTES
+        this.#options.rekeyInterval ??= DEFAULT_REKEY_INTERVAL
+        if (
+            !Number.isFinite(this.#options.handshakeTimeout) ||
+            this.#options.handshakeTimeout < 0
+        ) {
             throw new RangeError("SSH handshake timeout must be a non-negative number")
         }
         if (
-            !Number.isFinite(this.options.authenticationTimeout) ||
-            this.options.authenticationTimeout < 0
+            !Number.isFinite(this.#options.authenticationTimeout) ||
+            this.#options.authenticationTimeout < 0
         ) {
             throw new RangeError("SSH authentication timeout must be a non-negative number")
         }
         if (
-            !Number.isInteger(this.options.maxAuthenticationAttempts) ||
-            this.options.maxAuthenticationAttempts < 1
+            !Number.isInteger(this.#options.maxAuthenticationAttempts) ||
+            this.#options.maxAuthenticationAttempts < 1
         ) {
             throw new RangeError("SSH maximum authentication attempts must be a positive integer")
         }
         if (
-            !Number.isFinite(this.options.keepaliveInterval) ||
-            this.options.keepaliveInterval < 0
+            !Number.isFinite(this.#options.keepaliveInterval) ||
+            this.#options.keepaliveInterval < 0
         ) {
             throw new RangeError("SSH keepalive interval must be a non-negative number")
         }
         if (
-            !Number.isInteger(this.options.keepaliveCountMax) ||
-            this.options.keepaliveCountMax < 0
+            !Number.isInteger(this.#options.keepaliveCountMax) ||
+            this.#options.keepaliveCountMax < 0
         ) {
             throw new RangeError("SSH keepalive count maximum must be a non-negative integer")
         }
-        validateRekeyBytes(this.options.rekeyBytes)
-        validateRekeyInterval(this.options.rekeyInterval)
-        const gssapiKeyExchangeAlgorithms = createGSSAPIKeyExchangeAlgorithms(this.options.gssapi)
+        validateRekeyBytes(this.#options.rekeyBytes)
+        validateRekeyInterval(this.#options.rekeyInterval)
+        const gssapiKeyExchangeAlgorithms = createGSSAPIKeyExchangeAlgorithms(this.#options.gssapi)
         const kexAlgorithms = registerKeyExchanges(this, [
             ...kex_algorithms,
             ...gssapiKeyExchangeAlgorithms,
         ])
         this.algorithmOffer = resolveServerAlgorithmOptions(
-            this.options.algorithms,
+            this.#options.algorithms,
             {
                 kex: [...kexAlgorithms.keys()],
                 serverHostKey: [...host_key_algorithms.keys()],
@@ -489,16 +493,20 @@ export default class Server extends EventEmitter<ServerEvents> {
             this.emit("close")
         })
 
-        if (this.options.hostKeys.length === 0 && this.algorithmOffer.serverHostKey[0] !== "null") {
+        if (
+            this.#options.hostKeys.length === 0 &&
+            this.algorithmOffer.serverHostKey[0] !== "null"
+        ) {
             console.warn(
                 "[node-ssh] No host key supplied. Generating a temporary Ed25519 host key.",
             )
             this.hostKeysReady = PrivateKey.generate("ssh-ed25519").then((key) => {
-                this.options.hostKeys.push(key)
+                this.#options.hostKeys.push(key)
             })
         } else {
             this.hostKeysReady = Promise.resolve()
         }
+        registerServerConfiguration(this, this.#options)
     }
 
     hooker = new Hooker<ServerHooker>()
@@ -657,7 +665,7 @@ export default class Server extends EventEmitter<ServerEvents> {
     }
 
     debug(...message: unknown[]): void {
-        this.options.debug?.(...message)
+        this.#options.debug?.(...message)
         this.emit("debug", ...message)
     }
 }

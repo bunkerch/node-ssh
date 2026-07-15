@@ -9,18 +9,16 @@ describe("server host-key input normalization", () => {
         const encodedPlain = plain.serialize()
         const encodedEncrypted = encrypted.serialize({ passphrase })
         const wrapped = { key: encodedEncrypted, passphrase }
+        const plainSnapshot = Buffer.from(encodedPlain)
+        const encryptedSnapshot = Buffer.from(encodedEncrypted)
+        const passphraseSnapshot = Buffer.from(passphrase)
 
         const server = new Server({ hostKeys: [encodedPlain, wrapped] })
 
-        expect(server.options.hostKeys).toHaveLength(2)
-        expect(server.options.hostKeys.every((key) => key instanceof PrivateKey)).toBe(true)
-        expect(server.options.hostKeys[0].data.publicKey.equals(plain.data.publicKey)).toBe(true)
-        expect(server.options.hostKeys[1].data.publicKey.equals(encrypted.data.publicKey)).toBe(
-            true,
-        )
-        expect(server.options.hostKeys).not.toContain(encodedPlain)
-        expect(server.options.hostKeys).not.toContain(encodedEncrypted)
-        expect(server.options.hostKeys).not.toContain(wrapped)
+        expect("options" in server).toBe(false)
+        expect(encodedPlain).toEqual(plainSnapshot)
+        expect(encodedEncrypted).toEqual(encryptedSnapshot)
+        expect(passphrase).toEqual(passphraseSnapshot)
     })
 
     test("rejects public keys, incorrect passphrases, and ambiguous object inputs", async () => {

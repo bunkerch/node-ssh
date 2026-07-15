@@ -69,6 +69,9 @@ Before committing, run the focused tests for the change, then `pnpm build`, `pnp
   through the owning operation.
 - For one-shot event waiting, use `once()` from `node:events` and await it. Do not hand-roll a
   Promise around `.once()` in code or documentation.
+- Keep normalized client and server configuration private. Do not add a public options bag that
+  exposes credentials, private keys, policy handlers, or mutable transport settings; expose
+  legitimate runtime state through narrow, readonly APIs instead.
 - New public APIs and types must be exported from `src/index.ts`, documented in `docs/`, covered
   through the source API, and exercised through the packed ESM entry point when relevant.
 - Public modules must be free of import-time side effects.

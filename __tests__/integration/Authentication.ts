@@ -851,9 +851,7 @@ describe("RFC 4252 multi-method authentication", () => {
                     )
                     expect(policyCalls).toBe(0)
                 }
-                expect(client.options.authenticationMethodsOrder).not.toContain(
-                    SSHAuthenticationMethods.KeyboardInteractive,
-                )
+                expect("options" in client).toBe(false)
             } finally {
                 client.destroy()
                 for (const connection of server.clients) connection.terminate()

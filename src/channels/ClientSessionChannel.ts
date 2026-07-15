@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto"
 import Client from "../Client.js"
+import { clientConfigurationFor } from "../ConnectionConfiguration.js"
 import { serializeBinaryBoolean } from "../utils/BinaryBoolean.js"
 import { readNextBinaryBoolean, serializeBuffer, serializeUint32 } from "../utils/Buffer.js"
 import { normalizeSSHSignal } from "../utils/Signal.js"
@@ -127,7 +128,7 @@ export default class ClientSessionChannel extends ClientChannel {
     private async requestAgentForwarding(protocol: AgentForwardingProtocol): Promise<void> {
         this.ensureNotStarted("request agent forwarding")
         if (this.agentForwardingRequested) return
-        if (!this.client.options.agent.getStream) {
+        if (!clientConfigurationFor(this.client).agent.getStream) {
             throw new Error("The configured authentication agent cannot be forwarded")
         }
         await this.request(agentRequestName(protocol))
