@@ -531,6 +531,8 @@ describe("package exports", () => {
         expect(client).toContain("disconnect(error?: DisconnectError): this")
         expect(client).toContain("authenticationMethodsOrder?: readonly SSHAuthenticationMethods[]")
         expect(client).toContain("replyTimeout?: number")
+        expect(client).toContain("timeout?: number")
+        expect(client).toContain("timeout: []")
         expect(client).toContain("maxPendingChannelOpens?: number")
         expect(client).toContain("maxChannels?: number")
         expect(client).toContain("options?: SFTPClientOptions")
@@ -815,6 +817,7 @@ describe("package exports", () => {
                     if (!await emptyPasswordClient.hooker.triggerHookChecked("passwordAuth", { username: "root" }, emptyPasswordDecision) || emptyPasswordDecision.password !== "") process.exit(61)
                     try { new Client({ agentForward: "false" }); process.exit(62) } catch (error) { if (!String(error).includes("agentForward option must be a boolean")) process.exit(63) }
                     try { new Client({ hostVerifier: true }); process.exit(64) } catch (error) { if (!String(error).includes("hostVerifier option must be a function")) process.exit(65) }
+                    try { new Client({ timeout: null }); process.exit(105) } catch (error) { if (!String(error).includes("transport inactivity timeout must be an integer")) process.exit(106) }
                     const invalidSession = new Client({}).exec("true", { agentForward: "false" })
                     if (!(invalidSession instanceof Promise)) process.exit(66)
                     try { await invalidSession; process.exit(67) } catch (error) { if (!String(error).includes("session agentForward option must be a boolean")) process.exit(68) }

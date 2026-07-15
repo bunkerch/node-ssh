@@ -20,6 +20,22 @@ describe("client configuration normalization", () => {
                 "SSH authentication method order must be an array",
             ],
             [{ readyTimeout: null as never }, "SSH ready timeout must be a non-negative number"],
+            [
+                { timeout: null as never },
+                "SSH transport inactivity timeout must be an integer between 0 and 2147483647",
+            ],
+            [
+                { timeout: -1 },
+                "SSH transport inactivity timeout must be an integer between 0 and 2147483647",
+            ],
+            [
+                { timeout: 1.5 },
+                "SSH transport inactivity timeout must be an integer between 0 and 2147483647",
+            ],
+            [
+                { timeout: 2_147_483_648 },
+                "SSH transport inactivity timeout must be an integer between 0 and 2147483647",
+            ],
             [{ replyTimeout: null as never }, "SSH reply timeout must be a positive number"],
             [
                 { keepaliveInterval: null as never },

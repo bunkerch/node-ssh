@@ -125,6 +125,20 @@ It defaults to 20 seconds. Set it to `0` to disable the deadline. If the deadlin
 `connect()` rejects with `Timed out while waiting for handshake` and the client destroys the
 underlying transport.
 
+`timeout` is a direct-TCP inactivity timer in milliseconds and defaults to `0` (disabled). It must
+be an integer from `0` through `2147483647`. The option uses the Node socket timeout and emits the
+client's observation-only `timeout` event; it does not close the SSH connection or reject an
+operation by itself. Keep the listener synchronous and explicitly choose the lifecycle action
+appropriate for the application:
+
+```ts
+client.on("timeout", () => client.destroy())
+```
+
+The option is not applied to an application-owned `sock`, whose timeout policy remains with its
+owner. Use `readyTimeout` for setup, `replyTimeout` for ordered protocol operations, and
+`keepaliveInterval` when an authenticated peer must actively prove liveness.
+
 `replyTimeout` bounds ordered connection-protocol replies after authentication and defaults to 30
 seconds. It applies to rekey, transport ping, global requests, channel opens, and channel requests
 in both peer roles. These replies have no independent request identifier and must remain ordered,

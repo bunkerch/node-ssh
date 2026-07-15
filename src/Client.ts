@@ -325,6 +325,8 @@ export interface ClientOptions {
     rekeyInterval?: number
     /** Maximum milliseconds for TCP connection, SSH handshake, and authentication. Zero disables. */
     readyTimeout?: number
+    /** Milliseconds of direct TCP inactivity before emitting `timeout`. Zero disables. */
+    timeout?: number
     /** Maximum milliseconds for an ordered peer reply before the connection is closed. */
     replyTimeout?: number
     /** Maximum peer channel-open decisions allowed to remain pending. */
@@ -447,6 +449,8 @@ export interface ClientEvents {
     /** Human-readable transport diagnostic sent by the peer. */
     protocolDebug: [info: Readonly<ProtocolDebugMessage>]
     connect: []
+    /** The direct TCP transport reached its configured inactivity timeout. */
+    timeout: []
     /** Payload-free metadata for an inbound binary packet. */
     packet: [metadata: Readonly<ProtocolPacketMetadata>]
     /** The peer rejected an outbound packet with this sequence number. */
@@ -933,6 +937,7 @@ export default class Client extends EventEmitter<ClientEvents> {
             this.#options.rekeyInterval = DEFAULT_REKEY_INTERVAL
         }
         if (this.#options.readyTimeout === undefined) this.#options.readyTimeout = 20_000
+        if (this.#options.timeout === undefined) this.#options.timeout = 0
         if (this.#options.replyTimeout === undefined) this.#options.replyTimeout = 30_000
         if (this.#options.maxPendingChannelOpens === undefined) {
             this.#options.maxPendingChannelOpens = 64
@@ -954,6 +959,15 @@ export default class Client extends EventEmitter<ClientEvents> {
         validateRekeyInterval(this.#options.rekeyInterval)
         if (!Number.isFinite(this.#options.readyTimeout) || this.#options.readyTimeout < 0) {
             throw new RangeError("SSH ready timeout must be a non-negative number")
+        }
+        if (
+            !Number.isInteger(this.#options.timeout) ||
+            this.#options.timeout < 0 ||
+            this.#options.timeout > 2_147_483_647
+        ) {
+            throw new RangeError(
+                "SSH transport inactivity timeout must be an integer between 0 and 2147483647",
+            )
         }
         if (!Number.isFinite(this.#options.replyTimeout) || this.#options.replyTimeout <= 0) {
             throw new RangeError("SSH reply timeout must be a positive number")
@@ -2636,6 +2650,10 @@ export default class Client extends EventEmitter<ClientEvents> {
                           ? 4
                           : 6,
             })
+        this.socket.on("timeout", () => this.emit("timeout"))
+        if (suppliedSocket === undefined && this.#options.timeout > 0) {
+            ;(this.socket as net.Socket).setTimeout(this.#options.timeout)
+        }
         if (this.#options.readyTimeout > 0) {
             this.readyTimer = setTimeout(() => {
                 this.socket?.destroy(new Error("Timed out while waiting for handshake"))
