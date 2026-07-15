@@ -3340,7 +3340,9 @@ export default class Client extends EventEmitter<ClientEvents> {
             packet.data.channel_type === ClientAgentChannel.channelType ||
             packet.data.channel_type === RFC9987_AGENT_CHANNEL
         ) {
-            void this.handleIncomingAgentChannelOpen(packet)
+            void this.handleIncomingAgentChannelOpen(packet).catch((error: unknown) => {
+                this.handleMessageError(error instanceof Error ? error : new Error(String(error)))
+            })
             return
         }
         if (packet.data.channel_type === ClientForwardedStreamLocalChannel.channelType) {
@@ -3477,6 +3479,7 @@ export default class Client extends EventEmitter<ClientEvents> {
             stream = await getStream.call(this.#options.agent)
         } catch (error) {
             this.debug("Could not connect an incoming channel to the SSH agent", error)
+            if (!this.canReplyToIncomingChannel(packet)) return
             this.rejectIncomingChannel(
                 packet,
                 ChannelOpenFailureReasonCodes.SSH_OPEN_CONNECT_FAILED,
@@ -3485,24 +3488,45 @@ export default class Client extends EventEmitter<ClientEvents> {
             return
         }
 
+        if (!this.canReplyToIncomingChannel(packet)) {
+            stream.destroy()
+            return
+        }
+
+        let channel: ClientAgentChannel | undefined
         try {
-            const channel = new ClientAgentChannel(this, packet)
-            this.channels.set(channel.localId, channel)
-            stream.on("error", () => channel.destroy())
-            stream.on("close", () => channel.close())
+            const acceptedChannel = new ClientAgentChannel(this, packet)
+            channel = acceptedChannel
+            this.channels.set(acceptedChannel.localId, acceptedChannel)
+            stream.on("error", () => acceptedChannel.destroy())
+            stream.on("close", () => acceptedChannel.close())
             channel.on("error", () => stream.destroy())
             channel.on("close", () => stream.destroy())
             stream.pipe(channel).pipe(stream)
             this.sendPacket(channel.getOpenConfirmationPacket())
         } catch (error) {
+            if (channel !== undefined) {
+                this.channels.delete(channel.localId)
+                channel.abort(error instanceof Error ? error : new Error(String(error)))
+            }
             stream.destroy()
             this.debug("Could not accept an incoming SSH agent channel", error)
+            if (!this.canReplyToIncomingChannel(packet)) return
             this.rejectIncomingChannel(
                 packet,
                 ChannelOpenFailureReasonCodes.SSH_OPEN_CONNECT_FAILED,
                 "Invalid authentication agent channel",
             )
         }
+    }
+
+    private canReplyToIncomingChannel(packet: ChannelOpen): boolean {
+        return (
+            this.isConnected &&
+            this.socket !== undefined &&
+            !this.socket.destroyed &&
+            this.remoteChannelIds.has(packet.data.sender_channel_id)
+        )
     }
 
     private handleIncomingStreamLocalChannelOpen(packet: ChannelOpen): void {

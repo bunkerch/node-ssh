@@ -1,8 +1,11 @@
 import { AddressInfo } from "node:net"
 import { once } from "node:events"
-import { Duplex } from "node:stream"
+import { Duplex, PassThrough } from "node:stream"
 import Client from "../../src/Client.js"
 import { SSHAuthenticationMethods } from "../../src/constants.js"
+import Packet from "../../src/packet.js"
+import ChannelOpenConfirmation from "../../src/packets/ChannelOpenConfirmation.js"
+import ChannelOpenFailure from "../../src/packets/ChannelOpenFailure.js"
 import Server from "../../src/Server.js"
 import type ServerClient from "../../src/ServerClient.js"
 import SessionChannel from "../../src/channels/SessionChannel.js"
@@ -47,6 +50,16 @@ function streamPair(): [Duplex, Duplex] {
     return [left, right]
 }
 
+function within<T>(operation: Promise<T>, label: string): Promise<T> {
+    let timer: NodeJS.Timeout | undefined
+    const timeout = new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error(`Timed out waiting for ${label}`)), 5_000)
+    })
+    return Promise.race([operation, timeout]).finally(() => {
+        if (timer !== undefined) clearTimeout(timer)
+    })
+}
+
 const forwardableAgent: Agent<string> = {
     type: AgentType.NonInteractive,
     async getPublicKeys() {
@@ -61,6 +74,20 @@ const forwardableAgent: Agent<string> = {
     async getStream(): Promise<Duplex> {
         throw new Error("The server must not open an agent channel in this test")
     },
+}
+
+class ChannelReplyObservingClient extends Client {
+    lateChannelReplies = 0
+
+    sendPacket(packet: Packet): number {
+        if (
+            !this.isConnected &&
+            (packet instanceof ChannelOpenConfirmation || packet instanceof ChannelOpenFailure)
+        ) {
+            this.lateChannelReplies++
+        }
+        return super.sendPacket(packet)
+    }
 }
 
 describe("client agent-forwarding defaults", () => {
@@ -241,4 +268,87 @@ describe("client agent-forwarding defaults", () => {
     test("keeps the connection default disabled", () => {
         expect("options" in new Client({})).toBe(false)
     })
+
+    test("discards an agent stream resolved after transport teardown", async () => {
+        const server = new Server({
+            hostKeys: [await PrivateKey.generate("ssh-ed25519")],
+            sendAllHostKeys: false,
+        })
+        server.hooker.hook("noneAuthentication", (_hook, _context, decision) => {
+            decision.allowLogin = true
+        })
+        server.hooker.hook("channelOpenRequest", (_hook, channel, decision) => {
+            decision.allowOpen = channel instanceof SessionChannel
+        })
+        let connection!: ServerClient
+        server.on("connection", (peer) => {
+            connection = peer
+            peer.on("channel", (channel) => {
+                if (!(channel instanceof SessionChannel)) return
+                channel.hooker.hook("agentForwardRequest", (_hook, decision) => {
+                    decision.success = true
+                })
+            })
+        })
+        server.listen({ host: "127.0.0.1", port: 0 })
+        await once(server, "listening")
+
+        let resolveAgentStream!: (stream: Duplex) => void
+        let markStreamRequested!: () => void
+        const streamRequested = new Promise<void>((resolve) => {
+            markStreamRequested = resolve
+        })
+        const agent: Agent<string> = {
+            ...forwardableAgent,
+            getStream() {
+                markStreamRequested()
+                return new Promise<Duplex>((resolve) => {
+                    resolveAgentStream = resolve
+                })
+            },
+        }
+        const client = new ChannelReplyObservingClient({
+            hostname: "127.0.0.1",
+            port: (server.address() as AddressInfo).port,
+            username: "late-agent-stream",
+            agent,
+            authenticationMethodsOrder: [SSHAuthenticationMethods.None],
+        })
+        client.hooker.hook("hostKey", (_hook, decision) => {
+            decision.allowHostKey = true
+        })
+        const forwardedStream = new PassThrough()
+
+        try {
+            await client.connect()
+            const session = await client.openSession()
+            await session.forwardAgent()
+            const opening = connection.forwardAgent()
+            const openingResult = opening.then(
+                () => undefined,
+                (error: unknown) => error,
+            )
+            await within(streamRequested, "the agent stream request")
+
+            const clientClosed = once(client, "close")
+            client.destroy()
+            await within(clientClosed, "the client transport to close")
+            const openingError = await within(openingResult, "the server channel open to fail")
+            expect(openingError).toBeInstanceOf(Error)
+            expect((openingError as Error).message).toContain("SSH connection closed")
+
+            const streamClosed = once(forwardedStream, "close")
+            resolveAgentStream(forwardedStream)
+            await within(streamClosed, "the late agent stream to close")
+            await new Promise<void>((resolve) => setImmediate(resolve))
+
+            expect(client.lateChannelReplies).toBe(0)
+            expect(forwardedStream.destroyed).toBe(true)
+        } finally {
+            client.destroy()
+            connection?.terminate()
+            forwardedStream.destroy()
+            await within(server.close(), "the forwarding test server to close")
+        }
+    }, 15_000)
 })

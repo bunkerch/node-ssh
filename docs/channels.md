@@ -205,7 +205,9 @@ const isolated = await client.exec("deploy", { agentForward: false })
 After the server accepts the request, each `agent-connect` channel—or its compatibility form—is
 connected directly to a fresh local agent socket. Incoming agent channels are rejected unless a
 session request has succeeded, and agents without a stream capability such as `DiskAgent` cannot
-be forwarded.
+be forwarded. Establishing that local socket may be asynchronous. If the SSH transport closes
+first, a socket that resolves later is destroyed without creating a channel or attempting a reply
+on the closed transport.
 
 A server can inspect an authorized forwarded agent through the Promise-based protocol client. The
 connection carries no request identifiers, so operations are serialized and each response has a
