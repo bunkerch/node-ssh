@@ -329,12 +329,22 @@ therefore runs up to 64 request hooks concurrently by default while keeping each
 contained hook failure associated with its own request identifier. Set `maxConcurrentRequests` in
 the session's `decision.sftp` options to a safe integer from 1 through 1024 when backend capacity
 requires another bound; setting it to 1 deliberately restores serial dispatch. At most 1024 total
-queued and active requests are accepted. Operations that require ordering on the same application
-resource must use an application-owned per-handle or per-path lock rather than assuming wire arrival
-order. A peer may reuse a numeric request identifier after receiving its response; if the prior
-Hooker handler is still completing, the reused identifier remains queued until that handler returns.
-This prevents late code in the prior handler from accidentally responding to the newer request,
-without serializing unrelated identifiers.
+queued and active requests are accepted.
+
+The scheduler preserves SFTP v3's same-file receive order. Requests sharing an opaque handle or an
+exact path wait for the earlier handler and response write, while unrelated handles and paths may
+run concurrently. Handles returned by `OPEN` and `OPENDIR` are associated with their requested path,
+so a path operation cannot overtake an outstanding operation through that handle. Two-path
+operations reserve both paths, and an opaque `EXTENDED` request is an ordering barrier because its
+resource cannot be inferred from the baseline packet. If an application maps distinct path byte
+strings to the same backend object—for example through aliases outside the virtual path model—it
+must additionally serialize those backend aliases because the protocol layer cannot discover that
+identity.
+
+A peer may reuse a numeric request identifier after receiving its response; if the prior Hooker
+handler is still completing, the reused identifier remains queued until that handler returns. This
+prevents late code in the prior handler from accidentally responding to the newer request, without
+serializing unrelated identifiers.
 
 Advertise extension name/version pairs through `decision.sftp.extensions` only when every advertised
 operation is actually implemented:

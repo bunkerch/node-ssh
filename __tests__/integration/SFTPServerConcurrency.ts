@@ -28,6 +28,7 @@ test("an SFTP server completes a later pipelined request while an earlier hook w
     const slowStarted = new Promise<void>((resolve) => {
         reportSlow = resolve
     })
+    let slowStarts = 0
     server.on("connection", (connection) => {
         connection.on("channel", (channel) => {
             if (!(channel instanceof SessionChannel)) return
@@ -39,6 +40,7 @@ test("an SFTP server completes a later pipelined request while an earlier hook w
             channel.events.on("sftp", (sftp) => {
                 sftp.hooker.hook("STAT", async (_hook, request) => {
                     if (request.path.equals(Buffer.from("slow"))) {
+                        slowStarts++
                         reportSlow()
                         await slowReleased
                     }
@@ -77,8 +79,14 @@ test("an SFTP server completes a later pipelined request while an earlier hook w
         ])
 
         expect(fastResult.size).toBe(2n)
+        const sameResource = sftp.stat("slow")
+        const laterIndependent = await sftp.stat("later-independent")
+        expect(laterIndependent.size).toBe(2n)
+        expect(slowStarts).toBe(1)
         releaseSlow()
         expect((await slow).size).toBe(1n)
+        expect((await sameResource).size).toBe(1n)
+        expect(slowStarts).toBe(2)
         sftp.end()
     } finally {
         releaseSlow()

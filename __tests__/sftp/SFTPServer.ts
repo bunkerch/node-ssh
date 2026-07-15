@@ -143,7 +143,7 @@ describe("SFTP server request engine", () => {
         fixture.send({
             type: SFTPPacketType.Write,
             requestId: 8,
-            handle: Buffer.from("h"),
+            handle: Buffer.from("other"),
             offset: 3n,
             data: Buffer.from("def"),
         })
@@ -171,6 +171,196 @@ describe("SFTP server request engine", () => {
             },
             { type: SFTPPacketType.Data, requestId: 7, data: Buffer.from("abc") },
         ])
+        fixture.destroy()
+    })
+
+    test("serializes pipelined operations for the same handle", async () => {
+        const fixture = new SFTPClientFixture()
+        const server = new SFTPServer(asShell(fixture), { maxConcurrentRequests: 2 })
+        const events: string[] = []
+        let finishRead!: () => void
+        const readPending = new Promise<void>((resolve) => {
+            finishRead = resolve
+        })
+        server.hooker.hook("READ", async (_hook, request) => {
+            events.push("READ:start")
+            await readPending
+            await server.data(request.requestId, Buffer.from("abc"))
+            events.push("READ:end")
+        })
+        server.hooker.hook("WRITE", async (_hook, request) => {
+            events.push("WRITE")
+            await server.status(request.requestId, SFTPStatusCode.Ok)
+        })
+
+        fixture.send({ type: SFTPPacketType.Init, version: 3, extensions: [] })
+        fixture.send({
+            type: SFTPPacketType.Read,
+            requestId: 9,
+            handle: Buffer.from("shared"),
+            offset: 0n,
+            length: 3,
+        })
+        fixture.send({
+            type: SFTPPacketType.Write,
+            requestId: 10,
+            handle: Buffer.from("shared"),
+            offset: 0n,
+            data: Buffer.from("replacement"),
+        })
+        await flush()
+
+        expect(events).toEqual(["READ:start"])
+        finishRead()
+        await flush()
+        expect(events).toEqual(["READ:start", "READ:end", "WRITE"])
+        expect(
+            fixture.responses
+                .slice(1)
+                .map((packet) => ("requestId" in packet ? packet.requestId : undefined)),
+        ).toEqual([9, 10])
+        fixture.destroy()
+    })
+
+    test("associates returned handles with their paths for request ordering", async () => {
+        const fixture = new SFTPClientFixture()
+        const server = new SFTPServer(asShell(fixture), { maxConcurrentRequests: 2 })
+        const events: string[] = []
+        let finishRead!: () => void
+        const readPending = new Promise<void>((resolve) => {
+            finishRead = resolve
+        })
+        server.hooker.hook("OPEN", async (_hook, request) => {
+            await server.handle(request.requestId, Buffer.from("file-handle"))
+        })
+        server.hooker.hook("READ", async (_hook, request) => {
+            events.push("READ:start")
+            await readPending
+            await server.data(request.requestId, Buffer.from("x"))
+            events.push("READ:end")
+        })
+        server.hooker.hook("SETSTAT", async (_hook, request) => {
+            events.push("SETSTAT")
+            await server.status(request.requestId, SFTPStatusCode.Ok)
+        })
+
+        fixture.send({ type: SFTPPacketType.Init, version: 3, extensions: [] })
+        fixture.send({
+            type: SFTPPacketType.Open,
+            requestId: 11,
+            filename: Buffer.from("same-file"),
+            flags: 1,
+            attributes: {},
+        })
+        await flush()
+        fixture.send({
+            type: SFTPPacketType.Read,
+            requestId: 12,
+            handle: Buffer.from("file-handle"),
+            offset: 0n,
+            length: 1,
+        })
+        fixture.send({
+            type: SFTPPacketType.SetStat,
+            requestId: 13,
+            path: Buffer.from("same-file"),
+            attributes: { permissions: 0o600 },
+        })
+        await flush()
+
+        expect(events).toEqual(["READ:start"])
+        finishRead()
+        await flush()
+        expect(events).toEqual(["READ:start", "READ:end", "SETSTAT"])
+        fixture.destroy()
+    })
+
+    test("does not let a later shared-path request overtake a blocked rename", async () => {
+        const fixture = new SFTPClientFixture()
+        const server = new SFTPServer(asShell(fixture), { maxConcurrentRequests: 2 })
+        const events: string[] = []
+        let finishFirst!: () => void
+        const firstPending = new Promise<void>((resolve) => {
+            finishFirst = resolve
+        })
+        server.hooker.hook("STAT", async (_hook, request) => {
+            const path = request.path.toString()
+            events.push(`STAT:${path}:start`)
+            if (path === "first") await firstPending
+            await server.attributes(request.requestId, {})
+            events.push(`STAT:${path}:end`)
+        })
+        server.hooker.hook("RENAME", async (_hook, request) => {
+            events.push("RENAME")
+            await server.status(request.requestId, SFTPStatusCode.Ok)
+        })
+
+        fixture.send({ type: SFTPPacketType.Init, version: 3, extensions: [] })
+        fixture.send({ type: SFTPPacketType.Stat, requestId: 14, path: Buffer.from("first") })
+        fixture.send({
+            type: SFTPPacketType.Rename,
+            requestId: 15,
+            firstPath: Buffer.from("first"),
+            secondPath: Buffer.from("second"),
+        })
+        fixture.send({ type: SFTPPacketType.Stat, requestId: 16, path: Buffer.from("second") })
+        await flush()
+
+        expect(events).toEqual(["STAT:first:start"])
+        finishFirst()
+        await flush()
+        expect(events).toEqual([
+            "STAT:first:start",
+            "STAT:first:end",
+            "RENAME",
+            "STAT:second:start",
+            "STAT:second:end",
+        ])
+        fixture.destroy()
+    })
+
+    test("treats opaque extended requests as ordering barriers", async () => {
+        const fixture = new SFTPClientFixture()
+        const server = new SFTPServer(asShell(fixture), { maxConcurrentRequests: 3 })
+        const events: string[] = []
+        let finishFirst!: () => void
+        const firstPending = new Promise<void>((resolve) => {
+            finishFirst = resolve
+        })
+        let finishExtension!: () => void
+        const extensionPending = new Promise<void>((resolve) => {
+            finishExtension = resolve
+        })
+        server.hooker.hook("STAT", async (_hook, request) => {
+            const path = request.path.toString()
+            events.push(`STAT:${path}`)
+            if (path === "first") await firstPending
+            await server.attributes(request.requestId, {})
+        })
+        server.hooker.hook("EXTENDED", async (_hook, request) => {
+            events.push("EXTENDED")
+            await extensionPending
+            await server.extendedReply(request.requestId, Buffer.alloc(0))
+        })
+
+        fixture.send({ type: SFTPPacketType.Init, version: 3, extensions: [] })
+        fixture.send({ type: SFTPPacketType.Stat, requestId: 17, path: Buffer.from("first") })
+        fixture.send({
+            type: SFTPPacketType.Extended,
+            requestId: 18,
+            request: "ordered@example.com",
+            data: Buffer.alloc(0),
+        })
+        fixture.send({ type: SFTPPacketType.Stat, requestId: 19, path: Buffer.from("second") })
+        await flush()
+
+        expect(events).toEqual(["STAT:first"])
+        finishFirst()
+        await flush()
+        expect(events).toEqual(["STAT:first", "EXTENDED"])
+        finishExtension()
+        await flush()
+        expect(events).toEqual(["STAT:first", "EXTENDED", "STAT:second"])
         fixture.destroy()
     })
 

@@ -79,7 +79,13 @@ export interface SFTPSymlinkPaths {
 
 interface ActiveSFTPRequest {
     readonly request: SFTPRequestPacket
+    readonly ordering: SFTPRequestOrdering
     response?: Promise<void>
+}
+
+interface SFTPRequestOrdering {
+    readonly barrier: boolean
+    readonly resources: readonly string[]
 }
 
 const REQUEST_HOOK_NAMES = new Map<SFTPPacketType, keyof SFTPServerHooker>([
@@ -118,6 +124,9 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
     private readonly active = new Set<ActiveSFTPRequest>()
     private readonly activeRequestIds = new Set<number>()
     private readonly awaitingResponse = new Map<number, ActiveSFTPRequest>()
+    private readonly activeResources = new Map<string, number>()
+    private readonly handlePathResources = new Map<string, Set<string>>()
+    private activeOrderingBarriers = 0
     private initialized = false
     private closed = false
     private dispatchScheduled = false
@@ -164,13 +173,19 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
         if (code === SFTPStatusCode.Ok && !expectsStatus(request.type)) {
             throw new Error(`SFTP request type ${request.type} requires a data response on success`)
         }
-        return this.respond({
+        const response = this.respond({
             type: SFTPPacketType.Status,
             requestId,
             code,
             message: message || STATUS_MESSAGES[code] || "",
             languageTag,
         })
+        if (code === SFTPStatusCode.Ok && request.type === SFTPPacketType.Close) {
+            return response.then(() => {
+                this.handlePathResources.delete(handleResource(request.handle))
+            })
+        }
+        return response
     }
 
     handle(requestId: number, handle: Buffer): Promise<void> {
@@ -185,6 +200,15 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
         const ownedHandle = ownResponseBuffer(handle, "response handle")
         if (ownedHandle.length > MAX_SFTP_HANDLE_LENGTH) {
             throw new RangeError(`SFTP response handle exceeds ${MAX_SFTP_HANDLE_LENGTH} bytes`)
+        }
+        if (request.type === SFTPPacketType.Open || request.type === SFTPPacketType.OpenDir) {
+            const handleKey = handleResource(ownedHandle)
+            const pathKey = pathResource(
+                request.type === SFTPPacketType.Open ? request.filename : request.path,
+            )
+            const paths = this.handlePathResources.get(handleKey) ?? new Set<string>()
+            paths.add(pathKey)
+            this.handlePathResources.set(handleKey, paths)
         }
         return this.respond({ type: SFTPPacketType.Handle, requestId, handle: ownedHandle })
     }
@@ -334,19 +358,20 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
             this.active.size < this.#maxConcurrentRequests &&
             this.queued.length > 0
         ) {
-            const queuedIndex = this.queued.findIndex(
-                (request) => !this.activeRequestIds.has(request.requestId),
-            )
+            const queuedIndex = this.findDispatchableRequest()
             if (queuedIndex === -1) return
             const [request] = this.queued.splice(queuedIndex, 1)
-            const active: ActiveSFTPRequest = { request }
+            const ordering = this.requestOrdering(request)
+            const active: ActiveSFTPRequest = { request, ordering }
             this.active.add(active)
             this.activeRequestIds.add(request.requestId)
+            this.acquireOrdering(ordering)
             this.awaitingResponse.set(request.requestId, active)
             void this.dispatch(active).then(
                 () => {
                     this.active.delete(active)
                     this.activeRequestIds.delete(request.requestId)
+                    this.releaseOrdering(ordering)
                     this.scheduleDispatch()
                 },
                 (error: unknown) => {
@@ -354,6 +379,88 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
                     this.destroy(failure)
                 },
             )
+        }
+    }
+
+    private findDispatchableRequest(): number {
+        const blockedResources = new Set<string>()
+        for (let index = 0; index < this.queued.length; index++) {
+            const request = this.queued[index]!
+            if (this.activeRequestIds.has(request.requestId)) continue
+            const ordering = this.requestOrdering(request)
+            if (ordering.barrier) return this.active.size === 0 ? index : -1
+            if (this.activeOrderingBarriers > 0) return -1
+            if (
+                ordering.resources.every(
+                    (resource) =>
+                        !this.activeResources.has(resource) && !blockedResources.has(resource),
+                )
+            ) {
+                return index
+            }
+            for (const resource of ordering.resources) blockedResources.add(resource)
+        }
+        return -1
+    }
+
+    private requestOrdering(request: SFTPRequestPacket): SFTPRequestOrdering {
+        if (request.type === SFTPPacketType.Extended) {
+            return { barrier: true, resources: [] }
+        }
+
+        const resources: string[] = []
+        switch (request.type) {
+            case SFTPPacketType.Open:
+                resources.push(pathResource(request.filename))
+                break
+            case SFTPPacketType.Close:
+            case SFTPPacketType.FStat:
+            case SFTPPacketType.ReadDir:
+            case SFTPPacketType.Read:
+            case SFTPPacketType.Write:
+            case SFTPPacketType.FSetStat: {
+                const handleKey = handleResource(request.handle)
+                resources.push(handleKey, ...(this.handlePathResources.get(handleKey) ?? []))
+                break
+            }
+            case SFTPPacketType.LStat:
+            case SFTPPacketType.OpenDir:
+            case SFTPPacketType.Remove:
+            case SFTPPacketType.RmDir:
+            case SFTPPacketType.RealPath:
+            case SFTPPacketType.Stat:
+            case SFTPPacketType.ReadLink:
+            case SFTPPacketType.SetStat:
+            case SFTPPacketType.MkDir:
+                resources.push(pathResource(request.path))
+                break
+            case SFTPPacketType.Rename:
+            case SFTPPacketType.SymLink:
+                resources.push(pathResource(request.firstPath), pathResource(request.secondPath))
+                break
+            default: {
+                const unsupported: never = request
+                throw new SFTPProtocolError(
+                    `Cannot order unsupported SFTP request type ${String(unsupported)}`,
+                )
+            }
+        }
+        return { barrier: false, resources: [...new Set(resources)] }
+    }
+
+    private acquireOrdering(ordering: SFTPRequestOrdering): void {
+        if (ordering.barrier) this.activeOrderingBarriers++
+        for (const resource of ordering.resources) {
+            this.activeResources.set(resource, (this.activeResources.get(resource) ?? 0) + 1)
+        }
+    }
+
+    private releaseOrdering(ordering: SFTPRequestOrdering): void {
+        if (ordering.barrier) this.activeOrderingBarriers--
+        for (const resource of ordering.resources) {
+            const count = this.activeResources.get(resource)
+            if (count === undefined || count <= 1) this.activeResources.delete(resource)
+            else this.activeResources.set(resource, count - 1)
         }
     }
 
@@ -460,6 +567,9 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
         this.closed = true
         this.active.clear()
         this.activeRequestIds.clear()
+        this.activeResources.clear()
+        this.handlePathResources.clear()
+        this.activeOrderingBarriers = 0
         this.awaitingResponse.clear()
         this.queued.length = 0
         this.requestIds.clear()
@@ -472,12 +582,23 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
         this.closed = true
         this.active.clear()
         this.activeRequestIds.clear()
+        this.activeResources.clear()
+        this.handlePathResources.clear()
+        this.activeOrderingBarriers = 0
         this.awaitingResponse.clear()
         this.queued.length = 0
         this.requestIds.clear()
         if (this.listenerCount("error") > 0) this.emit("error", error)
         this.emit("close")
     }
+}
+
+function pathResource(path: Buffer): string {
+    return `path:${path.toString("base64")}`
+}
+
+function handleResource(handle: Buffer): string {
+    return `handle:${handle.toString("base64")}`
 }
 
 function isRequest(packet: SFTPPacket): packet is SFTPRequestPacket {
