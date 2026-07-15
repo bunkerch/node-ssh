@@ -46,6 +46,25 @@ export function computeRSAKeyExchangeHash(fields: RSAKeyExchangeHashFields): Buf
     return hash.digest()
 }
 
+/** Parse an owned RSAES-OAEP plaintext and erase it before returning or throwing. */
+export function consumeRSAKeyExchangePlaintext(
+    plaintext: Buffer,
+    maximumSecretBits: number,
+): Buffer {
+    try {
+        const [secret, remaining] = readNextBuffer(plaintext)
+        if (remaining.length !== 0 || !serializeMpintBufferToBuffer(secret).equals(secret)) {
+            throw new KeyExchangeError("Invalid RFC 4432 shared-secret mpint")
+        }
+        if (bitLength(secret) > maximumSecretBits) {
+            throw new KeyExchangeError("RFC 4432 shared secret is outside the permitted range")
+        }
+        return Buffer.from(secret)
+    } finally {
+        plaintext.fill(0)
+    }
+}
+
 export default class RSA2048SHA256 extends KeyExchange {
     static alg_name = "rsa2048-sha256"
     static requires_encryption = false
@@ -114,20 +133,29 @@ export default class RSA2048SHA256 extends KeyExchange {
         assert(maximumSecretBits > 0)
         const secret = randomInteger(maximumSecretBits)
         const encodedSecret = serializeBuffer(serializeMpintBufferToBuffer(secret))
-        this.encryptedSecret = publicEncrypt(
-            {
-                key: transient.data.algorithm.toPEM(),
-                padding: constants.RSA_PKCS1_OAEP_PADDING,
-                oaepHash: "sha256",
-            },
-            encodedSecret,
-        )
+        try {
+            this.encryptedSecret = publicEncrypt(
+                {
+                    key: transient.data.algorithm.toPEM(),
+                    padding: constants.RSA_PKCS1_OAEP_PADDING,
+                    oaepHash: "sha256",
+                },
+                encodedSecret,
+            )
+        } catch (error) {
+            secret.fill(0)
+            throw error
+        } finally {
+            encodedSecret.fill(0)
+        }
         this.sharedSecret = secret
         return Buffer.from(this.encryptedSecret)
     }
 
     decryptSecret(encryptedSecret: Buffer): void {
         assert(this.transientPrivateKey, "Transient RSA private key is unavailable")
+        assert(this.transientModulusBits)
+        const maximumSecretBits = this.transientModulusBits - 2 * HASH_LENGTH_BITS - 49
         let plaintext: Buffer
         try {
             plaintext = privateDecrypt(
@@ -145,17 +173,9 @@ export default class RSA2048SHA256 extends KeyExchange {
         } finally {
             this.transientPrivateKey = undefined
         }
-        const [secret, remaining] = readNextBuffer(plaintext)
-        if (remaining.length !== 0 || !serializeMpintBufferToBuffer(secret).equals(secret)) {
-            throw new KeyExchangeError("Invalid RFC 4432 shared-secret mpint")
-        }
-        assert(this.transientModulusBits)
-        const maximumSecretBits = this.transientModulusBits - 2 * HASH_LENGTH_BITS - 49
-        if (bitLength(secret) > maximumSecretBits) {
-            throw new KeyExchangeError("RFC 4432 shared secret is outside the permitted range")
-        }
+        const secret = consumeRSAKeyExchangePlaintext(plaintext, maximumSecretBits)
         this.encryptedSecret = Buffer.from(encryptedSecret)
-        this.sharedSecret = Buffer.from(secret)
+        this.sharedSecret = secret
     }
 
     computeExchangeHash(context: Readonly<KeyExchangeHashContext>): Buffer {

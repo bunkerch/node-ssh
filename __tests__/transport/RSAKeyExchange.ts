@@ -3,6 +3,7 @@ import { once } from "node:events"
 import { generateKeyPairSync } from "node:crypto"
 import RSA2048SHA256, {
     computeRSAKeyExchangeHash,
+    consumeRSAKeyExchangePlaintext,
 } from "../../src/algorithms/kex/rsa2048-sha256.js"
 import { default_algorithm_names, kex_algorithms } from "../../src/algorithms.js"
 import Client from "../../src/Client.js"
@@ -79,6 +80,26 @@ describe("RFC 4432 RSA SHA-256 key exchange", () => {
                 sharedSecret: Buffer.from("0080", "hex"),
             }).toString("hex"),
         ).toBe("311e408c1c999ce1b887df606cb0ec21316e71a4d620cea9f2b9e20a9f474b47")
+    })
+
+    test("consumes and erases decrypted shared-secret plaintexts", () => {
+        const plaintext = Buffer.from("000000020080", "hex")
+        const secret = consumeRSAKeyExchangePlaintext(plaintext, 8)
+
+        expect(secret).toEqual(Buffer.from("0080", "hex"))
+        expect(plaintext).toEqual(Buffer.alloc(plaintext.length))
+
+        const malformed = Buffer.from("000000010100", "hex")
+        expect(() => consumeRSAKeyExchangePlaintext(malformed, 8)).toThrow(
+            "Invalid RFC 4432 shared-secret mpint",
+        )
+        expect(malformed).toEqual(Buffer.alloc(malformed.length))
+
+        const oversized = Buffer.from("000000020100", "hex")
+        expect(() => consumeRSAKeyExchangePlaintext(oversized, 8)).toThrow(
+            "outside the permitted range",
+        )
+        expect(oversized).toEqual(Buffer.alloc(oversized.length))
     })
 
     test("exchanges fresh encrypted secrets across rekey in both directions", async () => {

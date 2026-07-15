@@ -721,7 +721,8 @@ objects are internal transport state and are not exposed through either connecti
 KEXINIT transcripts and method-specific key-exchange packets are likewise internal; use the
 `handshake` event for exchange-completion observations. Completed and failed exchanges explicitly
 zero retained shared-secret and software private-scalar buffers, release native ephemeral key
-objects, and discard derived key buffers after constructing packet protection.
+objects, erase temporary RSA key-exchange plaintexts and secret encodings, and discard derived key
+buffers after constructing packet protection.
 
 ## Key re-exchange
 
