@@ -107,6 +107,11 @@ after the local stream has already been destroyed, and its Promise settles when 
 finishes. Read requests are clamped to the negotiated limit, and writable backpressure is released
 only after the corresponding SFTP write has completed.
 
+Buffer paths and already-open handles are snapshotted when the stream is constructed. The `path`
+and `handle` properties and the handle passed to the `open` event are defensive copies as well, so
+mutating them cannot redirect later reads, writes, or close operations. Supplied handles must be at
+most 256 bytes, matching the protocol boundary enforced by the rest of the SFTP API.
+
 Call `sftp.end()` to send EOF to the subsystem once no requests remain. `sftp.destroy(error?)`
 aborts it.
 

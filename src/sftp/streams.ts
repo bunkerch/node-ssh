@@ -2,7 +2,7 @@ import { Readable, Writable } from "node:stream"
 import type { ReadableOptions, WritableOptions } from "node:stream"
 import type SFTPClient from "./SFTPClient.js"
 import type { SFTPPath, SFTPPosition } from "./SFTPClient.js"
-import { SFTPOpenFlags, SFTPStatusCode } from "./constants.js"
+import { MAX_SFTP_HANDLE_LENGTH, SFTPOpenFlags, SFTPStatusCode } from "./constants.js"
 
 const UINT32_MAX = 0xffff_ffff
 const UINT64_MAX = 0xffff_ffff_ffff_ffffn
@@ -25,17 +25,17 @@ export interface SFTPWriteStreamOptions extends WritableOptions {
 }
 
 export class SFTPReadStream extends Readable {
-    readonly path: SFTPPath
     readonly flags: string | number
     readonly mode: number
     readonly autoClose: boolean
     readonly start: bigint
     readonly end: bigint
 
-    handle: Buffer | undefined
     bytesRead = 0n
     isClosed = false
 
+    private readonly remotePath: SFTPPath
+    private remoteHandle: Buffer | undefined
     private position: bigint
     private opening: Promise<void> | undefined
     private closing: Promise<void> | undefined
@@ -55,8 +55,10 @@ export class SFTPReadStream extends Readable {
             start,
             ...stream
         } = options
+        const ownedPath = streamPath(path)
+        const ownedHandle = handle === undefined ? undefined : streamHandle(handle)
         super({ ...stream, autoDestroy: stream.autoDestroy ?? autoClose })
-        this.path = path
+        this.remotePath = ownedPath
         this.flags = flags
         this.mode = streamMode(mode)
         this.autoClose = autoClose
@@ -64,14 +66,22 @@ export class SFTPReadStream extends Readable {
         this.end = streamPosition(end ?? UINT64_MAX, "end")
         if (this.start > this.end) throw new RangeError("SFTP stream start must not exceed end")
         this.position = this.start
-        this.handle = handle
+        this.remoteHandle = ownedHandle
         void this.ensureOpen().catch((error: unknown) => {
             this.destroy(error instanceof Error ? error : new Error(String(error)))
         })
     }
 
+    get path(): SFTPPath {
+        return Buffer.isBuffer(this.remotePath) ? Buffer.from(this.remotePath) : this.remotePath
+    }
+
+    get handle(): Buffer | undefined {
+        return this.remoteHandle === undefined ? undefined : Buffer.from(this.remoteHandle)
+    }
+
     get pending(): boolean {
-        return this.handle === undefined && !this.isClosed
+        return this.remoteHandle === undefined && !this.isClosed
     }
 
     close(): Promise<void> {
@@ -101,13 +111,14 @@ export class SFTPReadStream extends Readable {
     }
 
     private async ensureOpen(): Promise<void> {
-        if (this.handle !== undefined) return
+        if (this.remoteHandle !== undefined) return
         if (this.opening !== undefined) return this.opening
         this.opening = this.sftp
-            .open(this.path, this.flags, { permissions: this.mode })
+            .open(this.remotePath, this.flags, { permissions: this.mode })
             .then((handle) => {
-                this.handle = handle
-                this.emit("open", handle)
+                const ownedHandle = streamHandle(handle)
+                this.remoteHandle = ownedHandle
+                this.emit("open", Buffer.from(ownedHandle))
                 this.emit("ready")
             })
         return this.opening
@@ -125,7 +136,7 @@ export class SFTPReadStream extends Readable {
         const length = Number(remaining < BigInt(requested) ? remaining : BigInt(requested))
         let data: Buffer
         try {
-            data = await this.sftp.read(this.handle!, length, this.position)
+            data = await this.sftp.read(this.remoteHandle!, length, this.position)
         } catch (error) {
             if (isSFTPEOF(error)) {
                 this.push(null)
@@ -155,12 +166,12 @@ export class SFTPReadStream extends Readable {
 
     private async closeHandle(): Promise<void> {
         if (this.closing !== undefined) return this.closing
-        const handle = this.handle
+        const handle = this.remoteHandle
         if (handle === undefined) {
             this.isClosed = true
             return
         }
-        this.handle = undefined
+        this.remoteHandle = undefined
         this.closing = this.sftp.close(handle).then(() => {
             this.isClosed = true
         })
@@ -169,16 +180,16 @@ export class SFTPReadStream extends Readable {
 }
 
 export class SFTPWriteStream extends Writable {
-    readonly path: SFTPPath
     readonly flags: string | number
     readonly mode: number
     readonly autoClose: boolean
     readonly start: bigint
 
-    handle: Buffer | undefined
     bytesWritten = 0n
     isClosed = false
 
+    private readonly remotePath: SFTPPath
+    private remoteHandle: Buffer | undefined
     private position: bigint
     private opening: Promise<void> | undefined
     private closing: Promise<void> | undefined
@@ -190,21 +201,31 @@ export class SFTPWriteStream extends Writable {
         options: SFTPWriteStreamOptions = {},
     ) {
         const { autoClose = true, flags = "w", handle, mode = 0o666, start, ...stream } = options
+        const ownedPath = streamPath(path)
+        const ownedHandle = handle === undefined ? undefined : streamHandle(handle)
         super({ ...stream, autoDestroy: stream.autoDestroy ?? autoClose })
-        this.path = path
+        this.remotePath = ownedPath
         this.flags = flags
         this.mode = streamMode(mode)
         this.autoClose = autoClose
         this.start = streamPosition(start ?? 0, "start")
         this.position = this.start
-        this.handle = handle
+        this.remoteHandle = ownedHandle
         void this.ensureOpen().catch((error: unknown) => {
             this.destroy(error instanceof Error ? error : new Error(String(error)))
         })
     }
 
+    get path(): SFTPPath {
+        return Buffer.isBuffer(this.remotePath) ? Buffer.from(this.remotePath) : this.remotePath
+    }
+
+    get handle(): Buffer | undefined {
+        return this.remoteHandle === undefined ? undefined : Buffer.from(this.remoteHandle)
+    }
+
     get pending(): boolean {
-        return this.handle === undefined && !this.isClosed
+        return this.remoteHandle === undefined && !this.isClosed
     }
 
     close(): Promise<void> {
@@ -241,16 +262,17 @@ export class SFTPWriteStream extends Writable {
     }
 
     private async ensureOpen(): Promise<void> {
-        if (this.handle !== undefined) return
+        if (this.remoteHandle !== undefined) return
         if (this.opening !== undefined) return this.opening
         this.opening = this.sftp
-            .open(this.path, this.flags, { permissions: this.mode })
+            .open(this.remotePath, this.flags, { permissions: this.mode })
             .then(async (handle) => {
-                this.handle = handle
+                const ownedHandle = streamHandle(handle)
+                this.remoteHandle = ownedHandle
                 if (isAppendFlag(this.flags)) {
-                    this.position = (await this.sftp.fstat(handle)).size ?? 0n
+                    this.position = (await this.sftp.fstat(ownedHandle)).size ?? 0n
                 }
-                this.emit("open", handle)
+                this.emit("open", Buffer.from(ownedHandle))
                 this.emit("ready")
             })
         return this.opening
@@ -258,7 +280,7 @@ export class SFTPWriteStream extends Writable {
 
     private async writeChunk(data: Buffer): Promise<void> {
         await this.ensureOpen()
-        await this.sftp.write(this.handle!, data, this.position)
+        await this.sftp.write(this.remoteHandle!, data, this.position)
         this.position += BigInt(data.length)
         this.bytesWritten += BigInt(data.length)
     }
@@ -275,17 +297,31 @@ export class SFTPWriteStream extends Writable {
 
     private async closeHandle(): Promise<void> {
         if (this.closing !== undefined) return this.closing
-        const handle = this.handle
+        const handle = this.remoteHandle
         if (handle === undefined) {
             this.isClosed = true
             return
         }
-        this.handle = undefined
+        this.remoteHandle = undefined
         this.closing = this.sftp.close(handle).then(() => {
             this.isClosed = true
         })
         return this.closing
     }
+}
+
+function streamPath(path: SFTPPath): SFTPPath {
+    if (typeof path === "string") return path
+    if (!Buffer.isBuffer(path)) throw new TypeError("SFTP stream path must be a string or buffer")
+    return Buffer.from(path)
+}
+
+function streamHandle(handle: Buffer): Buffer {
+    if (!Buffer.isBuffer(handle)) throw new TypeError("SFTP stream handle must be a buffer")
+    if (handle.length > MAX_SFTP_HANDLE_LENGTH) {
+        throw new RangeError(`SFTP stream handle must not exceed ${MAX_SFTP_HANDLE_LENGTH} bytes`)
+    }
+    return Buffer.from(handle)
 }
 
 function streamPosition(position: SFTPPosition, name: string): bigint {

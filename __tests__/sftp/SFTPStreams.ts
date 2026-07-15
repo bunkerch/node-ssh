@@ -12,9 +12,11 @@ class StreamSFTPFixture {
     ])
     readonly reads: { length: number; offset: bigint }[] = []
     readonly writes: { data: Buffer; offset: bigint }[] = []
+    beforeOpen: Promise<void> = Promise.resolve()
     closeCount = 0
 
     async open(path: string | Buffer, flags: string | number): Promise<Buffer> {
+        await this.beforeOpen
         const name = path.toString()
         if (typeof flags === "string" && flags.includes("w")) this.files.set(name, Buffer.alloc(0))
         this.files.set(name, this.files.get(name) ?? Buffer.alloc(0))
@@ -80,18 +82,56 @@ describe("SFTP streams", () => {
     test("keeps a supplied read handle open when autoClose is false", async () => {
         const fixture = new StreamSFTPFixture()
         const handle = Buffer.from("source")
+        const expectedHandle = Buffer.from(handle)
         const stream = new SFTPReadStream(asSFTP(fixture), "ignored", {
             handle,
             autoClose: false,
             start: 24,
         })
+        handle.fill(0x78)
         const chunks: Buffer[] = []
         for await (const chunk of stream) chunks.push(chunk as Buffer)
 
         expect(Buffer.concat(chunks).toString()).toBe("yz")
-        expect(stream.handle).toBe(handle)
+        expect(stream.handle).not.toBe(handle)
+        expect(stream.handle).toEqual(expectedHandle)
         expect(stream.destroyed).toBe(false)
         expect(fixture.closeCount).toBe(0)
+    })
+
+    test("owns a buffered path before an asynchronous open", async () => {
+        const fixture = new StreamSFTPFixture()
+        let continueOpen!: () => void
+        fixture.beforeOpen = new Promise<void>((resolve) => {
+            continueOpen = resolve
+        })
+        const path = Buffer.from("source")
+        const expectedPath = Buffer.from(path)
+        const stream = new SFTPReadStream(asSFTP(fixture), path, { start: 24 })
+
+        path.fill(0x78)
+        continueOpen()
+        const chunks: Buffer[] = []
+        for await (const chunk of stream) chunks.push(chunk as Buffer)
+
+        expect(Buffer.concat(chunks).toString()).toBe("yz")
+        expect(stream.path).not.toBe(path)
+        expect(stream.path).toEqual(expectedPath)
+    })
+
+    test("does not expose its live read handle through the open event", async () => {
+        const fixture = new StreamSFTPFixture()
+        const stream = new SFTPReadStream(asSFTP(fixture), "source", {
+            start: 24,
+            autoClose: false,
+        })
+        stream.once("open", (handle: Buffer) => handle.fill(0x78))
+        const chunks: Buffer[] = []
+        for await (const chunk of stream) chunks.push(chunk as Buffer)
+
+        expect(Buffer.concat(chunks).toString()).toBe("yz")
+        expect(stream.handle).toEqual(Buffer.from("source"))
+        await stream.close()
     })
 
     test("explicitly closes a read handle after the stream was destroyed", async () => {
@@ -134,6 +174,53 @@ describe("SFTP streams", () => {
         expect(fixture.closeCount).toBe(1)
     })
 
+    test("owns a supplied write handle", async () => {
+        const fixture = new StreamSFTPFixture()
+        fixture.files.set("destination", Buffer.alloc(0))
+        const handle = Buffer.from("destination")
+        const expectedHandle = Buffer.from(handle)
+        const stream = new SFTPWriteStream(asSFTP(fixture), "ignored", {
+            handle,
+            autoClose: false,
+        })
+
+        handle.fill(0x78)
+        const finished = once(stream, "finish")
+        stream.end("payload")
+        await finished
+
+        expect(fixture.files.get("destination")!.toString()).toBe("payload")
+        expect(stream.handle).not.toBe(handle)
+        expect(stream.handle).toEqual(expectedHandle)
+        stream.destroy()
+        await once(stream, "close")
+    })
+
+    test("owns a buffered write path and does not expose its live opened handle", async () => {
+        const fixture = new StreamSFTPFixture()
+        let continueOpen!: () => void
+        fixture.beforeOpen = new Promise<void>((resolve) => {
+            continueOpen = resolve
+        })
+        const path = Buffer.from("destination")
+        const expectedPath = Buffer.from(path)
+        const stream = new SFTPWriteStream(asSFTP(fixture), path, { autoClose: false })
+        stream.once("open", (handle: Buffer) => handle.fill(0x78))
+
+        path.fill(0x78)
+        continueOpen()
+        const finished = once(stream, "finish")
+        stream.end("payload")
+        await finished
+
+        expect(fixture.files.get("destination")!.toString()).toBe("payload")
+        expect(stream.path).not.toBe(path)
+        expect(stream.path).toEqual(expectedPath)
+        expect(stream.handle).toEqual(Buffer.from("destination"))
+        stream.destroy()
+        await once(stream, "close")
+    })
+
     test("explicitly closes a write handle after the stream was destroyed", async () => {
         const fixture = new StreamSFTPFixture()
         const stream = new SFTPWriteStream(asSFTP(fixture), "ignored", {
@@ -161,5 +248,24 @@ describe("SFTP streams", () => {
         expect(() => new SFTPWriteStream(asSFTP(fixture), "destination", { start: -1 })).toThrow(
             "must be a uint64",
         )
+    })
+
+    test("rejects invalid paths and supplied handles at construction", () => {
+        const fixture = new StreamSFTPFixture()
+        expect(() => new SFTPReadStream(asSFTP(fixture), 42 as never)).toThrow(
+            "path must be a string or buffer",
+        )
+        expect(
+            () =>
+                new SFTPReadStream(asSFTP(fixture), "source", {
+                    handle: "source" as never,
+                }),
+        ).toThrow("handle must be a buffer")
+        expect(
+            () =>
+                new SFTPWriteStream(asSFTP(fixture), "destination", {
+                    handle: Buffer.alloc(257),
+                }),
+        ).toThrow("handle must not exceed 256 bytes")
     })
 })
