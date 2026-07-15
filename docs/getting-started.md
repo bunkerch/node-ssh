@@ -467,9 +467,13 @@ const agent = new DiskAgent("/home/deploy/.ssh", {
 const client = new Client({ hostname: "ssh.example.com", agent })
 ```
 
-Passphrases and derived key material are copied into temporary buffers and cleared after the
-decryption attempt. JavaScript strings themselves cannot be cleared; use a `Buffer` when the
-caller also needs explicit control over its original secret storage.
+Each decryption attempt copies its passphrase and clears that temporary copy with the derived key
+material. A fixed `Buffer` passphrase is additionally snapshotted and retained privately as agent
+configuration so later signatures remain possible; use a resolver when the agent should fetch the
+secret just in time instead. JavaScript strings themselves cannot be cleared.
+
+The agent also snapshots its handler references during construction. Mutating the caller's options
+object or clearing its original fixed passphrase buffer later does not change the configured agent.
 
 The directory is resolved to an absolute normalized path. Discovery skips malformed public-key
 companions; `onInvalidPublicKey` is awaited for each skipped identity so applications can report or

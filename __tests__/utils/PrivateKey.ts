@@ -373,4 +373,27 @@ describe("OpenSSH private keys", () => {
             await rm(directory, { recursive: true, force: true })
         }
     })
+
+    test("DiskAgent owns fixed credential configuration", async () => {
+        const directory = await mkdtemp(join(tmpdir(), "modernssh-disk-agent-credentials-"))
+        try {
+            const fixture = await generateKey(directory, "id_ed25519", "ed25519")
+            const keyPath = join(directory, "id_ed25519")
+            const configuredPassphrase = Buffer.from(passphrase)
+            const options: { passphrase: string | Buffer } = {
+                passphrase: configuredPassphrase,
+            }
+            const agent = new DiskAgent(directory, options)
+
+            configuredPassphrase.fill(0)
+            options.passphrase = "replaced after construction"
+            const message = Buffer.from("owned disk-agent credentials")
+            const signature = await agent.sign(keyPath, message)
+
+            expect(fixture.publicKey.verifySignature(message, signature)).toBe(true)
+            expect("options" in agent).toBe(false)
+        } finally {
+            await rm(directory, { recursive: true, force: true })
+        }
+    })
 })

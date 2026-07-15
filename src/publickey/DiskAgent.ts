@@ -10,20 +10,49 @@ import EncodedSignature from "../utils/Signature.js"
 
 export type DiskAgentPassphrase = string | Buffer
 export interface DiskAgentOptions {
-    passphrase?:
+    readonly passphrase?:
         | DiskAgentPassphrase
         | ((privateKeyPath: string) => DiskAgentPassphrase | Promise<DiskAgentPassphrase>)
-    onInvalidPublicKey?: (error: DiskAgentError, publicKeyPath: string) => void | Promise<void>
+    readonly onInvalidPublicKey?: (
+        error: DiskAgentError,
+        publicKeyPath: string,
+    ) => void | Promise<void>
 }
 
 export default class DiskAgent implements Agent<string> {
     type = AgentType.NonInteractive
 
-    directory: string
-    options: DiskAgentOptions
+    readonly directory: string
+    readonly #options: Readonly<DiskAgentOptions>
+
     constructor(directory: string = join(homedir(), ".ssh"), options: DiskAgentOptions = {}) {
+        if (typeof directory !== "string" || directory.length === 0) {
+            throw new TypeError("Disk agent directory must be a non-empty string")
+        }
+        if (typeof options !== "object" || options === null || Array.isArray(options)) {
+            throw new TypeError("Disk agent options must be an object")
+        }
+        if (
+            options.passphrase !== undefined &&
+            typeof options.passphrase !== "string" &&
+            typeof options.passphrase !== "function" &&
+            !Buffer.isBuffer(options.passphrase)
+        ) {
+            throw new TypeError("Disk agent passphrase must be a string, buffer, or function")
+        }
+        if (
+            options.onInvalidPublicKey !== undefined &&
+            typeof options.onInvalidPublicKey !== "function"
+        ) {
+            throw new TypeError("Disk agent invalid-public-key handler must be a function")
+        }
         this.directory = resolve(directory)
-        this.options = options
+        this.#options = Object.freeze({
+            passphrase: Buffer.isBuffer(options.passphrase)
+                ? Buffer.from(options.passphrase)
+                : options.passphrase,
+            onInvalidPublicKey: options.onInvalidPublicKey,
+        })
     }
 
     async sign(id: string, data: Buffer, algorithm?: string): Promise<EncodedSignature> {
@@ -35,7 +64,7 @@ export default class DiskAgent implements Agent<string> {
         const pub = await this.getPublicKey(path)
         const content = await readFile(path, "utf-8")
 
-        const configuredPassphrase = this.options.passphrase
+        const configuredPassphrase = this.#options.passphrase
         const passphrase =
             typeof configuredPassphrase === "function"
                 ? await configuredPassphrase(path)
@@ -82,7 +111,7 @@ export default class DiskAgent implements Agent<string> {
                 const error = new DiskAgentError(`Could not load public key ${publicKeyPath}`, {
                     cause,
                 })
-                await this.options.onInvalidPublicKey?.(error, publicKeyPath)
+                await this.#options.onInvalidPublicKey?.(error, publicKeyPath)
             }
         }
 
