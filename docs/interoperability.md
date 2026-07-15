@@ -390,7 +390,10 @@ Group 2 prime and a fixed private scalar to prove the public value, shared secre
 and rejection boundaries independently of a named-group lookup. In-process peers exchange
 protected requests across rekey for every method. The system OpenSSH client explicitly enables
 both legacy names, transfers enough data to initiate a low-limit rekey, and completes a command;
-these opt-in tests are compatibility evidence rather than a deployment recommendation.
+the library client then forces those names and the three OpenSSH-supported RFC 8268 groups against
+the pinned server, executes commands before and after an explicit rekey, preserves its first
+session ID, and derives a different exchange hash. These opt-in tests are compatibility evidence
+rather than a deployment recommendation.
 
 AEAD interoperability forces ChaCha20-Poly1305 and both 128- and 256-bit AES-GCM variants in both
 peer roles. OpenSSH streams enough data to initiate low-limit rekeys against the modern server;

@@ -1,10 +1,15 @@
-import { spawn } from "node:child_process"
+import { execFile, spawn } from "node:child_process"
 import { once } from "node:events"
-import type { AddressInfo } from "node:net"
+import { createConnection, type AddressInfo } from "node:net"
+import { promisify } from "node:util"
 
+import Client from "../../src/Client.js"
 import Server from "../../src/Server.js"
 import SessionChannel from "../../src/channels/SessionChannel.js"
 import PrivateKey from "../../src/utils/PrivateKey.js"
+
+const execFileAsync = promisify(execFile)
+const imageName = "modernssh-openssh-test:bookworm"
 
 const methods = [
     ["RFC 4253", "diffie-hellman-group1-sha1"],
@@ -13,6 +18,31 @@ const methods = [
     ["RFC 8268", "diffie-hellman-group16-sha512"],
     ["RFC 8268", "diffie-hellman-group18-sha512"],
 ] as const
+
+async function waitForPort(port: number): Promise<void> {
+    for (let attempt = 0; attempt < 100; attempt++) {
+        const connected = await new Promise<boolean>((resolve) => {
+            const socket = createConnection({ host: "127.0.0.1", port })
+            socket.once("connect", () => {
+                socket.destroy()
+                resolve(true)
+            })
+            socket.once("error", () => resolve(false))
+        })
+        if (connected) return
+        await new Promise<void>((resolve) => setTimeout(resolve, 100))
+    }
+    throw new Error(`OpenSSH server did not listen on port ${port}`)
+}
+
+async function execute(client: Client, command: string): Promise<string> {
+    const channel = await client.exec(command)
+    const output: Buffer[] = []
+    channel.on("data", (data: Buffer) => output.push(data))
+    await once(channel, "close")
+    expect(channel.exitCode).toBe(0)
+    return Buffer.concat(output).toString()
+}
 
 async function collectProcess(
     executable: string,
@@ -115,4 +145,72 @@ describe("fixed-group Diffie-Hellman OpenSSH interoperability", () => {
         },
         20_000,
     )
+
+    test("library client exchanges traffic and rekeys with every enabled fixed group", async () => {
+        await execFileAsync("docker", ["build", "--quiet", "--tag", imageName, "__tests__/openssh"])
+        const { stdout } = await execFileAsync("docker", [
+            "run",
+            "--detach",
+            "--rm",
+            "--publish",
+            "127.0.0.1::22",
+            imageName,
+        ])
+        const containerId = stdout.trim()
+
+        try {
+            const { stdout: portOutput } = await execFileAsync("docker", [
+                "port",
+                containerId,
+                "22/tcp",
+            ])
+            const port = Number(portOutput.trim().match(/:(\d+)$/u)?.[1])
+            expect(Number.isInteger(port)).toBe(true)
+            await waitForPort(port)
+
+            for (const [, keyExchange] of methods) {
+                const client = new Client({
+                    hostname: "127.0.0.1",
+                    port,
+                    username: "interop",
+                    password: "correct-horse-battery-staple",
+                    readyTimeout: 5_000,
+                    algorithms: { kex: [keyExchange] },
+                })
+                const errors: Error[] = []
+                client.on("error", (error) => errors.push(error))
+                client.hooker.hook("hostKey", (_hook, decision) => {
+                    decision.allowHostKey = true
+                })
+
+                try {
+                    await client.connect()
+                    expect(client.negotiatedAlgorithms?.kex).toBe(keyExchange)
+                    const sessionId = Buffer.from(client.sessionID!)
+                    const firstHash = Buffer.from(client.exchangeHash!)
+                    expect(await execute(client, "printf fixed-group-before")).toBe(
+                        "fixed-group-before",
+                    )
+
+                    await client.rekey()
+                    expect(client.sessionID).toEqual(sessionId)
+                    expect(client.exchangeHash).not.toEqual(firstHash)
+                    expect(await execute(client, "printf fixed-group-after")).toBe(
+                        "fixed-group-after",
+                    )
+                    expect(errors).toEqual([])
+                } finally {
+                    if (client.isConnected) {
+                        const closed = once(client, "close")
+                        client.end()
+                        await closed
+                    } else {
+                        client.destroy()
+                    }
+                }
+            }
+        } finally {
+            await execFileAsync("docker", ["rm", "--force", containerId]).catch(() => undefined)
+        }
+    }, 60_000)
 })

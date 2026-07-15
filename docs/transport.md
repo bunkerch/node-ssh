@@ -708,7 +708,7 @@ MD5/SHA-1 MACs likewise require explicit configuration.
 The group1 implementation embeds its published RFC prime instead of depending on a
 runtime-specific alias for the 1024-bit group. Both fixed groups validate peer values in the open
 interval `(1, p-1)`. Fixed exchange-hash vectors, encrypted traffic across rekey, and explicitly
-enabled OpenSSH negotiation cover both SHA-1 methods.
+enabled OpenSSH negotiation in both peer roles cover both SHA-1 methods.
 
 ```ts
 const client = new Client({

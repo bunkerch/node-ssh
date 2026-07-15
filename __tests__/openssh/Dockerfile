@@ -26,7 +26,7 @@ RUN apt-get update \
         'Banner /etc/modernssh-banner' \
         'Ciphers chacha20-poly1305@openssh.com,aes128-gcm@openssh.com,aes256-gcm@openssh.com,aes128-ctr,aes192-ctr,aes256-ctr,aes128-cbc,aes192-cbc,aes256-cbc,3des-cbc' \
         'MACs hmac-sha2-256-etm@openssh.com,hmac-sha2-512-etm@openssh.com,hmac-sha1-etm@openssh.com,hmac-sha1-96-etm@openssh.com,hmac-sha2-256,hmac-sha2-512,hmac-sha1,hmac-sha1-96,hmac-md5-etm@openssh.com,hmac-md5-96-etm@openssh.com,hmac-md5,hmac-md5-96' \
-        'KexAlgorithms +diffie-hellman-group-exchange-sha1' \
+        'KexAlgorithms +diffie-hellman-group-exchange-sha1,diffie-hellman-group14-sha1,diffie-hellman-group1-sha1' \
         'HostKeyAlgorithms +ssh-dss' \
         'PubkeyAcceptedAlgorithms +ssh-dss' \
         'HostbasedAuthentication yes' \
