@@ -1037,8 +1037,8 @@ export default class Client extends EventEmitter<ClientEvents> {
         this.packetEncoder.dispose()
         this.packetDecoder.dispose()
         this.disposeTransportAlgorithms()
-        void this.closeInitialGSSAPIKeyExchangeContext().catch((error) =>
-            this.debug("Could not close the initial GSS-API key-exchange context:", error),
+        void this.closeInitialGSSAPIKeyExchangeContext().catch(() =>
+            this.debug("Could not close the initial GSS-API key-exchange context"),
         )
         this.peerDisconnect = undefined
         this.identificationParser = new IdentificationParser({ allowPreamble: true })
@@ -2350,8 +2350,8 @@ export default class Client extends EventEmitter<ClientEvents> {
                 this.remoteStreamLocalForwardings.clear()
                 this.x11Forwardings.clear()
                 this.agentForwardingEnabled = false
-                void this.closeInitialGSSAPIKeyExchangeContext().catch((error) =>
-                    this.debug("Could not close the initial GSS-API key-exchange context:", error),
+                void this.closeInitialGSSAPIKeyExchangeContext().catch(() =>
+                    this.debug("Could not close the initial GSS-API key-exchange context"),
                 )
                 this.emit("close")
                 if (!connected) reject(closeError)

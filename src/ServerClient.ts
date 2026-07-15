@@ -324,8 +324,8 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                     ),
                 )
             }
-            void this.closeInitialGSSAPIKeyExchangeContext().catch((error) =>
-                this.debug("Could not close the initial GSS-API key-exchange context:", error),
+            void this.closeInitialGSSAPIKeyExchangeContext().catch(() =>
+                this.debug("Could not close the initial GSS-API key-exchange context"),
             )
             this.emit("close")
         })
@@ -2339,8 +2339,8 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 if (packet instanceof UserAuthGSSAPIErrorToken) {
                     try {
                         await context.step(packet.token)
-                    } catch (error) {
-                        this.debug("GSS-API mechanism rejected the client error token:", error)
+                    } catch {
+                        this.debug("GSS-API mechanism rejected the client error token")
                     }
                     const next = await waitForQueuedHigherLayerPacket(packets)
                     if (!(next instanceof UserAuthRequest)) {
@@ -2378,8 +2378,8 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 if (acknowledgement instanceof UserAuthGSSAPIErrorToken) {
                     try {
                         await context.step(acknowledgement.token)
-                    } catch (error) {
-                        this.debug("GSS-API mechanism rejected the client error token:", error)
+                    } catch {
+                        this.debug("GSS-API mechanism rejected the client error token")
                     }
                     const next = await waitForQueuedHigherLayerPacket(packets)
                     if (!(next instanceof UserAuthRequest)) {
@@ -2440,7 +2440,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 )
                 if (error.token) this.sendPacket(new UserAuthGSSAPIErrorToken(error.token))
             } else {
-                this.debug("GSS-API authentication mechanism failed:", error)
+                this.debug("GSS-API authentication mechanism failed")
             }
             return { allowLogin: false }
         } finally {
@@ -2448,8 +2448,8 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             if (context) {
                 try {
                     await closeGSSAPIContext(context)
-                } catch (error) {
-                    this.debug("Could not close the GSS-API server context:", error)
+                } catch {
+                    this.debug("Could not close the GSS-API server context")
                 }
             }
         }

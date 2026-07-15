@@ -317,6 +317,7 @@ describe("RFC 4462 GSS-API user authentication", () => {
                         throw new GSSAPIError({
                             majorStatus: 1,
                             minorStatus: 2,
+                            message: "client-gssapi-private-metadata",
                             token: clientErrorToken,
                         })
                     },
@@ -325,6 +326,7 @@ describe("RFC 4462 GSS-API user authentication", () => {
                     },
                     close() {
                         observation.clientClosed++
+                        throw new Error("client-gssapi-close-private-metadata")
                     },
                 }
             },
@@ -345,13 +347,14 @@ describe("RFC 4462 GSS-API user authentication", () => {
                             }
                         }
                         receivedErrorToken = inputToken.equals(clientErrorToken)
-                        return { complete: false }
+                        throw new Error("server-gssapi-token-private-metadata")
                     },
                     verifyMIC() {
                         return false
                     },
                     close() {
                         observation.serverClosed++
+                        throw new Error("server-gssapi-close-private-metadata")
                     },
                 }
             },
@@ -365,12 +368,29 @@ describe("RFC 4462 GSS-API user authentication", () => {
         server.hooker.hook("noneAuthentication", (_hook, context, controller) => {
             controller.allowLogin = context.username === "alice"
         })
+        const diagnostics: unknown[][] = []
+        client.on("debug", (...message) => diagnostics.push(message))
+        server.on("debug", (...message) => diagnostics.push(message))
 
         try {
             await client.connect()
             expect(receivedErrorToken).toBe(true)
             expect(observation.clientClosed).toBe(1)
             expect(observation.serverClosed).toBe(1)
+            const output = diagnostics
+                .flatMap((message) => message)
+                .map((value) =>
+                    value instanceof Error
+                        ? `${value.name}: ${value.message}`
+                        : typeof value === "string"
+                          ? value
+                          : JSON.stringify(value),
+                )
+                .join("\n")
+            expect(output).not.toContain("client-gssapi-private-metadata")
+            expect(output).not.toContain("client-gssapi-close-private-metadata")
+            expect(output).not.toContain("server-gssapi-token-private-metadata")
+            expect(output).not.toContain("server-gssapi-close-private-metadata")
         } finally {
             await closePeers(client, server, peers)
         }

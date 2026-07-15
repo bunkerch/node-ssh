@@ -59,6 +59,8 @@ values as operationally sensitive and ensure the diagnostic handler does not thr
 authentication diagnostics identify a candidate by its algorithm and SHA-256 fingerprint; they do
 not expose the agent's opaque identity ID, key encoding, or key comment. Errors thrown by a signing
 agent are reduced to a fixed failure-stage message rather than forwarded to diagnostic handlers.
+The same rule applies to errors thrown while creating, advancing, or closing application-provided
+GSS-API contexts; peer-supplied GSS-API status remains available through the typed protocol event.
 
 ```ts
 const client = new Client({

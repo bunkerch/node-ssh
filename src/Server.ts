@@ -717,7 +717,7 @@ export default class Server extends EventEmitter<ServerEvents> {
             this.emit("connection", client, connectionInfo)
             await client.connect()
         } catch (error) {
-            client.debug("Error in client connection:", error)
+            client.debug("Client connection failed")
             if (error instanceof DisconnectError) client.disconnect(error)
             else client.terminate()
         }

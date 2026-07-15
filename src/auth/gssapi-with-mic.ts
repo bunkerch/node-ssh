@@ -161,9 +161,9 @@ export default class GSSAPIWithMICAuthMethod implements AuthMethod {
                     try {
                         await context.step(answer.token)
                         assertCurrent()
-                    } catch (error) {
+                    } catch {
                         assertCurrent()
-                        client.debug("GSS-API mechanism rejected the server error token:", error)
+                        client.debug("GSS-API mechanism rejected the server error token")
                     }
                     return await waitForGSSAPIFailure(client, packets, assertCurrent)
                 }
@@ -174,15 +174,15 @@ export default class GSSAPIWithMICAuthMethod implements AuthMethod {
             if (error instanceof GSSAPIError && error.token) {
                 client.sendPacket(new UserAuthGSSAPIErrorToken(error.token))
             }
-            client.debug("GSS-API authentication failed:", error)
+            client.debug("GSS-API authentication failed")
             return false
         } finally {
             packets.close()
             if (context) {
                 try {
                     await closeGSSAPIContext(context)
-                } catch (error) {
-                    client.debug("Could not close the GSS-API client context:", error)
+                } catch {
+                    client.debug("Could not close the GSS-API client context")
                 }
             }
         }
@@ -208,9 +208,9 @@ async function waitForGSSAPICompletion(
             try {
                 await context.step(answer.token)
                 assertCurrent()
-            } catch (error) {
+            } catch {
                 assertCurrent()
-                client.debug("GSS-API mechanism rejected the server error token:", error)
+                client.debug("GSS-API mechanism rejected the server error token")
             }
             return await waitForGSSAPIFailure(client, packets, assertCurrent)
         }
