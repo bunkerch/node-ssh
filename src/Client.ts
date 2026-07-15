@@ -949,7 +949,9 @@ export default class Client extends EventEmitter<ClientEvents> {
     private pendingDelayCompression?: Readonly<NegotiatedDelayCompression>
     private delayCompressionRekeyBlocked = false
     private readonly remoteForwardings = new Map<string, RemoteForwarding>()
+    private readonly pendingRemoteForwardings = new Set<string>()
     private readonly remoteStreamLocalForwardings = new Set<string>()
+    private readonly pendingRemoteStreamLocalForwardings = new Set<string>()
     private readonly x11Forwardings = new Map<number, { single: boolean }>()
     agentForwardingEnabled = false
     private keepaliveTimer?: ReturnType<typeof setTimeout>
@@ -1104,7 +1106,9 @@ export default class Client extends EventEmitter<ClientEvents> {
         this.pendingDelayCompression = undefined
         this.delayCompressionRekeyBlocked = this.#options.delayCompression !== false
         this.remoteForwardings.clear()
+        this.pendingRemoteForwardings.clear()
         this.remoteStreamLocalForwardings.clear()
+        this.pendingRemoteStreamLocalForwardings.clear()
         this.x11Forwardings.clear()
         this.agentForwardingEnabled = false
         this.unansweredKeepalives = 0
@@ -1521,28 +1525,42 @@ export default class Client extends EventEmitter<ClientEvents> {
 
     private async requestRemoteForward(bindAddress: string, bindPort: number): Promise<number> {
         this.validatePort(bindPort, "remote forwarding port")
-        const args = Buffer.concat([
-            serializeBuffer(encodeSSHUTF8(bindAddress, "TCP forwarding bind address")),
-            serializeUint32(bindPort),
-        ])
-        const response = await this.sendGlobalRequest("tcpip-forward", args)
-        let actualPort = bindPort
-        if (bindPort === 0) {
-            let remaining: Buffer
-            ;[actualPort, remaining] = readNextUint32(response)
-            if (remaining.length !== 0 || actualPort === 0 || actualPort > 65_535) {
-                throw new Error("Invalid allocated port in tcpip-forward success response")
+        const requestedKey =
+            bindPort === 0 ? undefined : this.remoteForwardingKey(bindAddress, bindPort)
+        if (
+            requestedKey !== undefined &&
+            (this.remoteForwardings.has(requestedKey) ||
+                this.pendingRemoteForwardings.has(requestedKey))
+        ) {
+            throw new Error(`Remote forwarding already exists for ${bindAddress}:${bindPort}`)
+        }
+        if (requestedKey !== undefined) this.pendingRemoteForwardings.add(requestedKey)
+        try {
+            const args = Buffer.concat([
+                serializeBuffer(encodeSSHUTF8(bindAddress, "TCP forwarding bind address")),
+                serializeUint32(bindPort),
+            ])
+            const response = await this.sendGlobalRequest("tcpip-forward", args)
+            let actualPort = bindPort
+            if (bindPort === 0) {
+                let remaining: Buffer
+                ;[actualPort, remaining] = readNextUint32(response)
+                if (remaining.length !== 0 || actualPort === 0 || actualPort > 65_535) {
+                    throw new Error("Invalid allocated port in tcpip-forward success response")
+                }
+            } else if (response.length !== 0) {
+                throw new Error("Unexpected data in tcpip-forward success response")
             }
-        } else if (response.length !== 0) {
-            throw new Error("Unexpected data in tcpip-forward success response")
-        }
 
-        const key = this.remoteForwardingKey(bindAddress, actualPort)
-        if (this.remoteForwardings.has(key)) {
-            throw new Error(`Remote forwarding already exists for ${bindAddress}:${actualPort}`)
+            const key = this.remoteForwardingKey(bindAddress, actualPort)
+            if (this.remoteForwardings.has(key)) {
+                throw new Error(`Remote forwarding already exists for ${bindAddress}:${actualPort}`)
+            }
+            this.remoteForwardings.set(key, { bindAddress, bindPort: actualPort })
+            return actualPort
+        } finally {
+            if (requestedKey !== undefined) this.pendingRemoteForwardings.delete(requestedKey)
         }
-        this.remoteForwardings.set(key, { bindAddress, bindPort: actualPort })
-        return actualPort
     }
 
     private async requestNoMoreSessions(): Promise<void> {
@@ -1575,14 +1593,22 @@ export default class Client extends EventEmitter<ClientEvents> {
     private async requestRemoteStreamLocalForward(socketPath: string): Promise<void> {
         this.assertOpenSSHVendor()
         this.validateSocketPath(socketPath)
-        if (this.remoteStreamLocalForwardings.has(socketPath)) {
+        if (
+            this.remoteStreamLocalForwardings.has(socketPath) ||
+            this.pendingRemoteStreamLocalForwardings.has(socketPath)
+        ) {
             throw new Error(`Remote stream-local forwarding already exists for ${socketPath}`)
         }
-        await this.sendGlobalRequest(
-            "streamlocal-forward@openssh.com",
-            serializeBuffer(encodeSSHUTF8(socketPath, "stream-local forwarding socket path")),
-        )
-        this.remoteStreamLocalForwardings.add(socketPath)
+        this.pendingRemoteStreamLocalForwardings.add(socketPath)
+        try {
+            await this.sendGlobalRequest(
+                "streamlocal-forward@openssh.com",
+                serializeBuffer(encodeSSHUTF8(socketPath, "stream-local forwarding socket path")),
+            )
+            this.remoteStreamLocalForwardings.add(socketPath)
+        } finally {
+            this.pendingRemoteStreamLocalForwardings.delete(socketPath)
+        }
     }
 
     private async cancelRemoteStreamLocalForward(socketPath: string): Promise<void> {
@@ -2347,7 +2373,9 @@ export default class Client extends EventEmitter<ClientEvents> {
                         )
                 }
                 this.remoteForwardings.clear()
+                this.pendingRemoteForwardings.clear()
                 this.remoteStreamLocalForwardings.clear()
+                this.pendingRemoteStreamLocalForwardings.clear()
                 this.x11Forwardings.clear()
                 this.agentForwardingEnabled = false
                 void this.closeInitialGSSAPIKeyExchangeContext().catch(() =>

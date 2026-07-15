@@ -136,9 +136,10 @@ await client.unforwardIn("127.0.0.1", allocatedPort)
 ```
 
 A port of zero requests dynamic allocation; `forwardIn()` resolves to the allocated port reported
-by the server. Bind addresses have server-specific exposure rules. In particular, wildcard binds
-can expose a listener beyond loopback when the SSH server permits gateway ports, so validate both
-the requested bind and every connection's source metadata. Policy can set `decision.rejection` to
+by the server. An active or still-pending fixed address/port request is rejected locally before a
+duplicate global request reaches the peer. Bind addresses have server-specific exposure rules. In
+particular, wildcard binds can expose a listener beyond loopback when the SSH server permits gateway
+ports, so validate both the requested bind and every connection's source metadata. Policy can set `decision.rejection` to
 a validated `ChannelOpenError` when the server should receive a specific uint32 reason, UTF-8
 description, and RFC 3066 language tag. A policy decision that completes after transport teardown
 is discarded and its proposed channel is destroyed. Destroying the proposed channel during policy
@@ -237,8 +238,9 @@ await client.openssh_forwardInStreamLocal("/run/user/1000/modernssh.sock")
 await client.openssh_unforwardInStreamLocal("/run/user/1000/modernssh.sock")
 ```
 
-Socket paths must be non-empty and cannot contain NUL. Filesystem ownership, permissions, stale
-socket replacement, and path visibility are controlled by the SSH server and its operating system.
+Socket paths must be non-empty and cannot contain NUL. An active or pending request for the same
+path rejects locally before sending a duplicate global request. Filesystem ownership, permissions,
+stale socket replacement, and path visibility are controlled by the SSH server and its operating system.
 Policy can provide a `ChannelOpenError` in `decision.rejection` for a specific failure reason,
 description, and language tag. Decisions completed after transport teardown are discarded and the
 proposed channel is destroyed. A channel destroyed during policy cannot be confirmed by a later
