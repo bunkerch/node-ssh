@@ -22,6 +22,7 @@ import PrivateKey, {
 } from "../../src/utils/PrivateKey.js"
 import PublicKey from "../../src/utils/PublicKey.js"
 import EncodedSignature from "../../src/utils/Signature.js"
+import { serializeBuffer, serializeUint32 } from "../../src/utils/Buffer.js"
 import { rfc6979DSAParameters } from "../fixtures/DSAParameters.js"
 
 const execFileAsync = promisify(execFile)
@@ -83,6 +84,50 @@ const queryResponseFrame = Buffer.from(
     "hex",
 )
 const successFrame = Buffer.from("0000000106", "hex")
+const publishedEd25519PrivateCertificate = Buffer.from(
+    `
+    00000010 7373682d656432353531392d63657274
+    00000206
+      00000010 7373682d656432353531392d63657274
+      00000020 28d48ffa9efec6d765b5f391d05c63f8a2f3d22a51f3d09f4f7b07dba2c683fd
+      00000020 447c22f9460fd95a5eb8da3ebefc3d6414ca0e1af8e774d14044bc5d8be8eec5
+      00000000075bcd15
+      00000001
+      00000006 677265676f72
+      00000019 00000006 677265676f72 0000000b 677265676f7273616d7361
+      000000005e0be100
+      00000000985b1cdf
+      0000004b
+        0000000d 666f7263652d636f6d6d616e64 0000000d 00000009 2f62696e2f74727565
+        0000000e 736f757263652d61646472657373 00000013 0000000f 3132372e302e302e302f382c3a3a31
+      00000082
+        00000015 7065726d69742d5831312d666f7277617264696e67 00000000
+        00000017 7065726d69742d6167656e742d666f7277617264696e67 00000000
+        00000016 7065726d69742d706f72742d666f7277617264696e67 00000000
+        0000000a 7065726d69742d707479 00000000
+        0000000e 7065726d69742d757365722d7263 00000000
+      00000000
+      00000033 0000000b 7373682d65643235353139 00000020
+        447c22f9460fd95a5eb8da3ebefc3d6414ca0e1af8e774d14044bc5d8be8eec5
+      00000053 0000000b 7373682d65643235353139 00000040
+        31311578758bb5d864d55aadcd958d06a7afeb876233954c404528c62b327bcf
+        5a9d91936a9af42b74e17e370d4b826e75722e2024c4416a7f0d2df8fff29e03
+    00000040
+      341ad7c1b87f3eb52eb5dd8c4b235dc9b67b7fe4850537046c3dc191ba633133
+      447c22f9460fd95a5eb8da3ebefc3d6414ca0e1af8e774d14044bc5d8be8eec5
+    `.replaceAll(/\s/gu, ""),
+    "hex",
+)
+const publishedCertificateComment = "draft-01 private certificate"
+const publishedCertificateAddPayload = Buffer.concat([
+    Buffer.from([17]),
+    publishedEd25519PrivateCertificate,
+    serializeBuffer(Buffer.from(publishedCertificateComment)),
+])
+const publishedCertificateAddFrame = Buffer.concat([
+    serializeUint32(publishedCertificateAddPayload.length),
+    publishedCertificateAddPayload,
+])
 const destinationConstraint = Buffer.from(
     "ff0000002472657374726963742d64657374696e6174696f6e2d763030406f70656e7373682e636f6d" +
         "000000730000006f0000000c000000000000000000000000" +
@@ -164,6 +209,72 @@ function fixedPrivateKey(): PrivateKey {
 }
 
 describe("SSH agent management protocol", () => {
+    test("round-trips the draft revision 01 private-certificate vector", async () => {
+        const [fixtureStream, serverStream] = streamPair()
+        const server = new SSHAgentProtocolServer()
+        let received: PrivateKey | undefined
+        server.hooker.hook("addIdentity", async (_hook, request, decision) => {
+            await Promise.resolve()
+            received = request.privateKey
+            expect(request.comment).toBe(publishedCertificateComment)
+            expect(request.constraints).toEqual([])
+            decision.success = true
+        })
+        const serving = server.serve(serverStream)
+        const response = fixtureStream[Symbol.asyncIterator]().next()
+
+        fixtureStream.write(publishedCertificateAddFrame)
+        expect((await response).value).toEqual(successFrame)
+        expect(received).toBeDefined()
+        expect(received!.data.alg).toBe("ssh-ed25519-cert")
+        expect(received!.data.comment).toBe(publishedCertificateComment)
+        const certificate = received!.data.publicKey
+        expect(certificate.data.alg).toBe("ssh-ed25519-cert")
+        const message = Buffer.from("published private certificate")
+        expect(certificate.verifySignature(message, received!.sign(message))).toBeTrue()
+
+        fixtureStream.end()
+        await serving
+        fixtureStream.destroy()
+        serverStream.destroy()
+
+        const [clientStream, replyStream] = streamPair()
+        const request = replyStream[Symbol.asyncIterator]().next()
+        const client = new SSHAgentProtocolClient(clientStream)
+        const adding = client.addIdentity(received!, { comment: publishedCertificateComment })
+        expect((await request).value).toEqual(publishedCertificateAddFrame)
+        replyStream.write(successFrame)
+        await adding
+        client.destroy()
+        replyStream.destroy()
+    })
+
+    test("rejects a mismatched private-certificate envelope before policy", async () => {
+        const [fixtureStream, serverStream] = streamPair()
+        const server = new SSHAgentProtocolServer()
+        let policyCalls = 0
+        server.hooker.hook("addIdentity", (_hook, _request, decision) => {
+            policyCalls++
+            decision.success = true
+        })
+        const serving = server.serve(serverStream)
+        const payload = Buffer.concat([
+            Buffer.from([17]),
+            serializeBuffer(Buffer.from("ssh-rsa-cert")),
+            publishedEd25519PrivateCertificate.subarray(20),
+            serializeBuffer(Buffer.from("mismatched")),
+        ])
+        const response = fixtureStream[Symbol.asyncIterator]().next()
+        fixtureStream.write(Buffer.concat([serializeUint32(payload.length), payload]))
+
+        expect((await response).value).toEqual(Buffer.from("0000000105", "hex"))
+        expect(policyCalls).toBe(0)
+        fixtureStream.end()
+        await serving
+        fixtureStream.destroy()
+        serverStream.destroy()
+    })
+
     test("client matches fixed RFC 9987 management frames", async () => {
         const [clientStream, fixtureStream] = streamPair()
         const expected = [
@@ -1133,8 +1244,28 @@ describe("SSH agent management protocol", () => {
                     comment: `management-test-${index}`,
                 })
             }
+            const caPath = join(directory, "certificate-ca")
+            const subjectPath = join(directory, "certificate-subject")
+            await execFileAsync("ssh-keygen", ["-q", "-t", "ed25519", "-N", "", "-f", caPath])
+            await execFileAsync("ssh-keygen", ["-q", "-t", "ed25519", "-N", "", "-f", subjectPath])
+            await execFileAsync("ssh-keygen", [
+                "-q",
+                "-s",
+                caPath,
+                "-I",
+                "agent-management-certificate",
+                "-n",
+                "alice",
+                `${subjectPath}.pub`,
+            ])
+            const subject = PrivateKey.fromString(await readFile(subjectPath, "utf8"))
+            const certificate = PublicKey.parseString(
+                await readFile(`${subjectPath}-cert.pub`, "utf8"),
+            )
+            const certifiedSubject = subject.withCertificate(certificate)
+            await client.addIdentity(certifiedSubject, { comment: "management-certificate" })
             const identities = await client.getPublicKeys()
-            expect(identities).toHaveLength(privateKeys.length)
+            expect(identities).toHaveLength(privateKeys.length + 1)
             const message = Buffer.from("real agent management")
             for (let index = 0; index < privateKeys.length; index++) {
                 const identity = identities.find(
@@ -1145,6 +1276,16 @@ describe("SSH agent management protocol", () => {
                     identity![1].verifySignature(message, await client.sign(identity![0], message)),
                 ).toBeTrue()
             }
+            const certificateIdentity = identities.find(
+                ([, publicKey]) => publicKey.data.comment === "management-certificate",
+            )
+            expect(certificateIdentity?.[1].equals(certificate)).toBeTrue()
+            const certificateSignature = await client.sign(
+                certificateIdentity![0],
+                message,
+                certificate.data.alg,
+            )
+            expect(certificate.verifySignature(message, certificateSignature)).toBeTrue()
             await client.lock("secret")
             await expect(client.sign(identities[0][0], message)).rejects.toThrow()
             await expect(client.unlock("wrong")).rejects.toThrow("refused")

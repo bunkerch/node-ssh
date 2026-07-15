@@ -603,6 +603,80 @@ export abstract class PrivateKeyAlgorithm {
     }
 }
 
+/**
+ * Serialize the key material that follows a certificate key type in an agent add request.
+ * Standard certificate names carry only the private fields after the certificate; deployed
+ * aliases carry the complete corresponding private-key fields.
+ */
+export function serializeCertificatePrivateKey(privateKey: PrivateKey): Buffer {
+    const certificateAlgorithm = privateKey.data.publicKey.data.algorithm
+    assert(
+        certificateAlgorithm instanceof SSHCertificatePublicKey,
+        "Certificate private-key serialization requires a certificate",
+    )
+    const publicFields = certificateAlgorithm.publicKey.data.algorithm.serialize()
+    const plainPrivateKey = privateKey.data.algorithm.serialize()
+    try {
+        assert(
+            plainPrivateKey.subarray(0, publicFields.length).equals(publicFields),
+            "Certificate private key does not match its public fields",
+        )
+        return Buffer.concat([
+            serializeBuffer(privateKey.data.publicKey.serialize()),
+            privateKey.data.alg.endsWith("-cert")
+                ? plainPrivateKey.subarray(publicFields.length)
+                : plainPrivateKey,
+        ])
+    } finally {
+        publicFields.fill(0)
+        plainPrivateKey.fill(0)
+    }
+}
+
+/**
+ * Parse either standard or deployed certificate private-key fields while leaving following agent
+ * request fields untouched.
+ */
+export function parseCertificatePrivateKey(
+    algorithmName: string,
+    raw: Buffer,
+): [PrivateKey, Buffer] {
+    let certificateBlob: Buffer
+    ;[certificateBlob, raw] = readNextBuffer(raw)
+    const certificate = PublicKey.parse(certificateBlob)
+    assert(certificate.data.alg === algorithmName, "Certificate private key type mismatch")
+    assert(
+        certificate.data.algorithm instanceof SSHCertificatePublicKey,
+        "Certificate private key does not contain a certificate",
+    )
+    const publicKey = certificate.data.algorithm.publicKey
+    const Algorithm = PrivateKey.algorithms.get(publicKey.data.alg)
+    assert(Algorithm, `Unsupported certificate private key type: ${publicKey.data.alg}`)
+    const standard = algorithmName.endsWith("-cert")
+    const publicFields = publicKey.data.algorithm.serialize()
+    const combined = standard ? Buffer.concat([publicFields, raw]) : Buffer.from(raw)
+    try {
+        const [algorithm, remainingCombined] = Algorithm.parse(combined)
+        const privateBytesConsumed = raw.length - remainingCombined.length
+        assert(privateBytesConsumed >= 0, "Invalid certificate private key fields")
+        assert(
+            algorithm.getPublicKey().equals(publicKey),
+            "Certificate private key does not match its certificate",
+        )
+        return [
+            new PrivateKey({
+                alg: algorithmName,
+                publicKey: certificate,
+                algorithm,
+            }),
+            raw.subarray(privateBytesConsumed),
+        ]
+    } finally {
+        publicFields.fill(0)
+        combined.fill(0)
+    }
+}
+
 export interface SSHED25519PrivateKeyData {
     publicKey: Buffer
     privateKey: Buffer

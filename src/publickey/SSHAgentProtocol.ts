@@ -11,10 +11,15 @@ import {
 } from "../utils/Buffer.js"
 import { Hooker } from "../utils/Hooker.js"
 import PrivateKey, {
+    parseCertificatePrivateKey,
+    serializeCertificatePrivateKey,
     SSHECDSASecurityKeyPrivateKey,
     SSHED25519SecurityKeyPrivateKey,
 } from "../utils/PrivateKey.js"
-import PublicKey from "../utils/PublicKey.js"
+import PublicKey, {
+    isCertificateKeyAlgorithm,
+    SSHCertificatePublicKey,
+} from "../utils/PublicKey.js"
 import EncodedSignature from "../utils/Signature.js"
 import Agent, { AgentError, AgentType } from "./Agent.js"
 import {
@@ -579,18 +584,21 @@ function serializePrivateKeyRequest(
     if (!(privateKey instanceof PrivateKey)) {
         throw new TypeError("SSH agent identity must be a PrivateKey")
     }
+    const certificate = privateKey.data.publicKey.data.algorithm instanceof SSHCertificatePublicKey
     const underlyingPublicKey = privateKey.data.algorithm.getPublicKey()
-    if (privateKey.data.alg !== underlyingPublicKey.data.alg) {
-        throw new SSHAgentProtocolError("SSH agent cannot add a certificate as a private key")
+    if (!certificate && privateKey.data.alg !== underlyingPublicKey.data.alg) {
+        throw new SSHAgentProtocolError("SSH agent private key type does not match its public key")
     }
-    if (!PrivateKey.algorithms.has(privateKey.data.alg)) {
+    if (!certificate && !PrivateKey.algorithms.has(privateKey.data.alg)) {
         throw new SSHAgentProtocolError(
             `SSH agent does not support private key type ${privateKey.data.alg}`,
         )
     }
     const constraints = options.constraints ?? []
     validateSecurityKeyProviderConstraint(privateKey, constraints)
-    const keyData = privateKey.data.algorithm.serialize()
+    const keyData = certificate
+        ? serializeCertificatePrivateKey(privateKey)
+        : privateKey.data.algorithm.serialize()
     try {
         return Buffer.concat([
             Buffer.from([
@@ -621,23 +629,29 @@ function parsePrivateKeyRequest(
     const [encodedAlgorithm, afterAlgorithm] = readNextBuffer(raw)
     raw = afterAlgorithm
     const algorithmName = decodeSSHName(encodedAlgorithm, "SSH agent private key type")
-    const Algorithm = PrivateKey.algorithms.get(algorithmName)
-    if (!Algorithm) throw new SSHAgentProtocolError("Unsupported SSH agent private key type")
-    const [algorithm, afterKey] = Algorithm.parse(raw) as [InstanceType<typeof Algorithm>, Buffer]
-    raw = afterKey
+    let privateKey: PrivateKey
+    if (isCertificateKeyAlgorithm(algorithmName)) {
+        ;[privateKey, raw] = parseCertificatePrivateKey(algorithmName, raw)
+    } else {
+        const Algorithm = PrivateKey.algorithms.get(algorithmName)
+        if (!Algorithm) throw new SSHAgentProtocolError("Unsupported SSH agent private key type")
+        const [algorithm, afterKey] = Algorithm.parse(raw) as [
+            InstanceType<typeof Algorithm>,
+            Buffer,
+        ]
+        raw = afterKey
+        const publicKey = algorithm.getPublicKey()
+        if (publicKey.data.alg !== algorithmName) throw new Error("private key type mismatch")
+        privateKey = new PrivateKey({ alg: algorithmName, publicKey, algorithm })
+    }
     const [encodedComment, afterComment] = readNextBuffer(raw)
     raw = afterComment
     const comment = decodeSSHUTF8(encodedComment, "SSH agent identity comment")
     const constraints = constrained ? parseConstraints(raw, "identity") : Object.freeze([])
     if (!constrained && raw.length !== 0) throw new Error("trailing data")
-    const publicKey = algorithm.getPublicKey()
-    if (publicKey.data.alg !== algorithmName) throw new Error("private key type mismatch")
-    const privateKey = new PrivateKey({
-        alg: algorithmName,
-        publicKey,
-        algorithm,
-        comment: comment.length === 0 ? undefined : comment,
-    })
+    if (comment.length !== 0) {
+        privateKey = new PrivateKey({ ...privateKey.data, comment })
+    }
     validateSecurityKeyProviderConstraint(privateKey, constraints)
     return Object.freeze({
         privateKey,

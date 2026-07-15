@@ -383,6 +383,10 @@ const CERTIFICATE_KEY_ALGORITHMS = new Map<string, string>([
     ),
 ])
 
+export function isCertificateKeyAlgorithm(algorithm: string): boolean {
+    return CERTIFICATE_KEY_ALGORITHMS.has(algorithm)
+}
+
 export class SSHCertificatePublicKey implements PublicKeyAlgorithm {
     static has_encryption = false
     static has_signature = true

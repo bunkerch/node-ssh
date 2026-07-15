@@ -48,8 +48,9 @@ try {
 
 The management methods are:
 
-- `addIdentity(privateKey, options?)` adds a DSA, ECDSA, Ed25519, Ed448, RSA, security-key, or
-  registered custom private-key type. `options.comment` overrides the key comment.
+- `addIdentity(privateKey, options?)` adds a DSA, ECDSA, Ed25519, Ed448, RSA, security-key,
+  certificate-backed, or registered custom private-key type. `options.comment` overrides the key
+  comment.
 - `addToken(tokenId, pin?, options?)` asks the agent to load keys from a hardware token. The add
   request treats the token identifier and PIN as opaque SSH strings.
 - `removeIdentity(publicKey)`, `removeAllIdentities()`, and `removeToken(tokenId, pin?)` remove
@@ -59,6 +60,27 @@ The management methods are:
   `{ kind: "success" }` or `{ kind: "response", contents }`.
 - `queryExtensions()` uses the standard `query` extension and returns its advertised extension
   names.
+
+Create a certificate-backed identity by attaching a parsed certificate to its matching private
+key. The certificate, its embedded public key, and the private material are checked for an exact
+match before the request is sent.
+
+```ts
+import { readFile } from "node:fs/promises"
+import { PrivateKey, PublicKey } from "@bunkerch/modernssh"
+
+const subject = PrivateKey.fromString(await readFile("id_ed25519", "utf8"))
+const certificate = PublicKey.parseString(await readFile("id_ed25519-cert.pub", "utf8"))
+const certifiedSubject = subject.withCertificate(certificate)
+
+await agent.addIdentity(certifiedSubject, { comment: "deployment certificate" })
+```
+
+Standard certificate algorithm names use the private-certificate encoding from
+`draft-ietf-sshm-cert-01`: the complete certificate followed by only the corresponding private
+fields. Deployed certificate aliases use their established complete private-key field layout. The
+client selects the layout from the certificate algorithm name, and the server accepts both while
+validating the binding before invoking application policy.
 
 An extension-specific failure rejects with `SSHAgentExtensionFailureError`. A normal
 `SSHAgentProtocolError` means the extension was unsupported, the request was refused, the reply

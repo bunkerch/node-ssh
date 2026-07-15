@@ -234,9 +234,13 @@ OpenSSH 10 server advertises version `0` and echoes an opaque ping whose caller-
 mutated while the reply is pending.
 
 The agent suite sends fixed RFC 9987 identity-list and signing frames through fragmented UNIX-socket
-reads. A separate integration test starts the system OpenSSH `ssh-agent`, loads an independently
-generated Ed25519 key with `ssh-add`, lists it through `modernssh`, and verifies a delegated
-signature cryptographically.
+reads. It also sends the independently assembled revision-01 Ed25519 private-certificate fields in
+both client and server roles, verifies the resulting private signature against the embedded
+certificate, and rejects a mismatched certificate envelope before application policy. A separate
+integration test starts the system OpenSSH `ssh-agent`, loads an independently generated Ed25519
+key with `ssh-add`, lists it through `modernssh`, and verifies a delegated signature
+cryptographically. That real agent also accepts a generated certificate-backed identity directly
+from the library, lists its certificate, and signs through its matching private key.
 
 Security-key coverage uses fixed Ed25519, P-256, and WebAuthn wire values derived independently from
 the published FIDO/U2F format. Negative cases change the signed counter, WebAuthn challenge,
