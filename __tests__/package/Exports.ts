@@ -481,7 +481,8 @@ describe("package exports", () => {
                     "--input-type=module",
                     "--eval",
                     `
-                    const { Client, createSocketAgent, CygwinAgent, CygwinAgentError, DELAY_COMPRESSION_EXTENSION, delayCompressionExtension, discoverPageantAgentSocket, ELEVATION_EXTENSION, EncodedSignature, generateKeyPair, generateKeyPairSync, KeyRevocationList, KnownHosts, MAX_OPENSSH_AGENT_SESSION_BINDINGS, MAX_SSH_AGENT_MESSAGE_LENGTH, NO_FLOW_CONTROL_EXTENSION, OnePasswordAgent, OPENSSH_AGENT_SECURITY_KEY_PROVIDER, OPENSSH_AGENT_SESSION_BIND, PageantAgent, PageantAgentError, parseKey, PrivateKey, PrivateKeyAgent, PublicKey, PublicKeySubsystemClient, PublicKeySubsystemServer, PublicKeySubsystemStatusCode, SecurityKeyAttestation, SSH_ED25519_SECURITY_KEY_ALGORITHM, SSHAgentConstraintType, SSHAgentExtensionFailureError, SSHAgentMessageType, SSHAgentProtocolClient, SSHAgentProtocolError, SSHAgentProtocolServer, SSHED25519SecurityKeyPrivateKey, SSHED25519SecurityKeyPublicKey } = await import("@bunkerch/modernssh")
+                    const { once } = await import("node:events")
+                    const { Client, createSocketAgent, CygwinAgent, CygwinAgentError, DELAY_COMPRESSION_EXTENSION, delayCompressionExtension, discoverPageantAgentSocket, ELEVATION_EXTENSION, EncodedSignature, generateKeyPair, generateKeyPairSync, KeyRevocationList, KnownHosts, MAX_OPENSSH_AGENT_SESSION_BINDINGS, MAX_SSH_AGENT_MESSAGE_LENGTH, NO_FLOW_CONTROL_EXTENSION, OnePasswordAgent, OPENSSH_AGENT_SECURITY_KEY_PROVIDER, OPENSSH_AGENT_SESSION_BIND, PageantAgent, PageantAgentError, parseKey, PrivateKey, PrivateKeyAgent, PublicKey, PublicKeySubsystemClient, PublicKeySubsystemServer, PublicKeySubsystemStatusCode, SecurityKeyAttestation, Server, SessionChannel, SSH_ED25519_SECURITY_KEY_ALGORITHM, SSHAgentConstraintType, SSHAgentExtensionFailureError, SSHAgentMessageType, SSHAgentProtocolClient, SSHAgentProtocolError, SSHAgentProtocolServer, SSHED25519SecurityKeyPrivateKey, SSHED25519SecurityKeyPublicKey } = await import("@bunkerch/modernssh")
                     const { privateKey, publicKey } = await generateKeyPair("ed25519", {
                         comment: "packed@example.test",
                     })
@@ -551,10 +552,49 @@ describe("package exports", () => {
                     const standaloneMLKEM = new Client({ algorithms: { kex: ["mlkem512-sha256", "mlkem768-sha256", "mlkem1024-sha384"] } })
                     if (standaloneMLKEM.algorithmOffer.kex.join(",") !== "mlkem512-sha256,mlkem768-sha256,mlkem1024-sha384") process.exit(37)
                     if (typeof PublicKeySubsystemClient !== "function" || typeof PublicKeySubsystemServer !== "function" || PublicKeySubsystemStatusCode.Success !== 0) process.exit(38)
+                    let rejectRuntime
+                    const runtimeFailure = new Promise((_, reject) => { rejectRuntime = reject })
+                    const runtimeServer = new Server({ hostKeys: [privateKey], sendAllHostKeys: false })
+                    runtimeServer.on("error", rejectRuntime)
+                    runtimeServer.hooker.hook("noneAuthentication", (_hook, _context, decision) => { decision.allowLogin = true })
+                    runtimeServer.hooker.hook("channelOpenRequest", (_hook, channel, decision) => { decision.allowOpen = channel instanceof SessionChannel })
+                    runtimeServer.on("connection", (connection) => {
+                        connection.on("error", rejectRuntime)
+                        connection.on("channel", (channel) => {
+                            if (!(channel instanceof SessionChannel)) return
+                            channel.hooker.hook("execRequest", (_hook, context, decision) => { decision.success = context.command === "packed-node-runtime" })
+                            channel.events.on("exec", (_command, shell) => {
+                                void (async () => {
+                                    await shell.writeStdout("node-stdout")
+                                    await shell.writeStderr("node-stderr")
+                                    shell.exit(7).close()
+                                })().catch(rejectRuntime)
+                            })
+                        })
+                    })
+                    runtimeServer.listen({ host: "127.0.0.1", port: 0 })
+                    await Promise.race([once(runtimeServer, "listening"), runtimeFailure])
+                    const runtimeAddress = runtimeServer.address()
+                    if (!runtimeAddress || typeof runtimeAddress === "string") process.exit(42)
+                    const runtimeClient = new Client({ hostname: "127.0.0.1", port: runtimeAddress.port, username: "packed-node" })
+                    runtimeClient.on("error", rejectRuntime)
+                    await Promise.race([runtimeClient.connect(), runtimeFailure])
+                    const runtimeCommand = await Promise.race([runtimeClient.exec("packed-node-runtime"), runtimeFailure])
+                    const runtimeStdout = []
+                    const runtimeStderr = []
+                    runtimeCommand.on("data", (data) => runtimeStdout.push(data))
+                    runtimeCommand.stderr.on("data", (data) => runtimeStderr.push(data))
+                    await Promise.race([once(runtimeCommand, "close"), runtimeFailure])
+                    if (Buffer.concat(runtimeStdout).toString() !== "node-stdout") process.exit(43)
+                    if (Buffer.concat(runtimeStderr).toString() !== "node-stderr") process.exit(44)
+                    if (runtimeCommand.exitCode !== 7) process.exit(45)
+                    runtimeClient.end()
+                    await Promise.race([once(runtimeClient, "close"), runtimeFailure])
+                    await runtimeServer.close()
                     process.stdout.write(publicKey.toString())
                 `,
                 ],
-                { cwd: consumer },
+                { cwd: consumer, timeout: 20_000 },
             )
             expect(stdout).toStartWith("ssh-ed25519 ")
             expect(stdout).toEndWith(" packed@example.test")

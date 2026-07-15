@@ -28,6 +28,13 @@ establishes real TCP connections in both directions:
   A Node subprocess also uses the packaged `HTTPAgent` with `http.get()` to reach an HTTP endpoint
   through a forced `direct-tcpip` channel on the OpenSSH server.
 
+The package suite separately builds the publishable archive, installs it into an empty consumer
+directory, and imports only the package root in a native Node.js process. That process starts a
+packaged server and client over TCP, completes key exchange and authentication, executes a command,
+checks stdout, stderr, and exit status, and closes both sides. This verifies that the generated ESM,
+declarations, dependency list, package exports, and actual Node transport runtime work together
+rather than relying on source imports or Bun's runtime compatibility.
+
 The OpenSSH server test requires Docker. The image is tagged locally as
 `modernssh-openssh-test:bookworm`; Docker reuses its build cache after the first run. The pinned base
 image makes the operating-system fixture reproducible, while installing the distribution's
