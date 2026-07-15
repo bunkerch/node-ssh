@@ -103,6 +103,7 @@ import {
     type SSHAgentProtocolOptions,
     type SSHAgentProtocolServerOptions,
     type SSHAgentConstraint,
+    type SFTPServerOptions,
     type ServerConnectionInfo,
     type ServerOptions,
     type PublicKeySubsystemAddOptions,
@@ -162,6 +163,7 @@ describe("package exports", () => {
         const publicKeyServerOptions: PublicKeySubsystemServerOptions = {
             attributes: [{ name: "comment" }],
         }
+        const sftpServerOptions: SFTPServerOptions = { maxConcurrentRequests: 32 }
 
         expect(clientOptions.hostname).toBe("example.test")
         expect(sessionOptions.pty).toBe(true)
@@ -178,6 +180,7 @@ describe("package exports", () => {
         expect(cygwinAgentOptions.handshakeTimeout).toBe(500)
         expect(publicKeyAddOptions.overwrite).toBe(true)
         expect(publicKeyServerOptions.attributes?.[0]?.name).toBe("comment")
+        expect(sftpServerOptions.maxConcurrentRequests).toBe(32)
         expect([
             Agent,
             Channel,

@@ -84,7 +84,7 @@ describe("SFTP server request engine", () => {
         fixture.destroy()
     })
 
-    test("negotiates v3 and serializes requests until each has one response", async () => {
+    test("negotiates v3 and handles pipelined requests concurrently", async () => {
         const fixture = new SFTPClientFixture()
         const server = new SFTPServer(asShell(fixture), {
             extensions: [{ name: "x@test", data: Buffer.from("1") }],
@@ -129,12 +129,8 @@ describe("SFTP server request engine", () => {
             data: Buffer.from("def"),
         })
         await flush()
-        expect(events).toEqual(["READ"])
-        finishRead()
-        await flush()
         expect(events).toEqual(["READ", "WRITE"])
         expect(fixture.responses.slice(1)).toEqual([
-            { type: SFTPPacketType.Data, requestId: 7, data: Buffer.from("abc") },
             {
                 type: SFTPPacketType.Status,
                 requestId: 8,
@@ -143,12 +139,25 @@ describe("SFTP server request engine", () => {
                 languageTag: "",
             },
         ])
+        finishRead()
+        await flush()
+        expect(events).toEqual(["READ", "WRITE"])
+        expect(fixture.responses.slice(1)).toEqual([
+            {
+                type: SFTPPacketType.Status,
+                requestId: 8,
+                code: SFTPStatusCode.Ok,
+                message: "No error",
+                languageTag: "",
+            },
+            { type: SFTPPacketType.Data, requestId: 7, data: Buffer.from("abc") },
+        ])
         fixture.destroy()
     })
 
-    test("awaits response writes before resolving handlers or dispatching the next request", async () => {
+    test("awaits response writes before releasing a configured concurrency slot", async () => {
         const fixture = new SFTPClientFixture()
-        const server = new SFTPServer(asShell(fixture))
+        const server = new SFTPServer(asShell(fixture), { maxConcurrentRequests: 1 })
         const events: string[] = []
         server.hooker.hook("STAT", async (_hook, request) => {
             events.push("STAT:start")
@@ -179,6 +188,65 @@ describe("SFTP server request engine", () => {
         expect(events).toEqual(["STAT:start", "STAT:written", "LSTAT"])
         fixture.releaseWrite()
         await flush()
+        fixture.destroy()
+    })
+
+    test("bounds concurrent request handlers while retaining pipelined work", async () => {
+        const fixture = new SFTPClientFixture()
+        const server = new SFTPServer(asShell(fixture), { maxConcurrentRequests: 2 })
+        const started: number[] = []
+        const releases = new Map<number, () => void>()
+        server.hooker.hook("STAT", async (_hook, request) => {
+            started.push(request.requestId)
+            await new Promise<void>((resolve) => releases.set(request.requestId, resolve))
+            await server.attributes(request.requestId, { size: BigInt(request.requestId) })
+        })
+
+        fixture.send({ type: SFTPPacketType.Init, version: 3, extensions: [] })
+        for (const requestId of [21, 22, 23]) {
+            fixture.send({
+                type: SFTPPacketType.Stat,
+                requestId,
+                path: Buffer.from(`file-${requestId}`),
+            })
+        }
+        await flush()
+
+        expect(started).toEqual([21, 22])
+        releases.get(22)?.()
+        await flush()
+        expect(started).toEqual([21, 22, 23])
+        releases.get(23)?.()
+        releases.get(21)?.()
+        await flush()
+        expect(
+            fixture.responses
+                .filter((packet) => packet.type === SFTPPacketType.Attrs)
+                .map((packet) => packet.requestId),
+        ).toEqual([22, 23, 21])
+        fixture.destroy()
+    })
+
+    test("validates the SFTP handler concurrency bound", () => {
+        for (const value of [0, 1025, 1.5, Number.NaN]) {
+            const fixture = new SFTPClientFixture()
+            try {
+                expect(
+                    () =>
+                        new SFTPServer(asShell(fixture), {
+                            maxConcurrentRequests: value,
+                        }),
+                ).toThrow("between 1 and 1024")
+            } finally {
+                fixture.destroy()
+            }
+        }
+
+        const fixture = new SFTPClientFixture()
+        const server = new SFTPServer(asShell(fixture), { maxConcurrentRequests: 3 })
+        expect(server.maxConcurrentRequests).toBe(3)
+        expect(Reflect.set(server, "maxConcurrentRequests", 1024)).toBe(false)
+        expect(server.maxConcurrentRequests).toBe(3)
         fixture.destroy()
     })
 
@@ -363,8 +431,76 @@ describe("SFTP server request engine", () => {
         expect(() => server.status(requestId, SFTPStatusCode.Ok)).toThrow("data response")
         await server.status(requestId, SFTPStatusCode.Failure, "read failed")
         finishRead()
+        await flush()
         expect(() => server.status(requestId, SFTPStatusCode.Failure)).toThrow("not awaiting")
         fixture.destroy()
+    })
+
+    test("rejects a second response as soon as the first response starts", async () => {
+        const fixture = new SFTPClientFixture()
+        const server = new SFTPServer(asShell(fixture))
+        let firstResponse: Promise<void> | undefined
+        let duplicateError: Error | undefined
+        server.hooker.hook("STAT", (_hook, request) => {
+            firstResponse = server.attributes(request.requestId, { size: 3n })
+            try {
+                void server.attributes(request.requestId, { size: 4n })
+            } catch (error) {
+                duplicateError = error instanceof Error ? error : new Error(String(error))
+            }
+            return firstResponse
+        })
+
+        fixture.send({ type: SFTPPacketType.Init, version: 3, extensions: [] })
+        await flush()
+        fixture.deferWrites = true
+        fixture.send({ type: SFTPPacketType.Stat, requestId: 24, path: Buffer.from("one") })
+        await flush()
+
+        expect(duplicateError?.message).toBe("SFTP request 24 already has a response")
+        expect(fixture.responses.filter((packet) => "requestId" in packet)).toHaveLength(1)
+        fixture.releaseWrite()
+        await firstResponse
+        fixture.destroy()
+    })
+
+    test("allows a request identifier to be reused after its response is written", async () => {
+        const fixture = new SFTPClientFixture()
+        const server = new SFTPServer(asShell(fixture), { maxConcurrentRequests: 2 })
+        let releaseCleanup!: () => void
+        const cleanupReleased = new Promise<void>((resolve) => {
+            releaseCleanup = resolve
+        })
+        let reportFirstResponse!: () => void
+        const firstResponseWritten = new Promise<void>((resolve) => {
+            reportFirstResponse = resolve
+        })
+        server.hooker.hook("STAT", async (_hook, request) => {
+            const first = request.path.equals(Buffer.from("first"))
+            await server.attributes(request.requestId, { size: first ? 1n : 2n })
+            if (first) {
+                reportFirstResponse()
+                await cleanupReleased
+            }
+        })
+
+        fixture.send({ type: SFTPPacketType.Init, version: 3, extensions: [] })
+        fixture.send({ type: SFTPPacketType.Stat, requestId: 30, path: Buffer.from("first") })
+        await firstResponseWritten
+        fixture.send({ type: SFTPPacketType.Stat, requestId: 30, path: Buffer.from("second") })
+        await flush()
+
+        try {
+            expect(
+                fixture.responses
+                    .filter((packet) => packet.type === SFTPPacketType.Attrs)
+                    .map((packet) => packet.attributes.size),
+            ).toEqual([1n, 2n])
+        } finally {
+            releaseCleanup()
+            await flush()
+            fixture.destroy()
+        }
     })
 
     test("normalizes the published OpenSSH symlink argument reversal", () => {
@@ -424,6 +560,29 @@ describe("SFTP server request engine", () => {
         expect(versionFixture.destroyed).toBe(true)
     })
 
+    test("bounds the total active and queued request set", async () => {
+        const fixture = new SFTPClientFixture()
+        const server = new SFTPServer(asShell(fixture), { maxConcurrentRequests: 1 })
+        const errors: Error[] = []
+        server.on("error", (error) => errors.push(error))
+        server.hooker.hook("STAT", async () => new Promise<void>(() => undefined))
+
+        fixture.send({ type: SFTPPacketType.Init, version: 3, extensions: [] })
+        for (let requestId = 0; requestId <= 1024; requestId++) {
+            fixture.send({
+                type: SFTPPacketType.Stat,
+                requestId,
+                path: Buffer.from("file"),
+            })
+        }
+        await flush()
+
+        expect(errors.map((error) => error.message)).toEqual([
+            "SFTP outstanding requests exceed 1024",
+        ])
+        expect(fixture.destroyed).toBe(true)
+    })
+
     test("awaits handlers and converts rejected or missing responses to failures", async () => {
         const fixture = new SFTPClientFixture()
         const server = new SFTPServer(asShell(fixture))
@@ -443,7 +602,15 @@ describe("SFTP server request engine", () => {
         await flush()
 
         expect(hookErrors).toEqual(["stat backend failed"])
-        expect(fixture.responses.slice(1)).toEqual([
+        expect(
+            fixture.responses
+                .slice(1)
+                .toSorted((left, right) =>
+                    "requestId" in left && "requestId" in right
+                        ? left.requestId - right.requestId
+                        : 0,
+                ),
+        ).toEqual([
             {
                 type: SFTPPacketType.Status,
                 requestId: 4,

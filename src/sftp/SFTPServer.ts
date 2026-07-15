@@ -12,7 +12,8 @@ import type {
     SFTPRequestPacket,
 } from "./types.js"
 
-const MAX_QUEUED_REQUESTS = 1024
+const MAX_OUTSTANDING_REQUESTS = 1024
+const DEFAULT_MAX_CONCURRENT_REQUESTS = 64
 
 const STATUS_MESSAGES: Readonly<Record<number, string>> = {
     [SFTPStatusCode.Ok]: "No error",
@@ -61,11 +62,18 @@ export type SFTPServerHooker = {
 export interface SFTPServerOptions {
     extensions?: readonly SFTPExtension[]
     openSSHSymlinkArguments?: boolean
+    /** Maximum request hooks allowed to run concurrently. */
+    maxConcurrentRequests?: number
 }
 
 export interface SFTPSymlinkPaths {
     targetPath: Buffer
     linkPath: Buffer
+}
+
+interface ActiveSFTPRequest {
+    readonly request: SFTPRequestPacket
+    response?: Promise<void>
 }
 
 const REQUEST_HOOK_NAMES = new Map<SFTPPacketType, keyof SFTPServerHooker>([
@@ -98,14 +106,14 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
     readonly openSSHSymlinkArguments: boolean
 
     private readonly parser = new SFTPPacketParser()
+    readonly #maxConcurrentRequests: number
     private readonly queued: SFTPRequestPacket[] = []
     private readonly requestIds = new Set<number>()
-    private active: SFTPRequestPacket | undefined
-    private activeResponse: Promise<void> | undefined
+    private readonly active = new Set<ActiveSFTPRequest>()
+    private readonly awaitingResponse = new Map<number, ActiveSFTPRequest>()
     private initialized = false
     private closed = false
     private dispatchScheduled = false
-    private hookError: Error | undefined
 
     constructor(stream: Shell, options: SFTPServerOptions = {}) {
         super()
@@ -117,13 +125,28 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
             }),
         )
         this.openSSHSymlinkArguments = options.openSSHSymlinkArguments ?? false
-        this.hooker.on("uncaughtException", (_event, error) => {
-            this.hookError = error
-        })
+        this.#maxConcurrentRequests =
+            options.maxConcurrentRequests ?? DEFAULT_MAX_CONCURRENT_REQUESTS
+        if (
+            !Number.isSafeInteger(this.#maxConcurrentRequests) ||
+            this.#maxConcurrentRequests < 1 ||
+            this.#maxConcurrentRequests > MAX_OUTSTANDING_REQUESTS
+        ) {
+            throw new RangeError(
+                `SFTP maximum concurrent requests must be between 1 and ${MAX_OUTSTANDING_REQUESTS}`,
+            )
+        }
+        // Request failures are converted to an SFTP failure response. Applications may add
+        // another listener when they also need to observe the contained backend error.
+        this.hooker.on("uncaughtException", () => undefined)
         stream.on("data", (data: Buffer) => this.receive(data))
         stream.once("end", () => this.handleEnd())
         stream.once("close", () => this.handleEnd())
         stream.once("error", (error) => this.fail(error))
+    }
+
+    get maxConcurrentRequests(): number {
+        return this.#maxConcurrentRequests
     }
 
     status(requestId: number, code: SFTPStatusCode, message = "", languageTag = ""): Promise<void> {
@@ -258,8 +281,10 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
         if (this.requestIds.has(packet.requestId)) {
             throw new SFTPProtocolError(`Duplicate outstanding SFTP request id ${packet.requestId}`)
         }
-        if (this.queued.length >= MAX_QUEUED_REQUESTS) {
-            throw new SFTPProtocolError(`SFTP request queue exceeds ${MAX_QUEUED_REQUESTS}`)
+        if (this.requestIds.size >= MAX_OUTSTANDING_REQUESTS) {
+            throw new SFTPProtocolError(
+                `SFTP outstanding requests exceed ${MAX_OUTSTANDING_REQUESTS}`,
+            )
         }
         this.requestIds.add(packet.requestId)
         this.queued.push(packet)
@@ -270,38 +295,56 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
     }
 
     private scheduleDispatch(): void {
-        if (this.dispatchScheduled || this.active || this.closed || this.queued.length === 0) return
+        if (this.dispatchScheduled || this.closed || this.queued.length === 0) return
         this.dispatchScheduled = true
         queueMicrotask(() => {
             this.dispatchScheduled = false
-            void this.dispatch().then(
-                () => this.scheduleDispatch(),
+            this.dispatchAvailable()
+        })
+    }
+
+    private dispatchAvailable(): void {
+        while (
+            !this.closed &&
+            this.active.size < this.#maxConcurrentRequests &&
+            this.queued.length > 0
+        ) {
+            const request = this.queued.shift()!
+            const active: ActiveSFTPRequest = { request }
+            this.active.add(active)
+            this.awaitingResponse.set(request.requestId, active)
+            void this.dispatch(active).then(
+                () => {
+                    this.active.delete(active)
+                    this.scheduleDispatch()
+                },
                 (error: unknown) => {
                     const failure = error instanceof Error ? error : new Error(String(error))
                     this.destroy(failure)
                 },
             )
-        })
+        }
     }
 
-    private async dispatch(): Promise<void> {
-        if (this.active || this.closed) return
-        const request = this.queued.shift()
-        if (!request) return
-        this.active = request
+    private async dispatch(active: ActiveSFTPRequest): Promise<void> {
+        const { request } = active
         const hookName = REQUEST_HOOK_NAMES.get(request.type)
         if (!hookName) throw new SFTPProtocolError(`Unsupported SFTP request type ${request.type}`)
-        this.hookError = undefined
+        let successful = true
         if (this.hooker.hasHooks(hookName)) {
-            await this.triggerRequestHook(hookName, request)
+            successful = await this.triggerRequestHook(hookName, request)
         } else if (this.hooker.hasHooks("request")) {
-            await this.hooker.triggerHook("request", request)
+            successful = await this.hooker.triggerHookChecked("request", request)
         } else {
             await this.status(request.requestId, SFTPStatusCode.OperationUnsupported)
             return
         }
-        if (this.activeResponse) await this.activeResponse
-        if (this.hookError && this.active === request) {
+        if (active.response) {
+            await active.response
+            return
+        }
+        if (!this.active.has(active)) return
+        if (!successful) {
             await this.status(
                 request.requestId,
                 SFTPStatusCode.Failure,
@@ -309,51 +352,62 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
             )
             return
         }
-        if (this.active === request) {
-            await this.status(
-                request.requestId,
-                SFTPStatusCode.Failure,
-                "SFTP request handler returned without a response",
-            )
-        }
+        await this.status(
+            request.requestId,
+            SFTPStatusCode.Failure,
+            "SFTP request handler returned without a response",
+        )
     }
 
     private triggerRequestHook(
         hookName: keyof SFTPServerHooker,
         request: Readonly<SFTPRequestPacket>,
-    ): Promise<void> {
+    ): Promise<boolean> {
         // REQUEST_HOOK_NAMES is the single mapping between each discriminated packet and hook.
-        return this.hooker.triggerHook(hookName, request as SFTPServerHooker[typeof hookName][0])
+        return this.hooker.triggerHookChecked(
+            hookName,
+            request as SFTPServerHooker[typeof hookName][0],
+        )
     }
 
     private requireActive(requestId: number): SFTPRequestPacket {
+        return this.requireActiveState(requestId).request
+    }
+
+    private requireActiveState(requestId: number): ActiveSFTPRequest {
         if (this.closed) throw new Error("SFTP server session is closed")
-        if (!this.active || this.active.requestId !== requestId) {
+        const active = this.awaitingResponse.get(requestId)
+        if (!active) {
             throw new Error(`SFTP request ${requestId} is not awaiting a response`)
         }
-        return this.active
+        if (active.response) {
+            throw new Error(`SFTP request ${requestId} already has a response`)
+        }
+        return active
     }
 
     private respond(packet: SFTPPacket): Promise<void> {
         if (!("requestId" in packet)) throw new Error("SFTP response has no request id")
-        const request = this.requireActive(packet.requestId)
+        const active = this.requireActiveState(packet.requestId)
         const written = this.writePacket(packet)
         const response = written.then(
             () => {
-                if (this.active === request) {
-                    this.active = undefined
-                    this.requestIds.delete(request.requestId)
+                if (this.awaitingResponse.get(packet.requestId) === active) {
+                    this.awaitingResponse.delete(packet.requestId)
+                    this.requestIds.delete(packet.requestId)
                 }
-                if (this.activeResponse === response) this.activeResponse = undefined
             },
             (error: unknown) => {
-                if (this.activeResponse === response) this.activeResponse = undefined
                 const failure = error instanceof Error ? error : new Error(String(error))
                 this.destroy(failure)
                 throw failure
             },
         )
-        this.activeResponse = response
+        active.response = response
+        // Dispatch also awaits this Promise after the hook settles. Attach an immediate observer
+        // so a handler that starts a response before awaiting other work cannot create a transient
+        // unhandled rejection when the channel write fails in the meantime.
+        void response.catch(() => undefined)
         return response
     }
 
@@ -373,8 +427,8 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
             return
         }
         this.closed = true
-        this.active = undefined
-        this.activeResponse = undefined
+        this.active.clear()
+        this.awaitingResponse.clear()
         this.queued.length = 0
         this.requestIds.clear()
         this.emit("close")
@@ -384,8 +438,8 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
     private fail(error: Error): void {
         if (this.closed) return
         this.closed = true
-        this.active = undefined
-        this.activeResponse = undefined
+        this.active.clear()
+        this.awaitingResponse.clear()
         this.queued.length = 0
         this.requestIds.clear()
         if (this.listenerCount("error") > 0) this.emit("error", error)

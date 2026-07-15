@@ -460,8 +460,10 @@ files through a policy-controlled modern server. Independent literal vectors cov
 request and response layout and every extension payload; malformed framing, counts, flags, handles,
 response types, request identifiers, and extension replies are rejected without relying on another
 JavaScript SSH implementation. In-process write control proves that awaited server responses settle
-only after channel output completes, hold later request dispatch until then, and reject on output
-failure.
+only after channel output completes and reject on output failure. A separate encrypted connection
+proves that a later pipelined request can complete while an earlier async server hook remains
+pending; focused engine tests cover the configurable concurrency bound, out-of-order replies,
+request-identifier reuse, and independent handler failures.
 
 Together, the OpenSSH tests and known vectors exercise identification exchange, KEXINIT
 negotiation, exchange-hash and signature verification, `NEWKEYS`, encrypted and authenticated

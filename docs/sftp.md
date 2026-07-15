@@ -279,7 +279,7 @@ server.on("connection", (connection) => {
 `SFTPServer.hooker` provides the uppercase request hooks used by the protocol: `OPEN`, `CLOSE`, `READ`,
 `WRITE`, `LSTAT`, `FSTAT`, `SETSTAT`, `FSETSTAT`, `OPENDIR`, `READDIR`, `REMOVE`, `MKDIR`, `RMDIR`,
 `REALPATH`, `STAT`, `RENAME`, `READLINK`, `SYMLINK`, and `EXTENDED`. Hooks may be async and are
-awaited before the next request is dispatched. When no specific hook is registered, the generic
+awaited by the request that triggered them. When no specific hook is registered, the generic
 `request` hook is used as a fallback. An entirely unhandled request gets
 `SFTPStatusCode.OperationUnsupported`. The EventEmitter `requestReceived` event is passive
 observation and does not take ownership of the response. Its request object and nested metadata are
@@ -295,17 +295,22 @@ Complete each request exactly once with the appropriate method:
 
 Every response method returns a Promise. Await it from the Hooker handler: it resolves only after
 the response has been accepted by the SSH channel write, and rejects if that write fails. The
-server does not dispatch the next queued request until the response write completes, so handler
-ordering includes both application work and protocol output.
+request retains its concurrency slot until both the handler and response write complete.
 
 The implementation rejects duplicate outstanding identifiers, invalid response types, oversized
 read results, empty name responses, server use of client-only connection status codes, and a second
 response. A hook rejection becomes an SFTP failure response and is observable through the hooker's
 `uncaughtException` event; returning without a response also produces a failure instead of leaving
-the client pending. Requests are dispatched one at a time in arrival order. This conservative scheduling
-guarantees the draft's ordering semantics for operations on the same file and provides fairness
-without requiring an application handler to infer which opaque handles alias one resource. The
-bounded queue accepts at most 1024 waiting requests.
+the client pending.
+
+SFTP clients pipeline tagged requests and may receive their responses out of order. The server
+therefore runs up to 64 request hooks concurrently by default while keeping each response and
+contained hook failure associated with its own request identifier. Set `maxConcurrentRequests` in
+the session's `decision.sftp` options to a safe integer from 1 through 1024 when backend capacity
+requires another bound; setting it to 1 deliberately restores serial dispatch. At most 1024 total
+queued and active requests are accepted. Operations that require ordering on the same application
+resource must use an application-owned per-handle or per-path lock rather than assuming wire arrival
+order.
 
 Advertise extension name/version pairs through `decision.sftp.extensions` only when every advertised
 operation is actually implemented:
@@ -314,6 +319,7 @@ operation is actually implemented:
 decision.success = true
 decision.sftp = {
     extensions: [{ name: "example@example.com", data: Buffer.from("1") }],
+    maxConcurrentRequests: 32,
 }
 ```
 
