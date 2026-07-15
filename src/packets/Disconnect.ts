@@ -113,11 +113,18 @@ export default class Disconnect implements Packet {
 
 export class DisconnectError extends Error {
     name = "DisconnectError"
-    reason_code: DisconnectReason
+    readonly reason_code: number
+    readonly languageTag: string
 
-    constructor(reason_code: DisconnectReason, message: string) {
+    constructor(reason_code: number, message: string, languageTag = "") {
         super(message)
+        if (!Number.isInteger(reason_code) || reason_code < 0 || reason_code > 0xffff_ffff) {
+            throw new RangeError("SSH disconnect reason must be a uint32")
+        }
+        encodeSSHUTF8(message, "SSH disconnect description")
+        encodeSSHLanguageTag(languageTag, "SSH disconnect language tag")
         this.reason_code = reason_code
+        this.languageTag = languageTag
     }
 }
 

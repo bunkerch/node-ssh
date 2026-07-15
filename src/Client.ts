@@ -1618,7 +1618,7 @@ export default class Client extends EventEmitter<ClientEvents> {
                 new Disconnect({
                     reason_code: error.reason_code,
                     description: error.message,
-                    language_tag: "",
+                    language_tag: error.languageTag,
                 }),
             )
             this.socket.end()
@@ -2495,16 +2495,22 @@ export default class Client extends EventEmitter<ClientEvents> {
     }
 
     end(): this {
+        return this.disconnect(
+            new DisconnectError(DisconnectReason.SSH_DISCONNECT_BY_APPLICATION, ""),
+        )
+    }
+
+    disconnect(error?: DisconnectError): this {
         this.clearReadyTimeout()
         this.clearKeepalive()
         this.clearRekeyTimer()
         if (this.socket && !this.socket.destroyed && this.socket.writable) {
-            if (this.serverProtocolVersion) {
+            if (this.serverProtocolVersion && error) {
                 this.sendPacket(
                     new Disconnect({
-                        reason_code: DisconnectReason.SSH_DISCONNECT_BY_APPLICATION,
-                        description: "",
-                        language_tag: "",
+                        reason_code: error.reason_code,
+                        description: error.message,
+                        language_tag: error.languageTag,
                     }),
                 )
             }

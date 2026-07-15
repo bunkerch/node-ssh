@@ -48,6 +48,8 @@ protocol errors rather than being replaced with the Unicode replacement characte
 are empty or valid RFC 3066 ASCII tags. The same codec is used for channel-open failure text and
 other protocol messages that carry these field types.
 
+### Auxiliary transport messages and shutdown
+
 Both peer roles expose RFC 4253 diagnostic messages through `protocolDebug`. Its immutable value
 retains the peer's `alwaysDisplay`, `message`, and `languageTag` fields; applications decide how and
 where to display it. `sendDebug(message, alwaysDisplay?, languageTag?)` sends the corresponding
@@ -76,6 +78,26 @@ packets with no fields reject stray metadata instead of silently accepting an in
 Both `Client` and `ServerClient` emit `disconnect` with an immutable `PeerDisconnectInfo` before
 their subsequent `close` event. It contains `reasonCode`, `description`, and `languageTag` exactly
 as validated from the peer. `peerDisconnect` retains that snapshot after closure.
+
+`end()` sends the ordinary `BY_APPLICATION` reason with empty description and language tag. Use
+`disconnect()` when the peer should receive a more specific RFC 4253 reason or localized
+description. `DisconnectError` validates the uint32 reason, UTF-8 description, and RFC 3066
+language tag when it is constructed. Both client and server connections support the same API:
+
+```ts
+import { once } from "node:events"
+import { DisconnectError, DisconnectReason } from "@bunkerch/modernssh"
+
+const closed = once(client, "close")
+client.disconnect(
+    new DisconnectError(
+        DisconnectReason.SSH_DISCONNECT_BY_APPLICATION,
+        "maintenance in progress",
+        "en-US",
+    ),
+)
+await closed
+```
 
 Both roles also emit `end` when the readable side of the underlying transport reaches EOF. SSH has
 no transport half-close state in which a connection can continue without receiving packets, so the

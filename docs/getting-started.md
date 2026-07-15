@@ -119,9 +119,12 @@ flags have the same value, normal system resolution is used. These four options 
 an already-connected `sock` is supplied.
 
 `end()` sends `SSH_MSG_DISCONNECT` with the `BY_APPLICATION` reason and gracefully ends the TCP
-connection. `destroy()` immediately destroys the underlying connection. Both methods return the
-client instance. `setNoDelay()` controls Nagle's algorithm on the underlying TCP socket and also
-returns the client.
+connection. Use `disconnect(new DisconnectError(reason, description, languageTag))` to send a
+specific validated reason and localized description instead. `destroy()` immediately destroys the
+underlying connection. All three methods return the client instance. `setNoDelay()` controls
+Nagle's algorithm on the underlying TCP socket and also returns the client. See
+[SSH transport behavior](transport.md#auxiliary-transport-messages-and-shutdown) for a complete
+disconnect example.
 
 The `end` event reports peer transport EOF. Because SSH cannot continue without an inbound packet
 stream, the client then destroys even an `allowHalfOpen` injected transport; terminal cleanup and
@@ -275,7 +278,8 @@ does not expose them.
 capability and is a safe no-op for other duplex transports. Call `ServerClient.end()` for a
 graceful application shutdown: it sends an RFC 4253 `BY_APPLICATION` disconnect before ending the
 transport. `terminate()` destroys the transport immediately, while `disconnect(error)` sends a
-caller-selected protocol reason.
+caller-selected protocol reason, UTF-8 description, and optional RFC 3066 language tag. The
+`DisconnectError` and `DisconnectReason` values are exported from the package root.
 
 An application that already owns an accepted `net.Socket`, SSH channel, or custom connected
 `Duplex` can pass it through the same admission and handshake path with

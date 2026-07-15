@@ -633,7 +633,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 new Disconnect({
                     reason_code: error.reason_code,
                     description: error.message,
-                    language_tag: "",
+                    language_tag: error.languageTag,
                 }),
             )
         }

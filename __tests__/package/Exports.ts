@@ -19,6 +19,8 @@ import {
     CygwinAgentError,
     DirectTCPIPChannel,
     DirectStreamLocalChannel,
+    DisconnectError,
+    DisconnectReason,
     decodeSFTPLimits,
     DELAY_COMPRESSION_EXTENSION,
     delayCompressionExtension,
@@ -181,6 +183,8 @@ describe("package exports", () => {
             ClientX11Channel,
             DirectTCPIPChannel,
             DirectStreamLocalChannel,
+            DisconnectError,
+            DisconnectReason,
             DiskAgent,
             EncodedSignature,
             ForwardedTCPIPChannel,
@@ -212,7 +216,14 @@ describe("package exports", () => {
             SSHAgent,
             SSHHTTPAgent,
             SSHHTTPSAgent,
-        ]).toHaveLength(42)
+        ]).toHaveLength(44)
+        expect(
+            new DisconnectError(
+                DisconnectReason.SSH_DISCONNECT_BY_APPLICATION,
+                "maintenance",
+                "en-US",
+            ).languageTag,
+        ).toBe("en-US")
         expect(SSHAuthenticationMethods.PublicKey).toBe("publickey")
         expect(SSHAuthenticationMethods.KeyboardInteractive).toBe("keyboard-interactive")
         expect(SSHAuthenticationMethods.GSSAPIWithMIC).toBe("gssapi-with-mic")
@@ -290,6 +301,8 @@ describe("package exports", () => {
         expect(entry.parseKeys).toBeFunction()
         expect(entry.DirectTCPIPChannel).toBeDefined()
         expect(entry.DirectStreamLocalChannel).toBeDefined()
+        expect(entry.DisconnectError).toBeFunction()
+        expect(entry.DisconnectReason.SSH_DISCONNECT_BY_APPLICATION).toBe(11)
         expect(entry.ForwardedTCPIPChannel).toBeDefined()
         expect(entry.ForwardedAgentChannel).toBeDefined()
         expect(entry.ForwardedStreamLocalChannel).toBeDefined()
@@ -376,6 +389,7 @@ describe("package exports", () => {
         expect(client).not.toContain("options: ClientOptionsRequired")
         expect(server).not.toContain("options: ServerOptionsRequired")
         expect(client).toContain("globalRequest(name: string, args?: Buffer): Promise<Buffer>")
+        expect(client).toContain("disconnect(error?: DisconnectError): this")
         expect(client).toContain("authenticationMethodsOrder?: readonly SSHAuthenticationMethods[]")
         expect(client).toContain("replyTimeout?: number")
         expect(client).toContain("maxPendingChannelOpens?: number")
@@ -447,6 +461,7 @@ describe("package exports", () => {
         expect(channel).toContain("sendExtendedData(dataType: number, data: Buffer): Promise<void>")
         expect(serverClient).not.toContain("ServerGlobalRequestCallback")
         expect(serverClient).toContain("rekey(): Promise<void>")
+        expect(serverClient).toContain("disconnect(error?: DisconnectError): this")
         expect(serverClient).toContain("forwardAgent(): Promise<ForwardedAgentChannel>")
         expect(serverClient).toContain(
             "sendAuthenticationExtensions(extensions: readonly SSHExtension[]): this",
@@ -541,7 +556,7 @@ describe("package exports", () => {
                     "--eval",
                     `
                     const { once } = await import("node:events")
-                    const { Client, createSocketAgent, CygwinAgent, CygwinAgentError, DELAY_COMPRESSION_EXTENSION, delayCompressionExtension, discoverPageantAgentSocket, ELEVATION_EXTENSION, EncodedSignature, generateKeyPair, generateKeyPairSync, KeyRevocationList, KnownHosts, MAX_OPENSSH_AGENT_SESSION_BINDINGS, MAX_SSH_AGENT_MESSAGE_LENGTH, NO_FLOW_CONTROL_EXTENSION, OnePasswordAgent, OPENSSH_AGENT_SECURITY_KEY_PROVIDER, OPENSSH_AGENT_SESSION_BIND, PageantAgent, PageantAgentError, parseKey, PrivateKey, PrivateKeyAgent, PublicKey, PublicKeySubsystemClient, PublicKeySubsystemServer, PublicKeySubsystemStatusCode, SecurityKeyAttestation, Server, SessionChannel, SSH_ED25519_SECURITY_KEY_ALGORITHM, SSHAgentConstraintType, SSHAgentExtensionFailureError, SSHAgentMessageType, SSHAgentProtocolClient, SSHAgentProtocolError, SSHAgentProtocolServer, SSHED25519SecurityKeyPrivateKey, SSHED25519SecurityKeyPublicKey } = await import("@bunkerch/modernssh")
+                    const { Client, createSocketAgent, CygwinAgent, CygwinAgentError, DELAY_COMPRESSION_EXTENSION, delayCompressionExtension, discoverPageantAgentSocket, DisconnectError, DisconnectReason, ELEVATION_EXTENSION, EncodedSignature, generateKeyPair, generateKeyPairSync, KeyRevocationList, KnownHosts, MAX_OPENSSH_AGENT_SESSION_BINDINGS, MAX_SSH_AGENT_MESSAGE_LENGTH, NO_FLOW_CONTROL_EXTENSION, OnePasswordAgent, OPENSSH_AGENT_SECURITY_KEY_PROVIDER, OPENSSH_AGENT_SESSION_BIND, PageantAgent, PageantAgentError, parseKey, PrivateKey, PrivateKeyAgent, PublicKey, PublicKeySubsystemClient, PublicKeySubsystemServer, PublicKeySubsystemStatusCode, SecurityKeyAttestation, Server, SessionChannel, SSH_ED25519_SECURITY_KEY_ALGORITHM, SSHAgentConstraintType, SSHAgentExtensionFailureError, SSHAgentMessageType, SSHAgentProtocolClient, SSHAgentProtocolError, SSHAgentProtocolServer, SSHED25519SecurityKeyPrivateKey, SSHED25519SecurityKeyPublicKey } = await import("@bunkerch/modernssh")
                     const { privateKey, publicKey } = await generateKeyPair("ed25519", {
                         comment: "packed@example.test",
                     })
@@ -613,12 +628,15 @@ describe("package exports", () => {
                     if (typeof PublicKeySubsystemClient !== "function" || typeof PublicKeySubsystemServer !== "function" || PublicKeySubsystemStatusCode.Success !== 0) process.exit(38)
                     let rejectRuntime
                     const runtimeFailure = new Promise((_, reject) => { rejectRuntime = reject })
+                    let resolveRuntimeDisconnect
+                    const runtimeDisconnect = new Promise((resolve) => { resolveRuntimeDisconnect = resolve })
                     const runtimeServer = new Server({ hostKeys: [privateKey], sendAllHostKeys: false, banner: "packed-banner", bannerLanguageTag: "en-US" })
                     runtimeServer.on("error", rejectRuntime)
                     runtimeServer.hooker.hook("noneAuthentication", (_hook, _context, decision) => { decision.allowLogin = true })
                     runtimeServer.hooker.hook("channelOpenRequest", (_hook, channel, decision) => { decision.allowOpen = channel instanceof SessionChannel })
                     runtimeServer.on("connection", (connection) => {
                         connection.on("error", rejectRuntime)
+                        connection.once("disconnect", resolveRuntimeDisconnect)
                         connection.on("channel", (channel) => {
                             if (!(channel instanceof SessionChannel)) return
                             channel.hooker.hook("execRequest", (_hook, context, decision) => { decision.success = context.command === "packed-node-runtime" })
@@ -650,7 +668,9 @@ describe("package exports", () => {
                     if (Buffer.concat(runtimeStdout).toString() !== "node-stdout") process.exit(43)
                     if (Buffer.concat(runtimeStderr).toString() !== "node-stderr") process.exit(44)
                     if (runtimeCommand.exitCode !== 7) process.exit(45)
-                    runtimeClient.end()
+                    runtimeClient.disconnect(new DisconnectError(DisconnectReason.SSH_DISCONNECT_BY_APPLICATION, "packed maintenance", "en-US"))
+                    const runtimeDisconnectInfo = await Promise.race([runtimeDisconnect, runtimeFailure])
+                    if (JSON.stringify(runtimeDisconnectInfo) !== JSON.stringify({ reasonCode: 11, description: "packed maintenance", languageTag: "en-US" })) process.exit(47)
                     await Promise.race([once(runtimeClient, "close"), runtimeFailure])
                     await runtimeServer.close()
                     process.stdout.write(publicKey.toString())

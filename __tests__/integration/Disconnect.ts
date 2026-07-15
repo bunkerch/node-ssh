@@ -50,6 +50,23 @@ async function closePeers(server: Server, client: Client): Promise<void> {
 }
 
 describe("RFC 4253 peer disconnects", () => {
+    test("validates application-created disconnect metadata", () => {
+        expect(() => new DisconnectError(-1, "invalid reason")).toThrow(
+            "SSH disconnect reason must be a uint32",
+        )
+        expect(
+            () => new DisconnectError(DisconnectReason.SSH_DISCONNECT_BY_APPLICATION, "\ud800"),
+        ).toThrow("SSH disconnect description is not valid UTF-8 text")
+        expect(
+            () =>
+                new DisconnectError(
+                    DisconnectReason.SSH_DISCONNECT_BY_APPLICATION,
+                    "maintenance",
+                    "en_US",
+                ),
+        ).toThrow("SSH disconnect language tag is not valid RFC 3066")
+    })
+
     test("marks channels closed when their transport terminates", async () => {
         const { server, peer, client } = await createConnectedPeers()
         let serverChannel: SessionChannel | undefined
@@ -126,14 +143,18 @@ describe("RFC 4253 peer disconnects", () => {
             const pending = client.globalRequest("pending@example.test")
             await new Promise<void>((resolve) => setImmediate(resolve))
             peer.disconnect(
-                new DisconnectError(DisconnectReason.SSH_DISCONNECT_BY_APPLICATION, "maintenance"),
+                new DisconnectError(
+                    DisconnectReason.SSH_DISCONNECT_BY_APPLICATION,
+                    "maintenance",
+                    "en-US",
+                ),
             )
 
             const info = await disconnect
             expect(info).toEqual({
                 reasonCode: DisconnectReason.SSH_DISCONNECT_BY_APPLICATION,
                 description: "maintenance",
-                languageTag: "",
+                languageTag: "en-US",
             })
             expect(Object.isFrozen(info)).toBe(true)
             await expect(pending).rejects.toBeInstanceOf(PeerDisconnectError)
@@ -156,16 +177,16 @@ describe("RFC 4253 peer disconnects", () => {
         const closed = new Promise<void>((resolve) => peer.once("close", resolve))
 
         try {
-            client.end()
+            expect(
+                client.disconnect(new DisconnectError(0xfe00_0001, "maintenance complete", "fr")),
+            ).toBe(client)
             await expect(disconnect).resolves.toEqual({
-                reasonCode: DisconnectReason.SSH_DISCONNECT_BY_APPLICATION,
-                description: "",
-                languageTag: "",
+                reasonCode: 0xfe00_0001,
+                description: "maintenance complete",
+                languageTag: "fr",
             })
             await closed
-            expect(peer.peerDisconnect?.reasonCode).toBe(
-                DisconnectReason.SSH_DISCONNECT_BY_APPLICATION,
-            )
+            expect(peer.peerDisconnect?.reasonCode).toBe(0xfe00_0001)
         } finally {
             await closePeers(server, client)
         }
