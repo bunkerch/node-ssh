@@ -90,20 +90,31 @@ describe("configured diagnostic sinks", () => {
 
     test("does not expose opaque agent identity IDs or key comments", async () => {
         const hostKey = await PrivateKey.generate("ssh-ed25519")
+        const rejectedIdentity = await PrivateKey.generate("ssh-ed25519")
         const identity = await PrivateKey.generate("ssh-ed25519")
+        const rejectedPublicKey = rejectedIdentity.data.publicKey
         const publicKey = identity.data.publicKey
+        rejectedPublicKey.data.comment = "rejected-agent-comment-private-metadata"
         publicKey.data.comment = "agent-comment-private-metadata"
-        const identityId = "agent-id-private-metadata"
+        const rejectedIdentityId = "rejected-agent-id-private-metadata"
+        const identityId = "accepted-agent-id-private-metadata"
         const agent: Agent<string> = {
             type: AgentType.NonInteractive,
             async getPublicKeys() {
-                return [[identityId, publicKey]]
+                return [
+                    [rejectedIdentityId, rejectedPublicKey],
+                    [identityId, publicKey],
+                ]
             },
             async getPublicKey(id) {
+                if (id === rejectedIdentityId) return rejectedPublicKey
                 if (id !== identityId) throw new Error("Unknown identity")
                 return publicKey
             },
             async sign(id, data, algorithm) {
+                if (id === rejectedIdentityId) {
+                    throw new Error("agent-error-private-metadata")
+                }
                 if (id !== identityId) throw new Error("Unknown identity")
                 return identity.sign(data, algorithm)
             },
@@ -132,11 +143,24 @@ describe("configured diagnostic sinks", () => {
 
         try {
             await client.connect()
-            const output = JSON.stringify(diagnostics)
+            const output = diagnostics
+                .flatMap((message) => message)
+                .map((value) =>
+                    value instanceof Error
+                        ? `${value.name}: ${value.message}`
+                        : typeof value === "string"
+                          ? value
+                          : JSON.stringify(value),
+                )
+                .join("\n")
             expect(output).toContain(publicKey.hash("sha256"))
+            expect(output).toContain(rejectedPublicKey.hash("sha256"))
             expect(output).not.toContain(identityId)
+            expect(output).not.toContain(rejectedIdentityId)
             expect(output).not.toContain(publicKey.data.comment)
+            expect(output).not.toContain(rejectedPublicKey.data.comment)
             expect(output).not.toContain(publicKey.serialize().toString("base64"))
+            expect(output).not.toContain("agent-error-private-metadata")
         } finally {
             client.destroy()
             for (const connection of server.clients) connection.terminate()

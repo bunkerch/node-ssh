@@ -208,12 +208,11 @@ export default class PublicKeyAuthMethod implements AuthMethod {
                             break
                         }
                     }
-                } catch (err) {
+                } catch {
                     client.debug(
                         `[Authentication]`,
                         `[PublicKey]`,
-                        `Public Key authentication threw an error`,
-                        err,
+                        `Public key authentication attempt failed`,
                     )
                     assertCurrent()
                 }
