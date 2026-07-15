@@ -30,6 +30,12 @@ const rfc4716RSABody =
     "YYFw8pfGesIFoEuVth4HKyF8k1y4mRUnYHP1XNMNMJl1JcEArC2asV8sHf6zSPVffozZ" +
     "5TT4SfsUu/iKy9lUcCfXzwre4WWZSXXcPff+EHtWshahu3WzBdnGxm5Xoi89zcE="
 const rfc4716RSAWrappedBody = rfc4716RSABody.match(/.{1,72}/gu)!.join("\n")
+const securityKeyBlob = Buffer.from(
+    "0000001a736b2d7373682d65643235353139406f70656e7373682e636f6d" +
+        "00000020d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a" +
+        "000000087373683a74657374",
+    "hex",
+)
 
 describe("key parsing", () => {
     test("imports the fixed RFC 4716 RSA public-key example", () => {
@@ -264,6 +270,26 @@ describe("key parsing", () => {
                 privateKey.data.publicKey,
             ),
         ).toBe(true)
+
+        const securityKey = PublicKey.parse(securityKeyBlob)
+        expect(
+            (parseKey(Buffer.from(securityKey.toString())) as PublicKey).equals(securityKey),
+        ).toBe(true)
+        expect((parseKey(securityKeyBlob) as PublicKey).equals(securityKey)).toBe(true)
+    })
+
+    test("rejects malformed UTF-8 in textual key inputs", async () => {
+        const publicKey = (await PrivateKey.generate("ssh-ed25519")).data.publicKey
+        const line = publicKey.toString()
+        const invalidBuffer = Buffer.concat([
+            Buffer.from(`${line} invalid-`, "utf8"),
+            Buffer.from([0xff]),
+        ])
+
+        expect(() => parseKey(invalidBuffer)).toThrow("Key input is not valid UTF-8 text")
+        expect(() => parseKey(`${line} invalid-\ud800`)).toThrow(
+            "Key input is not valid UTF-8 text",
+        )
     })
 
     test("routes encrypted private keys and rejects passphrases for public keys", async () => {

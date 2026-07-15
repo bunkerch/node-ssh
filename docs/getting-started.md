@@ -396,7 +396,9 @@ authorized-key lines, generic SubjectPublicKeyInfo public PEM, PKCS#1 RSA public
 public-key files by their explicit framing. The return type is `PrivateKey | PublicKey`; a
 passphrase is accepted only when the input is private. Authorized-key, RFC 4716, and PPK blobs
 require canonical standard base64; malformed characters and noncanonical pad bits are rejected
-rather than silently ignored.
+rather than silently ignored. Text files supplied as buffers are decoded as strict UTF-8 after
+their framing is recognized, including `sk-` security-key lines; malformed text is rejected while
+raw SSH public-key blobs remain opaque binary input.
 
 ```ts
 import { readFile } from "node:fs/promises"

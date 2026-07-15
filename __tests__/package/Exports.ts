@@ -697,6 +697,7 @@ describe("package exports", () => {
                     if (!(securityKey.data.algorithm instanceof SSHED25519SecurityKeyPublicKey)) process.exit(23)
                     if (SSH_ED25519_SECURITY_KEY_ALGORITHM !== "sk-ssh-ed25519@openssh.com") process.exit(24)
                     if (!securityKey.verifySignature(Buffer.from("security-key-message"), securityKeySignature)) process.exit(25)
+                    if (!parseKey(Buffer.from(securityKey.toString())).equals(securityKey)) process.exit(56)
                     const securityPrivateKey = new SSHED25519SecurityKeyPrivateKey({ publicKey: securityKey.data.algorithm.data.publicKey, application: "ssh:test", flags: 1, keyHandle: Buffer.from([1]), reserved: Buffer.alloc(0) })
                     if (!securityPrivateKey.getPublicKey().equals(securityKey)) process.exit(26)
                     if (OPENSSH_AGENT_SECURITY_KEY_PROVIDER !== "sk-provider@openssh.com") process.exit(27)
