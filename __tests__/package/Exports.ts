@@ -38,6 +38,8 @@ import {
     EncodedSignature,
     encodeSFTPPacket,
     encodeSFTPLimits,
+    encodeSFTPStatVFS,
+    encodeSFTPUsersGroups,
     flagsToString,
     ForwardedTCPIPChannel,
     ForwardedAgentChannel,
@@ -315,6 +317,8 @@ describe("package exports", () => {
         expect(decodeSFTPTwoPathExtension).toBeFunction()
         expect(decodeSFTPUsersGroupsExtension).toBeFunction()
         expect(encodeSFTPLimits).toBeFunction()
+        expect(encodeSFTPStatVFS).toBeFunction()
+        expect(encodeSFTPUsersGroups).toBeFunction()
         expect(SFTPPacketParser).toBeFunction()
         expect(SFTPPacketType.Init).toBe(1)
         expect(SFTPClient).toBeFunction()
@@ -420,6 +424,8 @@ describe("package exports", () => {
         expect(entry.decodeSFTPTwoPathExtension).toBeFunction()
         expect(entry.decodeSFTPUsersGroupsExtension).toBeFunction()
         expect(entry.encodeSFTPLimits).toBeDefined()
+        expect(entry.encodeSFTPStatVFS).toBeFunction()
+        expect(entry.encodeSFTPUsersGroups).toBeFunction()
         expect(entry.TerminalMode.TTY_OP_OSPEED).toBe(129)
         expect(entry.TerminalModes).toBe(entry.TerminalMode)
         expect(entry.SSHAgentProtocolClient).toBeFunction()
@@ -644,6 +650,12 @@ describe("package exports", () => {
         )
         expect(sftpExtensions).toContain(
             "decodeSFTPUsersGroupsExtension(data: Buffer): Readonly<SFTPUsersGroupsExtension>",
+        )
+        expect(sftpExtensions).toContain(
+            "encodeSFTPStatVFS(statistics: Readonly<SFTPStatVFS>): Buffer",
+        )
+        expect(sftpExtensions).toContain(
+            "encodeSFTPUsersGroups(names: Readonly<SFTPUserGroupNames>): Buffer",
         )
         expect(shell).toContain("writeStdout(data: Buffer | string")
         expect(shell).toContain("writeStderr(data: Buffer | string")

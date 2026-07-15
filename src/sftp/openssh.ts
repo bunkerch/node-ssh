@@ -232,6 +232,22 @@ export function decodeSFTPStatVFS(data: Buffer): Readonly<SFTPStatVFS> {
     return Object.freeze(value)
 }
 
+export function encodeSFTPStatVFS(statistics: Readonly<SFTPStatVFS>): Buffer {
+    return Buffer.concat([
+        uint64(statistics.blockSize, "statvfs block size"),
+        uint64(statistics.fragmentSize, "statvfs fragment size"),
+        uint64(statistics.blocks, "statvfs blocks"),
+        uint64(statistics.blocksFree, "statvfs free blocks"),
+        uint64(statistics.blocksAvailable, "statvfs available blocks"),
+        uint64(statistics.files, "statvfs files"),
+        uint64(statistics.filesFree, "statvfs free files"),
+        uint64(statistics.filesAvailable, "statvfs available files"),
+        uint64(statistics.filesystemId, "statvfs filesystem id"),
+        uint64(statistics.flags, "statvfs flags"),
+        uint64(statistics.maximumFilenameLength, "statvfs maximum filename length"),
+    ])
+}
+
 export function decodeSFTPLimits(data: Buffer): Readonly<SFTPLimits> {
     const reader = new Reader(data)
     const value: SFTPLimits = {
@@ -261,6 +277,13 @@ export function decodeSFTPUsersGroups(data: Buffer): Readonly<SFTPUserGroupNames
     return Object.freeze({ usernames, groupNames })
 }
 
+export function encodeSFTPUsersGroups(names: Readonly<SFTPUserGroupNames>): Buffer {
+    return Buffer.concat([
+        encodeSFTPExtensionString(encodeNames(names.usernames)),
+        encodeSFTPExtensionString(encodeNames(names.groupNames)),
+    ])
+}
+
 function decodeNames(data: Buffer, name: string): readonly string[] {
     const reader = new Reader(data)
     const names: string[] = []
@@ -268,6 +291,11 @@ function decodeNames(data: Buffer, name: string): readonly string[] {
         names.push(decodeSSHUTF8(reader.string(name), `SFTP ${name} entry`))
     }
     return names
+}
+
+function encodeNames(names: readonly string[]): Buffer {
+    if (!Array.isArray(names)) throw new TypeError("SFTP user and group names must be arrays")
+    return Buffer.concat(names.map((name) => encodeSFTPExtensionString(name)))
 }
 
 function extensionHandle(reader: Reader, name: string): Buffer {

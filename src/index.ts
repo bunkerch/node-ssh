@@ -128,7 +128,9 @@ export {
     encodeSFTPExtensionString,
     encodeSFTPLSetStatExtension,
     encodeSFTPLimits,
+    encodeSFTPStatVFS,
     encodeSFTPTwoPathExtension,
+    encodeSFTPUsersGroups,
     encodeSFTPUsersGroupsExtension,
 } from "./sftp/openssh.js"
 export type {

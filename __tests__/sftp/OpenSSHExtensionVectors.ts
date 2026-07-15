@@ -13,7 +13,9 @@ import {
     encodeSFTPExtensionString,
     encodeSFTPLSetStatExtension,
     encodeSFTPLimits,
+    encodeSFTPStatVFS,
     encodeSFTPTwoPathExtension,
+    encodeSFTPUsersGroups,
     encodeSFTPUsersGroupsExtension,
 } from "../../src/sftp/openssh.js"
 
@@ -108,6 +110,21 @@ describe("OpenSSH SFTP extension fixed vectors", () => {
             maximumFilenameLength: 0xffff_ffff_ffff_ffffn,
         })
         expect(
+            encodeSFTPStatVFS({
+                blockSize: 1n,
+                fragmentSize: 2n,
+                blocks: 3n,
+                blocksFree: 4n,
+                blocksAvailable: 5n,
+                files: 6n,
+                filesFree: 7n,
+                filesAvailable: 8n,
+                filesystemId: 9n,
+                flags: 10n,
+                maximumFilenameLength: 0xffff_ffff_ffff_ffffn,
+            }),
+        ).toEqual(statvfs)
+        expect(
             decodeSFTPLimits(
                 hex(`
                     0000000000040000 000000000003f000
@@ -136,14 +153,12 @@ describe("OpenSSH SFTP extension fixed vectors", () => {
     })
 
     test("decodes nested user and group name strings", () => {
-        expect(
-            decodeSFTPUsersGroups(
-                hex(`
-                    00000009 00000001 75 00000000
-                    00000005 00000001 67
-                `),
-            ),
-        ).toEqual({ usernames: ["u", ""], groupNames: ["g"] })
+        const names = hex(`
+            00000009 00000001 75 00000000
+            00000005 00000001 67
+        `)
+        expect(decodeSFTPUsersGroups(names)).toEqual({ usernames: ["u", ""], groupNames: ["g"] })
+        expect(encodeSFTPUsersGroups({ usernames: ["u", ""], groupNames: ["g"] })).toEqual(names)
         expect(() => decodeSFTPUsersGroups(hex(`00000005 00000001 ff 00000000`))).toThrow(
             "SFTP usernames entry is not valid UTF-8 text",
         )
@@ -161,7 +176,25 @@ describe("OpenSSH SFTP extension fixed vectors", () => {
             }),
         ).toThrow("uint64")
         expect(() => decodeSFTPStatVFS(Buffer.alloc(87))).toThrow("Truncated")
+        expect(() =>
+            encodeSFTPStatVFS({
+                blockSize: -1n,
+                fragmentSize: 0n,
+                blocks: 0n,
+                blocksFree: 0n,
+                blocksAvailable: 0n,
+                files: 0n,
+                filesFree: 0n,
+                filesAvailable: 0n,
+                filesystemId: 0n,
+                flags: 0n,
+                maximumFilenameLength: 0n,
+            }),
+        ).toThrow("uint64")
         expect(() => decodeSFTPUsersGroups(hex(`00000004 ffffffff 00000000`))).toThrow("Truncated")
+        expect(() => encodeSFTPUsersGroups({ usernames: ["\ud800"], groupNames: [] })).toThrow(
+            "SFTP extension string is not valid UTF-8 text",
+        )
         expect(() =>
             encodeSFTPCopyDataExtension(Buffer.alloc(0), -1n, 0n, Buffer.alloc(0), 0n),
         ).toThrow("uint64")

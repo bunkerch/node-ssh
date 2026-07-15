@@ -274,6 +274,11 @@ rejects truncation and trailing bytes, and returns owned buffers. Handle decoder
 256-byte handle bound. `copy-data` offsets and lengths remain `bigint`; user and group identifiers
 remain unsigned 32-bit numbers.
 
+Successful `statvfs` and `fstatvfs` hooks can pass `encodeSFTPStatVFS()` to
+`sftp.extendedReply()`. A `users-groups-by-id` hook uses `encodeSFTPUsersGroups()` for its two
+ordered name lists. These response encoders are exact inverses of the client decoders, retain all
+unsigned 64-bit filesystem values, and reject invalid UTF-8 names before writing a response.
+
 The published `copy-data` protocol requires `SFTPStatusCode.InvalidParameter` when both handles are
 the same. The server permits this registered status only for `EXTENDED` requests; baseline SFTP v3
 requests retain the v3 status-code set.
