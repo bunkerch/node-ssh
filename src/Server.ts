@@ -138,6 +138,10 @@ export interface ServerOptionsRequired
 }
 
 function normalizeGreeting(greeting: string): string {
+    if (typeof greeting !== "string") {
+        throw new TypeError("SSH server greeting must be a string")
+    }
+    encodeSSHUTF8(greeting, "SSH server greeting")
     if (greeting.length === 0) return ""
     if (greeting.includes("\0") || /\r(?!\n)/u.test(greeting)) {
         throw new TypeError("SSH server greeting must not contain NUL or a bare CR")
@@ -389,7 +393,9 @@ export default class Server extends EventEmitter<ServerEvents> {
                       this.#options.protocolVersionExchange ?? ProtocolVersionExchange.defaultValue,
                   )
                 : ProtocolVersionExchange.fromIdent(this.#options.ident)
-        this.#options.greeting = normalizeGreeting(this.#options.greeting ?? "")
+        this.#options.greeting = normalizeGreeting(
+            this.#options.greeting === undefined ? "" : this.#options.greeting,
+        )
         this.#options.hostKeys = (options.hostKeys ?? []).map((input) => {
             const wrapped =
                 typeof input === "object" &&

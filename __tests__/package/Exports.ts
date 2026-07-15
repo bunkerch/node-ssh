@@ -659,6 +659,7 @@ describe("package exports", () => {
                     const configured = new Client({ privateKey: encrypted, passphrase: "packed-secret" })
                     if ("options" in configured) process.exit(5)
                     try { new Client({ port: 0 }); process.exit(57) } catch (error) { if (!String(error).includes("between 1 and 65535")) process.exit(58) }
+                    try { new Server({ greeting: "invalid\\ud800greeting" }); process.exit(59) } catch (error) { if (!String(error).includes("not valid UTF-8 text")) process.exit(60) }
                     const legacy = generateKeyPairSync("dsa")
                     const legacySignature = legacy.privateKey.sign(message)
                     if (!legacy.publicKey.verifySignature(message, legacySignature)) process.exit(6)

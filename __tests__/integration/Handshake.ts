@@ -61,7 +61,7 @@ describe("client/server integration", () => {
         const server = new Server({
             hostKeys: [hostKey],
             sendAllHostKeys: false,
-            greeting: "Authorized integration only\nMaintenance at 02:00",
+            greeting: "Authorized integration only\nMaintenance at 02:00 — δοκιμή",
             algorithms: {
                 kex: ["curve25519-sha256"],
                 serverHostKey: ["ssh-ed25519"],
@@ -400,7 +400,9 @@ describe("client/server integration", () => {
             expect(connectEvents).toBe(1)
             expect(serverErrors).toEqual([])
             expect(clientErrors).toEqual([])
-            expect(greetings).toEqual(["Authorized integration only\r\nMaintenance at 02:00\r\n"])
+            expect(greetings).toEqual([
+                "Authorized integration only\r\nMaintenance at 02:00 — δοκιμή\r\n",
+            ])
             expect(serverPeer?.clientProtocolVersion).toEqual(
                 new ProtocolVersionExchange("2.0", "modernssh_integration", "fixed-comment"),
             )
@@ -991,6 +993,42 @@ describe("client/server integration", () => {
         expect(() => new Client({ readyTimeout: -1 })).toThrow(
             "SSH ready timeout must be a non-negative number",
         )
+    })
+
+    test("rejects malformed RFC 4253 greeting text in both peer roles", async () => {
+        expect(() => new Server({ greeting: null as unknown as string })).toThrow(
+            "SSH server greeting must be a string",
+        )
+        expect(() => new Server({ greeting: "invalid\ud800greeting" })).toThrow(
+            "SSH server greeting is not valid UTF-8 text",
+        )
+
+        const malformedGreetings = [
+            [Buffer.from([0xff, 0x0d, 0x0a]), "SSH server greeting is not valid UTF-8 text"],
+            [Buffer.from("invalid\0greeting\r\n"), "SSH server greeting must not contain NUL"],
+        ] as const
+
+        for (const [greeting, message] of malformedGreetings) {
+            const peer = createServer((socket) => {
+                socket.write(Buffer.concat([greeting, Buffer.from("SSH-2.0-test_peer\r\n")]))
+            })
+            peer.listen({ host: "127.0.0.1", port: 0 })
+            await once(peer, "listening")
+            const client = new Client({
+                hostname: "127.0.0.1",
+                port: (peer.address() as AddressInfo).port,
+                readyTimeout: 1_000,
+            })
+            client.on("error", () => undefined)
+            try {
+                await expect(client.connect()).rejects.toThrow(message)
+            } finally {
+                client.destroy()
+                await new Promise<void>((resolve, reject) => {
+                    peer.close((error) => (error ? reject(error) : resolve()))
+                })
+            }
+        }
     })
 
     test("binds and resolves a new TCP connection with the configured address family", async () => {

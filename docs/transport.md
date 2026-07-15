@@ -31,7 +31,8 @@ cannot change the identification used on the wire or in the exchange hash.
 
 Servers accept the same `ident` shorthand. The `greeting` server option sends informational lines
 before that identifier; line endings are normalized to CRLF and the same line-length and line-count
-bounds enforced by the client parser are applied before listening.
+bounds enforced by the client parser are applied before listening. Greeting text must be valid
+UTF-8 without NUL; invalid JavaScript surrogate text is rejected during server construction.
 
 Network reads do not correspond to SSH messages. The incremental identification parser therefore
 handles an identifier split across any number of TCP chunks and preserves binary packet bytes that
@@ -39,8 +40,10 @@ arrive in the same chunk as the identifier.
 
 An SSH server may send informational lines before its identifier. `Client` emits their complete
 concatenation, including line endings, once through `greeting`; it also emits each line through
-`message`, and its decoded contents without the line ending through `tcpWrapperLog`. To place finite
-bounds on unauthenticated input, a preamble line is limited to 8192
+`tcpWrapperLog` without the line ending. Wire text is decoded as strict UTF-8 and NUL is rejected;
+applications that display a greeting remain responsible for filtering other control characters as
+recommended by RFC 4253. To place finite bounds on unauthenticated input, a preamble line is limited
+to 8192
 bytes and a preamble is limited to 1024 lines. RFC 4253 prohibits clients from sending equivalent
 preamble lines, so `ServerClient` rejects them.
 

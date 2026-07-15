@@ -166,7 +166,7 @@ import { ActionQueue } from "./utils/ActionQueue.js"
 import PrivateKeyAgent from "./publickey/PrivateKeyAgent.js"
 import { createSocketAgent } from "./publickey/SocketAgent.js"
 import { parseKey } from "./KeyParsing.js"
-import { encodeSSHUTF8 } from "./utils/SSHText.js"
+import { decodeSSHUTF8, encodeSSHUTF8 } from "./utils/SSHText.js"
 import {
     closeGSSAPIContext,
     buildGSSAPIKeyExchangeUserAuthMIC,
@@ -885,7 +885,7 @@ export default class Client extends EventEmitter<ClientEvents> {
 
     private socket?: Duplex
     private identificationParser = new IdentificationParser({ allowPreamble: true })
-    private readonly greetingChunks: Buffer[] = []
+    private readonly greetingLines: string[] = []
     readonly algorithmOffer: ResolvedAlgorithmOptions
     readonly #kexAlgorithms: ReadonlyMap<string, KexAlgorithmFactory>
     private packetDecoder = new BinaryPacketDecoder()
@@ -1086,7 +1086,7 @@ export default class Client extends EventEmitter<ClientEvents> {
         )
         this.peerDisconnect = undefined
         this.identificationParser = new IdentificationParser({ allowPreamble: true })
-        this.greetingChunks.length = 0
+        this.greetingLines.length = 0
         this.packetDecoder = new BinaryPacketDecoder()
         this.packetEncoder = new BinaryPacketEncoder()
         this.packetProcessingPaused = false
@@ -2901,16 +2901,20 @@ export default class Client extends EventEmitter<ClientEvents> {
         if (!this.serverProtocolVersion) {
             const result = this.identificationParser.push(message)
             for (const lineBuf of result.preamble) {
-                this.greetingChunks.push(Buffer.from(lineBuf))
-                const line = lineBuf.toString("utf8").replace(/\r?\n$/u, "")
+                const greetingLine = decodeSSHUTF8(lineBuf, "SSH server greeting")
+                if (greetingLine.includes("\0")) {
+                    throw new Error("SSH server greeting must not contain NUL")
+                }
+                this.greetingLines.push(greetingLine)
+                const line = greetingLine.replace(/\r?\n$/u, "")
                 this.emit("tcpWrapperLog", line)
                 this.debug("TCP Wrapper log:", line)
             }
 
             if (!result.version || !result.identification) return
 
-            if (this.greetingChunks.length > 0) {
-                this.emit("greeting", Buffer.concat(this.greetingChunks).toString("utf8"))
+            if (this.greetingLines.length > 0) {
+                this.emit("greeting", this.greetingLines.join(""))
             }
 
             this.serverProtocolVersion = result.version
