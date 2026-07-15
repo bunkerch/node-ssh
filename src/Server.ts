@@ -165,6 +165,7 @@ export interface ServerEvents {
     close: []
     error: [error: Error]
     listening: []
+    drop: [info: Readonly<ServerConnectionInfo>]
     connection: [client: ServerClient, info: Readonly<ServerConnectionInfo>]
 }
 
@@ -599,6 +600,16 @@ export default class Server extends EventEmitter<ServerEvents> {
         this.maximumConnections = value
     }
 
+    /** Whether the owned TCP server is currently accepting connections. */
+    get listening(): boolean {
+        return this.server.listening
+    }
+
+    /** Synchronous snapshot of TCP and injected transports currently owned by the server. */
+    get connections(): number {
+        return this.transports.size
+    }
+
     listen(port?: number, hostname?: string, backlog?: number): this
     listen(port?: number, backlog?: number): this
     listen(path: string, backlog?: number): this
@@ -660,6 +671,11 @@ export default class Server extends EventEmitter<ServerEvents> {
         return this.transports.size
     }
 
+    async [Symbol.asyncDispose](): Promise<void> {
+        if (!this.listenRequested && !this.server.listening) return
+        await this.close()
+    }
+
     close(): Promise<void> {
         if (this.listenRequested && !this.server.listening) {
             this.listenRequested = false
@@ -687,7 +703,9 @@ export default class Server extends EventEmitter<ServerEvents> {
         if (this.transports.has(socket)) return false
         if (this.transports.size >= this.maxConnections) {
             this.debug(`Connection limit of ${this.maxConnections} reached`)
+            const endpoint = connectionInfo(socket)
             socket.destroy()
+            this.emit("drop", endpoint)
             return false
         }
         this.transports.add(socket)
@@ -698,14 +716,7 @@ export default class Server extends EventEmitter<ServerEvents> {
     private async acceptSocket(socket: ServerTransport, reserved = false): Promise<void> {
         if (!reserved && !this.reserveTransport(socket)) return
         this.debug(`Connection from ${socket.remoteAddress?.toString() ?? "unknown"}`)
-        const connectionInfo: Readonly<ServerConnectionInfo> = Object.freeze({
-            remoteAddress: socket.remoteAddress,
-            remoteFamily: socket.remoteFamily,
-            remotePort: socket.remotePort,
-            localAddress: socket.localAddress,
-            localFamily: socket.localFamily,
-            localPort: socket.localPort,
-        })
+        const endpoint = connectionInfo(socket)
         const client = new ServerClient(socket, this)
         try {
             if (this.hooker.hasHooks("preconnect")) {
@@ -733,7 +744,7 @@ export default class Server extends EventEmitter<ServerEvents> {
             }
             this.clients.add(client)
             client.once("close", () => this.clients.delete(client))
-            this.emit("connection", client, connectionInfo)
+            this.emit("connection", client, endpoint)
             await client.connect()
         } catch (error) {
             client.debug("Client connection failed")
@@ -746,4 +757,15 @@ export default class Server extends EventEmitter<ServerEvents> {
         this.#options.debug?.(...message)
         this.emit("debug", ...message)
     }
+}
+
+function connectionInfo(socket: ServerTransport): Readonly<ServerConnectionInfo> {
+    return Object.freeze({
+        remoteAddress: socket.remoteAddress,
+        remoteFamily: socket.remoteFamily,
+        remotePort: socket.remotePort,
+        localAddress: socket.localAddress,
+        localFamily: socket.localFamily,
+        localPort: socket.localPort,
+    })
 }

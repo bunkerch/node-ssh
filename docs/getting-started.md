@@ -272,8 +272,11 @@ larger key inventory without announcing it after authentication.
 
 `Server` mirrors useful Node TCP-server controls without exposing callback completion flows.
 `getConnections()` and `close()` return Promises, `listen()` reports readiness through the
-`listening` event, and `address()`, `ref()`, and `unref()` remain synchronous. Set
-`server.maxConnections` before listening to bound the transports owned concurrently by the server:
+`listening` event, and `address()`, `ref()`, and `unref()` remain synchronous. The readonly
+`server.listening` and `server.connections` properties provide synchronous state snapshots;
+`await server[Symbol.asyncDispose]()` closes an active listener and also permits `await using`.
+Set `server.maxConnections` before listening to bound the transports owned concurrently by the
+server:
 
 ```ts
 server.maxConnections = 200
@@ -285,8 +288,10 @@ new transport. A connection consumes a slot before the awaited `preconnect` poli
 admission checks cannot bypass the bound. The server's `handshakeTimeout` starts before that policy,
 so a policy that never settles cannot retain the slot indefinitely unless the deadline is explicitly
 disabled. `getConnections()` includes these pending transports as well as admitted SSH clients, and
-a slot is released when its underlying transport closes. A peer rejected because the limit is full
-is closed before SSH parsing or application policy begins.
+a slot is released when its underlying transport closes. `connections` reports the same owned set
+synchronously. A peer rejected because the limit is full is closed before SSH parsing or
+application policy begins, then emits `drop` with an immutable endpoint snapshot. The event also
+covers injected transports, whose unavailable endpoint fields remain `undefined`.
 
 Call `listen()` only once until the server has closed; a duplicate request made while host-key
 preparation or native listener startup is pending throws synchronously instead of creating an

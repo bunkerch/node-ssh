@@ -29,6 +29,24 @@ test("the server connection limit accepts only non-negative integers or infinity
     )
 })
 
+test("the server exposes synchronous lifecycle state and async disposal", async () => {
+    const server = new Server({
+        hostKeys: [await PrivateKey.generate("ssh-ed25519")],
+        sendAllHostKeys: false,
+    })
+    expect(server.listening).toBe(false)
+    expect(server.connections).toBe(0)
+
+    server.listen({ host: "127.0.0.1", port: 0 })
+    await once(server, "listening")
+    expect(server.listening).toBe(true)
+
+    await server[Symbol.asyncDispose]()
+    expect(server.listening).toBe(false)
+    expect(server.connections).toBe(0)
+    await server[Symbol.asyncDispose]()
+})
+
 test("a pending TCP admission counts toward the server connection limit", async () => {
     const server = new Server({
         hostKeys: [await PrivateKey.generate("ssh-ed25519")],
@@ -52,17 +70,24 @@ test("a pending TCP admission counts toward the server connection limit", async 
         port: (server.address() as AddressInfo).port,
     })
     first.on("error", () => undefined)
+    const dropped = once(server, "drop")
     const second = createConnection({
         host: "127.0.0.1",
         port: (server.address() as AddressInfo).port,
     })
     second.on("error", () => undefined)
+    const secondClosed = once(second, "close")
 
     try {
         await admissionStarted.promise
         expect(await server.getConnections()).toBe(1)
+        expect(server.connections).toBe(1)
 
-        await once(second, "close")
+        const [dropInfo] = await dropped
+        await secondClosed
+        expect(Object.isFrozen(dropInfo)).toBe(true)
+        expect(dropInfo.remoteAddress).toBe("127.0.0.1")
+        expect(dropInfo.localAddress).toBe("127.0.0.1")
         expect(admissionAttempts).toBe(1)
 
         const admitted = once(server, "connection")
@@ -72,6 +97,7 @@ test("a pending TCP admission counts toward the server connection limit", async 
         client.terminate()
         await closed
         expect(await server.getConnections()).toBe(0)
+        expect(server.connections).toBe(0)
     } finally {
         releaseAdmission.resolve()
         first.destroy()
@@ -93,11 +119,23 @@ test("an injected transport reserves its connection slot synchronously", async (
     try {
         expect(server.injectSocket(first)).toBe(server)
         expect(await server.getConnections()).toBe(1)
+        expect(server.connections).toBe(1)
 
+        const dropped = once(server, "drop")
         const rejected = once(second, "close")
         expect(server.injectSocket(second)).toBe(server)
+        const [dropInfo] = await dropped
         await rejected
+        expect(dropInfo).toEqual({
+            remoteAddress: undefined,
+            remoteFamily: undefined,
+            remotePort: undefined,
+            localAddress: undefined,
+            localFamily: undefined,
+            localPort: undefined,
+        })
         expect(await server.getConnections()).toBe(1)
+        expect(server.connections).toBe(1)
     } finally {
         first.destroy()
         second.destroy()
