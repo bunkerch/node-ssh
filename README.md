@@ -24,7 +24,8 @@ adding, removing, and listing an authenticated user's authorized keys. The
 [known-hosts guide](docs/known-hosts.md) covers persistent host verification, host certificates,
 revocation, and key rotation, while the
 [key revocation list guide](docs/key-revocation-lists.md) covers binary key and certificate
-revocation policy. The
+revocation policy, and the [detached signature guide](docs/signatures.md) covers namespace-bound
+signing and verification with private keys or agents. The
 [interoperability matrix](docs/interoperability.md) records cross-implementation coverage, and the
 [standards coverage index](docs/rfc-coverage.md) maps each implemented RFC to production code,
 tests, and remaining evidence gaps.

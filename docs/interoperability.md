@@ -292,6 +292,13 @@ display are checked against the document's literal RSA example and strict malfor
 continuation, line-length, UTF-8, and base64 cases. Generated Ed25519 files are exchanged in both
 directions with `ssh-keygen`, including package-archive exports.
 
+Detached signature coverage parses an independently assembled fixed `SSHSIG` blob, enforces
+namespace binding, owns data across awaited agent signing, and rejects malformed armor and future
+versions. Ed25519 and RSA signatures are exchanged in both directions with `ssh-keygen -Y`; the
+command-line verifier accepts library output through an allowed-signers file, and the library
+cryptographically verifies command-line output. RSA coverage proves SHA-2 signatures are used
+instead of RSA-SHA1.
+
 PPK import uses the RFC 8032 Ed25519 seed, public key, and empty-message signature as a fixed
 private-key vector in both version 2 and version 3 envelopes. The system `puttygen` independently
 accepts those fixtures, and generated version 3 fixtures cover RSA, DSA, Ed25519, Ed448, and every

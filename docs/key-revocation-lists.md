@@ -82,8 +82,10 @@ if (!revocations.isSignedBy(trustedSigner)) {
 `isSignedBy()` returns true only for a key whose embedded signature was already verified. Requiring
 it also detects an attacker who strips every signature. The published format notes that current
 OpenSSH versions refuse signature sections and recommends separately authenticated SSHSIG files,
-so signed KRLs may not be consumable by system tools. Unsigned KRLs distributed through an already
-authenticated and integrity-protected channel remain supported.
+which can be created and checked with `SSHSignature` as described in
+[Detached SSH signatures](signatures.md). Signed KRLs may therefore not be consumable by system
+tools. Unsigned KRLs distributed through an already authenticated and integrity-protected channel
+remain supported.
 
 ## Rollback policy
 
