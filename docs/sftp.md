@@ -117,7 +117,8 @@ mutating them cannot redirect later reads, writes, or close operations. Supplied
 most 256 bytes, matching the protocol boundary enforced by the rest of the SFTP API.
 
 Call `sftp.end()` to send EOF to the subsystem once no requests remain. `sftp.destroy(error?)`
-aborts it.
+aborts it. An abort rejects every pending request and handle allocation with the supplied error;
+subsequent operations reject because the SFTP session is closed.
 
 ## Paths, offsets, and attributes
 
@@ -127,6 +128,11 @@ values and are limited to the protocol's
 256-byte maximum. `realpath()`, `readlink()`, `opensshExpandPath()`, and `homeDirectory()` return a
 strict UTF-8 string by default; pass `"buffer"` as their final argument to receive the returned name
 as an owned `Buffer` without decoding it.
+
+Every handle-taking client method validates the Buffer type and 256-byte limit before allocating or
+writing a request, including zero-length reads, empty writes, attribute helpers, and extensions.
+The method snapshots a valid handle before retaining it across asynchronous work, so later caller
+mutation cannot change the request.
 
 Text arguments to extensions receive the same strict encoding. OpenSSH user/group lookup names are
 strictly decoded as UTF-8; malformed replies fail instead of exposing replacement characters.

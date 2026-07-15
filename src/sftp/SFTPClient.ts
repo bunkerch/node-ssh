@@ -539,7 +539,7 @@ export default class SFTPClient {
     }
 
     async close(handle: Buffer): Promise<void> {
-        const ownedHandle = Buffer.from(handle)
+        const ownedHandle = ownHandle(handle)
         await this.statusRequest({
             type: SFTPPacketType.Close,
             requestId: this.allocateRequestId(),
@@ -549,6 +549,8 @@ export default class SFTPClient {
     }
 
     async read(handle: Buffer, length: number, position: SFTPPosition): Promise<Buffer> {
+        const ownedHandle = ownHandle(handle)
+        const offset = positionBigInt(position)
         const maximumReadLength = this.maxReadLength
         if (!Number.isSafeInteger(maximumReadLength) || maximumReadLength < 1) {
             throw new RangeError("SFTP maximum read length must be a positive safe integer")
@@ -561,8 +563,8 @@ export default class SFTPClient {
             {
                 type: SFTPPacketType.Read,
                 requestId: this.allocateRequestId(),
-                handle,
-                offset: positionBigInt(position),
+                handle: ownedHandle,
+                offset,
                 length,
             },
             SFTPPacketType.Data,
@@ -575,7 +577,8 @@ export default class SFTPClient {
     }
 
     async write(handle: Buffer, data: Buffer, position: SFTPPosition): Promise<void> {
-        const ownedHandle = Buffer.from(handle)
+        const ownedHandle = ownHandle(handle)
+        if (!Buffer.isBuffer(data)) throw new TypeError("SFTP write data must be a buffer")
         const ownedData = Buffer.from(data)
         const maximumWriteLength = this.maxWriteLength
         if (!Number.isSafeInteger(maximumWriteLength) || maximumWriteLength < 1) {
@@ -604,11 +607,12 @@ export default class SFTPClient {
     }
 
     async fstat(handle: Buffer): Promise<SFTPStats> {
+        const ownedHandle = ownHandle(handle)
         const response = await this.request(
             {
                 type: SFTPPacketType.FStat,
                 requestId: this.allocateRequestId(),
-                handle,
+                handle: ownedHandle,
             },
             SFTPPacketType.Attrs,
         )
@@ -626,10 +630,11 @@ export default class SFTPClient {
     }
 
     async fsetstat(handle: Buffer, attributes: SFTPAttributes): Promise<void> {
+        const ownedHandle = ownHandle(handle)
         await this.statusRequest({
             type: SFTPPacketType.FSetStat,
             requestId: this.allocateRequestId(),
-            handle,
+            handle: ownedHandle,
             attributes,
         })
     }
@@ -653,12 +658,13 @@ export default class SFTPClient {
     }
 
     async readdir(handle: Buffer): Promise<readonly SFTPClientNameEntry[] | null> {
+        const ownedHandle = ownHandle(handle)
         try {
             const response = await this.request(
                 {
                     type: SFTPPacketType.ReadDir,
                     requestId: this.allocateRequestId(),
-                    handle,
+                    handle: ownedHandle,
                 },
                 SFTPPacketType.Name,
             )
@@ -781,11 +787,11 @@ export default class SFTPClient {
     }
 
     async opensshFStatVFS(handle: Buffer): Promise<Readonly<SFTPStatVFS>> {
-        validateHandle(handle)
+        const ownedHandle = ownHandle(handle)
         const response = await this.extensionRequest(
             "fstatvfs@openssh.com",
             "2",
-            encodeSFTPExtensionString(handle),
+            encodeSFTPExtensionString(ownedHandle),
             SFTPPacketType.ExtendedReply,
         )
         if (response.type !== SFTPPacketType.ExtendedReply) {
@@ -811,8 +817,12 @@ export default class SFTPClient {
     }
 
     opensshFSync(handle: Buffer): Promise<void> {
-        validateHandle(handle)
-        return this.extensionStatus("fsync@openssh.com", "1", encodeSFTPExtensionString(handle))
+        const ownedHandle = ownHandle(handle)
+        return this.extensionStatus(
+            "fsync@openssh.com",
+            "1",
+            encodeSFTPExtensionString(ownedHandle),
+        )
     }
 
     ext_openssh_fsync(handle: Buffer): Promise<void> {
@@ -863,16 +873,16 @@ export default class SFTPClient {
         destinationHandle: Buffer,
         destinationOffset: SFTPPosition,
     ): Promise<void> {
-        validateHandle(sourceHandle)
-        validateHandle(destinationHandle)
+        const ownedSourceHandle = ownHandle(sourceHandle)
+        const ownedDestinationHandle = ownHandle(destinationHandle)
         return this.extensionStatus(
             "copy-data",
             "1",
             encodeSFTPCopyDataExtension(
-                sourceHandle,
+                ownedSourceHandle,
                 positionBigInt(sourceOffset),
                 positionBigInt(length),
-                destinationHandle,
+                ownedDestinationHandle,
                 positionBigInt(destinationOffset),
             ),
         )
@@ -1360,9 +1370,15 @@ function uint64BigInt(value: SFTPPosition, name: string): bigint {
 }
 
 function validateHandle(handle: Buffer): void {
+    if (!Buffer.isBuffer(handle)) throw new TypeError("SFTP handle must be a buffer")
     if (handle.length > MAX_SFTP_HANDLE_LENGTH) {
         throw new RangeError(`SFTP handle exceeds ${MAX_SFTP_HANDLE_LENGTH} bytes`)
     }
+}
+
+function ownHandle(handle: Buffer): Buffer {
+    validateHandle(handle)
+    return Buffer.from(handle)
 }
 
 function safeLimitNumber(limit: bigint): number {

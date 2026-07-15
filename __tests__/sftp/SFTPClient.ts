@@ -107,6 +107,32 @@ describe("SFTP client request engine", () => {
         expect(fixture.destroyed).toBe(true)
     })
 
+    test("an explicit abort rejects every pending request with its cause", async () => {
+        const fixture = new SFTPServerFixture((packet) => {
+            if (packet.type === SFTPPacketType.Init) {
+                fixture.send({ type: SFTPPacketType.Version, version: 3, extensions: [] })
+            }
+        })
+        const client = await SFTPClient.connect(asClientChannel(fixture))
+        const requests = [client.stat("pending"), client.open("pending", "r")]
+        const cause = new Error("application aborted SFTP")
+
+        client.destroy(cause)
+        const results = await Promise.allSettled(requests)
+
+        expect(
+            results.map((result) => ({
+                status: result.status,
+                sameCause: result.status === "rejected" && result.reason === cause,
+            })),
+        ).toEqual([
+            { status: "rejected", sameCause: true },
+            { status: "rejected", sameCause: true },
+        ])
+        await expect(client.stat("after-abort")).rejects.toThrow("SFTP session is closed")
+        expect(fixture.destroyed).toBe(true)
+    })
+
     test("rejects an invalid write limit before sending a request", async () => {
         let writeRequests = 0
         const fixture = new SFTPServerFixture((packet) => {
@@ -294,6 +320,100 @@ describe("SFTP client request engine", () => {
             size: 1n,
             statError: undefined,
         })
+        fixture.destroy()
+    })
+
+    test("validates every handle boundary even when an operation emits no packet", async () => {
+        const requests: SFTPPacketType[] = []
+        const fixture = new SFTPServerFixture((packet) => {
+            if (packet.type === SFTPPacketType.Init) {
+                fixture.send({
+                    type: SFTPPacketType.Version,
+                    version: 3,
+                    extensions: [
+                        { name: "fstatvfs@openssh.com", data: Buffer.from("2") },
+                        { name: "fsync@openssh.com", data: Buffer.from("1") },
+                        { name: "copy-data", data: Buffer.from("1") },
+                    ],
+                })
+                return
+            }
+            requests.push(packet.type)
+            if ("requestId" in packet) {
+                fixture.send({
+                    type: SFTPPacketType.Status,
+                    requestId: packet.requestId,
+                    code: SFTPStatusCode.Ok,
+                    message: "",
+                    languageTag: "",
+                })
+            }
+        })
+        const client = await SFTPClient.connect(asClientChannel(fixture))
+        const oversized = Buffer.alloc(257)
+        const valid = Buffer.from("handle")
+        const operations: readonly [string, () => Promise<unknown>][] = [
+            ["close", () => client.close(oversized)],
+            ["zero-length read", () => client.read(oversized, 0, 0)],
+            ["empty write", () => client.write(oversized, Buffer.alloc(0), 0)],
+            ["fstat", () => client.fstat(oversized)],
+            ["fsetstat", () => client.fsetstat(oversized, {})],
+            ["ftruncate", () => client.ftruncate(oversized, 0)],
+            ["readdir", () => client.readdir(oversized)],
+            ["fchmod", () => client.fchmod(oversized, 0o600)],
+            ["fchown", () => client.fchown(oversized, 1, 2)],
+            ["futimes", () => client.futimes(oversized, 1, 2)],
+            ["fstatvfs", () => client.opensshFStatVFS(oversized)],
+            ["fsync", () => client.opensshFSync(oversized)],
+            ["copy-data source", () => client.copyData(oversized, 0, 0, valid, 0)],
+            ["copy-data destination", () => client.copyData(valid, 0, 0, oversized, 0)],
+        ]
+        const outcomes: Record<string, string | undefined> = {}
+        for (const [name, operation] of operations) {
+            try {
+                await operation()
+            } catch (error) {
+                outcomes[name] = error instanceof Error ? error.message : String(error)
+            }
+        }
+        try {
+            await client.close("handle" as never)
+        } catch (error) {
+            outcomes["non-buffer handle"] = error instanceof Error ? error.message : String(error)
+        }
+        try {
+            await client.write(valid, "data" as never, 0)
+        } catch (error) {
+            outcomes["non-buffer data"] = error instanceof Error ? error.message : String(error)
+        }
+        try {
+            await client.read(valid, 0, -1)
+        } catch (error) {
+            outcomes["zero-length read position"] =
+                error instanceof Error ? error.message : String(error)
+        }
+
+        expect(outcomes).toEqual({
+            close: "SFTP handle exceeds 256 bytes",
+            "zero-length read": "SFTP handle exceeds 256 bytes",
+            "empty write": "SFTP handle exceeds 256 bytes",
+            fstat: "SFTP handle exceeds 256 bytes",
+            fsetstat: "SFTP handle exceeds 256 bytes",
+            ftruncate: "SFTP handle exceeds 256 bytes",
+            readdir: "SFTP handle exceeds 256 bytes",
+            fchmod: "SFTP handle exceeds 256 bytes",
+            fchown: "SFTP handle exceeds 256 bytes",
+            futimes: "SFTP handle exceeds 256 bytes",
+            fstatvfs: "SFTP handle exceeds 256 bytes",
+            fsync: "SFTP handle exceeds 256 bytes",
+            "copy-data source": "SFTP handle exceeds 256 bytes",
+            "copy-data destination": "SFTP handle exceeds 256 bytes",
+            "non-buffer handle": "SFTP handle must be a buffer",
+            "non-buffer data": "SFTP write data must be a buffer",
+            "zero-length read position":
+                "Numeric SFTP position must be a non-negative safe integer",
+        })
+        expect(requests).toEqual([])
         fixture.destroy()
     })
 
