@@ -185,6 +185,8 @@ initial read and write request size is 32 KiB, which every conforming server is 
 Status messages use fatal UTF-8 validation, status language tags use the protocol language-tag
 grammar, and extension identifiers are validated SSH names. Filenames, long names, paths, handles,
 and extension payloads remain opaque bytes and are never replacement-decoded by the wire codec.
+Decoded opaque fields are owned buffers rather than views into the input frame, and the streaming
+parser snapshots any incomplete chunk it must retain across calls.
 Fatal errors, including EOF in the middle of a frame, close the SFTP channel in both peer roles and
 reject pending client operations. They do not tear down an otherwise healthy SSH connection.
 Initialization and every tagged request reply are bounded by `requestTimeout`. Expiry rejects the

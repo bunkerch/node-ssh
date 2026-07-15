@@ -61,13 +61,13 @@ class Reader {
     string(name: string): Buffer {
         const length = this.uint32(`${name} length`)
         this.require(length, name)
-        const value = this.buffer.subarray(this.offset, this.offset + length)
+        const value = Buffer.from(this.buffer.subarray(this.offset, this.offset + length))
         this.offset += length
         return value
     }
 
     rest(): Buffer {
-        const value = this.buffer.subarray(this.offset)
+        const value = Buffer.from(this.buffer.subarray(this.offset))
         this.offset = this.buffer.length
         return value
     }
@@ -517,6 +517,7 @@ export class SFTPPacketParser {
 
     push(chunk: Buffer): SFTPPacket[] {
         if (chunk.length === 0) return []
+        const borrowedInput = this.buffered.length === 0
         this.buffered = this.buffered.length === 0 ? chunk : Buffer.concat([this.buffered, chunk])
         const packets: SFTPPacket[] = []
         while (true) {
@@ -538,6 +539,9 @@ export class SFTPPacketParser {
             this.buffered = this.buffered.subarray(this.expectedLength)
             this.expectedLength = undefined
             packets.push(decodeSFTPPacket(frame))
+        }
+        if (borrowedInput && this.buffered.length !== 0) {
+            this.buffered = Buffer.from(this.buffered)
         }
         return packets
     }

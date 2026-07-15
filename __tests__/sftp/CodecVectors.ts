@@ -126,6 +126,21 @@ describe("SFTP v3 fixed packet vectors", () => {
         expect(encodeSFTPPacket(decodeSFTPPacket(WRITE))).toEqual(WRITE)
     })
 
+    test("decoded packets own opaque fields instead of aliasing the input frame", () => {
+        const frame = Buffer.from(WRITE)
+        const packet = decodeSFTPPacket(frame)
+
+        frame.fill(0)
+
+        expect(packet).toEqual({
+            type: SFTPPacketType.Write,
+            requestId: 6,
+            handle: Buffer.from("h"),
+            offset: 0n,
+            data: Buffer.from("abc"),
+        })
+    })
+
     test("covers every handle, path, attribute, and two-path request layout", () => {
         for (const type of [
             SFTPPacketType.Close,
@@ -278,6 +293,28 @@ describe("SFTP v3 bounded stream parser", () => {
                 SFTPPacketType.Status,
             ])
         }
+    })
+
+    test("owns an incomplete input chunk until the frame is complete", () => {
+        const boundary = 10
+        const first = Buffer.from(WRITE.subarray(0, boundary))
+        const second = Buffer.from(WRITE.subarray(boundary))
+        const parser = new SFTPPacketParser()
+
+        expect(parser.push(first)).toEqual([])
+        first.fill(0)
+        const packets = parser.push(second)
+        parser.end()
+
+        expect(packets).toEqual([
+            {
+                type: SFTPPacketType.Write,
+                requestId: 6,
+                handle: Buffer.from("h"),
+                offset: 0n,
+                data: Buffer.from("abc"),
+            },
+        ])
     })
 
     test("rejects zero, oversized, truncated, mismatched, and unknown frames", () => {
