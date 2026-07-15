@@ -42,7 +42,8 @@ publicKeys.end()
 `add()` copies key attributes before it queues the request. String values are encoded as strict
 UTF-8; pass a `Buffer` for an opaque extension attribute. `overwrite: false` is the default. A
 server should report `KeyAlreadyPresent` when that key already exists and overwrite was not
-requested.
+requested. The add option bag and each attribute must be plain objects; `attributes` must be an
+array, and explicit `null` is rejected for the overwrite and critical boolean flags.
 
 Every unsuccessful status rejects with `PublicKeySubsystemStatusError`. Its `code` can be compared
 with `PublicKeySubsystemStatusCode`, while `message` and `languageTag` preserve the server's status
@@ -150,6 +151,11 @@ the authenticated account and survive connection closure. If no `add` or `remove
 the server denies that operation. If no `list` hook is present, listing is reported as unsupported.
 An async hook rejection is contained by `Hooker` and becomes a general-failure status instead of an
 unhandled EventEmitter rejection.
+
+The server option bag and every advertised capability must be plain objects, `attributes` must be
+an array, and `compulsory` must be a boolean when present. Configuration is validated before the
+server installs stream listeners or begins version exchange, and explicit `null` never selects a
+default.
 
 ## Attributes and authorization
 

@@ -167,6 +167,35 @@ describe("RFC 4819 public-key subsystem client", () => {
         fixture.destroy()
     })
 
+    test("rejects malformed add options before sending a request", async () => {
+        let addRequests = 0
+        const fixture = new PublicKeySubsystemServerFixture((packet) => {
+            if (packet.type === "version") {
+                fixture.send({ type: "version", version: 2 })
+            } else if (packet.type === "add") {
+                addRequests++
+            }
+        })
+        const client = await PublicKeySubsystemClient.connect(asClientChannel(fixture))
+        const key = PublicKey.parse(RFC_8709_KEY)
+        const cases: readonly [unknown, string][] = [
+            [null, "Public-key subsystem add options must be an object"],
+            [{ overwrite: null }, "Public-key subsystem overwrite must be a boolean"],
+            [{ attributes: null }, "Public-key subsystem attributes must be an array"],
+            [{ attributes: [null] }, "Public-key subsystem attribute must be an object"],
+            [
+                { attributes: [{ name: "comment", value: "x", critical: null }] },
+                "Public-key subsystem critical attribute flag must be a boolean",
+            ],
+        ]
+
+        for (const [options, message] of cases) {
+            await expect(client.add(key, options as never)).rejects.toThrow(message)
+        }
+        expect(addRequests).toBe(0)
+        fixture.destroy()
+    })
+
     test("removes a key and exposes the server status failure", async () => {
         let removePacket: PublicKeySubsystemPacket | undefined
         const fixture = new PublicKeySubsystemServerFixture((packet) => {

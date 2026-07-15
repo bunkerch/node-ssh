@@ -680,6 +680,7 @@ describe("package exports", () => {
                     const invalidPublicKeySubsystemOptions = new Client({}).publicKeySubsystem(null)
                     if (!(invalidPublicKeySubsystemOptions instanceof Promise)) process.exit(83)
                     try { await invalidPublicKeySubsystemOptions; process.exit(84) } catch (error) { if (!String(error).includes("Public-key subsystem client options must be an object")) process.exit(85) }
+                    try { new PublicKeySubsystemServer(null, null); process.exit(86) } catch (error) { if (!String(error).includes("Public-key subsystem server options must be an object")) process.exit(87) }
                     try { new Client({ port: 0 }); process.exit(57) } catch (error) { if (!String(error).includes("between 1 and 65535")) process.exit(58) }
                     try { new Server({ greeting: "invalid\\ud800greeting" }); process.exit(59) } catch (error) { if (!String(error).includes("not valid UTF-8 text")) process.exit(60) }
                     const legacy = generateKeyPairSync("dsa")

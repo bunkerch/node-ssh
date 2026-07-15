@@ -143,15 +143,22 @@ export default class PublicKeySubsystemClient {
         }
         let packet: Extract<PublicKeySubsystemPacket, { type: "add" }>
         try {
+            if (!isPlainConfigurationObject(options)) {
+                throw new TypeError("Public-key subsystem add options must be an object")
+            }
             if (options.overwrite !== undefined && typeof options.overwrite !== "boolean") {
                 throw new TypeError("Public-key subsystem overwrite must be a boolean")
             }
             if (options.attributes !== undefined && !Array.isArray(options.attributes)) {
                 throw new TypeError("Public-key subsystem attributes must be an array")
             }
-            const attributes: PublicKeySubsystemAddAttribute[] = (options.attributes ?? []).map(
+            const configuredAttributes = options.attributes === undefined ? [] : options.attributes
+            const attributes: PublicKeySubsystemAddAttribute[] = configuredAttributes.map(
                 (attribute) => {
-                    if (!attribute || typeof attribute.name !== "string") {
+                    if (!isPlainConfigurationObject(attribute)) {
+                        throw new TypeError("Public-key subsystem attribute must be an object")
+                    }
+                    if (typeof attribute.name !== "string") {
                         throw new TypeError("Public-key subsystem attribute name must be a string")
                     }
                     encodeSSHName(attribute.name, "Public-key subsystem attribute name")
@@ -176,7 +183,7 @@ export default class PublicKeySubsystemClient {
                                   attribute.value,
                                   "Public-key subsystem attribute value",
                               ),
-                        critical: attribute.critical ?? false,
+                        critical: attribute.critical === undefined ? false : attribute.critical,
                     }
                 },
             )
@@ -185,7 +192,7 @@ export default class PublicKeySubsystemClient {
                 type: "add",
                 algorithm: key.data.alg,
                 keyBlob: key.serialize(),
-                overwrite: options.overwrite ?? false,
+                overwrite: options.overwrite === undefined ? false : options.overwrite,
                 attributes,
             }
         } catch (error) {

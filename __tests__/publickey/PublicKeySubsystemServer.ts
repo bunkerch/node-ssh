@@ -49,6 +49,32 @@ function asShell(stream: PublicKeySubsystemClientFixture): Shell {
 }
 
 describe("RFC 4819 public-key subsystem server", () => {
+    test("rejects malformed capability configuration before version exchange", () => {
+        const packets: PublicKeySubsystemPacket[] = []
+        const fixture = new PublicKeySubsystemClientFixture((packet) => packets.push(packet))
+        const cases: readonly [unknown, string][] = [
+            [null, "Public-key subsystem server options must be an object"],
+            [{ attributes: null }, "Public-key subsystem server attributes must be an array"],
+            [{ attributes: [null] }, "Public-key subsystem supported attribute must be an object"],
+            [
+                { attributes: [{ name: null }] },
+                "Public-key subsystem supported attribute name must be a string",
+            ],
+            [
+                { attributes: [{ name: "shell", compulsory: null }] },
+                "Public-key subsystem compulsory attribute flag must be a boolean",
+            ],
+        ]
+
+        for (const [options, message] of cases) {
+            expect(() => new PublicKeySubsystemServer(asShell(fixture), options as never)).toThrow(
+                message,
+            )
+        }
+        expect(packets).toEqual([])
+        fixture.destroy()
+    })
+
     test("awaits add policy before acknowledging a supported critical attribute", async () => {
         let statusResolve!: (packet: PublicKeySubsystemPacket) => void
         const status = new Promise<PublicKeySubsystemPacket>((resolve) => {

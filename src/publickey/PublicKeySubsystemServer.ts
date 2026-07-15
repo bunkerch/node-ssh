@@ -2,6 +2,7 @@ import EventEmitter from "node:events"
 import type Shell from "../channels/Session/Shell.js"
 import { Hooker } from "../utils/Hooker.js"
 import PublicKey from "../utils/PublicKey.js"
+import { isPlainConfigurationObject } from "../utils/Configuration.js"
 import { encodeSSHName } from "../utils/SSHName.js"
 import { encodeSSHUTF8 } from "../utils/SSHText.js"
 import {
@@ -95,16 +96,35 @@ export default class PublicKeySubsystemServer extends EventEmitter<PublicKeySubs
 
     constructor(stream: Shell, options: PublicKeySubsystemServerOptions = {}) {
         super()
+        if (!isPlainConfigurationObject(options)) {
+            throw new TypeError("Public-key subsystem server options must be an object")
+        }
+        if (options.attributes !== undefined && !Array.isArray(options.attributes)) {
+            throw new TypeError("Public-key subsystem server attributes must be an array")
+        }
+        const attributes = options.attributes === undefined ? [] : options.attributes
+        const normalizedAttributes = attributes.map((attribute) => {
+            if (!isPlainConfigurationObject(attribute)) {
+                throw new TypeError("Public-key subsystem supported attribute must be an object")
+            }
+            if (typeof attribute.name !== "string") {
+                throw new TypeError(
+                    "Public-key subsystem supported attribute name must be a string",
+                )
+            }
+            if (attribute.compulsory !== undefined && typeof attribute.compulsory !== "boolean") {
+                throw new TypeError(
+                    "Public-key subsystem compulsory attribute flag must be a boolean",
+                )
+            }
+            encodeSSHName(attribute.name, "Public-key subsystem supported attribute")
+            return Object.freeze({
+                name: attribute.name,
+                compulsory: attribute.compulsory === undefined ? false : attribute.compulsory,
+            })
+        })
         this.stream = stream
-        this.attributes = Object.freeze(
-            (options.attributes ?? []).map((attribute) => {
-                encodeSSHName(attribute.name, "Public-key subsystem supported attribute")
-                return Object.freeze({
-                    name: attribute.name,
-                    compulsory: attribute.compulsory ?? false,
-                })
-            }),
-        )
+        this.attributes = Object.freeze(normalizedAttributes)
         this.supportedAttributeNames = new Set(this.attributes.map(({ name }) => name))
         this.hooker.on("uncaughtException", (_event, error) => {
             this.hookError = error
