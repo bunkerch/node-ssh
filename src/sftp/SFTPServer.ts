@@ -213,7 +213,7 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
             request.type !== SFTPPacketType.OpenDir &&
             request.type !== SFTPPacketType.Extended
         ) {
-            throw new Error("SFTP HANDLE is only valid for OPEN and OPENDIR")
+            throw new Error("SFTP HANDLE is only valid for OPEN, OPENDIR, and EXTENDED")
         }
         const ownedHandle = ownResponseBuffer(handle, "response handle")
         if (ownedHandle.length > MAX_SFTP_HANDLE_LENGTH) {
@@ -234,7 +234,7 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
     data(requestId: number, data: Buffer): Promise<void> {
         const request = this.requireActive(requestId)
         if (request.type !== SFTPPacketType.Read && request.type !== SFTPPacketType.Extended) {
-            throw new Error("SFTP DATA is only valid for READ")
+            throw new Error("SFTP DATA is only valid for READ and EXTENDED")
         }
         const ownedData = ownResponseBuffer(data, "DATA")
         if (request.type === SFTPPacketType.Read && ownedData.length === 0) {
@@ -249,7 +249,9 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
     name(requestId: number, names: SFTPNameEntry | readonly SFTPNameEntry[]): Promise<void> {
         const request = this.requireActive(requestId)
         const entries = (Array.isArray(names) ? names : [names]).map(ownResponseName)
-        if (entries.length === 0) throw new Error("SFTP NAME must contain at least one entry")
+        if (entries.length === 0 && request.type !== SFTPPacketType.Extended) {
+            throw new Error("SFTP baseline NAME must contain at least one entry")
+        }
         if (
             request.type !== SFTPPacketType.ReadDir &&
             request.type !== SFTPPacketType.RealPath &&

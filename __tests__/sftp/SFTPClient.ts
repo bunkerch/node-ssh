@@ -804,6 +804,20 @@ describe("SFTP client request engine", () => {
                     requestId: packet.requestId,
                     data: Buffer.from("answer"),
                 })
+            } else if (requests.length === 2) {
+                fixture.send({
+                    type: SFTPPacketType.Status,
+                    requestId: packet.requestId,
+                    code: SFTPStatusCode.Ok,
+                    message: "",
+                    languageTag: "",
+                })
+            } else if (requests.length === 3) {
+                fixture.send({
+                    type: SFTPPacketType.Name,
+                    requestId: packet.requestId,
+                    names: [],
+                })
             } else {
                 fixture.send({
                     type: SFTPPacketType.Status,
@@ -828,9 +842,14 @@ describe("SFTP client request engine", () => {
             expectedTypes: [SFTPPacketType.Status],
         })
         expect(status.type).toBe(SFTPPacketType.Status)
+        const emptyNames = await client.extended("query@example.test", Buffer.from("empty names"), {
+            expectedTypes: [SFTPPacketType.Name],
+        })
+        expect(emptyNames).toMatchObject({ type: SFTPPacketType.Name, names: [] })
         expect(requests).toEqual([
             { name: "query@example.test", data: Buffer.from("question") },
             { name: "query@example.test", data: Buffer.from("notify") },
+            { name: "query@example.test", data: Buffer.from("empty names") },
         ])
         await expect(client.extended("missing@example.test")).rejects.toThrow(
             "does not advertise missing@example.test",
@@ -841,7 +860,7 @@ describe("SFTP client request engine", () => {
         await expect(
             client.extended("query@example.test", Buffer.alloc(0), { expectedTypes: [] }),
         ).rejects.toThrow("at least one response type")
-        expect(requests).toHaveLength(2)
+        expect(requests).toHaveLength(3)
         await expect(client.extended("query@example.test")).rejects.toThrow(
             "successful STATUS instead of response data",
         )

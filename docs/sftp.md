@@ -200,11 +200,11 @@ example `SFTPStatusCode.NoSuchFile` or `SFTPStatusCode.PermissionDenied`.
 
 Malformed frames, unexpected response identifiers, wrong response types, duplicate initialization,
 and unsupported attribute flags are fatal protocol errors. A successful positive-length read must
-return at least one byte; end-of-file is reported with `SFTPStatusCode.EOF`. Directory `NAME`
-responses must contain at least one entry. Rejecting these no-progress responses prevents silent
-file truncation and unbounded directory scans. Messages are bounded to OpenSSH's 256 KiB ceiling
-before allocation, handles to 256 bytes, and outstanding client requests to 1024. The initial read
-and write request size is 32 KiB, which every conforming server is expected to support.
+return at least one byte; end-of-file is reported with `SFTPStatusCode.EOF`. Baseline directory
+`NAME` responses must contain at least one entry. Rejecting these no-progress responses prevents
+silent file truncation and unbounded directory scans. Messages are bounded to OpenSSH's 256 KiB
+ceiling before allocation, handles to 256 bytes, and outstanding client requests to 1024. The
+initial read and write request size is 32 KiB, which every conforming server is expected to support.
 Status messages use fatal UTF-8 validation, status language tags use the protocol language-tag
 grammar, and extension identifiers are validated SSH names. Filenames, long names, paths, handles,
 and extension payloads remain opaque bytes and are never replacement-decoded by the wire codec.
@@ -249,7 +249,9 @@ A non-success status becomes `SFTPStatusError`. A successful response type outsi
 set is a protocol error and closes the SFTP session, preventing a malformed response from being
 interpreted as another extension's layout. On the server, advertise application extensions through
 `SFTPServerOptions.extensions` and handle them with the awaited `EXTENDED` hook; reply with
-`extendedReply()`, `status()`, or the response method specified by that extension.
+`extendedReply()`, `status()`, or the response method specified by that extension. Generic extension
+responses may use empty `DATA` or `NAME` payloads when their own protocol defines that meaning;
+baseline positive-length `READ` and `READDIR` responses retain their progress requirements.
 
 ## OpenSSH extensions
 
@@ -343,11 +345,11 @@ response values are validated as Buffers and snapshotted before encoding; respon
 enforce the 256-byte protocol limit.
 
 The implementation rejects duplicate outstanding identifiers, invalid response types, oversized
-read results, empty name responses, server use of client-only connection status codes, and a second
-response. A hook rejection becomes an SFTP failure response and is observable through the hooker's
-`uncaughtException` event; returning without a response also produces a failure instead of leaving
-the client pending. A locally invalid or oversized response throws before claiming the request, so
-the handler may catch that error and send an appropriate failure status instead.
+read results, empty baseline name responses, server use of client-only connection status codes, and
+a second response. A hook rejection becomes an SFTP failure response and is observable through the
+hooker's `uncaughtException` event; returning without a response also produces a failure instead of
+leaving the client pending. A locally invalid or oversized response throws before claiming the
+request, so the handler may catch that error and send an appropriate failure status instead.
 
 SFTP clients pipeline tagged requests and may receive their responses out of order. The server
 therefore runs up to 64 request hooks concurrently by default while keeping each response and

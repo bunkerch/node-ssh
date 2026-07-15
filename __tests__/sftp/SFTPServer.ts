@@ -671,6 +671,32 @@ describe("SFTP server request engine", () => {
         fixture.destroy()
     })
 
+    test("allows an extension to define an empty NAME response", async () => {
+        const fixture = new SFTPClientFixture()
+        const server = new SFTPServer(asShell(fixture))
+        server.hooker.hook("EXTENDED", async (_hook, request) => {
+            expect(request.request).toBe("empty-names@example.test")
+            expect(request.data).toEqual(Buffer.from("query"))
+            await server.name(request.requestId, [])
+        })
+
+        fixture.send({ type: SFTPPacketType.Init, version: 3, extensions: [] })
+        fixture.send({
+            type: SFTPPacketType.Extended,
+            requestId: 2,
+            request: "empty-names@example.test",
+            data: Buffer.from("query"),
+        })
+        await flush()
+
+        expect(fixture.responses[1]).toEqual({
+            type: SFTPPacketType.Name,
+            requestId: 2,
+            names: [],
+        })
+        fixture.destroy()
+    })
+
     test("awaits a SETSTAT handler with an exact uint64 size", async () => {
         const fixture = new SFTPClientFixture()
         const server = new SFTPServer(asShell(fixture))
