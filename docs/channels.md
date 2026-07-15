@@ -52,6 +52,12 @@ environment, PTY terminal modes, and X11 cookie bytes. Later changes to caller-o
 do not affect requests waiting for the session channel to open. `sftp()` likewise copies its
 environment and timeout options at invocation.
 
+Both session helpers validate the options object before allocating a channel. `agentForward` and
+`allowHalfOpen` require actual booleans, environment values require strings, and PTY and X11
+configuration must use their documented scalar or object shapes. Invalid input rejects the
+returned Promise; it never throws synchronously or turns a truthy value such as the string
+`"false"` into an enabled forwarding request.
+
 For PTY, environment, resize, signal, or subsystem setup, open a session explicitly and make the
 requests in protocol order:
 

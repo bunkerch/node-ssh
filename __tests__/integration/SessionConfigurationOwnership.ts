@@ -8,6 +8,29 @@ import { TerminalMode } from "../../src/TerminalModes.js"
 import PrivateKey from "../../src/utils/PrivateKey.js"
 
 describe("client session configuration ownership", () => {
+    test("rejects malformed session policy before opening a channel", async () => {
+        const client = new Client({})
+        const invalidOptions: readonly [unknown, string][] = [
+            [null, "SSH session options must be an object"],
+            [[], "SSH session options must be an object"],
+            [{ agentForward: "false" }, "SSH session agentForward option must be a boolean"],
+            [{ allowHalfOpen: "false" }, "SSH session allowHalfOpen option must be a boolean"],
+            [{ env: [] }, "SSH session environment must be an object"],
+            [{ env: { LANG: 7 } }, "SSH session environment values must be strings"],
+            [{ pty: "yes" }, "SSH session pty option must be a boolean or object"],
+            [{ x11: "yes" }, "SSH session x11 option must be a boolean, number, or object"],
+        ]
+
+        for (const [options, message] of invalidOptions) {
+            const exec = client.exec("true", options as ClientSessionOptions)
+            const shell = client.shell(options as ClientSessionOptions)
+            expect(exec).toBeInstanceOf(Promise)
+            expect(shell).toBeInstanceOf(Promise)
+            await expect(exec).rejects.toThrow(message)
+            await expect(shell).rejects.toThrow(message)
+        }
+    })
+
     test("exec owns its environment when the operation starts", async () => {
         const server = new Server({
             hostKeys: [await PrivateKey.generate("ssh-ed25519")],

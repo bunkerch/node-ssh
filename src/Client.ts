@@ -581,7 +581,45 @@ export interface ClientSessionOptions {
     x11?: boolean | number | ClientX11Options
 }
 
+function isPlainConfigurationObject(value: unknown): value is Record<string, unknown> {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) return false
+    const prototype = Object.getPrototypeOf(value)
+    return prototype === Object.prototype || prototype === null
+}
+
 function snapshotSessionOptions(options: ClientSessionOptions): ClientSessionOptions {
+    if (!isPlainConfigurationObject(options)) {
+        throw new TypeError("SSH session options must be an object")
+    }
+    if (options.agentForward !== undefined && typeof options.agentForward !== "boolean") {
+        throw new TypeError("SSH session agentForward option must be a boolean")
+    }
+    if (options.allowHalfOpen !== undefined && typeof options.allowHalfOpen !== "boolean") {
+        throw new TypeError("SSH session allowHalfOpen option must be a boolean")
+    }
+    if (options.env !== undefined) {
+        if (!isPlainConfigurationObject(options.env)) {
+            throw new TypeError("SSH session environment must be an object")
+        }
+        if (Object.values(options.env).some((value) => typeof value !== "string")) {
+            throw new TypeError("SSH session environment values must be strings")
+        }
+    }
+    if (
+        options.pty !== undefined &&
+        typeof options.pty !== "boolean" &&
+        !isPlainConfigurationObject(options.pty)
+    ) {
+        throw new TypeError("SSH session pty option must be a boolean or object")
+    }
+    if (
+        options.x11 !== undefined &&
+        typeof options.x11 !== "boolean" &&
+        typeof options.x11 !== "number" &&
+        !isPlainConfigurationObject(options.x11)
+    ) {
+        throw new TypeError("SSH session x11 option must be a boolean, number, or object")
+    }
     const pty =
         typeof options.pty === "object"
             ? {
@@ -597,15 +635,15 @@ function snapshotSessionOptions(options: ClientSessionOptions): ClientSessionOpt
     const x11 =
         typeof options.x11 === "object"
             ? {
-                  ...options.x11,
-                  cookie: Buffer.isBuffer(options.x11.cookie)
-                      ? Buffer.from(options.x11.cookie)
-                      : options.x11.cookie,
+                  ...(options.x11 as ClientX11Options),
+                  cookie: Buffer.isBuffer((options.x11 as ClientX11Options).cookie)
+                      ? Buffer.from((options.x11 as ClientX11Options).cookie as Buffer)
+                      : (options.x11 as ClientX11Options).cookie,
               }
             : options.x11
     return {
         ...options,
-        env: options.env === undefined ? undefined : { ...options.env },
+        env: options.env === undefined ? undefined : { ...(options.env as ClientEnvironment) },
         pty,
         x11,
     }
@@ -1324,32 +1362,30 @@ export default class Client extends EventEmitter<ClientEvents> {
         return this.openSessionChannel()
     }
 
-    exec(command: string, options: ClientSessionOptions = {}): Promise<ClientSessionChannel> {
+    async exec(command: string, options: ClientSessionOptions = {}): Promise<ClientSessionChannel> {
         const sessionOptions = snapshotSessionOptions(options)
-        return this.openSessionChannel().then(async (channel) => {
-            try {
-                await this.configureSession(channel, sessionOptions, false)
-                await channel.exec(command)
-                return channel
-            } catch (error) {
-                channel.close()
-                throw error
-            }
-        })
+        const channel = await this.openSessionChannel()
+        try {
+            await this.configureSession(channel, sessionOptions, false)
+            await channel.exec(command)
+            return channel
+        } catch (error) {
+            channel.close()
+            throw error
+        }
     }
 
-    shell(options: ClientSessionOptions = {}): Promise<ClientSessionChannel> {
+    async shell(options: ClientSessionOptions = {}): Promise<ClientSessionChannel> {
         const sessionOptions = snapshotSessionOptions(options)
-        return this.openSessionChannel().then(async (channel) => {
-            try {
-                await this.configureSession(channel, sessionOptions, true)
-                await channel.shell()
-                return channel
-            } catch (error) {
-                channel.close()
-                throw error
-            }
-        })
+        const channel = await this.openSessionChannel()
+        try {
+            await this.configureSession(channel, sessionOptions, true)
+            await channel.shell()
+            return channel
+        } catch (error) {
+            channel.close()
+            throw error
+        }
     }
 
     subsystem(name: string): Promise<ClientSessionChannel> {
