@@ -424,11 +424,17 @@ import { Server, SSHAuthenticationMethods } from "@bunkerch/modernssh"
 const server = new Server({
     hostKeys,
     banner: "Authorized access only. Activity may be monitored.\r\n",
+    bannerLanguageTag: "en-US",
     handshakeTimeout: 20_000,
     authenticationTimeout: 10 * 60 * 1000,
     maxAuthenticationAttempts: 20,
 })
 ```
+
+`bannerLanguageTag` is the optional RFC 3066 language tag carried beside the UTF-8 banner. It
+defaults to the empty, unspecified tag and requires a non-empty `banner` when set. The server
+validates both fields and snapshots them during construction, so malformed local text fails before
+listening and later changes to the caller's options object cannot alter the wire message.
 
 `handshakeTimeout` bounds each owned socket from the start of the awaited `preconnect` policy,
 through identification, initial key exchange, and acceptance of the `ssh-userauth` service. It

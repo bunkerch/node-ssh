@@ -1207,7 +1207,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             this.sendPacket(
                 new UserAuthBanner({
                     message: this.#configuration.banner,
-                    languageTag: "",
+                    languageTag: this.#configuration.bannerLanguageTag,
                 }),
             )
         }

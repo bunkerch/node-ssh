@@ -122,6 +122,7 @@ describe("package exports", () => {
         clientOptions.elevation = elevation
         clientOptions.delayCompression = delayCompression
         serverOptions.noFlowControl = noFlowControl
+        serverOptions.bannerLanguageTag = "en-US"
         const keyExchangeOptions: GSSAPIKeyExchangeClientContextOptions = {
             hostname: "example.test",
             service: "host",
@@ -157,6 +158,7 @@ describe("package exports", () => {
         expect(clientOptions.hostname).toBe("example.test")
         expect(sessionOptions.pty).toBe(true)
         expect(serverOptions.sendAllHostKeys).toBe(false)
+        expect(serverOptions.bannerLanguageTag).toBe("en-US")
         expect(connectionInfo.remoteAddress).toBe("127.0.0.1")
         expect(keyExchangeOptions.service).toBe("host")
         expect(agentProtocolOptions.requestTimeout).toBe(250)
@@ -457,6 +459,7 @@ describe("package exports", () => {
         expect(server).toContain("get maxConnections(): number")
         expect(server).toContain("set maxConnections(value: number)")
         expect(server).toContain("delayCompression?: DelayCompressionConfiguration")
+        expect(server).toContain("bannerLanguageTag?: string")
         expect(server).toContain("replyTimeout?: number")
         expect(server).toContain("maxPendingChannelOpens?: number")
         expect(server).toContain("injectSocket(socket: ServerTransport): this")
@@ -610,7 +613,7 @@ describe("package exports", () => {
                     if (typeof PublicKeySubsystemClient !== "function" || typeof PublicKeySubsystemServer !== "function" || PublicKeySubsystemStatusCode.Success !== 0) process.exit(38)
                     let rejectRuntime
                     const runtimeFailure = new Promise((_, reject) => { rejectRuntime = reject })
-                    const runtimeServer = new Server({ hostKeys: [privateKey], sendAllHostKeys: false })
+                    const runtimeServer = new Server({ hostKeys: [privateKey], sendAllHostKeys: false, banner: "packed-banner", bannerLanguageTag: "en-US" })
                     runtimeServer.on("error", rejectRuntime)
                     runtimeServer.hooker.hook("noneAuthentication", (_hook, _context, decision) => { decision.allowLogin = true })
                     runtimeServer.hooker.hook("channelOpenRequest", (_hook, channel, decision) => { decision.allowOpen = channel instanceof SessionChannel })
@@ -633,8 +636,11 @@ describe("package exports", () => {
                     const runtimeAddress = runtimeServer.address()
                     if (!runtimeAddress || typeof runtimeAddress === "string") process.exit(42)
                     const runtimeClient = new Client({ hostname: "127.0.0.1", port: runtimeAddress.port, username: "packed-node" })
+                    const runtimeBanners = []
+                    runtimeClient.on("banner", (message, languageTag) => runtimeBanners.push([message, languageTag]))
                     runtimeClient.on("error", rejectRuntime)
                     await Promise.race([runtimeClient.connect(), runtimeFailure])
+                    if (JSON.stringify(runtimeBanners) !== JSON.stringify([["packed-banner", "en-US"]])) process.exit(46)
                     const runtimeCommand = await Promise.race([runtimeClient.exec("packed-node-runtime"), runtimeFailure])
                     const runtimeStdout = []
                     const runtimeStderr = []

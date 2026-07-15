@@ -45,6 +45,7 @@ import {
     type DelayCompressionConfiguration,
     type NormalizedDelayCompression,
 } from "./DelayCompression.js"
+import { encodeSSHLanguageTag, encodeSSHUTF8 } from "./utils/SSHText.js"
 
 export interface ServerOptions {
     protocolVersionExchange?: ProtocolVersionExchange
@@ -65,6 +66,8 @@ export interface ServerOptions {
     sendAllHostKeys?: boolean
     /** RFC 4252 banner sent once before authentication begins. */
     banner?: string
+    /** RFC 3066 language tag sent with `banner`; empty means unspecified. */
+    bannerLanguageTag?: string
     /** Milliseconds allowed through key exchange and user-auth service acceptance. Zero disables. */
     handshakeTimeout?: number
     /** Milliseconds allowed after accepting the user-authentication service. Zero disables. */
@@ -419,6 +422,21 @@ export default class Server extends EventEmitter<ServerEvents> {
         this.#options.noFlowControl = normalizeNoFlowControlPreference(this.#options.noFlowControl)
         this.#options.delayCompression = normalizeDelayCompression(this.#options.delayCompression)
         this.#options.banner ??= ""
+        this.#options.bannerLanguageTag ??= ""
+        if (typeof this.#options.banner !== "string") {
+            throw new TypeError("SSH authentication banner must be a string")
+        }
+        if (typeof this.#options.bannerLanguageTag !== "string") {
+            throw new TypeError("SSH authentication banner language tag must be a string")
+        }
+        if (this.#options.banner.length === 0 && this.#options.bannerLanguageTag.length > 0) {
+            throw new TypeError("SSH authentication banner language tag requires a banner")
+        }
+        encodeSSHUTF8(this.#options.banner, "SSH authentication banner")
+        encodeSSHLanguageTag(
+            this.#options.bannerLanguageTag,
+            "SSH authentication banner language tag",
+        )
         this.#options.handshakeTimeout ??= 20_000
         this.#options.authenticationTimeout ??= 600_000
         this.#options.replyTimeout ??= 30_000
