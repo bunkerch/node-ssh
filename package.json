@@ -22,7 +22,7 @@
     },
     "scripts": {
         "clean": "node --eval \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
-        "test": "pnpm run build && bun test --max-concurrency=4 --dots ./__tests__/*/*",
+        "test": "pnpm run build && bun test --max-concurrency=1 --dots ./__tests__/*/*",
         "build": "pnpm run clean && tsc",
         "dev": "tsc --watch",
         "lint": "eslint .",
