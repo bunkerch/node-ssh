@@ -724,6 +724,14 @@ describe("SFTP client request engine", () => {
             { name: "x@test", data: Buffer.from("1") },
             { name: "x@test", data: Buffer.from("2") },
         ])
+        const exposedExtensions = client.extensions
+        exposedExtensions[1]!.data.fill(0x39)
+        expect(client.extensions).toEqual([
+            { name: "x@test", data: Buffer.from("1") },
+            { name: "x@test", data: Buffer.from("2") },
+        ])
+        expect(Object.isFrozen(exposedExtensions)).toBe(true)
+        expect(Object.isFrozen(exposedExtensions[0])).toBe(true)
         expect(client.supportsExtension("x@test", "2")).toBe(true)
         const [first, second] = await Promise.all([client.stat("first"), client.stat("second")])
         expect(first.size).toBe(1n)

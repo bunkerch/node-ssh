@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { flagsToString, OPEN_MODE, STATUS_CODE, stringToFlags } from "../../src/sftp/SFTPClient.js"
-import { SFTPStats } from "../../src/sftp/SFTPStats.js"
+import { SFTPStats, sftpNameEntry } from "../../src/sftp/SFTPStats.js"
 import { SFTPStatusCode } from "../../src/sftp/constants.js"
 
 describe("SFTP public compatibility values", () => {
@@ -37,6 +37,33 @@ describe("SFTP public compatibility values", () => {
         expect(stats.mode).toBe(0o100640)
         expect(stats.atime).toBe(1_700_000_000)
         expect(stats.mtime).toBe(1_700_000_001)
+    })
+
+    test("owns extended attributes and name-entry buffers", () => {
+        const type = Buffer.from("mime-type")
+        const data = Buffer.from("text/plain")
+        const filename = Buffer.from("document.txt")
+        const longname = Buffer.from("-rw-r--r-- document.txt")
+        const entry = sftpNameEntry({
+            filename,
+            longname,
+            attributes: { extended: [{ type, data }] },
+        })
+
+        type.fill(0x78)
+        data.fill(0x78)
+        filename.fill(0x78)
+        longname.fill(0x78)
+
+        expect(entry).toEqual({
+            filename: Buffer.from("document.txt"),
+            longname: Buffer.from("-rw-r--r-- document.txt"),
+            attributes: new SFTPStats({
+                extended: [{ type: Buffer.from("mime-type"), data: Buffer.from("text/plain") }],
+            }),
+        })
+        expect(Object.isFrozen(entry.attributes.extended)).toBe(true)
+        expect(Object.isFrozen(entry.attributes.extended![0])).toBe(true)
     })
 
     test("converts canonical file flags and exports legacy constants", () => {

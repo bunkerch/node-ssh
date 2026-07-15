@@ -21,6 +21,8 @@ const sftp = await client.sftp({}, { requestTimeout: 30_000 })
 
 The resulting `SFTPClient` exposes the negotiated version, the duplicate-preserving `extensions`
 announcement list, `supportsExtension(name, version?)`, and its immutable `requestTimeout`.
+Each `extensions` read is a frozen defensive snapshot; changing an advertised data buffer cannot
+enable, disable, or alter the capabilities used internally by `supportsExtension`.
 The timeout defaults to the connection's `replyTimeout`; direct `SFTPClient.connect()` calls default
 to 30 seconds. It must be a positive finite number.
 
@@ -154,7 +156,8 @@ Client `stat`, `lstat`, and `fstat` results—and directory-entry attributes—a
 instances. They retain the exact fields above and add `isDirectory`, `isFile`, `isBlockDevice`,
 `isCharacterDevice`, `isSymbolicLink`, `isFIFO`, and `isSocket`. The convenience `mode`, `atime`,
 and `mtime` aliases map to `permissions`, `accessTime`, and `modificationTime`; sizes remain `bigint`
-rather than losing uint64 precision.
+rather than losing uint64 precision. Returned directory names, long names, and extended-attribute
+buffers are owned snapshots rather than aliases into protocol input or caller-owned attributes.
 
 `stringToFlags` and `flagsToString` provide nullable conversions. The legacy `OPEN_MODE` and
 `STATUS_CODE` exports use uppercase keys, while `SFTPOpenFlags` and

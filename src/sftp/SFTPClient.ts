@@ -223,14 +223,13 @@ export default class SFTPClient {
     readonly channel: ClientSessionChannel
     readonly isOpenSSH: boolean
     readonly requestTimeout: number
-    extensions: readonly SFTPExtension[] = []
-
     maxReadLength = DEFAULT_READ_WRITE_LENGTH
     maxWriteLength = DEFAULT_READ_WRITE_LENGTH
     maxOpenHandles: number | undefined
     limits: Readonly<SFTPLimits> | undefined
 
     private readonly parser = new SFTPPacketParser()
+    private negotiatedExtensions: readonly SFTPExtension[] = Object.freeze([])
     private readonly pending = new Map<number, PendingRequest>()
     private readonly activeHandles = new Map<string, number>()
     private activeHandleCount = 0
@@ -289,8 +288,12 @@ export default class SFTPClient {
         }
     }
 
+    get extensions(): readonly SFTPExtension[] {
+        return ownExtensions(this.negotiatedExtensions)
+    }
+
     supportsExtension(name: string, version?: string): boolean {
-        return this.extensions.some(
+        return this.negotiatedExtensions.some(
             (extension) =>
                 extension.name === name &&
                 (version === undefined || extension.data.toString("ascii") === version),
@@ -1255,7 +1258,7 @@ export default class SFTPClient {
                 throw new SFTPProtocolError(`Unsupported SFTP protocol version ${packet.version}`)
             }
             this.initialized = true
-            this.extensions = packet.extensions
+            this.negotiatedExtensions = ownExtensions(packet.extensions)
             this.readyResolve()
             return
         }
@@ -1321,6 +1324,14 @@ export default class SFTPClient {
 
 function pathBuffer(path: SFTPPath): Buffer {
     return Buffer.isBuffer(path) ? path : encodeSSHUTF8(path, "SFTP path")
+}
+
+function ownExtensions(extensions: readonly SFTPExtension[]): readonly SFTPExtension[] {
+    return Object.freeze(
+        extensions.map((extension) =>
+            Object.freeze({ name: extension.name, data: Buffer.from(extension.data) }),
+        ),
+    )
 }
 
 function decodeSFTPName(value: Buffer, encoding: SFTPNameEncoding): string | Buffer {

@@ -1,13 +1,13 @@
 import { SFTPPacketType } from "./constants.js"
 
 export interface SFTPExtension {
-    name: string
-    data: Buffer
+    readonly name: string
+    readonly data: Buffer
 }
 
 export interface SFTPExtendedAttribute {
-    type: Buffer
-    data: Buffer
+    readonly type: Buffer
+    readonly data: Buffer
 }
 
 export interface SFTPAttributes {

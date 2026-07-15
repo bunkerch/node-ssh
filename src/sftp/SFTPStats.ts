@@ -25,7 +25,17 @@ export class SFTPStats implements SFTPAttributes {
         this.permissions = attributes.permissions
         this.accessTime = attributes.accessTime
         this.modificationTime = attributes.modificationTime
-        this.extended = attributes.extended
+        this.extended =
+            attributes.extended === undefined
+                ? undefined
+                : Object.freeze(
+                      attributes.extended.map((attribute) =>
+                          Object.freeze({
+                              type: ownBuffer(attribute.type, "extended attribute type"),
+                              data: ownBuffer(attribute.data, "extended attribute data"),
+                          }),
+                      ),
+                  )
     }
 
     get mode(): number | undefined {
@@ -82,5 +92,14 @@ export function sftpStats(attributes: SFTPAttributes): SFTPStats {
 }
 
 export function sftpNameEntry(entry: SFTPNameEntry): SFTPClientNameEntry {
-    return { ...entry, attributes: sftpStats(entry.attributes) }
+    return {
+        filename: ownBuffer(entry.filename, "name-entry filename"),
+        longname: ownBuffer(entry.longname, "name-entry longname"),
+        attributes: sftpStats(entry.attributes),
+    }
+}
+
+function ownBuffer(value: Buffer, name: string): Buffer {
+    if (!Buffer.isBuffer(value)) throw new TypeError(`SFTP ${name} must be a buffer`)
+    return Buffer.from(value)
 }
