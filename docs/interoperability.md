@@ -70,8 +70,9 @@ allocation to zero, and prove that an identifier which remains active is skipped
 tests reject peer reuse while an open is pending, duplicate remote identifiers, contradictory open
 outcomes, and window overflow. Held server policy and client agent-provider decisions prove that
 pending-open capacity rejects excess requests with resource shortage before invoking more
-application work. Separate client/server cases fill the total simultaneous-channel allowance,
-reject excess local and peer opens without disconnecting, and recover capacity after CLOSE.
+application work. Another held server policy proves that an independent later open can complete
+first. Separate client/server cases fill the total simultaneous-channel allowance, reject excess
+local and peer opens without disconnecting, and recover capacity after CLOSE.
 
 Action-scheduler tests hold an awaited global-request hook, fill a deliberately small waiting
 allowance with one-way traffic, and prove that the next request reports capacity failure and closes

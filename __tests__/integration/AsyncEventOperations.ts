@@ -54,9 +54,11 @@ async function closePeers(client: Client, peer: ServerClient, server: Server): P
 describe("asynchronous packet operation containment", () => {
     test("reports a rejected channel-open operation and closes the connection", async () => {
         const { client, peer, server } = await connectedPeers()
-        const failure = new Error("channel-open queue failed")
+        const failure = new Error("channel-open response failed")
         const reported = once(peer, "error")
-        peer.queue.obtainLock = () => Promise.reject(failure)
+        peer.sendPacket = () => {
+            throw failure
+        }
 
         try {
             const opening = expect(client.openSession()).rejects.toThrow("SSH connection closed")

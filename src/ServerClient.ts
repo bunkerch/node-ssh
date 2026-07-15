@@ -1280,7 +1280,6 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     private async handleChannelOpenRequest(packet: ChannelOpen): Promise<void> {
         this.debug(`ChannelOpenRequest`, packet)
 
-        const lock = await this.queue.obtainLock("channelOpenRequest")
         let accepted = false
         try {
             if (!this.isConnected) return
@@ -1354,7 +1353,6 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         } finally {
             if (!accepted) this.remoteChannelIds.delete(packet.data.sender_channel_id)
             this.pendingRemoteChannelOpens.delete(packet.data.sender_channel_id)
-            lock.release()
         }
     }
 

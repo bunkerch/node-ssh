@@ -219,6 +219,57 @@ describe("RFC 4254 channel identifiers", () => {
         }
     }, 15_000)
 
+    test("runs independent server channel-open policies concurrently", async () => {
+        const { server, peer, client } = await createConnectedPeers({
+            serverMaxPendingChannelOpens: 2,
+        })
+        let releaseFirst!: () => void
+        const firstReleased = new Promise<void>((resolve) => {
+            releaseFirst = resolve
+        })
+        let reportFirst!: () => void
+        const firstStarted = new Promise<void>((resolve) => {
+            reportFirst = resolve
+        })
+        let policyCalls = 0
+        server.hooker.hook("channelOpenRequest", async (_hook, _channel, controller) => {
+            policyCalls++
+            if (policyCalls === 1) {
+                reportFirst()
+                await firstReleased
+            }
+            controller.allowOpen = true
+        })
+
+        let first: Promise<ClientSessionChannel> | undefined
+        let second: Promise<ClientSessionChannel> | undefined
+        try {
+            first = client.openSession()
+            await firstStarted
+            second = client.openSession()
+            const deadline = new Promise<never>((_resolve, reject) => {
+                setTimeout(
+                    () => reject(new Error("Second SSH channel policy remained serialized")),
+                    250,
+                ).unref()
+            })
+            const secondChannel = await Promise.race([second, deadline])
+            expect(policyCalls).toBe(2)
+            expect(secondChannel.isOpen).toBe(true)
+
+            releaseFirst()
+            const firstChannel = await first
+            expect(firstChannel.localId).not.toBe(secondChannel.localId)
+            firstChannel.close()
+            secondChannel.close()
+        } finally {
+            releaseFirst()
+            await Promise.allSettled([first, second])
+            await closePeers(server, client)
+            peer.terminate()
+        }
+    }, 15_000)
+
     test("validates pending channel-open limits in both roles", () => {
         for (const maxPendingChannelOpens of [
             -1,
