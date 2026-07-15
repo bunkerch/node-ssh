@@ -8,6 +8,11 @@ import PublicKey, { SSHCertificatePublicKey } from "./utils/PublicKey.js"
 import { readNextBuffer } from "./utils/Buffer.js"
 import { decodeSSHName, encodeSSHName } from "./utils/SSHName.js"
 import { decodeSSHUTF8, encodeSSHUTF8 } from "./utils/SSHText.js"
+import { asciiLowercaseBytes, matchesWildcardBytes } from "./utils/Wildcard.js"
+
+const MAX_KNOWN_HOSTS_LENGTH = 16 * 1024 * 1024
+const MAX_KNOWN_HOSTS_LINE_LENGTH = 64 * 1024
+const MAX_HOST_PATTERN_LENGTH = 1023
 
 export type KnownHostMarker = "cert-authority" | "revoked"
 export type KnownHostStatus = "trusted" | "unknown" | "changed" | "revoked"
@@ -207,6 +212,13 @@ export default class KnownHosts {
 }
 
 function parseKnownHosts(content: string | Buffer): SourceLine[] {
+    if (typeof content !== "string" && !Buffer.isBuffer(content)) {
+        throw new TypeError("Known-hosts data must be a string or buffer")
+    }
+    const length = Buffer.isBuffer(content) ? content.length : Buffer.byteLength(content, "utf8")
+    if (length > MAX_KNOWN_HOSTS_LENGTH) {
+        throw new Error("Known-hosts data exceeds the maximum length")
+    }
     const text = Buffer.isBuffer(content)
         ? decodeSSHUTF8(content, "Known-hosts data")
         : (encodeSSHUTF8(content, "Known-hosts data"), content)
@@ -214,10 +226,12 @@ function parseKnownHosts(content: string | Buffer): SourceLine[] {
     if (/\r(?!\n)/u.test(text)) throw new Error("Known-hosts data contains a bare carriage return")
     const rawLines = text.split(/\r?\n/u)
     if (rawLines.at(-1) === "") rawLines.pop()
-    return rawLines.map((raw, index) => ({
-        raw,
-        entry: parseKnownHostLine(raw, index + 1),
-    }))
+    return rawLines.map((raw, index) => {
+        if (Buffer.byteLength(raw, "utf8") > MAX_KNOWN_HOSTS_LINE_LENGTH) {
+            throw new Error(`Known-hosts line ${index + 1} exceeds the maximum length`)
+        }
+        return { raw, entry: parseKnownHostLine(raw, index + 1) }
+    })
 }
 
 function parseKnownHostLine(raw: string, line: number): KnownHostEntry | undefined {
@@ -301,8 +315,14 @@ function validateHostPattern(pattern: string, line: number): void {
         }
         return
     }
-    if (pattern === "!") throw new Error(`Empty negated known-hosts pattern on line ${line}`)
+    const plain = pattern.startsWith("!") ? pattern.slice(1) : pattern
+    if (plain.length === 0) throw new Error(`Empty negated known-hosts pattern on line ${line}`)
     if (/[\s,]/u.test(pattern)) throw new Error(`Invalid known-hosts pattern on line ${line}`)
+    if (Buffer.byteLength(plain, "utf8") > MAX_HOST_PATTERN_LENGTH) {
+        throw new Error(
+            `Known-hosts pattern exceeds ${MAX_HOST_PATTERN_LENGTH} bytes on line ${line}`,
+        )
+    }
 }
 
 function decodeHashPart(value: string, line: number): Buffer {
@@ -335,28 +355,29 @@ function matchesHost(pattern: string, host: string): boolean {
         const expected = Buffer.from(encodedDigest, "base64")
         return actual.length === expected.length && timingSafeEqual(actual, expected)
     }
-    const expression = pattern
-        .split("")
-        .map((character) =>
-            character === "*"
-                ? ".*"
-                : character === "?"
-                  ? "."
-                  : character.replace(/[\\^$.*+?()[\]{}|]/gu, "\\$&"),
-        )
-        .join("")
-    return new RegExp(`^${expression}$`, "iu").test(host)
+    return matchesWildcardBytes(pattern, host, true)
 }
 
 function formatKnownHost(hostname: string, port: number): string {
-    if (hostname.length === 0 || /[\0\r\n,]/u.test(hostname)) {
+    if (hostname.length === 0 || /[\0\s,]/u.test(hostname)) {
         throw new TypeError("SSH hostname is invalid for known-hosts matching")
     }
     if (!Number.isInteger(port) || port < 1 || port > 65_535) {
         throw new RangeError("SSH port must be an integer between 1 and 65535")
     }
-    const normalized = hostname.toLowerCase()
-    return port === 22 ? normalized : `[${normalized.replace(/^\[|\]$/gu, "")}]:${port}`
+    const normalized = asciiLowercaseBytes(encodeSSHUTF8(hostname, "SSH hostname")).toString("utf8")
+    const formatted =
+        port === 22
+            ? normalized
+            : `[${
+                  normalized.startsWith("[") && normalized.endsWith("]")
+                      ? normalized.slice(1, -1)
+                      : normalized
+              }]:${port}`
+    if (Buffer.byteLength(formatted, "utf8") > MAX_HOST_PATTERN_LENGTH) {
+        throw new RangeError(`SSH hostname exceeds ${MAX_HOST_PATTERN_LENGTH} bytes`)
+    }
+    return formatted
 }
 
 function hashKnownHost(host: string): string {
@@ -368,7 +389,9 @@ function hashKnownHost(host: string): string {
 function isReplaceableHost(pattern: string, host: string): boolean {
     if (pattern.startsWith("|")) return matchesHost(pattern, host)
     if (pattern.startsWith("!") || pattern.includes("*") || pattern.includes("?")) return false
-    return pattern.toLowerCase() === host.toLowerCase()
+    return asciiLowercaseBytes(Buffer.from(pattern, "utf8")).equals(
+        asciiLowercaseBytes(Buffer.from(host, "utf8")),
+    )
 }
 
 function normalizePublicKey(key: PublicKey | string | Buffer): PublicKey {

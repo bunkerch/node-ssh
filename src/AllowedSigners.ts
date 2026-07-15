@@ -5,6 +5,7 @@ import KeyRevocationList from "./KeyRevocationList.js"
 import SSHSignature from "./SSHSignature.js"
 import PublicKey, { SSHCertificatePublicKey } from "./utils/PublicKey.js"
 import { decodeSSHUTF8, encodeSSHUTF8 } from "./utils/SSHText.js"
+import { matchesWildcardBytes } from "./utils/Wildcard.js"
 
 const MAX_ALLOWED_SIGNERS_LENGTH = 16 * 1024 * 1024
 const MAX_ALLOWED_SIGNERS_LINE_LENGTH = 64 * 1024
@@ -474,27 +475,5 @@ function matchesPatternList(patterns: readonly string[], value: string): boolean
 }
 
 function matchesPattern(pattern: string, value: string): boolean {
-    const patternBytes = Buffer.from(pattern, "utf8")
-    const valueBytes = Buffer.from(value, "utf8")
-    let states = new Uint8Array(patternBytes.length + 1)
-    states[0] = 1
-    applyStarClosure(states, patternBytes)
-    for (const byte of valueBytes) {
-        const next = new Uint8Array(states.length)
-        for (let index = 0; index < patternBytes.length; index++) {
-            if (states[index] === 0) continue
-            const expected = patternBytes[index]
-            if (expected === 0x2a) next[index] = 1
-            else if (expected === 0x3f || expected === byte) next[index + 1] = 1
-        }
-        applyStarClosure(next, patternBytes)
-        states = next
-    }
-    return states[patternBytes.length] === 1
-}
-
-function applyStarClosure(states: Uint8Array, pattern: Uint8Array): void {
-    for (let index = 0; index < pattern.length; index++) {
-        if (states[index] === 1 && pattern[index] === 0x2a) states[index + 1] = 1
-    }
+    return matchesWildcardBytes(pattern, value)
 }

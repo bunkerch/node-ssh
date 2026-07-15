@@ -307,6 +307,9 @@ principal, while the library rejects another principal and the revoked certifica
 Principal discovery and principal-pattern matching are compared against the corresponding system
 operations, including byte-oriented `?` matching for a multibyte UTF-8 identity.
 
+Known-host wildcard evidence compares the same multibyte hostname against `ssh-keygen -F`, proving
+that `?` consumes an encoded byte and that only the two-byte pattern matches.
+
 PPK import uses the RFC 8032 Ed25519 seed, public key, and empty-message signature as a fixed
 private-key vector in both version 2 and version 3 envelopes. The system `puttygen` independently
 accepts those fixtures, and generated version 3 fixtures cover RSA, DSA, Ed25519, Ed448, and every

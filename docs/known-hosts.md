@@ -35,6 +35,12 @@ non-default `[hostname]:port` entries, HMAC-SHA1 `|1|...` hashed hostnames, and 
 `@cert-authority` and `@revoked` markers. Hostname matching is case-insensitive. Hashed entries are
 compared in constant time after computing their HMAC.
 
+Wildcard matching follows the deployed byte-oriented rules: `?` consumes one UTF-8 byte, `*`
+consumes any number of bytes, and case folding applies only to ASCII. Matching uses bounded NFA
+state instead of dynamically constructed regular expressions. Files are limited to 16 MiB, lines
+to 64 KiB, and individual unhashed patterns to 1023 bytes; oversized policy is rejected during
+parsing.
+
 The verifier throws `KnownHostsError` on failure. Its `status` is one of:
 
 - `unknown`: no entry applies to the requested host.
