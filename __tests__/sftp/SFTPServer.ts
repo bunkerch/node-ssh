@@ -657,6 +657,7 @@ describe("SFTP server request engine", () => {
             length: 2,
         })
         await flush()
+        expect(() => server.data(requestId, Buffer.alloc(0))).toThrow("must not be empty")
         expect(() => server.data(requestId, Buffer.from("too long"))).toThrow("exceeds")
         expect(() => server.handle(requestId, Buffer.from("h"))).toThrow("HANDLE")
         expect(() => server.name(requestId, [])).toThrow("at least one")

@@ -285,6 +285,81 @@ describe("SFTP client request engine", () => {
         fixture.destroy()
     })
 
+    test("rejects successful read responses that make no progress", async () => {
+        const fixture = new SFTPServerFixture((packet) => {
+            if (packet.type === SFTPPacketType.Init) {
+                fixture.send({ type: SFTPPacketType.Version, version: 3, extensions: [] })
+            } else if (packet.type === SFTPPacketType.Read) {
+                fixture.send({
+                    type: SFTPPacketType.Data,
+                    requestId: packet.requestId,
+                    data: Buffer.alloc(0),
+                })
+            }
+        })
+
+        const client = await SFTPClient.connect(asClientChannel(fixture))
+        await expect(client.read(Buffer.from("file"), 1, 0)).rejects.toThrow(
+            "SFTP server returned empty data for a positive-length read",
+        )
+        fixture.destroy()
+    })
+
+    test("rejects empty directory batches and still closes the handle", async () => {
+        const requests: SFTPPacketType[] = []
+        let readDirectoryRequests = 0
+        const fixture = new SFTPServerFixture((packet) => {
+            if (packet.type === SFTPPacketType.Init) {
+                fixture.send({ type: SFTPPacketType.Version, version: 3, extensions: [] })
+                return
+            }
+            requests.push(packet.type)
+            if (packet.type === SFTPPacketType.OpenDir) {
+                fixture.send({
+                    type: SFTPPacketType.Handle,
+                    requestId: packet.requestId,
+                    handle: Buffer.from("directory"),
+                })
+            } else if (packet.type === SFTPPacketType.ReadDir) {
+                readDirectoryRequests++
+                if (readDirectoryRequests === 1) {
+                    fixture.send({
+                        type: SFTPPacketType.Name,
+                        requestId: packet.requestId,
+                        names: [],
+                    })
+                } else {
+                    fixture.send({
+                        type: SFTPPacketType.Status,
+                        requestId: packet.requestId,
+                        code: SFTPStatusCode.Failure,
+                        message: "client continued after an empty directory batch",
+                        languageTag: "",
+                    })
+                }
+            } else if (packet.type === SFTPPacketType.Close) {
+                fixture.send({
+                    type: SFTPPacketType.Status,
+                    requestId: packet.requestId,
+                    code: SFTPStatusCode.Ok,
+                    message: "",
+                    languageTag: "",
+                })
+            }
+        })
+
+        const client = await SFTPClient.connect(asClientChannel(fixture))
+        await expect(client.readDirectory("remote")).rejects.toThrow(
+            "SFTP directory response must contain at least one name",
+        )
+        expect(requests).toEqual([
+            SFTPPacketType.OpenDir,
+            SFTPPacketType.ReadDir,
+            SFTPPacketType.Close,
+        ])
+        fixture.destroy()
+    })
+
     test("rejects an invalid fast-transfer limit before opening the remote file", async () => {
         const requests: SFTPPacketType[] = []
         const fixture = new SFTPServerFixture((packet) => {

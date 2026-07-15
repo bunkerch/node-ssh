@@ -630,6 +630,11 @@ export default class SFTPClient {
             SFTPPacketType.Data,
         )
         if (response.type !== SFTPPacketType.Data) throw new SFTPProtocolError("Expected DATA")
+        if (response.data.length === 0) {
+            throw new SFTPProtocolError(
+                "SFTP server returned empty data for a positive-length read",
+            )
+        }
         if (response.data.length > length) {
             throw new SFTPProtocolError("SFTP server returned more data than requested")
         }
@@ -750,6 +755,11 @@ export default class SFTPClient {
                 SFTPPacketType.Name,
             )
             if (response.type !== SFTPPacketType.Name) throw new SFTPProtocolError("Expected NAME")
+            if (response.names.length === 0) {
+                throw new SFTPProtocolError(
+                    "SFTP directory response must contain at least one name",
+                )
+            }
             return response.names.map(sftpNameEntry)
         } catch (error) {
             if (error instanceof SFTPStatusError && error.code === SFTPStatusCode.EOF) return null

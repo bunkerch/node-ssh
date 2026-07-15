@@ -237,6 +237,9 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
             throw new Error("SFTP DATA is only valid for READ")
         }
         const ownedData = ownResponseBuffer(data, "DATA")
+        if (request.type === SFTPPacketType.Read && ownedData.length === 0) {
+            throw new Error("SFTP DATA response to READ must not be empty")
+        }
         if (request.type === SFTPPacketType.Read && ownedData.length > request.length) {
             throw new Error("SFTP DATA exceeds the requested read length")
         }

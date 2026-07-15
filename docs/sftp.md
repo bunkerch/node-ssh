@@ -191,9 +191,12 @@ Remote failure statuses reject with `SFTPStatusError`. Its numeric `code`, `requ
 example `SFTPStatusCode.NoSuchFile` or `SFTPStatusCode.PermissionDenied`.
 
 Malformed frames, unexpected response identifiers, wrong response types, duplicate initialization,
-and unsupported attribute flags are fatal protocol errors. Messages are bounded to OpenSSH's 256
-KiB ceiling before allocation, handles to 256 bytes, and outstanding client requests to 1024. The
-initial read and write request size is 32 KiB, which every conforming server is expected to support.
+and unsupported attribute flags are fatal protocol errors. A successful positive-length read must
+return at least one byte; end-of-file is reported with `SFTPStatusCode.EOF`. Directory `NAME`
+responses must contain at least one entry. Rejecting these no-progress responses prevents silent
+file truncation and unbounded directory scans. Messages are bounded to OpenSSH's 256 KiB ceiling
+before allocation, handles to 256 bytes, and outstanding client requests to 1024. The initial read
+and write request size is 32 KiB, which every conforming server is expected to support.
 Status messages use fatal UTF-8 validation, status language tags use the protocol language-tag
 grammar, and extension identifiers are validated SSH names. Filenames, long names, paths, handles,
 and extension payloads remain opaque bytes and are never replacement-decoded by the wire codec.
