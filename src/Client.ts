@@ -210,6 +210,7 @@ import PacketEventQueue, {
     offPacketEvent,
     onPacketEvent,
 } from "./utils/PacketEventQueue.js"
+import { registerReplyTimeout, waitForReply } from "./ReplyTimeout.js"
 
 export interface ClientHostbasedOptions {
     key: PrivateKey
@@ -300,6 +301,8 @@ export interface ClientOptions {
     rekeyInterval?: number
     /** Maximum milliseconds for TCP connection, SSH handshake, and authentication. Zero disables. */
     readyTimeout?: number
+    /** Maximum milliseconds for an ordered peer reply before the connection is closed. */
+    replyTimeout?: number
     /** Already-connected duplex transport, such as an SSH direct-tcpip channel. */
     sock?: Duplex
     /** Receive the same already-redacted diagnostic arguments as the `debug` event. */
@@ -706,6 +709,7 @@ export default class Client extends EventEmitter<ClientEvents> {
         this.#options.rekeyBytes ??= DEFAULT_REKEY_BYTES
         this.#options.rekeyInterval ??= DEFAULT_REKEY_INTERVAL
         this.#options.readyTimeout ??= 20_000
+        this.#options.replyTimeout ??= 30_000
         if (
             !Number.isFinite(this.#options.keepaliveInterval) ||
             this.#options.keepaliveInterval < 0
@@ -722,6 +726,9 @@ export default class Client extends EventEmitter<ClientEvents> {
         validateRekeyInterval(this.#options.rekeyInterval)
         if (!Number.isFinite(this.#options.readyTimeout) || this.#options.readyTimeout < 0) {
             throw new RangeError("SSH ready timeout must be a non-negative number")
+        }
+        if (!Number.isFinite(this.#options.replyTimeout) || this.#options.replyTimeout <= 0) {
+            throw new RangeError("SSH reply timeout must be a positive number")
         }
         if (
             this.#options.localPort !== undefined &&
@@ -778,6 +785,7 @@ export default class Client extends EventEmitter<ClientEvents> {
             })
         }
         registerClientConfiguration(this, this.#options)
+        registerReplyTimeout(this, this.#options.replyTimeout, () => this.destroy())
     }
 
     hooker = new Hooker<ClientHooker>()
@@ -1086,10 +1094,12 @@ export default class Client extends EventEmitter<ClientEvents> {
                 new Error("Cannot rekey before RFC 8308 delay-compression is resolved"),
             )
         }
-        return this.performKeyExchange().catch((error: unknown) => {
-            this.destroy()
-            throw error
-        })
+        return waitForReply(this, this.performKeyExchange(), "key exchange").catch(
+            (error: unknown) => {
+                this.destroy()
+                throw error
+            },
+        )
     }
 
     ping(data: Buffer = Buffer.alloc(0)): Promise<Buffer> {
@@ -1103,7 +1113,7 @@ export default class Client extends EventEmitter<ClientEvents> {
             return Promise.reject(new TypeError("SSH transport ping data must be a buffer"))
         }
         const sent = Buffer.from(data)
-        return new Promise<Buffer>((resolve, reject) => {
+        const response = new Promise<Buffer>((resolve, reject) => {
             this.pendingPings.push({ data: sent, resolve, reject })
             try {
                 this.sendPacket(new Ping({ data: sent }))
@@ -1112,6 +1122,7 @@ export default class Client extends EventEmitter<ClientEvents> {
                 reject(error as Error)
             }
         })
+        return waitForReply(this, response, "transport ping reply")
     }
 
     sendDebug(message: string, alwaysDisplay = false, languageTag = ""): this {
@@ -1324,7 +1335,7 @@ export default class Client extends EventEmitter<ClientEvents> {
         this.channels.set(channel.localId, channel)
         try {
             this.sendPacket(channel.getOpenPacket())
-            await channel.waitUntilOpen()
+            await waitForReply(this, channel.waitUntilOpen(), `channel ${channel.localId} open`)
             return channel
         } catch (error) {
             this.channels.delete(channel.localId)
@@ -1494,7 +1505,7 @@ export default class Client extends EventEmitter<ClientEvents> {
         this.remoteStreamLocalForwardings.delete(socketPath)
     }
 
-    private sendGlobalRequest(name: string, args: Buffer): Promise<Buffer> {
+    private sendGlobalRequest(name: string, args: Buffer, bounded = true): Promise<Buffer> {
         if (!this.isConnected || !this.hasAuthenticated) {
             return Promise.reject(
                 new Error("Cannot send an SSH global request before authentication"),
@@ -1509,7 +1520,7 @@ export default class Client extends EventEmitter<ClientEvents> {
             this.pendingGlobalRequests.pop()
             return Promise.reject(error)
         }
-        return response
+        return bounded ? waitForReply(this, response, `global request ${name} reply`) : response
     }
 
     private validateGlobalRequest(name: string, args: Buffer): void {
@@ -2831,9 +2842,9 @@ export default class Client extends EventEmitter<ClientEvents> {
 
             case PacketNameToType.SSH_MSG_KEXINIT:
                 if (this.sessionID !== undefined && !this.keyExchangeInProgress) {
-                    void this.performKeyExchange(true).catch((error: Error) => {
-                        this.socket?.destroy(error)
-                    })
+                    void waitForReply(this, this.performKeyExchange(true), "key exchange").catch(
+                        (error: Error) => this.socket?.destroy(error),
+                    )
                 }
                 this.emit("serverKexInit", p as KexInit, Buffer.from(this.#serverKexInitPayload!))
                 break
@@ -3310,7 +3321,7 @@ export default class Client extends EventEmitter<ClientEvents> {
             return
         }
 
-        void this.sendGlobalRequest("keepalive@openssh.com", Buffer.alloc(0)).then(
+        void this.sendGlobalRequest("keepalive@openssh.com", Buffer.alloc(0), false).then(
             () => this.resetKeepalive(),
             (error: unknown) => {
                 if (error instanceof GlobalRequestError) this.resetKeepalive()

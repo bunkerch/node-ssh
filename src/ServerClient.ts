@@ -193,6 +193,7 @@ import {
     type DelayCompressionOffers,
     type NegotiatedDelayCompression,
 } from "./DelayCompression.js"
+import { registerReplyTimeout, waitForReply } from "./ReplyTimeout.js"
 import {
     KexGSSAPIComplete,
     KexGSSAPIContinue,
@@ -272,6 +273,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         this.#configuration = serverConfigurationFor(server)
         this.connectionId = randomBase36(9)
         this.delayCompressionRekeyBlocked = this.#configuration.delayCompression !== false
+        registerReplyTimeout(this, this.#configuration.replyTimeout, () => this.terminate())
 
         this.socket.on("data", (data) => {
             try {
@@ -549,7 +551,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         this.channels.set(channel.localId, channel)
         try {
             this.sendPacket(channel.getChannelOpenPacket())
-            await channel.waitUntilOpen()
+            await waitForReply(this, channel.waitUntilOpen(), `channel ${channel.localId} open`)
             return channel
         } catch (error) {
             this.channels.delete(channel.localId)
@@ -599,7 +601,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         this.channels.set(channel.localId, channel)
         try {
             this.sendPacket(channel.getChannelOpenPacket())
-            await channel.waitUntilOpen()
+            await waitForReply(this, channel.waitUntilOpen(), `channel ${channel.localId} open`)
             return channel
         } catch (error) {
             this.channels.delete(channel.localId)
@@ -661,10 +663,12 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 new Error("Cannot rekey before RFC 8308 delay-compression is resolved"),
             )
         }
-        return this.performKeyExchange().catch((error: unknown) => {
-            this.terminate()
-            throw error
-        })
+        return waitForReply(this, this.performKeyExchange(), "key exchange").catch(
+            (error: unknown) => {
+                this.terminate()
+                throw error
+            },
+        )
     }
 
     sendDebug(message: string, alwaysDisplay = false, languageTag = ""): this {
@@ -721,27 +725,28 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     globalRequest(name: string, args: Buffer = Buffer.alloc(0)): Promise<Buffer> {
         try {
             this.validateGlobalRequest(name, args)
-            if (!this.isConnected || !this.hasAuthenticated) {
-                throw new Error("Cannot send an SSH global request before authentication")
-            }
-            return new Promise<Buffer>((resolve, reject) => {
-                this.pendingGlobalRequests.push({ name, resolve, reject })
-                try {
-                    this.sendPacket(
-                        new GlobalRequest({
-                            request_name: name,
-                            want_reply: true,
-                            args: Buffer.from(args),
-                        }),
-                    )
-                } catch (error) {
-                    this.pendingGlobalRequests.pop()
-                    reject(error as Error)
-                }
-            })
+            return this.sendGlobalRequest(name, Buffer.from(args))
         } catch (error) {
             return Promise.reject(error as Error)
         }
+    }
+
+    private sendGlobalRequest(name: string, args: Buffer, bounded = true): Promise<Buffer> {
+        if (!this.isConnected || !this.hasAuthenticated) {
+            return Promise.reject(
+                new Error("Cannot send an SSH global request before authentication"),
+            )
+        }
+        const response = new Promise<Buffer>((resolve, reject) => {
+            this.pendingGlobalRequests.push({ name, resolve, reject })
+            try {
+                this.sendPacket(new GlobalRequest({ request_name: name, want_reply: true, args }))
+            } catch (error) {
+                this.pendingGlobalRequests.pop()
+                reject(error as Error)
+            }
+        })
+        return bounded ? waitForReply(this, response, `global request ${name} reply`) : response
     }
 
     private validateGlobalRequest(name: string, args: Buffer): void {
@@ -1709,7 +1714,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         this.channels.set(channel.localId, channel)
         try {
             this.sendPacket(channel.getChannelOpenPacket())
-            await channel.waitUntilOpen()
+            await waitForReply(this, channel.waitUntilOpen(), `channel ${channel.localId} open`)
             return channel
         } catch (error) {
             this.channels.delete(channel.localId)
@@ -1750,7 +1755,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             this.assertChannelCapacity()
             this.channels.set(channel.localId, channel)
             this.sendPacket(channel.getChannelOpenPacket())
-            await channel.waitUntilOpen()
+            await waitForReply(this, channel.waitUntilOpen(), `channel ${channel.localId} open`)
             if (socket.destroyed) {
                 pendingInput.destroy()
                 channel.close()
@@ -2895,10 +2900,13 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
 
             case PacketNameToType.SSH_MSG_KEXINIT:
                 if (this.sessionID !== undefined && !this.keyExchangeInProgress) {
-                    void this.performKeyExchange(true).catch((error: Error) => {
-                        this.emit("error", error)
-                        this.terminate()
-                    })
+                    void waitForReply(this, this.performKeyExchange(true), "key exchange").catch(
+                        (error: Error) => {
+                            if (!this.isConnected) return
+                            this.emit("error", error)
+                            this.terminate()
+                        },
+                    )
                 }
                 this.emit("clientKexInit", p as KexInit, Buffer.from(this.#clientKexInitPayload!))
                 break
@@ -3272,7 +3280,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             return
         }
 
-        void this.globalRequest("keepalive@openssh.com").then(
+        void this.sendGlobalRequest("keepalive@openssh.com", Buffer.alloc(0), false).then(
             () => this.resetKeepalive(),
             (error: unknown) => {
                 if (error instanceof ServerGlobalRequestError) this.resetKeepalive()

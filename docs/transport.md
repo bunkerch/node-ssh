@@ -659,7 +659,8 @@ Transport PING and PONG use opcodes 192 and 193 and carry one opaque SSH string;
 copy that string exactly. Client `ping()` calls are matched in FIFO order, reject mismatched data,
 and are available only after the advertisement is received. Pings and replies created during a
 rekey are queued until NEWKEYS completes, while server replies otherwise require no application
-event handler.
+event handler. Client pings and rekeys use the connection's `replyTimeout`; expiry closes the
+transport because subsequent ordered traffic cannot safely overtake the missing reply.
 
 ECDSA host keys support all three curves required by RFC 5656: `ecdsa-sha2-nistp256`,
 `ecdsa-sha2-nistp384`, and `ecdsa-sha2-nistp521`. Received SEC1 points are validated before use,

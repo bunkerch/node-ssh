@@ -15,6 +15,7 @@ import ChannelWindowAdjust from "./packets/ChannelWindowAdjust.js"
 import { MAXIMUM_CHANNEL_WINDOW_SIZE } from "./constants.js"
 import { ServerHookerChannelRequestController } from "./Server.js"
 import { ProtocolError } from "./packets/Disconnect.js"
+import { waitForReply } from "./ReplyTimeout.js"
 
 export const DEFAULT_SERVER_CHANNEL_WINDOW_SIZE = 2 ** 21
 export const DEFAULT_SERVER_CHANNEL_PACKET_SIZE = 2 ** 15
@@ -265,7 +266,9 @@ export default class Channel {
             if (wantReply) this.pendingRequests.pop()
             return Promise.reject(error)
         }
-        return response
+        return wantReply
+            ? waitForReply(this.client, response, `channel ${this.localId} request ${type} reply`)
+            : response
     }
 
     receiveRequestSuccess(): void {

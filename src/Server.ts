@@ -69,6 +69,8 @@ export interface ServerOptions {
     handshakeTimeout?: number
     /** Milliseconds allowed after accepting the user-authentication service. Zero disables. */
     authenticationTimeout?: number
+    /** Maximum milliseconds for an ordered peer reply before the connection is closed. */
+    replyTimeout?: number
     /** Maximum rejected non-`none` authentication requests per connection. */
     maxAuthenticationAttempts?: number
     /** Milliseconds between authenticated per-connection SSH keepalive probes. Zero disables. */
@@ -417,6 +419,7 @@ export default class Server extends EventEmitter<ServerEvents> {
         this.#options.banner ??= ""
         this.#options.handshakeTimeout ??= 20_000
         this.#options.authenticationTimeout ??= 600_000
+        this.#options.replyTimeout ??= 30_000
         this.#options.maxAuthenticationAttempts ??= 20
         this.#options.keepaliveInterval ??= 0
         this.#options.keepaliveCountMax ??= 3
@@ -433,6 +436,9 @@ export default class Server extends EventEmitter<ServerEvents> {
             this.#options.authenticationTimeout < 0
         ) {
             throw new RangeError("SSH authentication timeout must be a non-negative number")
+        }
+        if (!Number.isFinite(this.#options.replyTimeout) || this.#options.replyTimeout <= 0) {
+            throw new RangeError("SSH reply timeout must be a positive number")
         }
         if (
             !Number.isInteger(this.#options.maxAuthenticationAttempts) ||

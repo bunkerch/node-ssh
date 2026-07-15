@@ -18,6 +18,7 @@ const client = new Client({
     hostHash: "sha256",
     hostVerifier: (hash) => hash === process.env.SSH_HOST_KEY_SHA256_HEX,
     readyTimeout: 20_000,
+    replyTimeout: 30_000,
     keepaliveInterval: 15_000,
     keepaliveCountMax: 3,
 })
@@ -97,6 +98,13 @@ It defaults to 20 seconds. Set it to `0` to disable the deadline. If the deadlin
 `connect()` rejects with `Timed out while waiting for handshake` and the client destroys the
 underlying transport.
 
+`replyTimeout` bounds ordered connection-protocol replies after authentication and defaults to 30
+seconds. It applies to rekey, transport ping, global requests, channel opens, and channel requests
+in both peer roles. These replies have no independent request identifier and must remain ordered,
+so expiry closes the connection: accepting a late reply while continuing would risk matching it to
+later work. The value must be a positive number; choose it above the longest application hook that
+is expected to answer a reply-requesting operation.
+
 For direct TCP connections, `localAddress` and `localPort` select the source binding. Set exactly
 one of `forceIPv4` or `forceIPv6` to restrict hostname resolution to that address family. If both
 flags have the same value, normal system resolution is used. These four options are ignored when
@@ -129,6 +137,7 @@ through its `error` event and terminates without affecting other accepted client
 ```ts
 const server = new Server({
     hostKeys,
+    replyTimeout: 30_000,
     keepaliveInterval: 15_000,
     keepaliveCountMax: 3,
 })

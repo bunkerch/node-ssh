@@ -8,6 +8,8 @@ Periodic keepalives are reply-requesting `keepalive@openssh.com` messages. Both 
 prove liveness. Client options configure the outbound client timer; matching server options create
 one timer per authenticated connection. Missing replies are bounded, while an ordinary failure is
 never treated as a timeout.
+Periodic probes remain governed by `keepaliveInterval` and `keepaliveCountMax`; the general
+`replyTimeout` below applies to application and protocol operations that expect one reply.
 
 ## Sending from a client
 
@@ -23,10 +25,12 @@ const response = await client.globalRequest(
 
 Request names must be non-empty printable ASCII and arguments must be a `Buffer`. A failure reply
 rejects with `GlobalRequestError`. Concurrent calls are matched to replies in RFC wire order, and
-pending calls reject if the connection closes. A success or failure response without a pending
-request is a protocol error and closes the connection. Request and successful-response packet
-boundaries copy their opaque bytes, so caller buffers and received transport frames cannot mutate
-an in-flight exchange.
+pending calls reject if the connection closes. The connection's `replyTimeout` also bounds each
+reply; expiry rejects the call and closes the connection because a late untagged response cannot
+safely be matched to later work. A success or failure response without a pending request is a
+protocol error and closes the connection. Request and successful-response packet boundaries copy
+their opaque bytes, so caller buffers and received transport frames cannot mutate an in-flight
+exchange.
 
 Accepted server connections expose the same API on `ServerClient`, for connection-wide requests
 directed at an SSH client:

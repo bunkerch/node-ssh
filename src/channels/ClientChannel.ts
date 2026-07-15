@@ -16,6 +16,7 @@ import { Hooker } from "../utils/Hooker.js"
 import { normalizeSSHSignal } from "../utils/Signal.js"
 import { decodeSSHLanguageTag, decodeSSHUTF8 } from "../utils/SSHText.js"
 import { ProtocolError } from "../packets/Disconnect.js"
+import { waitForReply } from "../ReplyTimeout.js"
 
 export const DEFAULT_CHANNEL_WINDOW_SIZE = 2 ** 21
 export const DEFAULT_CHANNEL_PACKET_SIZE = 2 ** 15
@@ -262,7 +263,9 @@ export default class ClientChannel extends Duplex {
             return Promise.reject(error)
         }
 
-        return response
+        return wantReply
+            ? waitForReply(this.client, response, `channel ${this.localId} request ${type} reply`)
+            : response
     }
 
     receiveRequestSuccess(): void {

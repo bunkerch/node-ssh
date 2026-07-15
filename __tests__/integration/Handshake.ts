@@ -888,6 +888,7 @@ describe("client/server integration", () => {
             hostname: "127.0.0.1",
             port: (server.server!.address() as AddressInfo).port,
             username: "keepalive-test",
+            replyTimeout: 5,
             keepaliveInterval: 20,
             keepaliveCountMax: 1,
         })

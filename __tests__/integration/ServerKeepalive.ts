@@ -21,6 +21,7 @@ async function startServer(options: {
     const server = new Server({
         hostKeys: [hostKey],
         sendAllHostKeys: false,
+        replyTimeout: 5,
         ...options,
     })
     server.hooker.hook("noneAuthentication", (_hook, _context, decision) => {

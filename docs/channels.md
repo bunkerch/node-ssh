@@ -277,6 +277,9 @@ The implementation follows RFC 4254 channel rules:
   stream consumers make room. A zero adjustment is a valid no-op; an adjustment that would raise
   the current window above `2^32 - 1` causes an RFC protocol-error disconnect.
 - Request success and failure replies are matched in request order.
+- Outbound channel opens and reply-requesting channel requests use the connection's `replyTimeout`.
+  Expiry rejects the operation and closes the connection so a late ordered reply cannot be
+  misattributed.
 - Local or peer CLOSE promptly settles pending writes and outbound requests; settlement never waits
   for the peer's CLOSE acknowledgement. Late results from request hooks cannot create session
   resources, emit request events, or send request replies.
