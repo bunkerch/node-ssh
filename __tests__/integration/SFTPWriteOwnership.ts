@@ -48,7 +48,7 @@ test("SFTP writes own buffers and chunk limit across acknowledgements", async ()
                         reportFirstWrite()
                         await firstWriteReleased
                     }
-                    sftp.status(request.requestId, SFTPStatusCode.Ok)
+                    await sftp.status(request.requestId, SFTPStatusCode.Ok)
                 })
             })
         })
@@ -129,14 +129,14 @@ test("SFTP writeFile owns buffer data while opening the remote file", async () =
                 sftp.hooker.hook("OPEN", async (_hook, request) => {
                     reportOpen()
                     await openReleased
-                    sftp.handle(request.requestId, Buffer.from("file-handle"))
+                    await sftp.handle(request.requestId, Buffer.from("file-handle"))
                 })
                 sftp.hooker.hook("WRITE", async (_hook, request) => {
                     receivedData = Buffer.from(request.data)
-                    sftp.status(request.requestId, SFTPStatusCode.Ok)
+                    await sftp.status(request.requestId, SFTPStatusCode.Ok)
                 })
                 sftp.hooker.hook("CLOSE", async (_hook, request) => {
-                    sftp.status(request.requestId, SFTPStatusCode.Ok)
+                    await sftp.status(request.requestId, SFTPStatusCode.Ok)
                 })
             })
         })

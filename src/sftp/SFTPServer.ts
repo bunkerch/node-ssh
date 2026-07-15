@@ -101,6 +101,7 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
     private readonly queued: SFTPRequestPacket[] = []
     private readonly requestIds = new Set<number>()
     private active: SFTPRequestPacket | undefined
+    private activeResponse: Promise<void> | undefined
     private initialized = false
     private closed = false
     private dispatchScheduled = false
@@ -125,7 +126,7 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
         stream.once("error", (error) => this.fail(error))
     }
 
-    status(requestId: number, code: SFTPStatusCode, message = "", languageTag = ""): void {
+    status(requestId: number, code: SFTPStatusCode, message = "", languageTag = ""): Promise<void> {
         if (code === SFTPStatusCode.NoConnection || code === SFTPStatusCode.ConnectionLost) {
             throw new Error("SFTP servers must not send client-only connection status codes")
         }
@@ -134,7 +135,7 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
         if (code === SFTPStatusCode.Ok && !expectsStatus(request.type)) {
             throw new Error(`SFTP request type ${request.type} requires a data response on success`)
         }
-        this.respond({
+        return this.respond({
             type: SFTPPacketType.Status,
             requestId,
             code,
@@ -143,7 +144,7 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
         })
     }
 
-    handle(requestId: number, handle: Buffer): void {
+    handle(requestId: number, handle: Buffer): Promise<void> {
         const request = this.requireActive(requestId)
         if (
             request.type !== SFTPPacketType.Open &&
@@ -152,10 +153,10 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
         ) {
             throw new Error("SFTP HANDLE is only valid for OPEN and OPENDIR")
         }
-        this.respond({ type: SFTPPacketType.Handle, requestId, handle })
+        return this.respond({ type: SFTPPacketType.Handle, requestId, handle })
     }
 
-    data(requestId: number, data: Buffer): void {
+    data(requestId: number, data: Buffer): Promise<void> {
         const request = this.requireActive(requestId)
         if (request.type !== SFTPPacketType.Read && request.type !== SFTPPacketType.Extended) {
             throw new Error("SFTP DATA is only valid for READ")
@@ -163,10 +164,10 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
         if (request.type === SFTPPacketType.Read && data.length > request.length) {
             throw new Error("SFTP DATA exceeds the requested read length")
         }
-        this.respond({ type: SFTPPacketType.Data, requestId, data })
+        return this.respond({ type: SFTPPacketType.Data, requestId, data })
     }
 
-    name(requestId: number, names: SFTPNameEntry | readonly SFTPNameEntry[]): void {
+    name(requestId: number, names: SFTPNameEntry | readonly SFTPNameEntry[]): Promise<void> {
         const request = this.requireActive(requestId)
         const entries = Array.isArray(names) ? names : [names]
         if (entries.length === 0) throw new Error("SFTP NAME must contain at least one entry")
@@ -185,10 +186,10 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
         ) {
             throw new Error("SFTP REALPATH and READLINK require exactly one name")
         }
-        this.respond({ type: SFTPPacketType.Name, requestId, names: entries })
+        return this.respond({ type: SFTPPacketType.Name, requestId, names: entries })
     }
 
-    attributes(requestId: number, attributes: SFTPAttributes): void {
+    attributes(requestId: number, attributes: SFTPAttributes): Promise<void> {
         const request = this.requireActive(requestId)
         if (
             request.type !== SFTPPacketType.Stat &&
@@ -198,15 +199,15 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
         ) {
             throw new Error("SFTP ATTRS is not valid for this request")
         }
-        this.respond({ type: SFTPPacketType.Attrs, requestId, attributes })
+        return this.respond({ type: SFTPPacketType.Attrs, requestId, attributes })
     }
 
-    extendedReply(requestId: number, data: Buffer): void {
+    extendedReply(requestId: number, data: Buffer): Promise<void> {
         const request = this.requireActive(requestId)
         if (request.type !== SFTPPacketType.Extended) {
             throw new Error("SFTP EXTENDED_REPLY is only valid for EXTENDED requests")
         }
-        this.respond({ type: SFTPPacketType.ExtendedReply, requestId, data })
+        return this.respond({ type: SFTPPacketType.ExtendedReply, requestId, data })
     }
 
     symlinkPaths(request: SFTPRequestOf<SFTPPacketType.SymLink>): Readonly<SFTPSymlinkPaths> {
@@ -241,10 +242,12 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
                 throw new SFTPProtocolError(`Unsupported SFTP client version ${packet.version}`)
             }
             this.initialized = true
-            this.writePacket({
+            void this.writePacket({
                 type: SFTPPacketType.Version,
                 version: SFTP_VERSION,
                 extensions: this.extensions,
+            }).catch((error: unknown) => {
+                this.destroy(error instanceof Error ? error : new Error(String(error)))
             })
             this.emit("ready", packet.version)
             return
@@ -267,14 +270,17 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
     }
 
     private scheduleDispatch(): void {
-        if (this.dispatchScheduled || this.active || this.closed) return
+        if (this.dispatchScheduled || this.active || this.closed || this.queued.length === 0) return
         this.dispatchScheduled = true
         queueMicrotask(() => {
             this.dispatchScheduled = false
-            void this.dispatch().catch((error: unknown) => {
-                const failure = error instanceof Error ? error : new Error(String(error))
-                this.destroy(failure)
-            })
+            void this.dispatch().then(
+                () => this.scheduleDispatch(),
+                (error: unknown) => {
+                    const failure = error instanceof Error ? error : new Error(String(error))
+                    this.destroy(failure)
+                },
+            )
         })
     }
 
@@ -291,15 +297,20 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
         } else if (this.hooker.hasHooks("request")) {
             await this.hooker.triggerHook("request", request)
         } else {
-            this.status(request.requestId, SFTPStatusCode.OperationUnsupported)
+            await this.status(request.requestId, SFTPStatusCode.OperationUnsupported)
             return
         }
+        if (this.activeResponse) await this.activeResponse
         if (this.hookError && this.active === request) {
-            this.status(request.requestId, SFTPStatusCode.Failure, "SFTP request handler failed")
+            await this.status(
+                request.requestId,
+                SFTPStatusCode.Failure,
+                "SFTP request handler failed",
+            )
             return
         }
         if (this.active === request) {
-            this.status(
+            await this.status(
                 request.requestId,
                 SFTPStatusCode.Failure,
                 "SFTP request handler returned without a response",
@@ -323,20 +334,33 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
         return this.active
     }
 
-    private respond(packet: SFTPPacket): void {
+    private respond(packet: SFTPPacket): Promise<void> {
         if (!("requestId" in packet)) throw new Error("SFTP response has no request id")
         const request = this.requireActive(packet.requestId)
-        this.writePacket(packet)
-        this.active = undefined
-        this.requestIds.delete(request.requestId)
-        this.scheduleDispatch()
+        const written = this.writePacket(packet)
+        const response = written.then(
+            () => {
+                if (this.active === request) {
+                    this.active = undefined
+                    this.requestIds.delete(request.requestId)
+                }
+                if (this.activeResponse === response) this.activeResponse = undefined
+            },
+            (error: unknown) => {
+                if (this.activeResponse === response) this.activeResponse = undefined
+                const failure = error instanceof Error ? error : new Error(String(error))
+                this.destroy(failure)
+                throw failure
+            },
+        )
+        this.activeResponse = response
+        return response
     }
 
-    private writePacket(packet: SFTPPacket): void {
+    private writePacket(packet: SFTPPacket): Promise<void> {
         const frame = encodeSFTPPacket(packet)
-        this.stream.write(frame, (error) => {
-            if (!error) return
-            this.destroy(error)
+        return new Promise<void>((resolve, reject) => {
+            this.stream.write(frame, (error) => (error ? reject(error) : resolve()))
         })
     }
 
@@ -350,6 +374,7 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
         }
         this.closed = true
         this.active = undefined
+        this.activeResponse = undefined
         this.queued.length = 0
         this.requestIds.clear()
         this.emit("close")
@@ -360,6 +385,7 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
         if (this.closed) return
         this.closed = true
         this.active = undefined
+        this.activeResponse = undefined
         this.queued.length = 0
         this.requestIds.clear()
         if (this.listenerCount("error") > 0) this.emit("error", error)

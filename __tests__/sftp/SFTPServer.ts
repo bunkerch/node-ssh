@@ -8,6 +8,8 @@ import type { SFTPPacket, SFTPRequestPacket } from "../../src/sftp/types.js"
 
 class SFTPClientFixture extends Duplex {
     readonly responses: SFTPPacket[] = []
+    deferWrites = false
+    private deferredWrite?: (error?: Error | null) => void
 
     _read(): void {
         void this.readable
@@ -20,7 +22,8 @@ class SFTPClientFixture extends Duplex {
     ): void {
         try {
             this.responses.push(decodeSFTPPacket(chunk))
-            callback()
+            if (this.deferWrites) this.deferredWrite = callback
+            else callback()
         } catch (error) {
             callback(error instanceof Error ? error : new Error(String(error)))
         }
@@ -28,6 +31,13 @@ class SFTPClientFixture extends Duplex {
 
     send(packet: SFTPPacket): void {
         this.push(encodeSFTPPacket(packet))
+    }
+
+    releaseWrite(error?: Error): void {
+        const callback = this.deferredWrite
+        if (!callback) throw new Error("No SFTP response write is deferred")
+        this.deferredWrite = undefined
+        callback(error)
     }
 }
 
@@ -87,12 +97,12 @@ describe("SFTP server request engine", () => {
         server.hooker.hook("READ", async (_hook, request) => {
             events.push("READ")
             await readReady
-            server.data(request.requestId, Buffer.from("abc"))
+            await server.data(request.requestId, Buffer.from("abc"))
         })
         server.hooker.hook("WRITE", async (_hook, request) => {
             await Promise.resolve()
             events.push("WRITE")
-            server.status(request.requestId, SFTPStatusCode.Ok)
+            await server.status(request.requestId, SFTPStatusCode.Ok)
         })
 
         fixture.send({ type: SFTPPacketType.Init, version: 6, extensions: [] })
@@ -136,6 +146,64 @@ describe("SFTP server request engine", () => {
         fixture.destroy()
     })
 
+    test("awaits response writes before resolving handlers or dispatching the next request", async () => {
+        const fixture = new SFTPClientFixture()
+        const server = new SFTPServer(asShell(fixture))
+        const events: string[] = []
+        server.hooker.hook("STAT", async (_hook, request) => {
+            events.push("STAT:start")
+            await server.attributes(request.requestId, { size: 3n })
+            events.push("STAT:written")
+        })
+        server.hooker.hook("LSTAT", async (_hook, request) => {
+            events.push("LSTAT")
+            await server.attributes(request.requestId, { size: 4n })
+        })
+
+        fixture.send({ type: SFTPPacketType.Init, version: 3, extensions: [] })
+        await flush()
+        fixture.deferWrites = true
+        fixture.send({ type: SFTPPacketType.Stat, requestId: 11, path: Buffer.from("one") })
+        await flush()
+
+        expect(events).toEqual(["STAT:start"])
+        expect(fixture.responses.at(-1)).toMatchObject({
+            type: SFTPPacketType.Attrs,
+            requestId: 11,
+        })
+        fixture.send({ type: SFTPPacketType.LStat, requestId: 12, path: Buffer.from("two") })
+        await flush()
+        expect(events).toEqual(["STAT:start"])
+        fixture.releaseWrite()
+        await flush()
+        expect(events).toEqual(["STAT:start", "STAT:written", "LSTAT"])
+        fixture.releaseWrite()
+        await flush()
+        fixture.destroy()
+    })
+
+    test("rejects an awaited response when the channel write fails", async () => {
+        const fixture = new SFTPClientFixture()
+        const server = new SFTPServer(asShell(fixture))
+        let response: Promise<void> | undefined
+        server.hooker.hook("STAT", (_hook, request) => {
+            response = server.attributes(request.requestId, { size: 3n })
+            return response
+        })
+
+        fixture.send({ type: SFTPPacketType.Init, version: 3, extensions: [] })
+        await flush()
+        fixture.deferWrites = true
+        fixture.send({ type: SFTPPacketType.Stat, requestId: 13, path: Buffer.from("one") })
+        await flush()
+        if (!response) throw new Error("SFTP response did not start")
+        fixture.releaseWrite(new Error("response transport failed"))
+
+        await expect(response).rejects.toThrow("response transport failed")
+        await flush()
+        expect(fixture.destroyed).toBe(true)
+    })
+
     test("isolates passive request observation from awaited handlers", async () => {
         const fixture = new SFTPClientFixture()
         const server = new SFTPServer(asShell(fixture))
@@ -156,17 +224,17 @@ describe("SFTP server request engine", () => {
                 request.data.fill(0x78)
             }
         })
-        server.hooker.hook("OPEN", (_hook, request) => {
+        server.hooker.hook("OPEN", async (_hook, request) => {
             handledFilename = Buffer.from(request.filename)
             handledAttribute = Buffer.concat([
                 request.attributes.extended![0]!.type,
                 request.attributes.extended![0]!.data,
             ])
-            server.handle(request.requestId, Buffer.from("handle"))
+            await server.handle(request.requestId, Buffer.from("handle"))
         })
-        server.hooker.hook("WRITE", (_hook, request) => {
+        server.hooker.hook("WRITE", async (_hook, request) => {
             handledWrite = Buffer.concat([request.handle, request.data])
-            server.status(request.requestId, SFTPStatusCode.Ok)
+            await server.status(request.requestId, SFTPStatusCode.Ok)
         })
 
         fixture.send({ type: SFTPPacketType.Init, version: 3, extensions: [] })
@@ -244,7 +312,7 @@ describe("SFTP server request engine", () => {
         server.hooker.hook("SETSTAT", async (_hook, request) => {
             receivedSize = request.attributes.size
             await pending
-            server.status(request.requestId, SFTPStatusCode.Ok)
+            await server.status(request.requestId, SFTPStatusCode.Ok)
         })
 
         fixture.send({ type: SFTPPacketType.Init, version: 3, extensions: [] })
@@ -293,7 +361,7 @@ describe("SFTP server request engine", () => {
         expect(() => server.handle(requestId, Buffer.from("h"))).toThrow("HANDLE")
         expect(() => server.name(requestId, [])).toThrow("at least one")
         expect(() => server.status(requestId, SFTPStatusCode.Ok)).toThrow("data response")
-        server.status(requestId, SFTPStatusCode.Failure, "read failed")
+        await server.status(requestId, SFTPStatusCode.Failure, "read failed")
         finishRead()
         expect(() => server.status(requestId, SFTPStatusCode.Failure)).toThrow("not awaiting")
         fixture.destroy()

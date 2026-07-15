@@ -350,6 +350,7 @@ describe("package exports", () => {
         const agentProtocol = await readFile("dist/publickey/SSHAgentProtocol.d.ts", "utf8")
         const cygwinAgent = await readFile("dist/publickey/CygwinAgent.d.ts", "utf8")
         const pageantAgent = await readFile("dist/publickey/PageantAgent.d.ts", "utf8")
+        const sftpServer = await readFile("dist/sftp/SFTPServer.d.ts", "utf8")
         const publicKeySubsystemClient = await readFile(
             "dist/publickey/PublicKeySubsystemClient.d.ts",
             "utf8",
@@ -468,6 +469,13 @@ describe("package exports", () => {
         expect(sftpClient).toContain("export interface SFTPClientOptions")
         expect(sftpClient).toContain("requestTimeout?: number")
         expect(sftpClient).toContain("readonly requestTimeout: number")
+        expect(sftpServer).toContain(
+            "status(requestId: number, code: SFTPStatusCode, message?: string, languageTag?: string): Promise<void>",
+        )
+        for (const response of ["handle", "data", "name", "attributes", "extendedReply"]) {
+            expect(sftpServer).toMatch(new RegExp(`${response}\\([^;]+\\): Promise<void>`))
+        }
+        expect(sftpServer).not.toContain("callback")
         expect(shell).toContain("writeStdout(data: Buffer | string")
         expect(shell).toContain("writeStderr(data: Buffer | string")
         expect(privateKey).toContain(

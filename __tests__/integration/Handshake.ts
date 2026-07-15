@@ -202,7 +202,7 @@ describe("client/server integration", () => {
                     sftp.hooker.hook("EXTENDED", async (_hook, request) => {
                         await Promise.resolve()
                         if (request.request !== "query@example.test") return
-                        sftp.extendedReply(
+                        await sftp.extendedReply(
                             request.requestId,
                             Buffer.from(request.data.toString("ascii").toUpperCase()),
                         )

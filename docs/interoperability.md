@@ -434,7 +434,9 @@ predicates. The system OpenSSH `sftp` client uploads, lists, renames, symlinks, 
 files through a policy-controlled modern server. Independent literal vectors cover every baseline
 request and response layout and every extension payload; malformed framing, counts, flags, handles,
 response types, request identifiers, and extension replies are rejected without relying on another
-JavaScript SSH implementation.
+JavaScript SSH implementation. In-process write control proves that awaited server responses settle
+only after channel output completes, hold later request dispatch until then, and reject on output
+failure.
 
 Together, the OpenSSH tests and known vectors exercise identification exchange, KEXINIT
 negotiation, exchange-hash and signature verification, `NEWKEYS`, encrypted and authenticated

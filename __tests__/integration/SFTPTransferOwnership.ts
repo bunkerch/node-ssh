@@ -46,14 +46,14 @@ test("SFTP fastGet owns its remote path across stat and open requests", async ()
                     receivedPaths.push(Buffer.from(request.path))
                     reportStat()
                     await statReleased
-                    sftp.attributes(request.requestId, { size: 0n })
+                    await sftp.attributes(request.requestId, { size: 0n })
                 })
                 sftp.hooker.hook("OPEN", async (_hook, request) => {
                     receivedPaths.push(Buffer.from(request.filename))
-                    sftp.handle(request.requestId, Buffer.from("file-handle"))
+                    await sftp.handle(request.requestId, Buffer.from("file-handle"))
                 })
                 sftp.hooker.hook("CLOSE", async (_hook, request) => {
-                    sftp.status(request.requestId, SFTPStatusCode.Ok)
+                    await sftp.status(request.requestId, SFTPStatusCode.Ok)
                 })
             })
         })
@@ -130,18 +130,21 @@ test("SFTP fastGet owns transfer options before awaiting stat", async () => {
                 sftp.hooker.hook("STAT", async (_hook, request) => {
                     reportStat()
                     await statReleased
-                    sftp.attributes(request.requestId, { size: BigInt(source.length) })
+                    await sftp.attributes(request.requestId, { size: BigInt(source.length) })
                 })
                 sftp.hooker.hook("OPEN", async (_hook, request) => {
-                    sftp.handle(request.requestId, Buffer.from("file-handle"))
+                    await sftp.handle(request.requestId, Buffer.from("file-handle"))
                 })
                 sftp.hooker.hook("READ", async (_hook, request) => {
                     reads.push({ offset: request.offset, length: request.length })
                     const offset = Number(request.offset)
-                    sftp.data(request.requestId, source.subarray(offset, offset + request.length))
+                    await sftp.data(
+                        request.requestId,
+                        source.subarray(offset, offset + request.length),
+                    )
                 })
                 sftp.hooker.hook("CLOSE", async (_hook, request) => {
-                    sftp.status(request.requestId, SFTPStatusCode.Ok)
+                    await sftp.status(request.requestId, SFTPStatusCode.Ok)
                 })
             })
         })
@@ -230,10 +233,10 @@ test("SFTP fastPut owns its remote path and mode before opening the local file",
                         path: Buffer.from(request.filename),
                         permissions: request.attributes.permissions,
                     }
-                    sftp.handle(request.requestId, Buffer.from("file-handle"))
+                    await sftp.handle(request.requestId, Buffer.from("file-handle"))
                 })
                 sftp.hooker.hook("CLOSE", async (_hook, request) => {
-                    sftp.status(request.requestId, SFTPStatusCode.Ok)
+                    await sftp.status(request.requestId, SFTPStatusCode.Ok)
                 })
             })
         })

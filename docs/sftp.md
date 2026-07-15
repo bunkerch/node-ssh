@@ -266,9 +266,9 @@ server.on("connection", (connection) => {
             sftp.hooker.hook("STAT", async (_hook, request) => {
                 try {
                     const attributes = await lookupAuthorizedAttributes(request.path)
-                    sftp.attributes(request.requestId, attributes)
+                    await sftp.attributes(request.requestId, attributes)
                 } catch {
-                    sftp.status(request.requestId, SFTPStatusCode.NoSuchFile)
+                    await sftp.status(request.requestId, SFTPStatusCode.NoSuchFile)
                 }
             })
         })
@@ -292,6 +292,11 @@ Complete each request exactly once with the appropriate method:
   data or a failure for any operation.
 - `handle`, `data`, `name`, and `attributes` return the corresponding baseline result.
 - `extendedReply` returns extension-specific bytes.
+
+Every response method returns a Promise. Await it from the Hooker handler: it resolves only after
+the response has been accepted by the SSH channel write, and rejects if that write fails. The
+server does not dispatch the next queued request until the response write completes, so handler
+ordering includes both application work and protocol output.
 
 The implementation rejects duplicate outstanding identifiers, invalid response types, oversized
 read results, empty name responses, server use of client-only connection status codes, and a second

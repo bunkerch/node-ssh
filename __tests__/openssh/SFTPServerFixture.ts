@@ -63,10 +63,10 @@ export function attachFilesystemSFTPServer(server: SFTPServer, root: string): vo
     const respond = async <T>(
         requestId: number,
         operation: () => Promise<T>,
-        success: (value: T) => void,
+        success: (value: T) => Promise<void>,
     ): Promise<void> => {
         try {
-            success(await operation())
+            await success(await operation())
         } catch (error) {
             const code = (error as NodeJS.ErrnoException).code
             const status =
@@ -77,7 +77,11 @@ export function attachFilesystemSFTPServer(server: SFTPServer, root: string): vo
                       : code === "ENOSYS" || code === "ENOTSUP"
                         ? SFTPStatusCode.OperationUnsupported
                         : SFTPStatusCode.Failure
-            server.status(requestId, status, error instanceof Error ? error.message : String(error))
+            await server.status(
+                requestId,
+                status,
+                error instanceof Error ? error.message : String(error),
+            )
         }
     }
 
@@ -121,10 +125,10 @@ export function attachFilesystemSFTPServer(server: SFTPServer, root: string): vo
                 )
                 return buffer.subarray(0, bytesRead)
             },
-            (data) => {
-                if (data.length === 0) server.status(request.requestId, SFTPStatusCode.EOF)
-                else server.data(request.requestId, data)
-            },
+            (data) =>
+                data.length === 0
+                    ? server.status(request.requestId, SFTPStatusCode.EOF)
+                    : server.data(request.requestId, data),
         )
     })
     server.hooker.hook("WRITE", async (_hook, request) => {
@@ -226,11 +230,10 @@ export function attachFilesystemSFTPServer(server: SFTPServer, root: string): vo
                     })),
                 )
             },
-            (names) => {
-                if (!names || names.length === 0)
-                    server.status(request.requestId, SFTPStatusCode.EOF)
-                else server.name(request.requestId, names)
-            },
+            (names) =>
+                !names || names.length === 0
+                    ? server.status(request.requestId, SFTPStatusCode.EOF)
+                    : server.name(request.requestId, names),
         )
     })
     server.hooker.hook("REMOVE", async (_hook, request) => {
