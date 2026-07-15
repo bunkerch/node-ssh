@@ -674,6 +674,12 @@ describe("package exports", () => {
                     try { new Client({ gssapi: null }); process.exit(74) } catch (error) { if (!String(error).includes("client GSS-API mechanisms must be an array")) process.exit(75) }
                     try { new ProtocolVersionExchange("2.0", null); process.exit(76) } catch (error) { if (!String(error).includes("software version must be a string")) process.exit(77) }
                     try { new Client({ serverClient: true }); process.exit(78) } catch (error) { if (!String(error).includes("serverClient is not a client option")) process.exit(79) }
+                    const invalidSFTPOptions = new Client({}).sftp({}, null)
+                    if (!(invalidSFTPOptions instanceof Promise)) process.exit(80)
+                    try { await invalidSFTPOptions; process.exit(81) } catch (error) { if (!String(error).includes("SFTP client options must be an object")) process.exit(82) }
+                    const invalidPublicKeySubsystemOptions = new Client({}).publicKeySubsystem(null)
+                    if (!(invalidPublicKeySubsystemOptions instanceof Promise)) process.exit(83)
+                    try { await invalidPublicKeySubsystemOptions; process.exit(84) } catch (error) { if (!String(error).includes("Public-key subsystem client options must be an object")) process.exit(85) }
                     try { new Client({ port: 0 }); process.exit(57) } catch (error) { if (!String(error).includes("between 1 and 65535")) process.exit(58) }
                     try { new Server({ greeting: "invalid\\ud800greeting" }); process.exit(59) } catch (error) { if (!String(error).includes("not valid UTF-8 text")) process.exit(60) }
                     const legacy = generateKeyPairSync("dsa")

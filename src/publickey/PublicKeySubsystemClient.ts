@@ -14,6 +14,7 @@ import {
 import PublicKey from "../utils/PublicKey.js"
 import { encodeSSHName } from "../utils/SSHName.js"
 import { encodeSSHUTF8 } from "../utils/SSHText.js"
+import { isPlainConfigurationObject } from "../utils/Configuration.js"
 
 export interface PublicKeySubsystemAttributeInput {
     readonly name: string
@@ -29,6 +30,21 @@ export interface PublicKeySubsystemAddOptions {
 export interface PublicKeySubsystemClientOptions {
     /** Maximum milliseconds for subsystem initialization or a serialized request reply. */
     requestTimeout?: number
+}
+
+export function normalizePublicKeySubsystemClientOptions(
+    options: PublicKeySubsystemClientOptions,
+    defaultRequestTimeout = 30_000,
+): Readonly<Required<PublicKeySubsystemClientOptions>> {
+    if (!isPlainConfigurationObject(options)) {
+        throw new TypeError("Public-key subsystem client options must be an object")
+    }
+    const requestTimeout =
+        options.requestTimeout === undefined ? defaultRequestTimeout : options.requestTimeout
+    if (!Number.isFinite(requestTimeout) || requestTimeout <= 0) {
+        throw new RangeError("Public-key subsystem request timeout must be a positive number")
+    }
+    return Object.freeze({ requestTimeout })
 }
 
 export interface PublicKeySubsystemListedAttribute {
@@ -82,10 +98,7 @@ export default class PublicKeySubsystemClient {
 
     private constructor(channel: ClientSessionChannel, options: PublicKeySubsystemClientOptions) {
         this.channel = channel
-        this.requestTimeout = options.requestTimeout ?? 30_000
-        if (!Number.isFinite(this.requestTimeout) || this.requestTimeout <= 0) {
-            throw new RangeError("Public-key subsystem request timeout must be a positive number")
-        }
+        this.requestTimeout = options.requestTimeout!
         this.ready = new Promise<void>((resolve, reject) => {
             this.readyResolve = resolve
             this.readyReject = reject
@@ -100,7 +113,10 @@ export default class PublicKeySubsystemClient {
         channel: ClientSessionChannel,
         options: PublicKeySubsystemClientOptions = {},
     ): Promise<PublicKeySubsystemClient> {
-        const client = new PublicKeySubsystemClient(channel, { ...options })
+        const client = new PublicKeySubsystemClient(
+            channel,
+            normalizePublicKeySubsystemClientOptions(options),
+        )
         try {
             await client.waitForResponse(
                 Promise.all([

@@ -138,8 +138,12 @@ import {
     UserAuthGSSAPIResponse,
     UserAuthGSSAPIToken,
 } from "./packets/UserAuthGSSAPI.js"
-import SFTPClient, { type SFTPClientOptions } from "./sftp/SFTPClient.js"
+import SFTPClient, {
+    normalizeSFTPClientOptions,
+    type SFTPClientOptions,
+} from "./sftp/SFTPClient.js"
 import PublicKeySubsystemClient, {
+    normalizePublicKeySubsystemClientOptions,
     type PublicKeySubsystemClientOptions,
 } from "./publickey/PublicKeySubsystemClient.js"
 import {
@@ -229,6 +233,7 @@ import PacketEventQueue, {
     onPacketEvent,
 } from "./utils/PacketEventQueue.js"
 import { registerReplyTimeout, waitForReply } from "./ReplyTimeout.js"
+import { isPlainConfigurationObject } from "./utils/Configuration.js"
 
 export interface ClientHostbasedOptions {
     key: PrivateKey
@@ -579,12 +584,6 @@ export interface ClientSessionOptions {
     env?: ClientEnvironment
     pty?: boolean | ClientPtyOptions
     x11?: boolean | number | ClientX11Options
-}
-
-function isPlainConfigurationObject(value: unknown): value is Record<string, unknown> {
-    if (typeof value !== "object" || value === null || Array.isArray(value)) return false
-    const prototype = Object.getPrototypeOf(value)
-    return prototype === Object.prototype || prototype === null
 }
 
 function snapshotSessionOptions(options: ClientSessionOptions): ClientSessionOptions {
@@ -1481,48 +1480,51 @@ export default class Client extends EventEmitter<ClientEvents> {
         return this.requestNoMoreSessions()
     }
 
-    sftp(
+    async sftp(
         environment: ClientEnvironment = {},
         options: SFTPClientOptions = {},
     ): Promise<SFTPClient> {
+        if (!isPlainConfigurationObject(environment)) {
+            throw new TypeError("SSH SFTP environment must be an object")
+        }
+        if (Object.values(environment).some((value) => typeof value !== "string")) {
+            throw new TypeError("SSH SFTP environment values must be strings")
+        }
+        const normalizedOptions = normalizeSFTPClientOptions(options, this.#options.replyTimeout)
         const sessionEnvironment = { ...environment }
-        const sftpOptions = { ...options }
-        return this.openSessionChannel().then(async (channel) => {
-            try {
-                for (const [name, value] of Object.entries(sessionEnvironment)) {
-                    await channel.setEnv(name, value, false)
-                }
-                await channel.subsystem("sftp")
-                const software = this.serverProtocolVersion?.protocol_software ?? ""
-                return await SFTPClient.connect(
-                    channel,
-                    /^(?:OpenSSH_|dropbear)/iu.test(software),
-                    {
-                        requestTimeout: sftpOptions.requestTimeout ?? this.#options.replyTimeout,
-                    },
-                )
-            } catch (error) {
-                channel.close()
-                throw error
+        const channel = await this.openSessionChannel()
+        try {
+            for (const [name, value] of Object.entries(sessionEnvironment)) {
+                await channel.setEnv(name, value, false)
             }
-        })
+            await channel.subsystem("sftp")
+            const software = this.serverProtocolVersion?.protocol_software ?? ""
+            return await SFTPClient.connect(
+                channel,
+                /^(?:OpenSSH_|dropbear)/iu.test(software),
+                normalizedOptions,
+            )
+        } catch (error) {
+            channel.close()
+            throw error
+        }
     }
 
-    publicKeySubsystem(
+    async publicKeySubsystem(
         options: PublicKeySubsystemClientOptions = {},
     ): Promise<PublicKeySubsystemClient> {
-        const subsystemOptions = { ...options }
-        return this.openSessionChannel().then(async (channel) => {
-            try {
-                await channel.subsystem("publickey")
-                return await PublicKeySubsystemClient.connect(channel, {
-                    requestTimeout: subsystemOptions.requestTimeout ?? this.#options.replyTimeout,
-                })
-            } catch (error) {
-                channel.close()
-                throw error
-            }
-        })
+        const normalizedOptions = normalizePublicKeySubsystemClientOptions(
+            options,
+            this.#options.replyTimeout,
+        )
+        const channel = await this.openSessionChannel()
+        try {
+            await channel.subsystem("publickey")
+            return await PublicKeySubsystemClient.connect(channel, normalizedOptions)
+        } catch (error) {
+            channel.close()
+            throw error
+        }
     }
 
     async forwardOut(

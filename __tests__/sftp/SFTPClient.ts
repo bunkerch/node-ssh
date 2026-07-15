@@ -62,13 +62,25 @@ function asClientChannel(channel: Duplex): ClientSessionChannel {
 
 describe("SFTP client request engine", () => {
     test("validates a finite positive request timeout before initialization", async () => {
-        for (const requestTimeout of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+        for (const requestTimeout of [null, 0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
             const fixture = new SFTPServerFixture(() => undefined)
             await expect(
-                SFTPClient.connect(asClientChannel(fixture), false, { requestTimeout }),
+                SFTPClient.connect(asClientChannel(fixture), false, {
+                    requestTimeout: requestTimeout as number,
+                }),
             ).rejects.toThrow("SFTP request timeout must be a positive number")
             fixture.destroy()
         }
+        const fixture = new SFTPServerFixture(() => undefined)
+        await expect(
+            SFTPClient.connect(asClientChannel(fixture), false, null as never),
+        ).rejects.toThrow("SFTP client options must be an object")
+        fixture.destroy()
+        const flagFixture = new SFTPServerFixture(() => undefined)
+        await expect(
+            SFTPClient.connect(asClientChannel(flagFixture), null as never),
+        ).rejects.toThrow("SFTP OpenSSH compatibility flag must be a boolean")
+        flagFixture.destroy()
     })
 
     test("closes a session that does not answer initialization", async () => {

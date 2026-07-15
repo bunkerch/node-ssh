@@ -39,6 +39,7 @@ import type {
     SFTPStatusPacket,
 } from "./types.js"
 import { decodeSSHUTF8, encodeSSHUTF8 } from "../utils/SSHText.js"
+import { isPlainConfigurationObject } from "../utils/Configuration.js"
 
 export interface SFTPExtendedRequestOptions {
     /** Require this exact advertised extension version. */
@@ -50,6 +51,21 @@ export interface SFTPExtendedRequestOptions {
 export interface SFTPClientOptions {
     /** Maximum milliseconds for SFTP initialization or a tagged request reply. */
     requestTimeout?: number
+}
+
+export function normalizeSFTPClientOptions(
+    options: SFTPClientOptions,
+    defaultRequestTimeout = 30_000,
+): Readonly<Required<SFTPClientOptions>> {
+    if (!isPlainConfigurationObject(options)) {
+        throw new TypeError("SFTP client options must be an object")
+    }
+    const requestTimeout =
+        options.requestTimeout === undefined ? defaultRequestTimeout : options.requestTimeout
+    if (!Number.isFinite(requestTimeout) || requestTimeout <= 0) {
+        throw new RangeError("SFTP request timeout must be a positive number")
+    }
+    return Object.freeze({ requestTimeout })
 }
 
 const MAX_PENDING_REQUESTS = 1024
@@ -248,10 +264,7 @@ export default class SFTPClient {
     ) {
         this.channel = channel
         this.isOpenSSH = isOpenSSH
-        this.requestTimeout = options.requestTimeout ?? 30_000
-        if (!Number.isFinite(this.requestTimeout) || this.requestTimeout <= 0) {
-            throw new RangeError("SFTP request timeout must be a positive number")
-        }
+        this.requestTimeout = options.requestTimeout!
         this.ready = new Promise<void>((resolve, reject) => {
             this.readyResolve = resolve
             this.readyReject = reject
@@ -267,7 +280,10 @@ export default class SFTPClient {
         isOpenSSH = false,
         options: SFTPClientOptions = {},
     ): Promise<SFTPClient> {
-        const client = new SFTPClient(channel, isOpenSSH, { ...options })
+        if (typeof isOpenSSH !== "boolean") {
+            throw new TypeError("SFTP OpenSSH compatibility flag must be a boolean")
+        }
+        const client = new SFTPClient(channel, isOpenSSH, normalizeSFTPClientOptions(options))
         try {
             await client.waitForResponse(
                 Promise.all([

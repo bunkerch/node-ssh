@@ -48,6 +48,29 @@ function asShell(client: SFTPClientFixture): Shell {
 const flush = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
 
 describe("SFTP server request engine", () => {
+    test("rejects malformed server options during construction", () => {
+        const fixture = new SFTPClientFixture()
+        try {
+            expect(() => new SFTPServer(asShell(fixture), null as never)).toThrow(
+                "SFTP server options must be an object",
+            )
+            expect(() => new SFTPServer(asShell(fixture), { extensions: null as never })).toThrow(
+                "SFTP server extensions must be an array",
+            )
+            expect(
+                () =>
+                    new SFTPServer(asShell(fixture), {
+                        openSSHSymlinkArguments: null as never,
+                    }),
+            ).toThrow("SFTP OpenSSH symlink argument option must be a boolean")
+            expect(
+                () => new SFTPServer(asShell(fixture), { maxConcurrentRequests: null as never }),
+            ).toThrow("SFTP maximum concurrent requests must be between")
+        } finally {
+            fixture.destroy()
+        }
+    })
+
     test("rejects an invalid advertised extension name during construction", () => {
         const fixture = new SFTPClientFixture()
         try {

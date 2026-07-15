@@ -70,13 +70,20 @@ function asClientChannel(channel: Duplex): ClientSessionChannel {
 
 describe("RFC 4819 public-key subsystem client", () => {
     test("validates a finite positive request timeout before initialization", async () => {
-        for (const requestTimeout of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+        for (const requestTimeout of [null, 0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
             const fixture = new PublicKeySubsystemServerFixture(() => undefined)
             await expect(
-                PublicKeySubsystemClient.connect(asClientChannel(fixture), { requestTimeout }),
+                PublicKeySubsystemClient.connect(asClientChannel(fixture), {
+                    requestTimeout: requestTimeout as number,
+                }),
             ).rejects.toThrow("Public-key subsystem request timeout must be a positive number")
             fixture.destroy()
         }
+        const fixture = new PublicKeySubsystemServerFixture(() => undefined)
+        await expect(
+            PublicKeySubsystemClient.connect(asClientChannel(fixture), null as never),
+        ).rejects.toThrow("Public-key subsystem client options must be an object")
+        fixture.destroy()
     })
 
     test("closes a session that does not answer initialization", async () => {

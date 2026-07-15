@@ -73,6 +73,9 @@ connection's `replyTimeout`; direct `PublicKeySubsystemClient.connect()` calls d
 seconds. Expiry rejects the operation and closes only the subsystem channel, preventing a late
 untagged reply from being mistaken for a later operation while leaving the SSH connection usable.
 The value must be a positive finite number.
+The client option bag must be a plain object. Only an omitted `requestTimeout` selects the
+connection-level or 30-second direct-call default; explicit `null` is rejected before a subsystem
+channel is allocated or version negotiation begins.
 
 ## Server
 

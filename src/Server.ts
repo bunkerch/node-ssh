@@ -48,6 +48,7 @@ import {
 } from "./DelayCompression.js"
 import { encodeSSHLanguageTag, encodeSSHUTF8 } from "./utils/SSHText.js"
 import { MAX_HOST_KEYS_PER_REQUEST } from "./utils/HostKeysProof.js"
+import { isPlainConfigurationObject } from "./utils/Configuration.js"
 
 export interface ServerOptions {
     protocolVersionExchange?: ProtocolVersionExchange
@@ -162,12 +163,6 @@ function normalizeGreeting(greeting: string): string {
         }
     }
     return lines.map((line) => `${line}\r\n`).join("")
-}
-
-function isPlainConfigurationObject(value: unknown): boolean {
-    if (typeof value !== "object" || value === null || Array.isArray(value)) return false
-    const prototype = Object.getPrototypeOf(value)
-    return prototype === Object.prototype || prototype === null
 }
 
 function normalizeBooleanOption(value: unknown, fallback: boolean, field: string): boolean {

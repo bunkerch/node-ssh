@@ -31,6 +31,31 @@ describe("client session configuration ownership", () => {
         }
     })
 
+    test("rejects malformed subsystem options before opening a channel", async () => {
+        const client = new Client({})
+        const cases: readonly [Promise<unknown>, string][] = [
+            [client.sftp(null as never), "SSH SFTP environment must be an object"],
+            [client.sftp({}, null as never), "SFTP client options must be an object"],
+            [client.sftp({ LANG: 7 } as never), "SSH SFTP environment values must be strings"],
+            [
+                client.sftp({}, { requestTimeout: null as never }),
+                "SFTP request timeout must be a positive number",
+            ],
+            [
+                client.publicKeySubsystem(null as never),
+                "Public-key subsystem client options must be an object",
+            ],
+            [
+                client.publicKeySubsystem({ requestTimeout: null as never }),
+                "Public-key subsystem request timeout must be a positive number",
+            ],
+        ]
+
+        for (const [operation, message] of cases) {
+            await expect(operation).rejects.toThrow(message)
+        }
+    })
+
     test("exec owns its environment when the operation starts", async () => {
         const server = new Server({
             hostKeys: [await PrivateKey.generate("ssh-ed25519")],

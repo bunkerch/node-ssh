@@ -27,6 +27,10 @@ Version matching compares the advertised opaque bytes exactly with the requested
 non-ASCII bytes cannot alias an ASCII version through lossy decoding.
 The timeout defaults to the connection's `replyTimeout`; direct `SFTPClient.connect()` calls default
 to 30 seconds. It must be a positive finite number.
+Client environment and option bags must be plain objects, environment values must be strings, and
+only `undefined` selects the inherited or 30-second timeout default. Explicit `null` is rejected
+before a session channel is allocated or initialization is sent. Direct `SFTPClient.connect()`
+calls also require an actual boolean compatibility flag.
 
 The baseline operations are Promise-based:
 
@@ -362,6 +366,9 @@ entries, and opaque data buffers are snapshotted before use, so later applicatio
 change the version advertisement already assigned to that session. The server's public
 `extensions` getter returns a new frozen snapshot, so mutating one of its data buffers cannot change
 the live advertisement either. Extension data must be supplied as a `Buffer`.
+The server option bag must be a plain object, `extensions` must be an array, and
+`openSSHSymlinkArguments` must be a boolean. Explicit `null` values are rejected rather than
+selecting defaults, including for `maxConcurrentRequests`.
 
 For `SYMLINK`, call `sftp.symlinkPaths(request)` to obtain semantic `targetPath` and `linkPath`
 values. Session integration detects OpenSSH and Dropbear identifications and normalizes OpenSSH's

@@ -2,6 +2,7 @@ import EventEmitter from "node:events"
 import type Shell from "../channels/Session/Shell.js"
 import { Hooker } from "../utils/Hooker.js"
 import { validateSSHName } from "../utils/SSHName.js"
+import { isPlainConfigurationObject } from "../utils/Configuration.js"
 import { encodeSFTPPacket, SFTPPacketParser, SFTPProtocolError } from "./codec.js"
 import {
     MAX_SFTP_HANDLE_LENGTH,
@@ -133,11 +134,28 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
 
     constructor(stream: Shell, options: SFTPServerOptions = {}) {
         super()
+        if (!isPlainConfigurationObject(options)) {
+            throw new TypeError("SFTP server options must be an object")
+        }
+        if (options.extensions !== undefined && !Array.isArray(options.extensions)) {
+            throw new TypeError("SFTP server extensions must be an array")
+        }
+        if (
+            options.openSSHSymlinkArguments !== undefined &&
+            typeof options.openSSHSymlinkArguments !== "boolean"
+        ) {
+            throw new TypeError("SFTP OpenSSH symlink argument option must be a boolean")
+        }
         this.stream = stream
-        this.advertisedExtensions = ownExtensions(options.extensions ?? [])
-        this.openSSHSymlinkArguments = options.openSSHSymlinkArguments ?? false
+        this.advertisedExtensions = ownExtensions(
+            options.extensions === undefined ? [] : options.extensions,
+        )
+        this.openSSHSymlinkArguments =
+            options.openSSHSymlinkArguments === undefined ? false : options.openSSHSymlinkArguments
         this.#maxConcurrentRequests =
-            options.maxConcurrentRequests ?? DEFAULT_MAX_CONCURRENT_REQUESTS
+            options.maxConcurrentRequests === undefined
+                ? DEFAULT_MAX_CONCURRENT_REQUESTS
+                : options.maxConcurrentRequests
         if (
             !Number.isSafeInteger(this.#maxConcurrentRequests) ||
             this.#maxConcurrentRequests < 1 ||
