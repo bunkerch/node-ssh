@@ -3,10 +3,16 @@ import type Shell from "../channels/Session/Shell.js"
 import { Hooker } from "../utils/Hooker.js"
 import { validateSSHName } from "../utils/SSHName.js"
 import { encodeSFTPPacket, SFTPPacketParser, SFTPProtocolError } from "./codec.js"
-import { SFTP_VERSION, SFTPPacketType, SFTPStatusCode } from "./constants.js"
+import {
+    MAX_SFTP_HANDLE_LENGTH,
+    SFTP_VERSION,
+    SFTPPacketType,
+    SFTPStatusCode,
+} from "./constants.js"
 import type {
     SFTPAttributes,
     SFTPExtension,
+    SFTPExtendedAttribute,
     SFTPNameEntry,
     SFTPPacket,
     SFTPRequestPacket,
@@ -176,7 +182,11 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
         ) {
             throw new Error("SFTP HANDLE is only valid for OPEN and OPENDIR")
         }
-        return this.respond({ type: SFTPPacketType.Handle, requestId, handle })
+        const ownedHandle = ownResponseBuffer(handle, "response handle")
+        if (ownedHandle.length > MAX_SFTP_HANDLE_LENGTH) {
+            throw new RangeError(`SFTP response handle exceeds ${MAX_SFTP_HANDLE_LENGTH} bytes`)
+        }
+        return this.respond({ type: SFTPPacketType.Handle, requestId, handle: ownedHandle })
     }
 
     data(requestId: number, data: Buffer): Promise<void> {
@@ -184,15 +194,16 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
         if (request.type !== SFTPPacketType.Read && request.type !== SFTPPacketType.Extended) {
             throw new Error("SFTP DATA is only valid for READ")
         }
-        if (request.type === SFTPPacketType.Read && data.length > request.length) {
+        const ownedData = ownResponseBuffer(data, "DATA")
+        if (request.type === SFTPPacketType.Read && ownedData.length > request.length) {
             throw new Error("SFTP DATA exceeds the requested read length")
         }
-        return this.respond({ type: SFTPPacketType.Data, requestId, data })
+        return this.respond({ type: SFTPPacketType.Data, requestId, data: ownedData })
     }
 
     name(requestId: number, names: SFTPNameEntry | readonly SFTPNameEntry[]): Promise<void> {
         const request = this.requireActive(requestId)
-        const entries = Array.isArray(names) ? names : [names]
+        const entries = (Array.isArray(names) ? names : [names]).map(ownResponseName)
         if (entries.length === 0) throw new Error("SFTP NAME must contain at least one entry")
         if (
             request.type !== SFTPPacketType.ReadDir &&
@@ -222,7 +233,11 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
         ) {
             throw new Error("SFTP ATTRS is not valid for this request")
         }
-        return this.respond({ type: SFTPPacketType.Attrs, requestId, attributes })
+        return this.respond({
+            type: SFTPPacketType.Attrs,
+            requestId,
+            attributes: ownResponseAttributes(attributes),
+        })
     }
 
     extendedReply(requestId: number, data: Buffer): Promise<void> {
@@ -230,7 +245,11 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
         if (request.type !== SFTPPacketType.Extended) {
             throw new Error("SFTP EXTENDED_REPLY is only valid for EXTENDED requests")
         }
-        return this.respond({ type: SFTPPacketType.ExtendedReply, requestId, data })
+        return this.respond({
+            type: SFTPPacketType.ExtendedReply,
+            requestId,
+            data: ownResponseBuffer(data, "EXTENDED_REPLY data"),
+        })
     }
 
     symlinkPaths(request: SFTPRequestOf<SFTPPacketType.SymLink>): Readonly<SFTPSymlinkPaths> {
@@ -477,6 +496,42 @@ function ownExtensions(extensions: readonly SFTPExtension[]): readonly SFTPExten
     )
 }
 
+function ownResponseBuffer(value: Buffer, name: string): Buffer {
+    if (!Buffer.isBuffer(value)) throw new TypeError(`SFTP ${name} must be a buffer`)
+    return Buffer.from(value)
+}
+
+function ownResponseAttributes(attributes: SFTPAttributes): Readonly<SFTPAttributes> {
+    if (typeof attributes !== "object" || attributes === null || Array.isArray(attributes)) {
+        throw new TypeError("SFTP response attributes must be an object")
+    }
+    if (attributes.extended !== undefined && !Array.isArray(attributes.extended)) {
+        throw new TypeError("SFTP extended attributes must be an array")
+    }
+    return snapshotAttributes(attributes)
+}
+
+function ownResponseName(entry: SFTPNameEntry): Readonly<SFTPNameEntry> {
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+        throw new TypeError("SFTP name entry must be an object")
+    }
+    return Object.freeze({
+        filename: ownResponseBuffer(entry.filename, "name filename"),
+        longname: ownResponseBuffer(entry.longname, "name longname"),
+        attributes: ownResponseAttributes(entry.attributes),
+    })
+}
+
+function ownExtendedAttribute(attribute: SFTPExtendedAttribute): Readonly<SFTPExtendedAttribute> {
+    if (typeof attribute !== "object" || attribute === null || Array.isArray(attribute)) {
+        throw new TypeError("SFTP extended attribute must be an object")
+    }
+    return Object.freeze({
+        type: ownResponseBuffer(attribute.type, "extended attribute type"),
+        data: ownResponseBuffer(attribute.data, "extended attribute data"),
+    })
+}
+
 function snapshotAttributes(attributes: SFTPAttributes): Readonly<SFTPAttributes> {
     return Object.freeze({
         ...attributes,
@@ -484,12 +539,7 @@ function snapshotAttributes(attributes: SFTPAttributes): Readonly<SFTPAttributes
             ? {}
             : {
                   extended: Object.freeze(
-                      attributes.extended.map((attribute) =>
-                          Object.freeze({
-                              type: Buffer.from(attribute.type),
-                              data: Buffer.from(attribute.data),
-                          }),
-                      ),
+                      attributes.extended.map((attribute) => ownExtendedAttribute(attribute)),
                   ),
               }),
     })

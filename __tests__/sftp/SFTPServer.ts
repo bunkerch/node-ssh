@@ -3,7 +3,7 @@ import { Duplex } from "node:stream"
 import type Shell from "../../src/channels/Session/Shell.js"
 import { decodeSFTPPacket, encodeSFTPPacket } from "../../src/sftp/codec.js"
 import SFTPServer from "../../src/sftp/SFTPServer.js"
-import { SFTPPacketType, SFTPStatusCode } from "../../src/sftp/constants.js"
+import { MAX_SFTP_PACKET_LENGTH, SFTPPacketType, SFTPStatusCode } from "../../src/sftp/constants.js"
 import type { SFTPPacket, SFTPRequestPacket } from "../../src/sftp/types.js"
 
 class SFTPClientFixture extends Duplex {
@@ -452,6 +452,98 @@ describe("SFTP server request engine", () => {
         finishRead()
         await flush()
         expect(() => server.status(requestId, SFTPStatusCode.Failure)).toThrow("not awaiting")
+        fixture.destroy()
+    })
+
+    test("rejects malformed response buffers without claiming the request", async () => {
+        const fixture = new SFTPClientFixture()
+        const server = new SFTPServer(asShell(fixture))
+        const errors: string[] = []
+        const rejectLocally = async (
+            requestId: number,
+            response: () => Promise<void>,
+        ): Promise<void> => {
+            try {
+                await response()
+            } catch (error) {
+                errors.push(error instanceof Error ? error.message : String(error))
+            }
+            await server.status(requestId, SFTPStatusCode.Failure, "invalid local response")
+        }
+        server.hooker.hook("OPEN", (_hook, request) =>
+            rejectLocally(request.requestId, () => server.handle(request.requestId, "h" as never)),
+        )
+        server.hooker.hook("READ", (_hook, request) =>
+            rejectLocally(request.requestId, () => server.data(request.requestId, "x" as never)),
+        )
+        server.hooker.hook("READDIR", (_hook, request) =>
+            rejectLocally(request.requestId, () =>
+                server.name(request.requestId, {
+                    filename: "entry" as never,
+                    longname: Buffer.from("entry"),
+                    attributes: {},
+                }),
+            ),
+        )
+        server.hooker.hook("STAT", (_hook, request) =>
+            rejectLocally(request.requestId, () =>
+                server.attributes(request.requestId, {
+                    extended: [{ type: "type" as never, data: Buffer.from("data") }],
+                }),
+            ),
+        )
+        server.hooker.hook("EXTENDED", (_hook, request) =>
+            rejectLocally(request.requestId, () =>
+                server.extendedReply(request.requestId, Buffer.alloc(MAX_SFTP_PACKET_LENGTH)),
+            ),
+        )
+
+        fixture.send({ type: SFTPPacketType.Init, version: 3, extensions: [] })
+        fixture.send({
+            type: SFTPPacketType.Open,
+            requestId: 40,
+            filename: Buffer.from("file"),
+            flags: 1,
+            attributes: {},
+        })
+        fixture.send({
+            type: SFTPPacketType.Read,
+            requestId: 41,
+            handle: Buffer.from("h"),
+            offset: 0n,
+            length: 1,
+        })
+        fixture.send({
+            type: SFTPPacketType.ReadDir,
+            requestId: 42,
+            handle: Buffer.from("h"),
+        })
+        fixture.send({ type: SFTPPacketType.Stat, requestId: 43, path: Buffer.from("file") })
+        fixture.send({
+            type: SFTPPacketType.Extended,
+            requestId: 44,
+            request: "query@example.test",
+            data: Buffer.alloc(0),
+        })
+        await flush()
+
+        expect(errors).toEqual([
+            "SFTP response handle must be a buffer",
+            "SFTP DATA must be a buffer",
+            "SFTP name filename must be a buffer",
+            "SFTP extended attribute type must be a buffer",
+            `SFTP packet length exceeds ${MAX_SFTP_PACKET_LENGTH} bytes`,
+        ])
+        expect(
+            fixture.responses
+                .filter((packet) => packet.type === SFTPPacketType.Status)
+                .map((packet) => ({ requestId: packet.requestId, message: packet.message })),
+        ).toEqual(
+            [40, 41, 42, 43, 44].map((requestId) => ({
+                requestId,
+                message: "invalid local response",
+            })),
+        )
         fixture.destroy()
     })
 

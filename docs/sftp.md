@@ -311,13 +311,16 @@ Complete each request exactly once with the appropriate method:
 
 Every response method returns a Promise. Await it from the Hooker handler: it resolves only after
 the response has been accepted by the SSH channel write, and rejects if that write fails. The
-request retains its concurrency slot until both the handler and response write complete.
+request retains its concurrency slot until both the handler and response write complete. Opaque
+response values are validated as Buffers and snapshotted before encoding; response handles also
+enforce the 256-byte protocol limit.
 
 The implementation rejects duplicate outstanding identifiers, invalid response types, oversized
 read results, empty name responses, server use of client-only connection status codes, and a second
 response. A hook rejection becomes an SFTP failure response and is observable through the hooker's
 `uncaughtException` event; returning without a response also produces a failure instead of leaving
-the client pending.
+the client pending. A locally invalid or oversized response throws before claiming the request, so
+the handler may catch that error and send an appropriate failure status instead.
 
 SFTP clients pipeline tagged requests and may receive their responses out of order. The server
 therefore runs up to 64 request hooks concurrently by default while keeping each response and
