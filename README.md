@@ -26,6 +26,8 @@ locking, extensions, and restricted agent endpoints. The
 [public-key management guide](docs/public-key-subsystem.md) covers the RFC 4819 subsystem for
 adding, removing, and listing an authenticated user's authorized keys. The
 [global request guide](docs/global-requests.md) covers connection-wide application extensions. The
+[ControlMaster guide](docs/control-master.md) covers sharing one authenticated connection with
+local OpenSSH processes through a protected Unix control socket. The
 [known-hosts guide](docs/known-hosts.md) covers persistent host verification, host certificates,
 revocation, and key rotation, while the
 [key revocation list guide](docs/key-revocation-lists.md) covers binary key and certificate
