@@ -131,7 +131,7 @@ export default class PublicKeyAuthMethod implements AuthMethod {
                     client.debug(
                         `[Authentication]`,
                         `[PublicKey]`,
-                        `Trying publickey authentication with key ${key[0]} ${key[1].toString()}`,
+                        `Trying publickey authentication with ${key[1].data.alg} key ${key[1].hash("sha256")}`,
                     )
 
                     const method = client.hostboundPublicKeyAuthentication

@@ -55,7 +55,9 @@ available from the start of their lifecycle. It receives the same arguments as t
 redacted before this surface is called. The constructor diagnostic is an allow-listed summary: it
 never forwards the configuration object, private keys, agents, sockets, or policy functions.
 Configured secret-bearing objects are represented only by `"<configured>"`. Treat all remaining
-values as operationally sensitive and ensure the diagnostic handler does not throw.
+values as operationally sensitive and ensure the diagnostic handler does not throw. Public-key
+authentication diagnostics identify a candidate by its algorithm and SHA-256 fingerprint; they do
+not expose the agent's opaque identity ID, key encoding, or key comment.
 
 ```ts
 const client = new Client({
