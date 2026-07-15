@@ -392,7 +392,7 @@ registered. After approval it may open one or more bounded agent channels:
 
 ```ts
 channel.hooker.hook("agentForwardRequest", (_hook, decision) => {
-    decision.success = connection.credentials?.data.username === "deploy"
+    decision.success = connection.username === "deploy"
 })
 
 const agentChannel = await connection.forwardAgent()
@@ -445,9 +445,7 @@ registered. After explicit approval, `connection.x11()` opens a bounded channel 
 
 ```ts
 channel.hooker.hook("x11Request", (_hook, request, decision) => {
-    decision.success =
-        request.protocol === "MIT-MAGIC-COOKIE-1" &&
-        connection.credentials?.data.username === "deploy"
+    decision.success = request.protocol === "MIT-MAGIC-COOKIE-1" && connection.username === "deploy"
 })
 
 const x11 = await connection.x11("127.0.0.1", 60_000)

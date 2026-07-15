@@ -72,6 +72,47 @@ describe("RFC 4252 multi-method authentication", () => {
         }
     }, 15_000)
 
+    test("exposes authenticated identity without retaining the successful credential packet", async () => {
+        const server = new Server({
+            hostKeys: [await PrivateKey.generate("ssh-ed25519")],
+            sendAllHostKeys: false,
+        })
+        let connection: ServerClient | undefined
+        server.hooker.hook("passwordAuthentication", (_hook, context, decision) => {
+            decision.allowLogin =
+                context.username === "credential-owner" && context.password === "secret"
+        })
+        server.on("connection", (peer) => {
+            connection = peer
+            expect(peer.username).toBeUndefined()
+            expect(peer.authenticationMethod).toBeUndefined()
+        })
+        server.listen({ host: "127.0.0.1", port: 0 })
+        await once(server, "listening")
+
+        const client = new Client({
+            hostname: "127.0.0.1",
+            port: (server.address() as AddressInfo).port,
+            username: "credential-owner",
+            password: "secret",
+            authenticationMethodsOrder: [SSHAuthenticationMethods.Password],
+        })
+        client.hooker.hook("hostKey", (_hook, decision) => {
+            decision.allowHostKey = true
+        })
+
+        try {
+            await client.connect()
+            expect(connection?.username).toBe("credential-owner")
+            expect(connection?.authenticationMethod).toBe(SSHAuthenticationMethods.Password)
+            expect("credentials" in connection!).toBe(false)
+        } finally {
+            client.destroy()
+            for (const peer of server.clients) peer.terminate()
+            await server.close()
+        }
+    }, 15_000)
+
     test("completes rekeys initiated by both roles during authentication", async () => {
         const hostKey = await PrivateKey.generate("ssh-ed25519")
         const server = new Server({ hostKeys: [hostKey], sendAllHostKeys: false })

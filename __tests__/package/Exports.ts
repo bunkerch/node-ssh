@@ -362,6 +362,9 @@ describe("package exports", () => {
         expect(client).toContain("exec(command: string, options?: ClientSessionOptions)")
         expect(client).toContain("get exchangeHash(): Buffer | undefined")
         expect(serverClient).toContain("get exchangeHash(): Buffer | undefined")
+        expect(serverClient).toContain("get username(): string | undefined")
+        expect(serverClient).toContain("get authenticationMethod(): string | undefined")
+        expect(serverClient).not.toContain("credentials: UserAuthRequest")
         expect(client).toContain("get keyExchangeAlgorithm(): string | undefined")
         expect(serverClient).toContain("get keyExchangeAlgorithm(): string | undefined")
         expect(client).toContain(

@@ -428,7 +428,18 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     hasReceivedNewKeys = false
     hasSentNewKeys = false
     hasAuthenticated = false
-    credentials: UserAuthRequest | undefined
+    #authenticatedUsername?: string
+    #authenticatedMethod?: string
+
+    /** The successfully authenticated SSH username, or undefined before authentication. */
+    get username(): string | undefined {
+        return this.#authenticatedUsername
+    }
+
+    /** The SSH method that completed authentication, or undefined before authentication. */
+    get authenticationMethod(): string | undefined {
+        return this.#authenticatedMethod
+    }
 
     localChannelIndex = 0
     channels = new Map<number, Channel>()
@@ -2218,8 +2229,6 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         // never throw.
         assert(authRequest instanceof UserAuthRequest, "Invalid packet type")
         await this.closeInitialGSSAPIKeyExchangeContext()
-        this.credentials = authRequest
-
         if (allowLogin) {
             let elevationResult: boolean | undefined
             if (this.server.hooker.hasHooks("elevation")) {
@@ -2246,6 +2255,8 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 }
             }
             this.sendPacket(new UserAuthSuccess({}))
+            this.#authenticatedUsername = authRequest.data.username
+            this.#authenticatedMethod = authRequest.data.method.method_name
             this.hasAuthenticated = true
             this.activateAuthenticatedServerCompression()
             this.prepareAuthenticatedClientCompression()

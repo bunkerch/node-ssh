@@ -506,6 +506,13 @@ server.hooker.hook("passwordAuthentication", (_hook, context, decision) => {
 The server advertises only methods with registered policy hooks. Unknown methods are rejected, and
 `none` is omitted from every continuation list as required by RFC 4252.
 
+After success, `ServerClient.username` and `ServerClient.authenticationMethod` expose only the
+authenticated principal and the method that completed authentication. Both are `undefined` before
+success. The connection does not retain or expose the successful authentication packet: password,
+replacement-password, keyboard-interactive response, and signature-bearing request objects remain
+scoped to authentication processing. Use `connection.username` for later channel and forwarding
+authorization rather than retaining a policy hook's credential context.
+
 The public-key hook receives `context.algorithm` separately from `context.publicKey.data.alg`; for
 an RSA SHA-2 request these are, for example, `rsa-sha2-512` and `ssh-rsa`. When a request has no
 signature, set `requestSignature` after authorizing the key and algorithm. On the signed retry,

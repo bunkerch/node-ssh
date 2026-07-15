@@ -138,7 +138,7 @@ rejection and the final decision allows it; a contained later failure discards a
 ```ts
 server.hooker.hook("tcpipForward", (_hook, context, decision, connection) => {
     decision.allow =
-        connection.credentials?.data.username === "deploy" &&
+        connection.username === "deploy" &&
         context.bindAddress === "127.0.0.1" &&
         (context.bindPort === 0 || context.bindPort >= 40_000)
 })
@@ -233,8 +233,7 @@ services.
 ```ts
 server.hooker.hook("streamLocalForward", (_hook, context, decision, connection) => {
     decision.allow =
-        connection.credentials?.data.username === "deploy" &&
-        context.socketPath.startsWith("/run/modernssh/deploy/")
+        connection.username === "deploy" && context.socketPath.startsWith("/run/modernssh/deploy/")
 })
 ```
 
