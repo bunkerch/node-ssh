@@ -758,45 +758,53 @@ export class SSHAgentProtocolClient extends Agent<string> {
     async sign(id: string, data: Buffer, algorithm?: string): Promise<EncodedSignature> {
         if (!Buffer.isBuffer(data)) throw new TypeError("SSH agent signing data must be a buffer")
         const message = Buffer.from(data)
-        const publicKey = await this.getPublicKey(id)
-        const requestedAlgorithm = algorithm ?? publicKey.data.alg
-        if (!publicKey.supportsSignatureAlgorithm(requestedAlgorithm)) {
-            throw new SSHAgentProtocolError(
-                `Signature algorithm ${requestedAlgorithm} is incompatible with ${publicKey.data.alg}`,
-            )
-        }
-        const signatureAlgorithm = publicKey.signatureAlgorithmFor(requestedAlgorithm)
-        const flags =
-            signatureAlgorithm === "rsa-sha2-512"
-                ? SSH_AGENT_RSA_SHA2_512
-                : signatureAlgorithm === "rsa-sha2-256"
-                  ? SSH_AGENT_RSA_SHA2_256
-                  : 0
-        const response = await this.#request(
-            Buffer.concat([
+        let payload: Buffer | undefined
+        let response: Buffer | undefined
+        try {
+            const publicKey = await this.getPublicKey(id)
+            const requestedAlgorithm = algorithm ?? publicKey.data.alg
+            if (!publicKey.supportsSignatureAlgorithm(requestedAlgorithm)) {
+                throw new SSHAgentProtocolError(
+                    `Signature algorithm ${requestedAlgorithm} is incompatible with ${publicKey.data.alg}`,
+                )
+            }
+            const signatureAlgorithm = publicKey.signatureAlgorithmFor(requestedAlgorithm)
+            const flags =
+                signatureAlgorithm === "rsa-sha2-512"
+                    ? SSH_AGENT_RSA_SHA2_512
+                    : signatureAlgorithm === "rsa-sha2-256"
+                      ? SSH_AGENT_RSA_SHA2_256
+                      : 0
+            payload = Buffer.concat([
                 Buffer.from([SSHAgentMessageType.SignRequest]),
                 serializeBuffer(publicKey.serialize()),
                 serializeBuffer(message),
                 serializeUint32(flags),
-            ]),
-        )
-        if (response[0] !== SSHAgentMessageType.SignResponse) {
-            throw new SSHAgentProtocolError("SSH agent returned an unexpected signing response")
-        }
-        try {
-            const [signature, remaining] = readNextBuffer(response.subarray(1))
-            if (remaining.length !== 0) throw new Error("trailing data")
-            const encoded = EncodedSignature.parse(signature)
-            if (encoded.data.alg !== signatureAlgorithm) {
-                throw new Error(
-                    `agent returned ${encoded.data.alg} instead of ${signatureAlgorithm}`,
+            ])
+            response = await this.#request(payload)
+            if (response[0] !== SSHAgentMessageType.SignResponse) {
+                throw new SSHAgentProtocolError("SSH agent returned an unexpected signing response")
+            }
+            try {
+                const [signature, remaining] = readNextBuffer(response.subarray(1))
+                if (remaining.length !== 0) throw new Error("trailing data")
+                const encoded = EncodedSignature.parse(signature)
+                if (encoded.data.alg !== signatureAlgorithm) {
+                    throw new Error(
+                        `agent returned ${encoded.data.alg} instead of ${signatureAlgorithm}`,
+                    )
+                }
+                return encoded
+            } catch (error) {
+                throw new SSHAgentProtocolError(
+                    "SSH agent returned an invalid signature response",
+                    { cause: error },
                 )
             }
-            return encoded
-        } catch (error) {
-            throw new SSHAgentProtocolError("SSH agent returned an invalid signature response", {
-                cause: error,
-            })
+        } finally {
+            message.fill(0)
+            payload?.fill(0)
+            response?.fill(0)
         }
     }
 

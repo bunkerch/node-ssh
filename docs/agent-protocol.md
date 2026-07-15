@@ -18,6 +18,8 @@ and leaves the connection available for later operations.
 
 `sign()` snapshots its message when called, before queued identity lookup or earlier agent requests
 can delay the signing frame. Later mutation of a caller-owned buffer cannot change what is signed.
+The internal message snapshot, request payload, wire frame, and response frame are cleared after the
+operation settles; this does not modify the caller's buffer.
 
 ```ts
 import { createConnection } from "node:net"

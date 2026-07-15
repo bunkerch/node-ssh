@@ -220,6 +220,37 @@ describe("SSHAgent", () => {
         }
     })
 
+    test("rejects response bytes beyond the absolute frame bound", async () => {
+        const directory = await mkdtemp(join(tmpdir(), "modernssh-agent-overflow-"))
+        const socketPath = join(directory, "agent.sock")
+        let reportClosed!: () => void
+        const closed = new Promise<void>((resolve) => {
+            reportClosed = resolve
+        })
+        const maximumLength = 256 * 1024
+        const oversized = Buffer.alloc(maximumLength + 5)
+        oversized.writeUInt32BE(maximumLength, 0)
+        oversized[4] = 12
+        const server = createServer((socket) => {
+            socket.once("close", reportClosed)
+            socket.once("data", () => socket.end(oversized))
+        })
+        server.listen(socketPath)
+        await once(server, "listening")
+
+        try {
+            await expect(new SSHAgent(socketPath).getPublicKeys()).rejects.toThrow(
+                "response exceeds the configured limit",
+            )
+            await closed
+        } finally {
+            await new Promise<void>((resolve, reject) => {
+                server.close((error) => (error ? reject(error) : resolve()))
+            })
+            await rm(directory, { recursive: true, force: true })
+        }
+    })
+
     test("lists and signs with a real OpenSSH agent", async () => {
         const directory = await mkdtemp(join(tmpdir(), "modernssh-openssh-agent-"))
         const socketPath = join(directory, "agent.sock")

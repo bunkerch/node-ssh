@@ -44,44 +44,51 @@ export default class SSHAgent implements Agent<string> {
     async sign(id: string, data: Buffer, algorithm?: string): Promise<EncodedSignature> {
         if (!Buffer.isBuffer(data)) throw new TypeError("SSH agent signing data must be a buffer")
         const message = Buffer.from(data)
-        const publicKey = await this.getPublicKey(id)
-        const requestedAlgorithm = algorithm ?? publicKey.data.alg
-        if (!publicKey.supportsSignatureAlgorithm(requestedAlgorithm)) {
-            throw new SSHAgentError(
-                `Signature algorithm ${requestedAlgorithm} is incompatible with ${publicKey.data.alg}`,
-            )
-        }
-        const signatureAlgorithm = publicKey.signatureAlgorithmFor(requestedAlgorithm)
-        const flags =
-            signatureAlgorithm === "rsa-sha2-512"
-                ? SSH_AGENT_RSA_SHA2_512
-                : signatureAlgorithm === "rsa-sha2-256"
-                  ? SSH_AGENT_RSA_SHA2_256
-                  : 0
-        const response = await this.request(
-            Buffer.concat([
+        let payload: Buffer | undefined
+        let response: Buffer | undefined
+        try {
+            const publicKey = await this.getPublicKey(id)
+            const requestedAlgorithm = algorithm ?? publicKey.data.alg
+            if (!publicKey.supportsSignatureAlgorithm(requestedAlgorithm)) {
+                throw new SSHAgentError(
+                    `Signature algorithm ${requestedAlgorithm} is incompatible with ${publicKey.data.alg}`,
+                )
+            }
+            const signatureAlgorithm = publicKey.signatureAlgorithmFor(requestedAlgorithm)
+            const flags =
+                signatureAlgorithm === "rsa-sha2-512"
+                    ? SSH_AGENT_RSA_SHA2_512
+                    : signatureAlgorithm === "rsa-sha2-256"
+                      ? SSH_AGENT_RSA_SHA2_256
+                      : 0
+            payload = Buffer.concat([
                 Buffer.from([SSH_AGENTC_SIGN_REQUEST]),
                 serializeBuffer(publicKey.serialize()),
                 serializeBuffer(message),
                 serializeUint32(flags),
-            ]),
-        )
-        this.expectResponseType(response, SSH_AGENT_SIGN_RESPONSE, "sign data")
+            ])
+            response = await this.request(payload)
+            this.expectResponseType(response, SSH_AGENT_SIGN_RESPONSE, "sign data")
 
-        try {
-            const [signature, remaining] = readNextBuffer(response.subarray(1))
-            if (remaining.length !== 0) throw new Error("signature response has trailing data")
-            const encoded = EncodedSignature.parse(signature)
-            if (encoded.data.alg !== signatureAlgorithm) {
-                throw new Error(
-                    `agent returned ${encoded.data.alg} instead of ${signatureAlgorithm}`,
-                )
+            try {
+                const [signature, remaining] = readNextBuffer(response.subarray(1))
+                if (remaining.length !== 0) throw new Error("signature response has trailing data")
+                const encoded = EncodedSignature.parse(signature)
+                if (encoded.data.alg !== signatureAlgorithm) {
+                    throw new Error(
+                        `agent returned ${encoded.data.alg} instead of ${signatureAlgorithm}`,
+                    )
+                }
+                return encoded
+            } catch (error) {
+                throw new SSHAgentError("SSH agent returned an invalid signature response", {
+                    cause: error,
+                })
             }
-            return encoded
-        } catch (error) {
-            throw new SSHAgentError("SSH agent returned an invalid signature response", {
-                cause: error,
-            })
+        } finally {
+            message.fill(0)
+            payload?.fill(0)
+            response?.fill(0)
         }
     }
 
@@ -151,10 +158,20 @@ export default class SSHAgent implements Agent<string> {
             const socket = createConnection(this.socketPath)
             let settled = false
             let received = Buffer.alloc(0)
+            const output = serializeBuffer(payload)
+            let outputCleared = false
+            const clearOutput = (): void => {
+                if (outputCleared) return
+                outputCleared = true
+                output.fill(0)
+            }
             const fail = (error: Error): void => {
                 if (settled) return
                 settled = true
                 socket.destroy()
+                clearOutput()
+                received.fill(0)
+                received = Buffer.alloc(0)
                 reject(
                     error instanceof SSHAgentError
                         ? error
@@ -162,12 +179,21 @@ export default class SSHAgent implements Agent<string> {
                 )
             }
 
-            socket.once("connect", () => socket.write(serializeBuffer(payload)))
+            socket.once("connect", () => {
+                socket.write(output, (error) => {
+                    clearOutput()
+                    if (error) fail(error)
+                })
+            })
             socket.setTimeout(10_000, () =>
                 fail(new SSHAgentError("SSH agent did not reply within 10 seconds")),
             )
             socket.on("data", (data: Buffer) => {
                 if (settled) return
+                if (data.length > MAX_AGENT_MESSAGE_LENGTH + 4 - received.length) {
+                    fail(new SSHAgentError("SSH agent response exceeds the configured limit"))
+                    return
+                }
                 received = Buffer.concat([received, data])
                 if (received.length < 4) return
                 const length = received.readUInt32BE(0)
@@ -182,7 +208,11 @@ export default class SSHAgent implements Agent<string> {
                 }
                 settled = true
                 socket.destroy()
-                resolve(received.subarray(4))
+                clearOutput()
+                const response = Buffer.from(received.subarray(4))
+                received.fill(0)
+                received = Buffer.alloc(0)
+                resolve(response)
             })
             socket.once("error", fail)
             socket.once("end", () => fail(new SSHAgentError("SSH agent closed before replying")))
