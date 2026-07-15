@@ -68,4 +68,22 @@ describe("ProtocolVersionExchange", () => {
             "SSH identification suffix is not valid UTF-8 text",
         )
     })
+
+    test("rejects malformed runtime types without coercing them into identifiers", () => {
+        expect(() => new ProtocolVersionExchange(null as never, "test")).toThrow(
+            "SSH protocol version must be a string",
+        )
+        expect(() => new ProtocolVersionExchange("2.0", null as never)).toThrow(
+            "SSH software version must be a string",
+        )
+        expect(() => new ProtocolVersionExchange("2.0", "test", 42 as never)).toThrow(
+            "SSH identification comments must be a string",
+        )
+        expect(() => ProtocolVersionExchange.parse(null as never)).toThrow(
+            "SSH identification must be a string or Buffer",
+        )
+        expect(() => ProtocolVersionExchange.fromIdent(null as never)).toThrow(
+            "SSH identification suffix must be a string or Buffer",
+        )
+    })
 })

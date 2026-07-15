@@ -17,7 +17,9 @@ accepts an LF-only peer identifier for compatibility with older implementations.
 limited to 255 encoded bytes, may not contain NUL, and software versions must use the printable
 US-ASCII characters permitted by RFC 4253 section 4.2. Optional comments are strict UTF-8 whether
 they come from the wire, a constructor, or the `ident` shorthand; invalid JavaScript surrogate text
-is rejected rather than replacement-encoded.
+is rejected rather than replacement-encoded. Runtime callers must supply strings for constructor
+fields and either a string or `Buffer` to `parse()` and `fromIdent()`; other values are rejected
+without JavaScript string coercion.
 
 Set the client `ident` option to a software identifier and optional comment,
 without the `SSH-2.0-` prefix. A `Buffer` is accepted for byte-exact configuration, but it is still

@@ -14,6 +14,15 @@ export default class ProtocolVersionExchange {
         protocol_software: string,
         comments?: string | undefined,
     ) {
+        if (typeof protocol_version !== "string") {
+            throw new TypeError("SSH protocol version must be a string")
+        }
+        if (typeof protocol_software !== "string") {
+            throw new TypeError("SSH software version must be a string")
+        }
+        if (comments !== undefined && typeof comments !== "string") {
+            throw new TypeError("SSH identification comments must be a string")
+        }
         if (protocol_version !== "2.0" && protocol_version !== "1.99") {
             throw new Error(`Unsupported SSH protocol version: ${protocol_version}`)
         }
@@ -44,6 +53,9 @@ export default class ProtocolVersionExchange {
     }
 
     static parse(raw: string | Buffer): ProtocolVersionExchange {
+        if (typeof raw !== "string" && !Buffer.isBuffer(raw)) {
+            throw new TypeError("SSH identification must be a string or Buffer")
+        }
         const encoded = Buffer.isBuffer(raw) ? raw : encodeSSHUTF8(raw, "SSH identification")
         if (encoded.length > MAX_IDENTIFICATION_LENGTH) {
             throw new Error(`SSH identification must not exceed ${MAX_IDENTIFICATION_LENGTH} bytes`)
@@ -79,6 +91,9 @@ export default class ProtocolVersionExchange {
 
     /** Builds an SSH 2.0 identification from a software identifier and optional comment. */
     static fromIdent(ident: string | Buffer): ProtocolVersionExchange {
+        if (typeof ident !== "string" && !Buffer.isBuffer(ident)) {
+            throw new TypeError("SSH identification suffix must be a string or Buffer")
+        }
         const suffix = Buffer.isBuffer(ident)
             ? Buffer.from(ident)
             : encodeSSHUTF8(ident, "SSH identification suffix")

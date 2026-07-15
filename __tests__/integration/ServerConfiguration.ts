@@ -36,6 +36,10 @@ describe("server configuration normalization", () => {
                 "SSH server protocolVersionExchange option must be a ProtocolVersionExchange",
             ],
             [
+                { hostKeys: [hostKey], ident: null as never },
+                "SSH identification suffix must be a string or Buffer",
+            ],
+            [
                 { hostKeys: [hostKey], algorithms: null as never },
                 "SSH server algorithms option must be an object",
             ],
