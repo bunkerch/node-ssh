@@ -47,6 +47,11 @@ export interface SFTPExtendedRequestOptions {
     expectedTypes?: readonly SFTPExtensionResponseType[]
 }
 
+export interface SFTPClientOptions {
+    /** Maximum milliseconds for SFTP initialization or a tagged request reply. */
+    requestTimeout?: number
+}
+
 const MAX_PENDING_REQUESTS = 1024
 const DEFAULT_READ_WRITE_LENGTH = 32768
 const MAX_EXTENSION_READ_WRITE_LENGTH = MAX_SFTP_PACKET_LENGTH - 2048
@@ -217,6 +222,7 @@ export default class SFTPClient {
     readonly protocolVersion = SFTP_VERSION
     readonly channel: ClientSessionChannel
     readonly isOpenSSH: boolean
+    readonly requestTimeout: number
     extensions: readonly SFTPExtension[] = []
 
     maxReadLength = DEFAULT_READ_WRITE_LENGTH
@@ -236,9 +242,17 @@ export default class SFTPClient {
     private readyReject!: (error: Error) => void
     private readonly ready: Promise<void>
 
-    private constructor(channel: ClientSessionChannel, isOpenSSH: boolean) {
+    private constructor(
+        channel: ClientSessionChannel,
+        isOpenSSH: boolean,
+        options: SFTPClientOptions,
+    ) {
         this.channel = channel
         this.isOpenSSH = isOpenSSH
+        this.requestTimeout = options.requestTimeout ?? 30_000
+        if (!Number.isFinite(this.requestTimeout) || this.requestTimeout <= 0) {
+            throw new RangeError("SFTP request timeout must be a positive number")
+        }
         this.ready = new Promise<void>((resolve, reject) => {
             this.readyResolve = resolve
             this.readyReject = reject
@@ -249,15 +263,24 @@ export default class SFTPClient {
         channel.once("error", (error) => this.fail(error))
     }
 
-    static async connect(channel: ClientSessionChannel, isOpenSSH = false): Promise<SFTPClient> {
-        const client = new SFTPClient(channel, isOpenSSH)
+    static async connect(
+        channel: ClientSessionChannel,
+        isOpenSSH = false,
+        options: SFTPClientOptions = {},
+    ): Promise<SFTPClient> {
+        const client = new SFTPClient(channel, isOpenSSH, { ...options })
         try {
-            await client.writePacket({
-                type: SFTPPacketType.Init,
-                version: SFTP_VERSION,
-                extensions: [],
-            })
-            await client.ready
+            await client.waitForResponse(
+                Promise.all([
+                    client.writePacket({
+                        type: SFTPPacketType.Init,
+                        version: SFTP_VERSION,
+                        extensions: [],
+                    }),
+                    client.ready,
+                ]).then(() => undefined),
+                "initialization",
+            )
             await client.negotiateLimits()
             return client
         } catch (error) {
@@ -1174,7 +1197,24 @@ export default class SFTPClient {
             this.pending.delete(packet.requestId)
             pending.reject(error instanceof Error ? error : new Error(String(error)))
         })
-        return request
+        return this.waitForResponse(request, `request ${packet.requestId} reply`)
+    }
+
+    private async waitForResponse<T>(operation: Promise<T>, description: string): Promise<T> {
+        let timer: NodeJS.Timeout | undefined
+        const timeout = new Promise<never>((_resolve, reject) => {
+            timer = setTimeout(() => {
+                const error = new Error(`Timed out waiting for SFTP ${description}`)
+                reject(error)
+                this.destroy(error)
+            }, this.requestTimeout)
+            timer.unref()
+        })
+        try {
+            return await Promise.race([operation, timeout])
+        } finally {
+            if (timer !== undefined) clearTimeout(timer)
+        }
     }
 
     private allocateRequestId(): number {

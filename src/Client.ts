@@ -135,7 +135,7 @@ import {
     UserAuthGSSAPIResponse,
     UserAuthGSSAPIToken,
 } from "./packets/UserAuthGSSAPI.js"
-import SFTPClient from "./sftp/SFTPClient.js"
+import SFTPClient, { type SFTPClientOptions } from "./sftp/SFTPClient.js"
 import PublicKeySubsystemClient from "./publickey/PublicKeySubsystemClient.js"
 import {
     resolveClientAlgorithmOptions,
@@ -1209,8 +1209,12 @@ export default class Client extends EventEmitter<ClientEvents> {
         return this.requestNoMoreSessions()
     }
 
-    sftp(environment: ClientEnvironment = {}): Promise<SFTPClient> {
+    sftp(
+        environment: ClientEnvironment = {},
+        options: SFTPClientOptions = {},
+    ): Promise<SFTPClient> {
         const sessionEnvironment = { ...environment }
+        const sftpOptions = { ...options }
         return this.openSessionChannel().then(async (channel) => {
             try {
                 for (const [name, value] of Object.entries(sessionEnvironment)) {
@@ -1218,7 +1222,13 @@ export default class Client extends EventEmitter<ClientEvents> {
                 }
                 await channel.subsystem("sftp")
                 const software = this.serverProtocolVersion?.protocol_software ?? ""
-                return await SFTPClient.connect(channel, /^(?:OpenSSH_|dropbear)/iu.test(software))
+                return await SFTPClient.connect(
+                    channel,
+                    /^(?:OpenSSH_|dropbear)/iu.test(software),
+                    {
+                        requestTimeout: sftpOptions.requestTimeout ?? this.#options.replyTimeout,
+                    },
+                )
             } catch (error) {
                 channel.close()
                 throw error

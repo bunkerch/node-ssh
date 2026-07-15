@@ -206,7 +206,7 @@ describe("client session configuration ownership", () => {
         }
     }, 15_000)
 
-    test("sftp owns its environment when the operation starts", async () => {
+    test("sftp owns its environment and timeout options when the operation starts", async () => {
         const server = new Server({
             hostKeys: [await PrivateKey.generate("ssh-ed25519")],
             sendAllHostKeys: false,
@@ -243,6 +243,7 @@ describe("client session configuration ownership", () => {
             username: "session-ownership",
             authenticationMethodsOrder: [SSHAuthenticationMethods.None],
             algorithms: { kex: ["curve25519-sha256"] },
+            replyTimeout: 2_345,
         })
         client.hooker.hook("hostKey", (_hook, controller) => {
             controller.allowHostKey = true
@@ -251,12 +252,21 @@ describe("client session configuration ownership", () => {
         try {
             await client.connect()
             const environment = { ROLE: "original" }
-            const opening = client.sftp(environment)
+            const options = { requestTimeout: 1_234 }
+            const opening = client.sftp(environment, options)
             environment.ROLE = "mutated"
+            options.requestTimeout = 9_999
 
             const sftp = await opening
             expect(receivedRole).toBe("original")
+            expect(sftp.requestTimeout).toBe(1_234)
+            const closed = once(sftp.channel, "close")
             sftp.end()
+            await closed
+
+            const inherited = await client.sftp()
+            expect(inherited.requestTimeout).toBe(2_345)
+            inherited.end()
         } finally {
             client.destroy()
             for (const connection of server.clients) connection.terminate()

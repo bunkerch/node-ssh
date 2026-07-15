@@ -38,11 +38,75 @@ class SFTPServerFixture extends Duplex {
     }
 }
 
-function asClientChannel(channel: SFTPServerFixture): ClientSessionChannel {
+class BlockedSFTPChannel extends Duplex {
+    _read(): void {
+        void this.readable
+    }
+
+    _write(
+        _chunk: Buffer,
+        _encoding: BufferEncoding,
+        callback: (error?: Error | null) => void,
+    ): void {
+        void callback
+    }
+
+    _destroy(_error: Error | null, callback: (error?: Error | null) => void): void {
+        callback()
+    }
+}
+
+function asClientChannel(channel: Duplex): ClientSessionChannel {
     return channel as unknown as ClientSessionChannel
 }
 
 describe("SFTP client request engine", () => {
+    test("validates a finite positive request timeout before initialization", async () => {
+        for (const requestTimeout of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+            const fixture = new SFTPServerFixture(() => undefined)
+            await expect(
+                SFTPClient.connect(asClientChannel(fixture), false, { requestTimeout }),
+            ).rejects.toThrow("SFTP request timeout must be a positive number")
+            fixture.destroy()
+        }
+    })
+
+    test("closes a session that does not answer initialization", async () => {
+        const fixture = new SFTPServerFixture(() => undefined)
+
+        await expect(
+            SFTPClient.connect(asClientChannel(fixture), false, { requestTimeout: 20 }),
+        ).rejects.toThrow("Timed out waiting for SFTP initialization")
+        expect(fixture.destroyed).toBe(true)
+    })
+
+    test("bounds an initialization frame blocked by channel flow control", async () => {
+        const channel = new BlockedSFTPChannel()
+
+        await expect(
+            SFTPClient.connect(asClientChannel(channel), false, {
+                requestTimeout: 20,
+            }),
+        ).rejects.toThrow("Timed out waiting for SFTP initialization")
+        expect(channel.destroyed).toBe(true)
+    })
+
+    test("closes a session that does not answer a tagged request", async () => {
+        const fixture = new SFTPServerFixture((packet) => {
+            if (packet.type === SFTPPacketType.Init) {
+                fixture.send({ type: SFTPPacketType.Version, version: 3, extensions: [] })
+            }
+        })
+        const client = await SFTPClient.connect(asClientChannel(fixture), false, {
+            requestTimeout: 20,
+        })
+
+        await expect(client.stat("unanswered")).rejects.toThrow(
+            "Timed out waiting for SFTP request 0 reply",
+        )
+        expect(fixture.destroyed).toBe(true)
+    })
+
     test("rejects an invalid write limit before sending a request", async () => {
         let writeRequests = 0
         const fixture = new SFTPServerFixture((packet) => {

@@ -81,6 +81,7 @@ export {
     stringToFlags,
 } from "./sftp/SFTPClient.js"
 export type {
+    SFTPClientOptions,
     SFTPFastGetOptions,
     SFTPFastPutOptions,
     SFTPExtendedRequestOptions,

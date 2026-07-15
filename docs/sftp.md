@@ -16,12 +16,13 @@ const client = new Client({ hostname: "files.example.com", username: "deploy" })
 // Configure the host-key hook and authentication before connecting.
 await client.connect()
 
-const sftp = await client.sftp()
+const sftp = await client.sftp({}, { requestTimeout: 30_000 })
 ```
 
 The resulting `SFTPClient` exposes the negotiated version, the duplicate-preserving `extensions`
-announcement list, and
-`supportsExtension(name, version?)`.
+announcement list, `supportsExtension(name, version?)`, and its immutable `requestTimeout`.
+The timeout defaults to the connection's `replyTimeout`; direct `SFTPClient.connect()` calls default
+to 30 seconds. It must be a positive finite number.
 
 The baseline operations are Promise-based:
 
@@ -170,6 +171,9 @@ grammar, and extension identifiers are validated SSH names. Filenames, long name
 and extension payloads remain opaque bytes and are never replacement-decoded by the wire codec.
 Fatal errors, including EOF in the middle of a frame, close the SFTP channel in both peer roles and
 reject pending client operations. They do not tear down an otherwise healthy SSH connection.
+Initialization and every tagged request reply are bounded by `requestTimeout`. Expiry rejects the
+operation and closes only that SFTP channel, which prevents a late response or eventually reused
+request identifier from corrupting a later exchange while leaving the SSH connection available.
 Local request-encoding failures reject without consuming an outstanding-request slot, so repeated
 invalid calls cannot exhaust or poison an otherwise healthy SFTP session.
 

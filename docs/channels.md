@@ -43,13 +43,14 @@ const channel = await client.exec("stty size; printf '%s' \"$LANG\"", {
 Environment requests from this convenience API do not ask for replies, matching common
 OpenSSH behavior; servers may silently ignore variables outside their `AcceptEnv` policy. PTY, X11,
 and agent-forwarding requests require success before `exec` starts. `shell()` accepts the same
-options and requests a default PTY unless `pty: false` is supplied. `sftp(environment)` sends the
-given environment before starting the subsystem.
+options and requests a default PTY unless `pty: false` is supplied.
+`sftp(environment, { requestTimeout })` sends the given environment before starting the subsystem
+and can override the connection reply deadline for SFTP initialization and tagged replies.
 
 `exec()` and `shell()` snapshot their session options when the operation starts, including the
 environment, PTY terminal modes, and X11 cookie bytes. Later changes to caller-owned configuration
 do not affect requests waiting for the session channel to open. `sftp()` likewise copies its
-environment at invocation.
+environment and timeout options at invocation.
 
 For PTY, environment, resize, signal, or subsystem setup, open a session explicitly and make the
 requests in protocol order:
