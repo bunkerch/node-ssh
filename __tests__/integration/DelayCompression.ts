@@ -33,8 +33,8 @@ describe("RFC 8308 delay-compression integration", () => {
         server.on("connection", (connection) => {
             peer = connection
             connection.on("error", () => undefined)
-            connection.on("packet", (packet) => {
-                if (packet instanceof NewCompress) newCompressPackets++
+            connection.on("packet", (metadata) => {
+                if (metadata.name === "SSH_MSG_NEWCOMPRESS") newCompressPackets++
             })
         })
         server.listen({ host: "127.0.0.1", port: 0 })
@@ -97,8 +97,8 @@ describe("RFC 8308 delay-compression integration", () => {
             server.on("connection", (connection) => {
                 peer = connection
                 connection.on("error", () => undefined)
-                connection.on("packet", (packet) => {
-                    if (packet instanceof NewCompress) newCompressPackets++
+                connection.on("packet", (metadata) => {
+                    if (metadata.name === "SSH_MSG_NEWCOMPRESS") newCompressPackets++
                 })
             })
             server.listen({ host: "127.0.0.1", port: 0 })
@@ -303,8 +303,8 @@ describe("RFC 8308 delay-compression integration", () => {
         server.on("connection", (connection) => {
             peer = connection
             connection.on("error", () => undefined)
-            connection.on("packet", (packet) => {
-                if (packet instanceof NewCompress) {
+            connection.on("packet", (metadata) => {
+                if (metadata.name === "SSH_MSG_NEWCOMPRESS") {
                     newCompressPackets++
                     resolveNewCompress()
                 }

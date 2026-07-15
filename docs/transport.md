@@ -158,6 +158,13 @@ the transport. Both peer roles send RFC 4253 `SSH_MSG_UNIMPLEMENTED` with the ex
 sequence number and continue processing subsequent buffered packets. Malformed known packets still
 fail explicitly. During negotiated strict initial key exchange, an unknown non-KEX message remains
 a key-exchange violation and terminates the connection instead of receiving this recovery response.
+The `unimplemented` event reports only the rejected outbound sequence number.
+
+The connection-level `packet` event exposes immutable inbound metadata: packet type, registered
+name when known, and sequence number. It never exposes decrypted payload bytes or parsed packet
+objects. Authentication values, channel contents, agent traffic, environment values, and opaque
+application requests therefore cannot leak through generic transport observation. Use the narrow
+typed events and Hooker policies for protocol data an application is meant to consume.
 
 `SSH_MSG_NEWKEYS` changes protection independently in each direction, as required by RFC 4253
 section 7.3. A sender protects packets immediately after sending its unprotected `NEWKEYS`; a
@@ -197,9 +204,9 @@ change the session transcript. The active offers and exact transcript bytes rema
 role-specific `clientKexInit` and `serverKexInit` observation events receive a parsed packet and a
 copied wire payload; unrelated low-level KEXINIT objects cannot replace the active exchange.
 
-Inbound KEXINIT bytes are likewise copied before any packet event is published. Negotiation reparses
-the private snapshot, so observers may inspect or mutate their packet objects without changing the
-algorithm offer or exchange hash used by the connection.
+Inbound KEXINIT bytes are likewise copied before the role-specific KEXINIT event is published.
+Negotiation reparses the private snapshot, so observers may inspect or mutate that event's packet
+object without changing the algorithm offer or exchange hash used by the connection.
 
 Method-specific key-exchange packets also own their ephemeral public values, host-key blobs, and
 signature envelopes. Constructor inputs and parsed transport frames cannot be mutated later to

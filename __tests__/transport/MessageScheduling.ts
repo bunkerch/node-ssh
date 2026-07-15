@@ -40,17 +40,17 @@ describe("transport message scheduling", () => {
         const client = new Client({ hostname: "unused.invalid" })
         client.onMessage(Buffer.from("SSH-2.0-test_server\r\n"))
 
-        const received: string[] = []
-        client.on("packet", (packet) => {
-            if (packet instanceof Ignore) received.push(packet.data.data.toString())
+        const received: number[] = []
+        client.on("packet", (metadata) => {
+            if (metadata.name === "SSH_MSG_IGNORE") received.push(metadata.sequenceNumber)
         })
         const encoder = new BinaryPacketEncoder({ randomBytes: deterministicPadding })
         const first = encoder.encode(new Ignore({ data: Buffer.from("first") }).serialize()).data
         const second = encoder.encode(new Ignore({ data: Buffer.from("second") }).serialize()).data
 
         client.onMessage(Buffer.concat([first, second]))
-        expect(received).toEqual(["first"])
+        expect(received).toEqual([0])
         await Promise.resolve()
-        expect(received).toEqual(["first", "second"])
+        expect(received).toEqual([0, 1])
     })
 })

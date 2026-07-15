@@ -59,7 +59,7 @@ import type { NegotiatedAlgorithms } from "./AlgorithmOptions.js"
 import PublicKey, { SSHCertificatePublicKey } from "./utils/PublicKey.js"
 import KexDHReply from "./packets/KexDHReply.js"
 import assert from "node:assert"
-import Packet, { packets } from "./packet.js"
+import Packet, { packets, protocolPacketMetadata, type ProtocolPacketMetadata } from "./packet.js"
 import Disconnect, {
     DisconnectError,
     DisconnectReason,
@@ -172,7 +172,11 @@ import {
     noFlowControlValue,
     type NoFlowControlValue,
 } from "./NoFlowControl.js"
-import PacketEventQueue from "./utils/PacketEventQueue.js"
+import PacketEventQueue, {
+    emitPacketEvent,
+    onPacketEvent,
+    waitForPacketEvent,
+} from "./utils/PacketEventQueue.js"
 import {
     AGENT_FORWARDING_EXTENSION,
     AGENT_FORWARDING_EXTENSION_VERSION,
@@ -231,10 +235,12 @@ export interface ServerClientEvents {
     protocolDebug: [info: Readonly<ProtocolDebugMessage>]
     connect: []
     debug: [...message: unknown[]]
-    message: [message: Buffer]
     clientProtocolVersion: [version: ProtocolVersionExchange]
     tcpWrapperLog: [message: string]
-    packet: [packet: Packet]
+    /** Payload-free metadata for an inbound binary packet. */
+    packet: [metadata: Readonly<ProtocolPacketMetadata>]
+    /** The peer rejected an outbound packet with this sequence number. */
+    unimplemented: [sequenceNumber: number]
     clientKexInit: [kexInit: KexInit, payload: Buffer]
     clientKexDHInit: [kexDHInit: KexDHInit]
     clientKexDHGexRequest: [request: KexDHGexRequest | KexDHGexRequestOld]
@@ -247,9 +253,6 @@ export interface ServerClientEvents {
     /** Complete client extension set received at the RFC 8308 opportunity. */
     clientExtensions: [extensions: readonly Readonly<SSHExtension>[]]
 
-    channelOpenRequest: [packet: ChannelOpen]
-    channelRequest: [packet: ChannelRequest]
-    channelData: [packet: ChannelData]
     channel: [channel: Channel]
 }
 
@@ -1215,7 +1218,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         // now that we have received USERAUTH_SUCCESS, we need
         // to handle GLOBAL_REQUEST.
 
-        this.on("packet", (packet) => {
+        onPacketEvent(this, (packet) => {
             if (!(packet instanceof GlobalRequest)) return
             void this.queue
                 .queueAction("globalRequest", () => this.handleGlobalRequest(packet))
@@ -1241,16 +1244,9 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 }),
             )
         }
-
-        this.on("channelOpenRequest", (packet) => {
-            this.startEventOperation(this.handleChannelOpenRequest(packet), "channel-open request")
-        })
-        this.on("channelRequest", (packet) => {
-            this.startEventOperation(this.handleChannelRequest(packet), "channel request")
-        })
     }
 
-    private startEventOperation(operation: Promise<void>, description: string): void {
+    private startPacketOperation(operation: Promise<void>, description: string): void {
         void operation.catch((error: unknown) => {
             const failure = error instanceof Error ? error : new Error(String(error))
             this.debug(`Unhandled failure while processing SSH ${description}:`, failure)
@@ -2513,7 +2509,9 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
 
     private async waitForHigherLayerPacket(): Promise<Packet> {
         while (true) {
-            const [packet] = await this.waitEvent("packet")
+            const packet = await waitForPacketEvent(this, () =>
+                this.connectionClosedError("SSH connection closed while waiting for packet"),
+            )
             const type = (packet.constructor as typeof Packet).type
             if (
                 type <= PacketNameToType.SSH_MSG_DEBUG ||
@@ -2689,7 +2687,6 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             const result = this.identificationParser.push(message)
             if (!result.version || !result.identification) return
 
-            this.emit("message", result.identification)
             this.clientProtocolVersion = result.version
             this.emit("clientProtocolVersion", result.version)
             this.debug("Client protocol version:", result.version)
@@ -2713,10 +2710,9 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         this.checkRekeyByteLimit()
 
         const { payload } = decoded
-        this.emit("message", decoded.data)
-
         const packetType = payload[0] as PacketType
         this.debug("Receiving packet:", packetType)
+        this.emit("packet", protocolPacketMetadata(packetType, decoded.sequenceNumber))
 
         if (this.discardNextGuessedKeyExchangePacket) {
             this.discardNextGuessedKeyExchangePacket = false
@@ -2822,7 +2818,8 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             }
             this.strictInitialPackets.add(packetType)
         }
-        this.emit("packet", p)
+        emitPacketEvent(this, p)
+        if (p instanceof Unimplemented) this.emit("unimplemented", p.data.sequence_number)
         this.routeGlobalRequestReply(p)
         this.debug("Parsing packet:", this.packetForDebug(p))
 
@@ -2962,7 +2959,10 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
 
             case PacketNameToType.SSH_MSG_CHANNEL_OPEN:
                 this.reserveRemoteChannelId((p as ChannelOpen).data.sender_channel_id)
-                this.emit("channelOpenRequest", p as ChannelOpen)
+                this.startPacketOperation(
+                    this.handleChannelOpenRequest(p as ChannelOpen),
+                    "channel-open request",
+                )
                 break
             case PacketNameToType.SSH_MSG_CHANNEL_OPEN_CONFIRMATION: {
                 const confirmation = p as ChannelOpenConfirmation
@@ -3005,7 +3005,10 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 break
             }
             case PacketNameToType.SSH_MSG_CHANNEL_REQUEST:
-                this.emit("channelRequest", p as ChannelRequest)
+                this.startPacketOperation(
+                    this.handleChannelRequest(p as ChannelRequest),
+                    "channel request",
+                )
                 break
             case PacketNameToType.SSH_MSG_CHANNEL_WINDOW_ADJUST: {
                 const adjust = p as ChannelWindowAdjust
@@ -3016,7 +3019,6 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             }
             case PacketNameToType.SSH_MSG_CHANNEL_DATA: {
                 const data = p as ChannelData
-                this.emit("channelData", data)
                 this.queueChannelAction(data.data.recipient_channel_id, (channel) => {
                     channel.receiveData(data.data.data)
                 })

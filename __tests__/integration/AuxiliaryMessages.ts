@@ -7,7 +7,6 @@ import type { ProtocolDebugMessage } from "../../src/packets/Debug.js"
 import PrivateKey from "../../src/utils/PrivateKey.js"
 import Debug from "../../src/packets/Debug.js"
 import Ignore from "../../src/packets/Ignore.js"
-import ServiceAccept from "../../src/packets/ServiceAccept.js"
 
 async function createConnectedPeers(
     configureClient?: (client: Client) => void,
@@ -71,8 +70,8 @@ describe("RFC 4253 auxiliary transport messages", () => {
                         }),
                     )
                 })
-                client.on("packet", (packet) => {
-                    if (!(packet instanceof ServiceAccept)) return
+                client.on("packet", (metadata) => {
+                    if (metadata.name !== "SSH_MSG_SERVICE_ACCEPT") return
                     client.sendPacket(new Ignore({ data: Buffer.from("before authentication") }))
                     client.sendPacket(
                         new Debug({

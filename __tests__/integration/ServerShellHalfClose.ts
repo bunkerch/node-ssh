@@ -69,12 +69,12 @@ test("ending server stdout keeps the shell open for client stdin", async () => {
         expect(serverShell.destroyed).toBe(false)
         expect(serverShell.readableEnded).toBe(false)
 
-        const channelDataReceived = once(peer!, "channelData", {
+        const channelDataReceived = once(serverShell, "data", {
             signal: AbortSignal.timeout(1_000),
         })
         await clientChannel.sendData("client input after server EOF")
         const [channelData] = await channelDataReceived
-        expect(channelData.data.data.toString()).toBe("client input after server EOF")
+        expect(channelData.toString()).toBe("client input after server EOF")
         clientChannel.end()
         await channelClosed
         expect(Buffer.concat(serverInput).toString()).toBe("client input after server EOF")

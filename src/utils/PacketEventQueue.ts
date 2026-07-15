@@ -1,13 +1,45 @@
 import type { EventEmitter } from "node:events"
 import type Packet from "../packet.js"
 
+type PacketListener = (packet: Packet) => void
+
+const packetListeners = new WeakMap<object, Set<PacketListener>>()
+
 interface PacketEventSource extends EventEmitter {
-    on(event: "packet", listener: (packet: Packet) => void): this
     on(event: "error", listener: (error: Error) => void): this
     on(event: "close", listener: () => void): this
-    off(event: "packet", listener: (packet: Packet) => void): this
     off(event: "error", listener: (error: Error) => void): this
     off(event: "close", listener: () => void): this
+}
+
+export function emitPacketEvent(source: object, packet: Packet): void {
+    const listeners = packetListeners.get(source)
+    if (!listeners) return
+    for (const listener of [...listeners]) listener(packet)
+}
+
+export function onPacketEvent(source: object, listener: PacketListener): void {
+    let listeners = packetListeners.get(source)
+    if (!listeners) {
+        listeners = new Set()
+        packetListeners.set(source, listeners)
+    }
+    listeners.add(listener)
+}
+
+export function offPacketEvent(source: object, listener: PacketListener): void {
+    const listeners = packetListeners.get(source)
+    if (!listeners) return
+    listeners.delete(listener)
+    if (listeners.size === 0) packetListeners.delete(source)
+}
+
+export function waitForPacketEvent(
+    source: PacketEventSource,
+    closedError: () => Error,
+): Promise<Packet> {
+    const packets = new PacketEventQueue(source, closedError)
+    return packets.next().finally(() => packets.close())
 }
 
 /** A scoped Promise-based queue that preserves adjacent packet events. */
@@ -25,7 +57,7 @@ export default class PacketEventQueue {
     constructor(source: PacketEventSource, closedError: () => Error) {
         this.#source = source
         this.#closedError = closedError
-        source.on("packet", this.#onPacket)
+        onPacketEvent(source, this.#onPacket)
         source.on("error", this.#onError)
         source.on("close", this.#onClose)
     }
@@ -70,7 +102,7 @@ export default class PacketEventQueue {
     }
 
     #removeListeners(): void {
-        this.#source.off("packet", this.#onPacket)
+        offPacketEvent(this.#source, this.#onPacket)
         this.#source.off("error", this.#onError)
         this.#source.off("close", this.#onClose)
     }

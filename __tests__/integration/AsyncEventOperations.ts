@@ -32,7 +32,7 @@ async function connectedPeers(): Promise<{
     const client = new Client({
         hostname: "127.0.0.1",
         port: (server.address() as AddressInfo).port,
-        username: "event-operation-test",
+        username: "packet-operation-test",
         authenticationMethodsOrder: [SSHAuthenticationMethods.None],
     })
     client.hooker.hook("hostKey", (_hook, controller) => {
@@ -49,7 +49,7 @@ async function closePeers(client: Client, peer: ServerClient, server: Server): P
     await server.close()
 }
 
-describe("asynchronous EventEmitter operation containment", () => {
+describe("asynchronous packet operation containment", () => {
     test("reports a rejected channel-open operation and closes the connection", async () => {
         const { client, peer, server } = await connectedPeers()
         const failure = new Error("channel-open queue failed")

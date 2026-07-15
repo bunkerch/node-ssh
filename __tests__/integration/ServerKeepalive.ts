@@ -2,7 +2,6 @@ import { AddressInfo } from "node:net"
 import Client from "../../src/Client.js"
 import { SSHAuthenticationMethods } from "../../src/constants.js"
 import Packet from "../../src/packet.js"
-import GlobalRequest from "../../src/packets/GlobalRequest.js"
 import RequestFailure from "../../src/packets/RequestFailure.js"
 import Server from "../../src/Server.js"
 import PrivateKey from "../../src/utils/PrivateKey.js"
@@ -62,13 +61,8 @@ describe("server SSH keepalives", () => {
         const client = createClient(Client, server)
         let keepalives = 0
         const errors: Error[] = []
-        client.on("packet", (packet) => {
-            if (
-                packet instanceof GlobalRequest &&
-                packet.data.request_name === "keepalive@openssh.com"
-            ) {
-                keepalives++
-            }
+        client.on("packet", (metadata) => {
+            if (metadata.name === "SSH_MSG_GLOBAL_REQUEST") keepalives++
         })
         server.on("connection", (connection) => {
             connection.on("error", (error) => errors.push(error))

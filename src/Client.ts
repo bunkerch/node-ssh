@@ -12,7 +12,12 @@ import {
 } from "./constants.js"
 import ProtocolVersionExchange from "./ProtocolVersionExchange.js"
 import assert from "node:assert"
-import Packet, { packets, Packets } from "./packet.js"
+import Packet, {
+    packets,
+    Packets,
+    protocolPacketMetadata,
+    type ProtocolPacketMetadata,
+} from "./packet.js"
 import KexInit from "./packets/KexInit.js"
 import {
     EncryptionAlgorithm,
@@ -205,7 +210,11 @@ import {
     KexGSSAPIInit,
     type KexGSSAPIErrorData,
 } from "./packets/KexGSSAPI.js"
-import PacketEventQueue from "./utils/PacketEventQueue.js"
+import PacketEventQueue, {
+    emitPacketEvent,
+    offPacketEvent,
+    onPacketEvent,
+} from "./utils/PacketEventQueue.js"
 
 export interface ClientHostbasedOptions {
     key: PrivateKey
@@ -351,8 +360,10 @@ export interface ClientEvents {
     /** Human-readable transport diagnostic sent by the peer. */
     protocolDebug: [info: Readonly<ProtocolDebugMessage>]
     connect: []
-    message: [message: Buffer]
-    packet: [packet: Packet]
+    /** Payload-free metadata for an inbound binary packet. */
+    packet: [metadata: Readonly<ProtocolPacketMetadata>]
+    /** The peer rejected an outbound packet with this sequence number. */
+    unimplemented: [sequenceNumber: number]
     /** Host keys whose ownership was cryptographically proved for this connection. */
     hostKeys: [publicKeys: readonly PublicKey[]]
     tcpWrapperLog: [message: string]
@@ -2474,11 +2485,11 @@ export default class Client extends EventEmitter<ClientEvents> {
                 }
             }
             const cleanup = () => {
-                this.off("packet", handler)
+                offPacketEvent(this, handler)
                 this.off("error", onError)
                 this.off("close", onClose)
             }
-            this.on("packet", handler)
+            onPacketEvent(this, handler)
             this.once("error", onError)
             this.once("close", onClose)
         })
@@ -2507,7 +2518,7 @@ export default class Client extends EventEmitter<ClientEvents> {
                 return
             }
             const cleanup = () => {
-                this.off("packet", onPacket)
+                offPacketEvent(this, onPacket)
                 this.off("error", onError)
                 this.off("close", onClose)
                 clearTimeout(timer)
@@ -2545,7 +2556,7 @@ export default class Client extends EventEmitter<ClientEvents> {
                 cleanup()
                 reject(new Error("Timed out waiting for message"))
             }, timeout)
-            this.on("packet", onPacket)
+            onPacketEvent(this, onPacket)
             this.once("error", onError)
             this.once("close", onClose)
         })
@@ -2585,7 +2596,6 @@ export default class Client extends EventEmitter<ClientEvents> {
             const result = this.identificationParser.push(message)
             for (const lineBuf of result.preamble) {
                 this.greetingChunks.push(Buffer.from(lineBuf))
-                this.emit("message", lineBuf)
                 const line = lineBuf.toString("utf8").replace(/\r?\n$/u, "")
                 this.emit("tcpWrapperLog", line)
                 this.debug("TCP Wrapper log:", line)
@@ -2597,7 +2607,6 @@ export default class Client extends EventEmitter<ClientEvents> {
                 this.emit("greeting", Buffer.concat(this.greetingChunks).toString("utf8"))
             }
 
-            this.emit("message", result.identification)
             this.serverProtocolVersion = result.version
             this.emit("serverProtocolVersion", result.version)
 
@@ -2620,10 +2629,9 @@ export default class Client extends EventEmitter<ClientEvents> {
         this.checkRekeyByteLimit()
 
         const { payload } = decoded
-        this.emit("message", decoded.data)
-
         const packetType = payload[0] as PacketType
         this.debug("Receiving packet:", packetType)
+        this.emit("packet", protocolPacketMetadata(packetType, decoded.sequenceNumber))
 
         if (this.discardNextGuessedKeyExchangePacket) {
             this.discardNextGuessedKeyExchangePacket = false
@@ -2764,7 +2772,8 @@ export default class Client extends EventEmitter<ClientEvents> {
             this.authenticationFailureSequence++
         }
 
-        this.emit("packet", p)
+        emitPacketEvent(this, p)
+        if (p instanceof Unimplemented) this.emit("unimplemented", p.data.sequence_number)
 
         if (p instanceof GlobalRequest) {
             void this.actionQueue

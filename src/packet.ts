@@ -44,6 +44,20 @@ import {
 } from "./packets/UserAuthGSSAPI.js"
 import { ValueOf } from "./utils/types.js"
 
+export interface ProtocolPacketMetadata {
+    readonly sequenceNumber: number
+    readonly type: number
+    readonly name?: PacketName
+}
+
+export function protocolPacketMetadata(
+    type: number,
+    sequenceNumber: number,
+): Readonly<ProtocolPacketMetadata> {
+    const name = PacketTypeToName[type as PacketType]
+    return Object.freeze({ sequenceNumber, type, ...(name === undefined ? {} : { name }) })
+}
+
 export default abstract class Packet {
     static type: PacketType
 

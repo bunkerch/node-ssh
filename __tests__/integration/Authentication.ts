@@ -2,7 +2,7 @@ import { AddressInfo } from "node:net"
 import { once } from "node:events"
 import Client from "../../src/Client.js"
 import { SSHAuthenticationMethods } from "../../src/constants.js"
-import Disconnect, { DisconnectReason } from "../../src/packets/Disconnect.js"
+import { DisconnectReason, type PeerDisconnectInfo } from "../../src/packets/Disconnect.js"
 import Server from "../../src/Server.js"
 import type ServerClient from "../../src/ServerClient.js"
 import PrivateKey from "../../src/utils/PrivateKey.js"
@@ -13,6 +13,7 @@ import Packet from "../../src/packet.js"
 import UserAuthRequest from "../../src/packets/UserAuthRequest.js"
 import { HostboundPublicKeyAuthMethod } from "../../src/auth/publickey.js"
 import ExtInfo from "../../src/packets/ExtInfo.js"
+import type { ProtocolPacketMetadata } from "../../src/packet.js"
 
 describe("RFC 4252 multi-method authentication", () => {
     test("rejects malformed authentication method orders during construction", () => {
@@ -78,6 +79,7 @@ describe("RFC 4252 multi-method authentication", () => {
             sendAllHostKeys: false,
         })
         let connection: ServerClient | undefined
+        const observedPackets: Readonly<ProtocolPacketMetadata>[] = []
         server.hooker.hook("passwordAuthentication", (_hook, context, decision) => {
             decision.allowLogin =
                 context.username === "credential-owner" && context.password === "secret"
@@ -86,6 +88,7 @@ describe("RFC 4252 multi-method authentication", () => {
             connection = peer
             expect(peer.username).toBeUndefined()
             expect(peer.authenticationMethod).toBeUndefined()
+            peer.on("packet", (metadata) => observedPackets.push(metadata))
         })
         server.listen({ host: "127.0.0.1", port: 0 })
         await once(server, "listening")
@@ -106,6 +109,18 @@ describe("RFC 4252 multi-method authentication", () => {
             expect(connection?.username).toBe("credential-owner")
             expect(connection?.authenticationMethod).toBe(SSHAuthenticationMethods.Password)
             expect("credentials" in connection!).toBe(false)
+            expect(connection!.eventNames().some((event) => typeof event === "symbol")).toBe(false)
+            const authenticationPacket = observedPackets.find(
+                ({ name }) => name === "SSH_MSG_USERAUTH_REQUEST",
+            )
+            expect(authenticationPacket).toBeDefined()
+            expect(Object.isFrozen(authenticationPacket)).toBe(true)
+            expect(Object.keys(authenticationPacket!).sort()).toEqual([
+                "name",
+                "sequenceNumber",
+                "type",
+            ])
+            expect(JSON.stringify(authenticationPacket)).not.toContain("secret")
         } finally {
             client.destroy()
             for (const peer of server.clients) peer.terminate()
@@ -1083,10 +1098,8 @@ describe("RFC 4252 multi-method authentication", () => {
                 SSHAuthenticationMethods.Password,
             ],
         })
-        const disconnects: Disconnect[] = []
-        client.on("packet", (packet) => {
-            if (packet instanceof Disconnect) disconnects.push(packet)
-        })
+        const disconnects: Readonly<PeerDisconnectInfo>[] = []
+        client.on("disconnect", (info) => disconnects.push(info))
         client.hooker.hook("hostKey", (_hook, decision) => {
             decision.allowHostKey = true
         })
@@ -1095,10 +1108,10 @@ describe("RFC 4252 multi-method authentication", () => {
             await expect(client.connect()).rejects.toThrow()
             expect(passwordAttempts).toBe(1)
             expect(disconnects).toHaveLength(1)
-            expect(disconnects[0].data).toEqual({
-                reason_code: DisconnectReason.SSH_DISCONNECT_NO_MORE_AUTH_METHODS_AVAILABLE,
+            expect(disconnects[0]).toEqual({
+                reasonCode: DisconnectReason.SSH_DISCONNECT_NO_MORE_AUTH_METHODS_AVAILABLE,
                 description: "Too many authentication failures",
-                language_tag: "",
+                languageTag: "",
             })
         } finally {
             client.destroy()
@@ -1139,10 +1152,8 @@ describe("RFC 4252 multi-method authentication", () => {
             password: "correct",
             authenticationMethodsOrder: [SSHAuthenticationMethods.Password],
         })
-        const disconnects: Disconnect[] = []
-        client.on("packet", (packet) => {
-            if (packet instanceof Disconnect) disconnects.push(packet)
-        })
+        const disconnects: Readonly<PeerDisconnectInfo>[] = []
+        client.on("disconnect", (info) => disconnects.push(info))
         client.hooker.hook("hostKey", (_hook, decision) => {
             decision.allowHostKey = true
         })
@@ -1152,10 +1163,10 @@ describe("RFC 4252 multi-method authentication", () => {
             await started
             await expect(connection).rejects.toThrow()
             expect(disconnects).toHaveLength(1)
-            expect(disconnects[0].data.reason_code).toBe(
+            expect(disconnects[0].reasonCode).toBe(
                 DisconnectReason.SSH_DISCONNECT_NO_MORE_AUTH_METHODS_AVAILABLE,
             )
-            expect(disconnects[0].data.description).toBe("Authentication timed out")
+            expect(disconnects[0].description).toBe("Authentication timed out")
             releasePolicy()
             await new Promise<void>((resolve) => setImmediate(resolve))
             expect(client.isConnected).toBe(false)

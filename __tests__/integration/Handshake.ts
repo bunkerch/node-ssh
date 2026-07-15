@@ -16,7 +16,6 @@ import RequestFailure from "../../src/packets/RequestFailure.js"
 import GlobalRequest from "../../src/packets/GlobalRequest.js"
 import PrivateKey from "../../src/utils/PrivateKey.js"
 import Packet from "../../src/packet.js"
-import Unimplemented from "../../src/packets/Unimplemented.js"
 import { serializeBuffer, serializeUint32 } from "../../src/utils/Buffer.js"
 import { SFTPPacketType } from "../../src/sftp/constants.js"
 import { SSHAuthenticationMethods } from "../../src/constants.js"
@@ -302,47 +301,41 @@ describe("client/server integration", () => {
             ).toEqual([Buffer.from("first-ping"), Buffer.from("second-ping")])
             expect(await client.ping(Buffer.from("third-ping"))).toEqual(Buffer.from("third-ping"))
 
-            const clientUnimplemented = new Promise<Unimplemented[]>((resolve) => {
-                const replies: Unimplemented[] = []
-                const listener = (packet: Packet) => {
-                    if (!(packet instanceof Unimplemented)) return
-                    replies.push(packet)
+            const clientUnimplemented = new Promise<number[]>((resolve) => {
+                const replies: number[] = []
+                const listener = (sequenceNumber: number) => {
+                    replies.push(sequenceNumber)
                     if (replies.length !== 2) return
-                    serverPeer!.off("packet", listener)
+                    serverPeer!.off("unimplemented", listener)
                     resolve(replies)
                 }
-                serverPeer!.on("packet", listener)
+                serverPeer!.on("unimplemented", listener)
             })
             const serverUnknownSequences = [
                 serverPeer!.sendPacket(asPacket(0xa1)),
                 serverPeer!.sendPacket(asPacket(0xa2)),
             ]
-            expect(
-                (await within(clientUnimplemented, "client UNIMPLEMENTED replies")).map(
-                    (packet) => packet.data.sequence_number,
-                ),
-            ).toEqual(serverUnknownSequences)
+            expect(await within(clientUnimplemented, "client UNIMPLEMENTED replies")).toEqual(
+                serverUnknownSequences,
+            )
 
-            const serverUnimplemented = new Promise<Unimplemented[]>((resolve) => {
-                const replies: Unimplemented[] = []
-                const listener = (packet: Packet) => {
-                    if (!(packet instanceof Unimplemented)) return
-                    replies.push(packet)
+            const serverUnimplemented = new Promise<number[]>((resolve) => {
+                const replies: number[] = []
+                const listener = (sequenceNumber: number) => {
+                    replies.push(sequenceNumber)
                     if (replies.length !== 2) return
-                    client.off("packet", listener)
+                    client.off("unimplemented", listener)
                     resolve(replies)
                 }
-                client.on("packet", listener)
+                client.on("unimplemented", listener)
             })
             const clientUnknownSequences = [
                 client.sendPacket(asPacket(0xb1)),
                 client.sendPacket(asPacket(0xb2)),
             ]
-            expect(
-                (await within(serverUnimplemented, "server UNIMPLEMENTED replies")).map(
-                    (packet) => packet.data.sequence_number,
-                ),
-            ).toEqual(clientUnknownSequences)
+            expect(await within(serverUnimplemented, "server UNIMPLEMENTED replies")).toEqual(
+                clientUnknownSequences,
+            )
 
             expect(
                 await Promise.all([
@@ -457,13 +450,11 @@ describe("client/server integration", () => {
 
             let clientObservedServerKexInit: KexInit | undefined
             let serverObservedClientKexInit: KexInit | undefined
-            client.on("packet", (packet) => {
-                if (!(packet instanceof KexInit)) return
+            client.on("serverKexInit", (packet) => {
                 clientObservedServerKexInit = packet
                 packet.data.cookie.fill(0x11)
             })
-            serverPeer!.on("packet", (packet) => {
-                if (!(packet instanceof KexInit)) return
+            serverPeer!.on("clientKexInit", (packet) => {
                 serverObservedClientKexInit = packet
                 packet.data.cookie.fill(0x22)
             })
@@ -945,8 +936,8 @@ describe("client/server integration", () => {
         await client.connect()
         expect(preconnects).toBe(1)
         let globalRequests = 0
-        peer!.on("packet", (packet) => {
-            if (packet instanceof GlobalRequest) globalRequests++
+        peer!.on("packet", (metadata) => {
+            if (metadata.name === "SSH_MSG_GLOBAL_REQUEST") globalRequests++
         })
         await expect(client.opensshNoMoreSessions()).rejects.toThrow(
             "strictVendor enabled and server is not OpenSSH or compatible version",
