@@ -513,11 +513,13 @@ export default class SFTPClient extends EventEmitter<SFTPClientEvents> {
         localPath: string,
         options: SFTPFastGetOptions = {},
     ): Promise<void> {
+        if (!isPlainConfigurationObject(options)) {
+            throw new TypeError("SFTP fastGet options must be an object")
+        }
         const ownedRemotePath = Buffer.from(pathBuffer(remotePath))
-        const transferOptions = { ...options }
+        const chunkSize = transferChunkSize(options.chunkSize, this.maxReadLength)
+        const concurrency = transferConcurrency(options.concurrency)
         const total = transferFileSize((await this.stat(ownedRemotePath)).size)
-        const chunkSize = transferChunkSize(transferOptions.chunkSize, this.maxReadLength)
-        const concurrency = transferConcurrency(transferOptions.concurrency)
         const remoteHandle = await this.open(ownedRemotePath, "r")
         let localHandle: FileHandle | undefined
         let operationError: unknown
@@ -549,20 +551,21 @@ export default class SFTPClient extends EventEmitter<SFTPClientEvents> {
         remotePath: SFTPPath,
         options: SFTPFastPutOptions = {},
     ): Promise<void> {
+        if (!isPlainConfigurationObject(options)) {
+            throw new TypeError("SFTP fastPut options must be an object")
+        }
         const ownedRemotePath = Buffer.from(pathBuffer(remotePath))
-        const transferOptions = { ...options }
+        const chunkSize = transferChunkSize(options.chunkSize, this.maxWriteLength)
+        const concurrency = transferConcurrency(options.concurrency)
+        const mode = options.mode === undefined ? undefined : parseMode(options.mode)
         const localHandle = await openLocalFile(localPath, "r")
         let remoteHandle: Buffer | undefined
         let operationError: unknown
         try {
             const localAttributes = await localHandle.stat({ bigint: true })
             const total = transferFileSize(localAttributes.size)
-            const chunkSize = transferChunkSize(transferOptions.chunkSize, this.maxWriteLength)
-            const concurrency = transferConcurrency(transferOptions.concurrency)
             remoteHandle = await this.open(ownedRemotePath, "w", {
-                permissions: parseMode(
-                    transferOptions.mode ?? Number(localAttributes.mode & 0o777n),
-                ),
+                permissions: mode ?? parseMode(Number(localAttributes.mode & 0o777n)),
             })
             let transferred = 0
             await runConcurrentTransfer(total, chunkSize, concurrency, async (offset, length) => {

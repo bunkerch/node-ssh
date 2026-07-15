@@ -521,7 +521,7 @@ describe("SFTP client request engine", () => {
         fixture.destroy()
     })
 
-    test("rejects an invalid fast-transfer limit before opening the remote file", async () => {
+    test("rejects invalid fast-transfer configuration before any I/O", async () => {
         const requests: SFTPPacketType[] = []
         const fixture = new SFTPServerFixture((packet) => {
             if (packet.type === SFTPPacketType.Init) {
@@ -553,21 +553,38 @@ describe("SFTP client request engine", () => {
         })
 
         const client = await SFTPClient.connect(asClientChannel(fixture))
-        client.maxReadLength = 0
-        let error: unknown
-        try {
-            await client.fastGet("remote", "")
-        } catch (caught) {
-            error = caught
+        const errors: string[] = []
+        const capture = async (operation: Promise<void>): Promise<void> => {
+            try {
+                await operation
+            } catch (error) {
+                errors.push(
+                    error instanceof Error ? `${error.name}: ${error.message}` : String(error),
+                )
+            }
         }
+        client.maxReadLength = 0
+        await capture(client.fastGet("remote", ""))
+        client.maxReadLength = 32_768
+        await capture(client.fastGet("remote", "", null as never))
+        await capture(client.fastGet("remote", "", { chunkSize: 0 }))
+        await capture(client.fastGet("remote", "", { concurrency: 1025 }))
+        client.maxWriteLength = 0
+        await capture(client.fastPut("missing-local-file", "remote"))
+        client.maxWriteLength = 32_768
+        await capture(client.fastPut("missing-local-file", "remote", null as never))
+        await capture(client.fastPut("missing-local-file", "remote", { mode: "invalid" }))
 
-        expect({
-            error: error instanceof Error ? `${error.name}: ${error.message}` : error,
-            requests,
-        }).toEqual({
-            error: "RangeError: SFTP maximum transfer length must be a positive safe integer",
-            requests: [SFTPPacketType.Stat],
-        })
+        expect(errors).toEqual([
+            "RangeError: SFTP maximum transfer length must be a positive safe integer",
+            "TypeError: SFTP fastGet options must be an object",
+            "RangeError: SFTP transfer chunkSize must be a positive safe integer",
+            "RangeError: SFTP transfer concurrency must be between 1 and 1024",
+            "RangeError: SFTP maximum transfer length must be a positive safe integer",
+            "TypeError: SFTP fastPut options must be an object",
+            "RangeError: SFTP mode string must contain only octal digits",
+        ])
+        expect(requests).toEqual([])
         fixture.destroy()
     })
 
