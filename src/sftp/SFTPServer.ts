@@ -6,6 +6,7 @@ import { isPlainConfigurationObject } from "../utils/Configuration.js"
 import { encodeSFTPPacket, SFTPPacketParser, SFTPProtocolError } from "./codec.js"
 import {
     MAX_SFTP_HANDLE_LENGTH,
+    MAX_SFTP_PACKET_LENGTH,
     SFTP_VERSION,
     SFTPPacketType,
     SFTPStatusCode,
@@ -18,10 +19,16 @@ import type {
     SFTPPacket,
     SFTPRequestPacket,
 } from "./types.js"
+import { encodeSFTPLimits } from "./openssh.js"
 
 const MAX_OUTSTANDING_REQUESTS = 1024
 const DEFAULT_MAX_CONCURRENT_REQUESTS = 64
 const DEFAULT_MAX_OPEN_HANDLES = 256
+const DEFAULT_MAX_READ_LENGTH = MAX_SFTP_PACKET_LENGTH - 2048
+const DEFAULT_MAX_WRITE_LENGTH = MAX_SFTP_PACKET_LENGTH - 2048
+const MAX_READ_LENGTH = MAX_SFTP_PACKET_LENGTH - 9
+const MAX_WRITE_LENGTH = MAX_SFTP_PACKET_LENGTH - (1 + 4 + 4 + MAX_SFTP_HANDLE_LENGTH + 8 + 4)
+const LIMITS_EXTENSION = "limits@openssh.com"
 
 const STATUS_MESSAGES: Readonly<Record<number, string>> = {
     [SFTPStatusCode.Ok]: "No error",
@@ -74,6 +81,12 @@ export interface SFTPServerOptions {
     maxConcurrentRequests?: number
     /** Maximum active and pending baseline file or directory handles. */
     maxOpenHandles?: number
+    /** Largest READ length passed to application policy. */
+    maxReadLength?: number
+    /** Largest WRITE data field passed to application policy. */
+    maxWriteLength?: number
+    /** Advertise and answer the limits extension. Defaults to true when handles are enabled. */
+    advertiseLimits?: boolean
 }
 
 export interface SFTPSymlinkPaths {
@@ -125,6 +138,9 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
     private readonly advertisedExtensions: readonly SFTPExtension[]
     readonly #maxConcurrentRequests: number
     readonly #maxOpenHandles: number
+    readonly #maxReadLength: number
+    readonly #maxWriteLength: number
+    readonly #advertiseLimits: boolean
     private readonly queued: SFTPRequestPacket[] = []
     private readonly requestIds = new Set<number>()
     private readonly active = new Set<ActiveSFTPRequest>()
@@ -155,9 +171,6 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
             throw new TypeError("SFTP OpenSSH symlink argument option must be a boolean")
         }
         this.stream = stream
-        this.advertisedExtensions = ownExtensions(
-            options.extensions === undefined ? [] : options.extensions,
-        )
         this.openSSHSymlinkArguments =
             options.openSSHSymlinkArguments === undefined ? false : options.openSSHSymlinkArguments
         this.#maxConcurrentRequests =
@@ -178,6 +191,40 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
         if (!Number.isSafeInteger(this.#maxOpenHandles) || this.#maxOpenHandles < 0) {
             throw new RangeError("SFTP maximum open handles must be a non-negative safe integer")
         }
+        this.#maxReadLength = normalizeTransferLimit(
+            options.maxReadLength,
+            DEFAULT_MAX_READ_LENGTH,
+            MAX_READ_LENGTH,
+            "read",
+        )
+        this.#maxWriteLength = normalizeTransferLimit(
+            options.maxWriteLength,
+            DEFAULT_MAX_WRITE_LENGTH,
+            MAX_WRITE_LENGTH,
+            "write",
+        )
+        if (options.advertiseLimits !== undefined && typeof options.advertiseLimits !== "boolean") {
+            throw new TypeError("SFTP advertise-limits option must be a boolean")
+        }
+        this.#advertiseLimits = options.advertiseLimits ?? this.#maxOpenHandles > 0
+        if (this.#advertiseLimits && this.#maxOpenHandles === 0) {
+            throw new RangeError("SFTP limits cannot advertise a zero-handle server capacity")
+        }
+        const configuredExtensions = ownExtensions(
+            options.extensions === undefined ? [] : options.extensions,
+        )
+        if (
+            this.#advertiseLimits &&
+            configuredExtensions.some(({ name }) => name === LIMITS_EXTENSION)
+        ) {
+            throw new Error("SFTP limits extension is already provided by the server")
+        }
+        this.advertisedExtensions = Object.freeze([
+            ...configuredExtensions,
+            ...(this.#advertiseLimits
+                ? [{ name: LIMITS_EXTENSION, data: Buffer.from("1", "ascii") }]
+                : []),
+        ])
         // Request failures are converted to an SFTP failure response. Applications may add
         // another listener when they also need to observe the contained backend error.
         this.hooker.on("uncaughtException", () => undefined)
@@ -193,6 +240,14 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
 
     get maxOpenHandles(): number {
         return this.#maxOpenHandles
+    }
+
+    get maxReadLength(): number {
+        return this.#maxReadLength
+    }
+
+    get maxWriteLength(): number {
+        return this.#maxWriteLength
     }
 
     get extensions(): readonly SFTPExtension[] {
@@ -537,6 +592,46 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
 
     private async dispatch(active: ActiveSFTPRequest): Promise<void> {
         const { request } = active
+        if (request.type === SFTPPacketType.Read && request.length > this.#maxReadLength) {
+            await this.status(
+                request.requestId,
+                SFTPStatusCode.Failure,
+                "SFTP read length limit exceeded",
+            )
+            return
+        }
+        if (request.type === SFTPPacketType.Write && request.data.length > this.#maxWriteLength) {
+            await this.status(
+                request.requestId,
+                SFTPStatusCode.Failure,
+                "SFTP write length limit exceeded",
+            )
+            return
+        }
+        if (
+            this.#advertiseLimits &&
+            request.type === SFTPPacketType.Extended &&
+            request.request === LIMITS_EXTENSION
+        ) {
+            if (request.data.length !== 0) {
+                await this.status(
+                    request.requestId,
+                    SFTPStatusCode.BadMessage,
+                    "SFTP limits request has trailing data",
+                )
+                return
+            }
+            await this.extendedReply(
+                request.requestId,
+                encodeSFTPLimits({
+                    maximumPacketLength: BigInt(MAX_SFTP_PACKET_LENGTH),
+                    maximumReadLength: BigInt(this.#maxReadLength),
+                    maximumWriteLength: BigInt(this.#maxWriteLength),
+                    maximumOpenHandles: BigInt(this.#maxOpenHandles),
+                }),
+            )
+            return
+        }
         if (request.type === SFTPPacketType.Open || request.type === SFTPPacketType.OpenDir) {
             if (this.activeHandleKeys.size + this.pendingHandleRequests >= this.#maxOpenHandles) {
                 await this.status(
@@ -708,6 +803,19 @@ function ownExtensions(extensions: readonly SFTPExtension[]): readonly SFTPExten
             return Object.freeze({ name: extension.name, data: Buffer.from(extension.data) })
         }),
     )
+}
+
+function normalizeTransferLimit(
+    value: number | undefined,
+    defaultValue: number,
+    maximum: number,
+    operation: "read" | "write",
+): number {
+    const limit = value === undefined ? defaultValue : value
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > maximum) {
+        throw new RangeError(`SFTP maximum ${operation} length must be between 1 and ${maximum}`)
+    }
+    return limit
 }
 
 function ownResponseBuffer(value: Buffer, name: string): Buffer {

@@ -160,6 +160,15 @@ export function decodeSFTPLimits(data: Buffer): Readonly<SFTPLimits> {
     return Object.freeze(value)
 }
 
+export function encodeSFTPLimits(limits: Readonly<SFTPLimits>): Buffer {
+    return Buffer.concat([
+        uint64(limits.maximumPacketLength, "maximum packet length"),
+        uint64(limits.maximumReadLength, "maximum read length"),
+        uint64(limits.maximumWriteLength, "maximum write length"),
+        uint64(limits.maximumOpenHandles, "maximum open handles"),
+    ])
+}
+
 export function decodeSFTPUsersGroups(data: Buffer): Readonly<SFTPUserGroupNames> {
     const reader = new Reader(data)
     const usernames = decodeNames(reader.string("usernames"), "usernames")

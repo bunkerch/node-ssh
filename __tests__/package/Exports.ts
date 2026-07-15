@@ -31,6 +31,7 @@ import {
     ELEVATION_EXTENSION,
     EncodedSignature,
     encodeSFTPPacket,
+    encodeSFTPLimits,
     flagsToString,
     ForwardedTCPIPChannel,
     ForwardedAgentChannel,
@@ -175,6 +176,9 @@ describe("package exports", () => {
         const sftpServerOptions: SFTPServerOptions = {
             maxConcurrentRequests: 32,
             maxOpenHandles: 16,
+            maxReadLength: 32_768,
+            maxWriteLength: 32_768,
+            advertiseLimits: true,
         }
         const sftpReadResult: SFTPReadResult = { bytesRead: 0, buffer: Buffer.alloc(0) }
         const sftpWriteResult: SFTPWriteResult = { bytesWritten: 0, buffer: Buffer.alloc(0) }
@@ -202,6 +206,9 @@ describe("package exports", () => {
         expect(publicKeyServerOptions.attributes?.[0]?.name).toBe("comment")
         expect(sftpServerOptions.maxConcurrentRequests).toBe(32)
         expect(sftpServerOptions.maxOpenHandles).toBe(16)
+        expect(sftpServerOptions.maxReadLength).toBe(32_768)
+        expect(sftpServerOptions.maxWriteLength).toBe(32_768)
+        expect(sftpServerOptions.advertiseLimits).toBe(true)
         expect(sftpReadResult.bytesRead).toBe(0)
         expect(sftpWriteResult.bytesWritten).toBe(0)
         expect(detachedSignatureOptions.namespace).toBe("package")
@@ -286,6 +293,7 @@ describe("package exports", () => {
         expect(TerminalModes).toBe(TerminalMode)
         expect(encodeSFTPPacket).toBeFunction()
         expect(decodeSFTPLimits).toBeFunction()
+        expect(encodeSFTPLimits).toBeFunction()
         expect(SFTPPacketParser).toBeFunction()
         expect(SFTPPacketType.Init).toBe(1)
         expect(SFTPClient).toBeFunction()
@@ -382,6 +390,7 @@ describe("package exports", () => {
         expect(entry.OPEN_MODE.READ).toBe(1)
         expect(entry.STATUS_CODE.OK).toBe(0)
         expect(entry.decodeSFTPLimits).toBeDefined()
+        expect(entry.encodeSFTPLimits).toBeDefined()
         expect(entry.TerminalMode.TTY_OP_OSPEED).toBe(129)
         expect(entry.TerminalModes).toBe(entry.TerminalMode)
         expect(entry.SSHAgentProtocolClient).toBeFunction()
@@ -591,6 +600,11 @@ describe("package exports", () => {
         )
         expect(sftpServer).toContain("maxOpenHandles?: number")
         expect(sftpServer).toContain("get maxOpenHandles(): number")
+        expect(sftpServer).toContain("maxReadLength?: number")
+        expect(sftpServer).toContain("maxWriteLength?: number")
+        expect(sftpServer).toContain("advertiseLimits?: boolean")
+        expect(sftpServer).toContain("get maxReadLength(): number")
+        expect(sftpServer).toContain("get maxWriteLength(): number")
         for (const response of ["handle", "data", "name", "attributes", "extendedReply"]) {
             expect(sftpServer).toMatch(new RegExp(`${response}\\([^;]+\\): Promise<void>`))
         }

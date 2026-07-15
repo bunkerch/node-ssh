@@ -69,9 +69,127 @@ describe("SFTP server request engine", () => {
             expect(
                 () => new SFTPServer(asShell(fixture), { maxOpenHandles: null as never }),
             ).toThrow("SFTP maximum open handles must be a non-negative safe integer")
+            expect(
+                () => new SFTPServer(asShell(fixture), { maxReadLength: null as never }),
+            ).toThrow("SFTP maximum read length must be between")
+            expect(
+                () =>
+                    new SFTPServer(asShell(fixture), {
+                        maxWriteLength: MAX_SFTP_PACKET_LENGTH,
+                    }),
+            ).toThrow("SFTP maximum write length must be between")
+            expect(
+                () => new SFTPServer(asShell(fixture), { advertiseLimits: null as never }),
+            ).toThrow("SFTP advertise-limits option must be a boolean")
+            expect(
+                () =>
+                    new SFTPServer(asShell(fixture), {
+                        maxOpenHandles: 0,
+                        advertiseLimits: true,
+                    }),
+            ).toThrow("SFTP limits cannot advertise a zero-handle server capacity")
+            expect(
+                () =>
+                    new SFTPServer(asShell(fixture), {
+                        extensions: [
+                            { name: "limits@openssh.com", data: Buffer.from("1", "ascii") },
+                        ],
+                    }),
+            ).toThrow("SFTP limits extension is already provided by the server")
         } finally {
             fixture.destroy()
         }
+    })
+
+    test("advertises, answers, and enforces the server limits extension", async () => {
+        const fixture = new SFTPClientFixture()
+        const server = new SFTPServer(asShell(fixture), {
+            maxOpenHandles: 7,
+            maxReadLength: 2,
+            maxWriteLength: 3,
+        })
+        const hooks: string[] = []
+        server.hooker.hook("READ", () => {
+            hooks.push("READ")
+        })
+        server.hooker.hook("WRITE", () => {
+            hooks.push("WRITE")
+        })
+        server.hooker.hook("EXTENDED", () => {
+            hooks.push("EXTENDED")
+        })
+
+        fixture.send({ type: SFTPPacketType.Init, version: 3, extensions: [] })
+        fixture.send({
+            type: SFTPPacketType.Extended,
+            requestId: 1,
+            request: "limits@openssh.com",
+            data: Buffer.alloc(0),
+        })
+        fixture.send({
+            type: SFTPPacketType.Extended,
+            requestId: 2,
+            request: "limits@openssh.com",
+            data: Buffer.from([0]),
+        })
+        fixture.send({
+            type: SFTPPacketType.Read,
+            requestId: 3,
+            handle: Buffer.from("h"),
+            offset: 0n,
+            length: 3,
+        })
+        fixture.send({
+            type: SFTPPacketType.Write,
+            requestId: 4,
+            handle: Buffer.from("h"),
+            offset: 0n,
+            data: Buffer.alloc(4),
+        })
+        await flush()
+
+        expect(server.maxReadLength).toBe(2)
+        expect(server.maxWriteLength).toBe(3)
+        expect(server.extensions).toContainEqual({
+            name: "limits@openssh.com",
+            data: Buffer.from("1", "ascii"),
+        })
+        expect(hooks).toEqual([])
+        expect(fixture.responses[1]).toEqual({
+            type: SFTPPacketType.ExtendedReply,
+            requestId: 1,
+            data: Buffer.from(
+                "0000000000040000000000000000000200000000000000030000000000000007",
+                "hex",
+            ),
+        })
+        expect(
+            fixture.responses
+                .filter((packet) => packet.type === SFTPPacketType.Status)
+                .map((packet) => ({ requestId: packet.requestId, code: packet.code })),
+        ).toEqual([
+            { requestId: 2, code: SFTPStatusCode.BadMessage },
+            { requestId: 3, code: SFTPStatusCode.Failure },
+            { requestId: 4, code: SFTPStatusCode.Failure },
+        ])
+        fixture.destroy()
+    })
+
+    test("allows the built-in limits extension to be suppressed or application-owned", () => {
+        const disabledFixture = new SFTPClientFixture()
+        const disabled = new SFTPServer(asShell(disabledFixture), { maxOpenHandles: 0 })
+        expect(disabled.extensions).toEqual([])
+        disabledFixture.destroy()
+
+        const applicationFixture = new SFTPClientFixture()
+        const application = new SFTPServer(asShell(applicationFixture), {
+            advertiseLimits: false,
+            extensions: [{ name: "limits@openssh.com", data: Buffer.from("9", "ascii") }],
+        })
+        expect(application.extensions).toEqual([
+            { name: "limits@openssh.com", data: Buffer.from("9", "ascii") },
+        ])
+        applicationFixture.destroy()
     })
 
     test("bounds pending and active baseline handles and recovers capacity on close", async () => {
@@ -271,14 +389,20 @@ describe("SFTP server request engine", () => {
         fixture.send({ type: SFTPPacketType.Init, version: 3, extensions: [] })
         await flush()
 
-        expect(server.extensions).toEqual([{ name: "x@test", data: Buffer.from("1") }])
+        expect(server.extensions).toEqual([
+            { name: "x@test", data: Buffer.from("1") },
+            { name: "limits@openssh.com", data: Buffer.from("1") },
+        ])
         expect(Object.isFrozen(exposed)).toBe(true)
         expect(Object.isFrozen(exposed[0])).toBe(true)
         expect(fixture.responses).toEqual([
             {
                 type: SFTPPacketType.Version,
                 version: 3,
-                extensions: [{ name: "x@test", data: Buffer.from("1") }],
+                extensions: [
+                    { name: "x@test", data: Buffer.from("1") },
+                    { name: "limits@openssh.com", data: Buffer.from("1") },
+                ],
             },
         ])
         fixture.destroy()
@@ -311,7 +435,10 @@ describe("SFTP server request engine", () => {
             {
                 type: SFTPPacketType.Version,
                 version: 3,
-                extensions: [{ name: "x@test", data: Buffer.from("1") }],
+                extensions: [
+                    { name: "x@test", data: Buffer.from("1") },
+                    { name: "limits@openssh.com", data: Buffer.from("1") },
+                ],
             },
         ])
         fixture.send({

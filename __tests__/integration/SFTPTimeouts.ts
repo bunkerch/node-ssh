@@ -52,7 +52,7 @@ describe("SFTP request deadlines", () => {
             await client.connect()
             const sftp = await client.sftp({}, { requestTimeout: 40 })
             await expect(sftp.stat("unanswered")).rejects.toThrow(
-                "Timed out waiting for SFTP request 0 reply",
+                "Timed out waiting for SFTP request 1 reply",
             )
 
             expect(sftp.channel.destroyed).toBe(true)

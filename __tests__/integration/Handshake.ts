@@ -636,6 +636,15 @@ describe("client/server integration", () => {
             await configuredClosed
 
             const applicationSFTP = await client.sftp()
+            expect(applicationSFTP.limits).toEqual({
+                maximumPacketLength: 262144n,
+                maximumReadLength: 260096n,
+                maximumWriteLength: 260096n,
+                maximumOpenHandles: 256n,
+            })
+            expect(applicationSFTP.maxReadLength).toBe(260096)
+            expect(applicationSFTP.maxWriteLength).toBe(260096)
+            expect(applicationSFTP.maxOpenHandles).toBe(256)
             const applicationReply = await applicationSFTP.extended(
                 "query@example.test",
                 Buffer.from("ordered extension"),

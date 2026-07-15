@@ -6,6 +6,7 @@ import {
     encodeSFTPCopyDataExtension,
     encodeSFTPExtensionString,
     encodeSFTPLSetStatExtension,
+    encodeSFTPLimits,
     encodeSFTPTwoPathExtension,
     encodeSFTPUsersGroupsExtension,
 } from "../../src/sftp/openssh.js"
@@ -71,6 +72,19 @@ describe("OpenSSH SFTP extension fixed vectors", () => {
             maximumWriteLength: 253952n,
             maximumOpenHandles: 128n,
         })
+        expect(
+            encodeSFTPLimits({
+                maximumPacketLength: 262144n,
+                maximumReadLength: 258048n,
+                maximumWriteLength: 253952n,
+                maximumOpenHandles: 128n,
+            }),
+        ).toEqual(
+            hex(`
+                0000000000040000 000000000003f000
+                000000000003e000 0000000000000080
+            `),
+        )
     })
 
     test("decodes nested user and group name strings", () => {
@@ -90,6 +104,14 @@ describe("OpenSSH SFTP extension fixed vectors", () => {
     test("rejects truncated, trailing, and out-of-range extension fields", () => {
         expect(() => decodeSFTPLimits(Buffer.alloc(31))).toThrow("Truncated")
         expect(() => decodeSFTPLimits(Buffer.alloc(33))).toThrow("trailing")
+        expect(() =>
+            encodeSFTPLimits({
+                maximumPacketLength: -1n,
+                maximumReadLength: 0n,
+                maximumWriteLength: 0n,
+                maximumOpenHandles: 0n,
+            }),
+        ).toThrow("uint64")
         expect(() => decodeSFTPStatVFS(Buffer.alloc(87))).toThrow("Truncated")
         expect(() => decodeSFTPUsersGroups(hex(`00000004 ffffffff 00000000`))).toThrow("Truncated")
         expect(() =>

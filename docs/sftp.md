@@ -276,6 +276,12 @@ the request from being sent keeps the handle tracked. A server status failure wh
 limits leaves the conservative 32 KiB defaults in place, but a malformed successful reply aborts
 setup as a protocol error.
 
+A `modernssh` server advertises version 1 of this extension by default and answers it internally;
+the request does not enter the application `EXTENDED` hook. Its default reply reports a 256 KiB
+packet bound, 254 KiB read and write bounds, and 256 handles. The exported `encodeSFTPLimits()` and
+`decodeSFTPLimits()` helpers encode and decode the four exact uint64 fields for applications that
+deliberately provide a separate extension implementation.
+
 ```ts
 const handle = await sftp.open("incoming/archive.bin", "r")
 try {
@@ -376,6 +382,12 @@ runs, so no backend handle should be allocated for it. A successful handle value
 within the session until the corresponding `CLOSE` response has been written; that response releases
 the capacity even when it reports failure.
 
+The server's default maximum `READ` length and `WRITE` data length are both 254 KiB. Set
+`maxReadLength` or `maxWriteLength` to a smaller positive safe integer when the backend needs a
+tighter per-operation bound. Oversized requests receive `SFTPStatusCode.Failure` before their
+Hooker handler runs, preventing an untrusted peer from driving a larger backend allocation. These
+values and `maxOpenHandles` are the limits returned by the built-in extension.
+
 A peer may reuse a numeric request identifier after receiving its response; if the prior Hooker
 handler is still completing, the reused identifier remains queued until that handler returns. This
 prevents late code in the prior handler from accidentally responding to the newer request, without
@@ -390,6 +402,8 @@ decision.sftp = {
     extensions: [{ name: "example@example.com", data: Buffer.from("1") }],
     maxConcurrentRequests: 32,
     maxOpenHandles: 128,
+    maxReadLength: 64 * 1024,
+    maxWriteLength: 64 * 1024,
 }
 ```
 
@@ -397,10 +411,15 @@ Extension names are validated when the server session is constructed. The config
 entries, and opaque data buffers are snapshotted before use, so later application mutation cannot
 change the version advertisement already assigned to that session. The server's public
 `extensions` getter returns a new frozen snapshot, so mutating one of its data buffers cannot change
-the live advertisement either. Extension data must be supplied as a `Buffer`.
+the live advertisement either. Extension data must be supplied as a `Buffer`. Set
+`advertiseLimits: false` only when the application must suppress or independently implement the
+limits extension. The built-in advertisement rejects a configured extension with the same name to
+avoid two authorities. A zero `maxOpenHandles` disables opening handles and suppresses the built-in
+advertisement by default because zero has the incompatible wire meaning “no fixed limit”; explicitly
+combining that capacity with `advertiseLimits: true` is rejected.
 The server option bag must be a plain object, `extensions` must be an array, and
 `openSSHSymlinkArguments` must be a boolean. Explicit `null` values are rejected rather than
-selecting defaults, including for `maxConcurrentRequests` and `maxOpenHandles`.
+selecting defaults, including for every limit and `advertiseLimits`.
 
 For `SYMLINK`, call `sftp.symlinkPaths(request)` to obtain semantic `targetPath` and `linkPath`
 values. Session integration detects OpenSSH and Dropbear identifications and normalizes OpenSSH's
