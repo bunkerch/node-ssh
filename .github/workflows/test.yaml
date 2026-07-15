@@ -9,7 +9,7 @@ permissions:
 
 jobs:
     test:
-        runs-on: ubuntu-latest
+        runs-on: [self-hosted, bunkerch-sysbox, sysbox, docker]
         timeout-minutes: 60
         steps:
             - name: Checkout
