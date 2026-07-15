@@ -4,6 +4,7 @@ import ChannelOpen from "../packets/ChannelOpen.js"
 import ClientChannel from "./ClientChannel.js"
 import {
     AUTOMATIC_TUNNEL_UNIT,
+    decodeTunnelPacket,
     emitTunnelPayload,
     encodeTunnelOpen,
     encodeTunnelPacket,
@@ -33,15 +34,27 @@ export default class ClientTunnelChannel extends ClientChannel {
     }
 
     sendIPv4(packet: Buffer): Promise<void> {
-        return this.sendPayload(encodeTunnelPacket(this.mode, packet, TunnelAddressFamily.IPv4))
+        return this.sendPayload(() =>
+            encodeTunnelPacket(this.mode, packet, TunnelAddressFamily.IPv4),
+        )
     }
 
     sendIPv6(packet: Buffer): Promise<void> {
-        return this.sendPayload(encodeTunnelPacket(this.mode, packet, TunnelAddressFamily.IPv6))
+        return this.sendPayload(() =>
+            encodeTunnelPacket(this.mode, packet, TunnelAddressFamily.IPv6),
+        )
     }
 
     sendFrame(frame: Buffer): Promise<void> {
-        return this.sendPayload(encodeTunnelPacket(this.mode, frame))
+        return this.sendPayload(() => encodeTunnelPacket(this.mode, frame))
+    }
+
+    override sendData(data: Buffer | string, encoding: BufferEncoding = "utf8"): Promise<void> {
+        return this.sendPayload(() => {
+            const payload = Buffer.isBuffer(data) ? data : Buffer.from(data, encoding)
+            decodeTunnelPacket(this.mode, payload)
+            return payload
+        })
     }
 
     override receiveData(data: Buffer): void {
@@ -55,13 +68,14 @@ export default class ClientTunnelChannel extends ClientChannel {
         encoding: BufferEncoding,
         callback: WriteCallback,
     ): void {
-        void this.sendAtomicData(Buffer.isBuffer(data) ? data : Buffer.from(data, encoding)).then(
-            () => callback(),
-            callback,
-        )
+        void this.sendData(data, encoding).then(() => callback(), callback)
     }
 
-    private sendPayload(payload: Buffer): Promise<void> {
-        return this.sendAtomicData(payload)
+    private sendPayload(createPayload: () => Buffer): Promise<void> {
+        try {
+            return this.sendAtomicData(createPayload())
+        } catch (error) {
+            return Promise.reject(error)
+        }
     }
 }

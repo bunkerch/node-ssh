@@ -1,5 +1,6 @@
 import Client from "../../src/Client.js"
 import ClientTunnelChannel from "../../src/channels/ClientTunnelChannel.js"
+import TunnelChannel from "../../src/channels/TunnelChannel.js"
 import {
     AUTOMATIC_TUNNEL_UNIT,
     decodeTunnelOpen,
@@ -10,8 +11,10 @@ import {
     TunnelMode,
 } from "../../src/channels/Tunnel.js"
 import ChannelData from "../../src/packets/ChannelData.js"
+import ChannelOpen from "../../src/packets/ChannelOpen.js"
 import ChannelOpenConfirmation from "../../src/packets/ChannelOpenConfirmation.js"
 import Packet from "../../src/packet.js"
+import type ServerClient from "../../src/ServerClient.js"
 
 const ipv4 = Buffer.from("450000140000000040110000c0000201c6336402", "hex")
 const ipv6 = Buffer.from(
@@ -93,5 +96,79 @@ describe("packet tunnel channels", () => {
             Buffer.from("0000001800000002450000140000000040110000c0000201c6336402", "hex"),
         )
         channel.destroy()
+    })
+
+    test("validates raw client writes and keeps their framing atomic", async () => {
+        const client = new Client({ hostname: "unused" })
+        const sent: Packet[] = []
+        client.sendPacket = (packet: Packet) => {
+            sent.push(packet)
+            return sent.length - 1
+        }
+        const channel = new ClientTunnelChannel(client, TunnelMode.PointToPoint)
+        channel.confirmOpen(
+            new ChannelOpenConfirmation({
+                recipient_channel_id: channel.localId,
+                sender_channel_id: 42,
+                initial_window_size: 10,
+                maximum_packet_size: 128,
+                args: Buffer.alloc(0),
+            }),
+        )
+        const encoded = encodeTunnelPacket(TunnelMode.PointToPoint, ipv4, TunnelAddressFamily.IPv4)
+
+        const sending = channel.sendData(encoded)
+        await new Promise<void>((resolve) => setImmediate(resolve))
+        expect(sent).toEqual([])
+
+        channel.receiveWindowAdjust(encoded.length - 10)
+        await sending
+        expect((sent[0] as ChannelData).data.data).toEqual(encoded)
+        await expect(channel.sendData(ipv4)).rejects.toThrow("length does not match")
+        await expect(channel.sendIPv6(ipv4)).rejects.toThrow("Invalid IPv6")
+        channel.destroy()
+    })
+
+    test("validates raw server writes and keeps their framing atomic", async () => {
+        const sent: Packet[] = []
+        const peer = {
+            localChannelIndex: 0,
+            noFlowControl: false,
+            debug(...message: unknown[]) {
+                void message
+            },
+            sendPacket(packet: Packet) {
+                sent.push(packet)
+                return sent.length - 1
+            },
+        } as unknown as ServerClient
+        const args = encodeTunnelOpen(TunnelMode.Ethernet, 9)
+        const channel = new TunnelChannel(peer, TunnelChannel.channel_type, args)
+        channel.configureRemote(
+            new ChannelOpen({
+                channel_type: TunnelChannel.channel_type,
+                sender_channel_id: 43,
+                initial_window_size: 5,
+                maximum_packet_size: 128,
+                args,
+            }),
+        )
+        const encoded = encodeTunnelPacket(
+            TunnelMode.Ethernet,
+            Buffer.from("00112233445566778899aabb0800", "hex"),
+        )
+
+        const sending = channel.sendData(encoded)
+        await new Promise<void>((resolve) => setImmediate(resolve))
+        expect(sent).toEqual([])
+
+        channel.receiveWindowAdjust(encoded.length - 5)
+        await sending
+        expect((sent[0] as ChannelData).data.data).toEqual(encoded)
+        await expect(channel.sendData(Buffer.from("unframed"))).rejects.toThrow(
+            "length does not match",
+        )
+        await expect(channel.sendIPv4(ipv4)).rejects.toThrow("frames have no address family")
+        channel.terminate()
     })
 })

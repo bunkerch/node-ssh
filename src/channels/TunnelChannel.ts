@@ -7,6 +7,7 @@ import Client from "../Client.js"
 import type ServerClient from "../ServerClient.js"
 import {
     decodeTunnelOpen,
+    decodeTunnelPacket,
     emitTunnelPayload,
     encodeTunnelPacket,
     TunnelAddressFamily,
@@ -34,15 +35,26 @@ export default class TunnelChannel extends Channel {
     }
 
     sendIPv4(packet: Buffer): Promise<void> {
-        return this.sendPayload(encodeTunnelPacket(this.mode, packet, TunnelAddressFamily.IPv4))
+        return this.sendPayload(() =>
+            encodeTunnelPacket(this.mode, packet, TunnelAddressFamily.IPv4),
+        )
     }
 
     sendIPv6(packet: Buffer): Promise<void> {
-        return this.sendPayload(encodeTunnelPacket(this.mode, packet, TunnelAddressFamily.IPv6))
+        return this.sendPayload(() =>
+            encodeTunnelPacket(this.mode, packet, TunnelAddressFamily.IPv6),
+        )
     }
 
     sendFrame(frame: Buffer): Promise<void> {
-        return this.sendPayload(encodeTunnelPacket(this.mode, frame))
+        return this.sendPayload(() => encodeTunnelPacket(this.mode, frame))
+    }
+
+    override sendData(data: Buffer): Promise<void> {
+        return this.sendPayload(() => {
+            decodeTunnelPacket(this.mode, data)
+            return data
+        })
     }
 
     protected handleData(data: Buffer): boolean {
@@ -50,7 +62,11 @@ export default class TunnelChannel extends Channel {
         return true
     }
 
-    private sendPayload(payload: Buffer): Promise<void> {
-        return this.sendAtomicData(payload)
+    private sendPayload(createPayload: () => Buffer): Promise<void> {
+        try {
+            return this.sendAtomicData(createPayload())
+        } catch (error) {
+            return Promise.reject(error)
+        }
     }
 }

@@ -54,3 +54,10 @@ small, the returned promise remains pending until a window adjustment permits th
 the library never splits one datagram or frame across messages. A payload larger than the peer's
 negotiated maximum packet size is rejected. Point-to-point payloads are checked for a matching IPv4
 or IPv6 version and minimum header size before they are sent or emitted.
+
+Prefer the typed packet methods above. The inherited `sendData()` method and client stream writes
+accept only a complete, already encoded tunnel payload, including its packet-length and optional
+address-family fields. They validate that framing and still send it atomically; unframed bytes,
+truncated payloads, and mode-mismatched payloads reject through the returned Promise or stream write
+callback. Validation failures from `sendIPv4()`, `sendIPv6()`, and `sendFrame()` also reject their
+Promises rather than throwing synchronously.
