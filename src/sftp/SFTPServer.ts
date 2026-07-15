@@ -198,7 +198,7 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
             message: message || STATUS_MESSAGES[code] || "",
             languageTag,
         })
-        if (code === SFTPStatusCode.Ok && request.type === SFTPPacketType.Close) {
+        if (request.type === SFTPPacketType.Close) {
             return response.then(() => {
                 this.handlePathResources.delete(handleResource(request.handle))
             })

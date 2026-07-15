@@ -298,6 +298,76 @@ describe("SFTP server request engine", () => {
         fixture.destroy()
     })
 
+    test("discards path ordering metadata after a failed close", async () => {
+        const fixture = new SFTPClientFixture()
+        const server = new SFTPServer(asShell(fixture), { maxConcurrentRequests: 2 })
+        const events: string[] = []
+        let finishRead!: () => void
+        const readPending = new Promise<void>((resolve) => {
+            finishRead = resolve
+        })
+        server.hooker.hook("OPEN", async (_hook, request) => {
+            await server.handle(request.requestId, Buffer.from("reused-handle"))
+        })
+        server.hooker.hook("CLOSE", async (_hook, request) => {
+            await server.status(request.requestId, SFTPStatusCode.Failure, "flush failed")
+        })
+        server.hooker.hook("READ", async (_hook, request) => {
+            events.push("READ:start")
+            await readPending
+            await server.data(request.requestId, Buffer.from("x"))
+            events.push("READ:end")
+        })
+        server.hooker.hook("SETSTAT", async (_hook, request) => {
+            events.push("SETSTAT")
+            await server.status(request.requestId, SFTPStatusCode.Ok)
+        })
+
+        fixture.send({ type: SFTPPacketType.Init, version: 3, extensions: [] })
+        fixture.send({
+            type: SFTPPacketType.Open,
+            requestId: 14,
+            filename: Buffer.from("old-path"),
+            flags: 1,
+            attributes: {},
+        })
+        await flush()
+        fixture.send({
+            type: SFTPPacketType.Close,
+            requestId: 15,
+            handle: Buffer.from("reused-handle"),
+        })
+        await flush()
+        fixture.send({
+            type: SFTPPacketType.Open,
+            requestId: 16,
+            filename: Buffer.from("new-path"),
+            flags: 1,
+            attributes: {},
+        })
+        await flush()
+        fixture.send({
+            type: SFTPPacketType.Read,
+            requestId: 17,
+            handle: Buffer.from("reused-handle"),
+            offset: 0n,
+            length: 1,
+        })
+        fixture.send({
+            type: SFTPPacketType.SetStat,
+            requestId: 18,
+            path: Buffer.from("old-path"),
+            attributes: { permissions: 0o600 },
+        })
+        await flush()
+
+        expect(events).toEqual(["READ:start", "SETSTAT"])
+        finishRead()
+        await flush()
+        expect(events).toEqual(["READ:start", "SETSTAT", "READ:end"])
+        fixture.destroy()
+    })
+
     test("does not let a later shared-path request overtake a blocked rename", async () => {
         const fixture = new SFTPClientFixture()
         const server = new SFTPServer(asShell(fixture), { maxConcurrentRequests: 2 })

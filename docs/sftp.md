@@ -353,10 +353,11 @@ exact path wait for the earlier handler and response write, while unrelated hand
 run concurrently. Handles returned by `OPEN` and `OPENDIR` are associated with their requested path,
 so a path operation cannot overtake an outstanding operation through that handle. Two-path
 operations reserve both paths, and an opaque `EXTENDED` request is an ordering barrier because its
-resource cannot be inferred from the baseline packet. If an application maps distinct path byte
-strings to the same backend object—for example through aliases outside the virtual path model—it
-must additionally serialize those backend aliases because the protocol layer cannot discover that
-identity.
+resource cannot be inferred from the baseline packet. A `CLOSE` response discards the handle's path
+association even when it reports failure, because the protocol invalidates the handle when the
+request is sent. If an application maps distinct path byte strings to the same backend object—for
+example through aliases outside the virtual path model—it must additionally serialize those backend
+aliases because the protocol layer cannot discover that identity.
 
 A peer may reuse a numeric request identifier after receiving its response; if the prior Hooker
 handler is still completing, the reused identifier remains queued until that handler returns. This
