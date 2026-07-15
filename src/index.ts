@@ -8,7 +8,10 @@ export {
 export type { SSHAgentOptions, SSHHTTPAgentOptions, SSHHTTPSAgentOptions } from "./HTTPAgents.js"
 export { default as KnownHosts, KnownHostsError } from "./KnownHosts.js"
 export { default as AllowedSigners } from "./AllowedSigners.js"
-export type { AllowedSignerVerificationOptions } from "./AllowedSigners.js"
+export type {
+    AllowedSignerPrincipalLookupOptions,
+    AllowedSignerVerificationOptions,
+} from "./AllowedSigners.js"
 export { default as KeyRevocationList } from "./KeyRevocationList.js"
 export { default as SSHSignature } from "./SSHSignature.js"
 export type { SSHSignatureHashAlgorithm, SSHSignatureOptions } from "./SSHSignature.js"

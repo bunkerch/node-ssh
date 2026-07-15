@@ -94,6 +94,7 @@ import {
     SSHAuthenticationMethods,
     TerminalMode,
     TerminalModes,
+    type AllowedSignerPrincipalLookupOptions,
     type ClientOptions,
     type AllowedSignerVerificationOptions,
     type ClientSessionOptions,
@@ -175,6 +176,7 @@ describe("package exports", () => {
             principal: "packed@example.test",
             namespace: "package",
         }
+        const allowedSignerLookupOptions: AllowedSignerPrincipalLookupOptions = { at: 0n }
 
         expect(clientOptions.hostname).toBe("example.test")
         expect(sessionOptions.pty).toBe(true)
@@ -194,6 +196,7 @@ describe("package exports", () => {
         expect(sftpServerOptions.maxConcurrentRequests).toBe(32)
         expect(detachedSignatureOptions.namespace).toBe("package")
         expect(allowedSignerOptions.principal).toBe("packed@example.test")
+        expect(allowedSignerLookupOptions.at).toBe(0n)
         expect([
             AllowedSigners,
             Agent,
@@ -578,6 +581,8 @@ describe("package exports", () => {
         )
         expect(sshSignature).not.toContain("callback")
         expect(allowedSigners).toContain("static load(path: string): Promise<AllowedSigners>")
+        expect(allowedSigners).toContain("matchPrincipals(principal: string): readonly string[]")
+        expect(allowedSigners).toContain("findPrincipals(")
         expect(allowedSigners).toContain("verify(")
         expect(allowedSigners).not.toContain("callback")
         expect(securityKeyAttestation).toContain("get authenticatorData(): Buffer | undefined")
@@ -640,6 +645,8 @@ describe("package exports", () => {
                     const detached = SSHSignature.sign(message, privateKey, { namespace: "package" })
                     if (!SSHSignature.parse(detached.toString()).verify(message, "package")) process.exit(49)
                     const allowed = AllowedSigners.parse("packed@example.test " + publicKey.toString() + "\\n")
+                    if (allowed.matchPrincipals("packed@example.test")[0] !== "packed@example.test") process.exit(54)
+                    if (allowed.findPrincipals(detached)[0] !== "packed@example.test") process.exit(55)
                     if (!allowed.verify(message, detached, { principal: "packed@example.test", namespace: "package" })) process.exit(53)
                     const encrypted = privateKey.toString({ passphrase: "packed-secret", rounds: 1 })
                     const parsed = PrivateKey.fromString(encrypted, "packed-secret")

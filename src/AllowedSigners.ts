@@ -22,6 +22,13 @@ export interface AllowedSignerVerificationOptions {
     revocations?: KeyRevocationList
 }
 
+export interface AllowedSignerPrincipalLookupOptions {
+    /** Lookup instant. Numbers and bigints are Unix seconds; Dates are converted to seconds. */
+    at?: Date | number | bigint
+    /** Optional revocation policy applied before returning principals. */
+    revocations?: KeyRevocationList
+}
+
 interface AllowedSignerEntry {
     readonly principalPatterns: readonly string[]
     readonly key: PublicKey
@@ -86,6 +93,42 @@ export default class AllowedSigners {
         return AllowedSigners.parse(await readFile(path))
     }
 
+    /** Returns the policy principal fields whose pattern lists positively match this value. */
+    matchPrincipals(principal: string): readonly string[] {
+        const normalized = normalizePolicyText(principal, "allowed signer principal")
+        return Object.freeze(
+            this.#entries
+                .filter((entry) => matchesPatternList(entry.principalPatterns, normalized))
+                .map((entry) => entry.principalPatterns.join(",")),
+        )
+    }
+
+    /** Finds the first entry's principals authorized for an embedded signature key. */
+    findPrincipals(
+        signature: SSHSignature | string | Buffer,
+        options: AllowedSignerPrincipalLookupOptions = {},
+    ): readonly string[] {
+        validateLookupOptions(options)
+        const parsed = signature instanceof SSHSignature ? signature : SSHSignature.parse(signature)
+        if (options.revocations?.isRevoked(parsed.publicKey)) return Object.freeze([])
+        const at = normalizeVerificationTime(options.at)
+        for (const entry of this.#entries) {
+            if (!isEntryTimeValid(entry, at)) continue
+            if (!entry.certificateAuthority && entry.key.equals(parsed.publicKey)) {
+                return Object.freeze([...entry.principalPatterns])
+            }
+            const certificate = authorizedCertificate(entry, parsed.publicKey, at)
+            if (!certificate) continue
+            const principals = entry.principalPatterns.flatMap((pattern) =>
+                certificate.data.principals.filter((principal) =>
+                    matchesPattern(pattern, principal),
+                ),
+            )
+            if (principals.length > 0) return Object.freeze(principals)
+        }
+        return Object.freeze([])
+    }
+
     verify(
         message: Buffer,
         signature: SSHSignature | string | Buffer,
@@ -101,17 +144,25 @@ export default class AllowedSigners {
         const principal = normalizePolicyText(options.principal, "allowed signer principal")
         const namespace = normalizePolicyText(options.namespace, "allowed signer namespace")
         const at = normalizeVerificationTime(options.at)
-        if (
-            options.revocations !== undefined &&
-            !(options.revocations instanceof KeyRevocationList)
-        ) {
-            throw new TypeError("Allowed-signers revocations must be a key revocation list")
-        }
+        validateRevocations(options.revocations)
         if (!parsed.verify(message, namespace)) return false
         if (options.revocations?.isRevoked(parsed.publicKey)) return false
         return this.#entries.some((entry) =>
             authorizesEntry(entry, parsed.publicKey, principal, namespace, at),
         )
+    }
+}
+
+function validateLookupOptions(options: AllowedSignerPrincipalLookupOptions): void {
+    if (typeof options !== "object" || options === null) {
+        throw new TypeError("Allowed-signers principal lookup options must be an object")
+    }
+    validateRevocations(options.revocations)
+}
+
+function validateRevocations(revocations: KeyRevocationList | undefined): void {
+    if (revocations !== undefined && !(revocations instanceof KeyRevocationList)) {
+        throw new TypeError("Allowed-signers revocations must be a key revocation list")
     }
 }
 
@@ -378,20 +429,36 @@ function authorizesEntry(
     if (entry.namespacePatterns && !matchesPatternList(entry.namespacePatterns, namespace)) {
         return false
     }
-    if (entry.validAfter !== undefined && at < entry.validAfter) return false
-    if (entry.validBefore !== undefined && at > entry.validBefore) return false
+    if (!isEntryTimeValid(entry, at)) return false
 
     if (!entry.certificateAuthority) return entry.key.equals(signingKey)
-    const certificate = signingKey.data.algorithm
     return (
-        certificate instanceof SSHCertificatePublicKey &&
+        authorizedCertificate(entry, signingKey, at)?.data.principals.includes(principal) ?? false
+    )
+}
+
+function isEntryTimeValid(entry: AllowedSignerEntry, at: bigint): boolean {
+    return !(
+        (entry.validAfter !== undefined && at < entry.validAfter) ||
+        (entry.validBefore !== undefined && at > entry.validBefore)
+    )
+}
+
+function authorizedCertificate(
+    entry: AllowedSignerEntry,
+    signingKey: PublicKey,
+    at: bigint,
+): SSHCertificatePublicKey | undefined {
+    if (!entry.certificateAuthority) return undefined
+    const certificate = signingKey.data.algorithm
+    return certificate instanceof SSHCertificatePublicKey &&
         certificate.data.signatureKey.equals(entry.key) &&
         certificate.data.role === "user" &&
         certificate.verifyCertificateSignature() &&
         certificate.data.validAfter <= at &&
-        at < certificate.data.validBefore &&
-        certificate.data.principals.includes(principal)
-    )
+        at < certificate.data.validBefore
+        ? certificate
+        : undefined
 }
 
 function matchesPatternList(patterns: readonly string[], value: string): boolean {

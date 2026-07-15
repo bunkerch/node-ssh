@@ -123,6 +123,9 @@ describe("allowed signers", () => {
         const signature = SSHSignature.sign(message, privateKey, { namespace: "file" })
         const oneByte = AllowedSigners.parse(`caf? ${privateKey.data.publicKey}`)
         const twoBytes = AllowedSigners.parse(`caf?? ${privateKey.data.publicKey}`)
+        const both = AllowedSigners.parse(
+            `caf? ${privateKey.data.publicKey}\ncaf?? ${privateKey.data.publicKey}`,
+        )
 
         expect(
             oneByte.verify(message, signature, { principal: "café", namespace: "file" }),
@@ -130,6 +133,30 @@ describe("allowed signers", () => {
         expect(
             twoBytes.verify(message, signature, { principal: "café", namespace: "file" }),
         ).toBeTrue()
+        expect(both.matchPrincipals("café")).toEqual(["caf??"])
+    })
+
+    test("finds principals for the first currently authorized signature key entry", () => {
+        const privateKey = PrivateKey.generateSync("ssh-ed25519")
+        const signature = SSHSignature.sign(Buffer.from("lookup"), privateKey, {
+            namespace: "file",
+        })
+        const allowed = AllowedSigners.parse(`
+            expired@example.test valid-before="20200101Z" ${privateKey.data.publicKey}
+            release-*,admin@example.test valid-after="20200101Z" ${privateKey.data.publicKey}
+            later@example.test ${privateKey.data.publicKey}
+        `)
+
+        expect(allowed.findPrincipals(signature, { at: Date.UTC(2026, 0, 1) / 1000 })).toEqual([
+            "release-*",
+            "admin@example.test",
+        ])
+        expect(allowed.findPrincipals(signature, { at: Date.UTC(2019, 0, 1) / 1000 })).toEqual([
+            "expired@example.test",
+        ])
+        expect(() => allowed.findPrincipals(signature, null as never)).toThrow(
+            "lookup options must be an object",
+        )
     })
 
     test.each([
@@ -211,6 +238,8 @@ describe("allowed signers", () => {
             const allowed = await AllowedSigners.load(allowedPath)
             const signature = SSHSignature.parse(await readFile(`${messagePath}.sig`))
 
+            expect(allowed.matchPrincipals("alice@example.test")).toEqual(["*@example.test"])
+            expect(allowed.findPrincipals(signature)).toEqual(["alice@example.test"])
             expect(
                 allowed.verify(message, signature, {
                     principal: "alice@example.test",
@@ -240,6 +269,14 @@ describe("allowed signers", () => {
                 message,
             )
             expect(system.stdout).toContain('Good "artifact" signature')
+            const systemPrincipals = await runWithInput(
+                "ssh-keygen",
+                ["-Y", "find-principals", "-f", allowedPath, "-s", `${messagePath}.sig`],
+                Buffer.alloc(0),
+            )
+            expect(systemPrincipals.stdout.trim()).toBe(
+                allowed.findPrincipals(signature).join("\n"),
+            )
 
             await runWithInput(
                 "ssh-keygen",

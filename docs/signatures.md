@@ -78,6 +78,14 @@ checked in addition to the allowed-signers patterns. An exact certificate entry 
 `cert-authority` is treated as an exact key, matching command-line behavior. Allowed-signers
 `valid-before` is inclusive, while a certificate's own `validBefore` instant is exclusive.
 
+`matchPrincipals(identity)` returns each policy principal field that positively matches an
+identity. `findPrincipals(signature)` instead finds the principals authorized by the first
+currently valid entry for the signature's embedded key. Exact-key entries return their configured
+patterns; certificate-authority entries return matching concrete certificate principals. The
+lookup can take `at` and `revocations` options. Like the command-line `find-principals` operation,
+it inspects key authorization without verifying possession of the signed message and does not
+apply namespace restrictions. Use `verify()` for a security decision.
+
 ## Agent-backed signing
 
 Use `signWithAgent()` when private material belongs to a local, forwarded, hardware-backed, or

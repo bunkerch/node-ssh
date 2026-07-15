@@ -304,6 +304,8 @@ inclusive policy validity, exact keys, certificate authorities, certificate prin
 validity, and KRL revocation. The system tool creates a certificate-backed detached signature and
 accepts the same CA policy file that the library loads; both verifiers accept the authorized
 principal, while the library rejects another principal and the revoked certificate.
+Principal discovery and principal-pattern matching are compared against the corresponding system
+operations, including byte-oriented `?` matching for a multibyte UTF-8 identity.
 
 PPK import uses the RFC 8032 Ed25519 seed, public key, and empty-message signature as a fixed
 private-key vector in both version 2 and version 3 envelopes. The system `puttygen` independently
