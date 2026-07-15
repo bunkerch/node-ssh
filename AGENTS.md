@@ -2,7 +2,7 @@
 
 ## Project Direction
 
-`modernssh` is a typed, ESM-native SSH client and server library for Node.js 22+. Work toward
+`modernssh` is a typed, ESM-native SSH client and server library for Node.js 20+. Work toward
 production-ready protocol correctness, broad client/server functionality, stable public APIs, and
 meaningful interoperability. Implement complete, reviewable slices; do not add shortcuts,
 temporary fixes, test-only production branches, or speculative compatibility behavior.

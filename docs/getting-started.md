@@ -1,6 +1,6 @@
 # Getting started
 
-`modernssh` is an ESM package for Node.js 22 and newer. It exports its client, server, key,
+`modernssh` is an ESM package for Node.js 20 and newer. It exports its client, server, key,
 authentication-agent, and channel types from the package root. Importing the package does not open
 connections or install global patches.
 
