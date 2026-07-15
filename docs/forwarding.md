@@ -57,7 +57,12 @@ inspect TLS. `sourceHost` and `sourcePort` set the originator metadata in the fo
 default to `127.0.0.1` and zero. Per-request `localAddress` and `localPort` override that metadata;
 they do not bind a local interface on the HTTP caller. Call `agent.destroy()` to close pooled HTTP
 channels and every SSH connection owned by the agent. Apply the same host-key verification and
-destination allowlisting requirements as any other direct-forwarding client.
+destination allowlisting requirements as any other direct-forwarding client. The agent snapshots
+its SSH configuration during construction, including nested algorithm and authentication lists, so
+later caller mutations cannot change credentials or negotiation for a new request. Encoded private
+keys and certificates are parsed once into the configured signing agent; their source containers
+and passphrase are not retained. Do not supply `sock`: one already-connected transport cannot
+safely back the agent's independent per-socket SSH connections and is rejected during construction.
 
 ## Accepting direct connections
 

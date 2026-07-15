@@ -6,7 +6,7 @@ import { createServer as createHTTPSServer } from "node:https"
 import { AddressInfo, createConnection, type Server as NetServer } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import type { Duplex } from "node:stream"
+import { PassThrough, type Duplex } from "node:stream"
 import { promisify } from "node:util"
 import { SSHHTTPAgent } from "../../src/HTTPAgents.js"
 import DirectTCPIPChannel from "../../src/channels/DirectTCPIPChannel.js"
@@ -30,7 +30,18 @@ function close(server: NetServer): Promise<void> {
 }
 
 describe("SSH-backed HTTP agents", () => {
-    test("performs an HTTP request through an RFC 4254 direct-tcpip channel", async () => {
+    test("rejects a single preconnected transport that cannot be pooled", () => {
+        const transport = new PassThrough()
+        try {
+            expect(() => new SSHHTTPAgent({ sock: transport })).toThrow(
+                "SSH HTTP agents cannot reuse an already-connected transport",
+            )
+        } finally {
+            transport.destroy()
+        }
+    })
+
+    test("owns SSH credentials before opening an HTTP direct-tcpip channel", async () => {
         const destination = createHTTPServer((request, response) => {
             response.setHeader("content-type", "text/plain")
             response.end(`${request.method} ${request.url} via ${request.headers.host}`)
@@ -39,11 +50,27 @@ describe("SSH-backed HTTP agents", () => {
         const destinationPort = (destination.address() as AddressInfo).port
 
         const hostKey = await PrivateKey.generate("ssh-ed25519")
+        const userKey = await PrivateKey.generate("ssh-ed25519")
         const server = new Server({ hostKeys: [hostKey], sendAllHostKeys: false })
         const forwarded: DirectTCPIPChannel[] = []
         const errors: Error[] = []
-        server.hooker.hook("noneAuthentication", (_hook, _context, decision) => {
-            decision.allowLogin = true
+        const authenticatedUsernames: string[] = []
+        server.hooker.hook("publicKeyAuthentication", (_hook, context, decision) => {
+            authenticatedUsernames.push(context.username)
+            if (
+                context.username !== "interop" ||
+                !context.publicKey.equals(userKey.data.publicKey)
+            ) {
+                return
+            }
+            if (!context.signature) {
+                decision.requestSignature = true
+                return
+            }
+            decision.allowLogin = context.publicKey.verifySignature(
+                context.signatureMessage,
+                context.signature,
+            )
         })
         server.hooker.hook("channelOpenRequest", (_hook, channel, decision) => {
             decision.allowOpen =
@@ -67,15 +94,22 @@ describe("SSH-backed HTTP agents", () => {
         server.listen({ host: "127.0.0.1", port: 0 })
         await new Promise<void>((resolve) => server.server!.once("listening", resolve))
         const sshPort = (server.server!.address() as AddressInfo).port
-        const agent = new SSHHTTPAgent(
-            {
-                hostname: "127.0.0.1",
-                port: sshPort,
-                username: "interop",
-                authenticationMethodsOrder: [SSHAuthenticationMethods.None],
-            },
-            { sourceHost: "agent.example", sourcePort: 42_424 },
-        )
+        const authenticationMethodsOrder = [SSHAuthenticationMethods.PublicKey]
+        const encodedUserKey = userKey.serialize()
+        const clientOptions = {
+            hostname: "127.0.0.1",
+            port: sshPort,
+            username: "interop",
+            privateKey: encodedUserKey,
+            authenticationMethodsOrder,
+        }
+        const agent = new SSHHTTPAgent(clientOptions, {
+            sourceHost: "agent.example",
+            sourcePort: 42_424,
+        })
+        clientOptions.username = "mutated"
+        authenticationMethodsOrder[0] = SSHAuthenticationMethods.Password
+        encodedUserKey.fill(0)
 
         try {
             const socket = await new Promise<Duplex>((resolve, reject) => {
@@ -98,6 +132,8 @@ describe("SSH-backed HTTP agents", () => {
             expect(rawResponse).toContain("HTTP/1.1 200 OK")
             expect(rawResponse).toEndWith(`GET /health?full=1 via 127.0.0.1:${destinationPort}`)
             expect(forwarded).toHaveLength(1)
+            expect(authenticatedUsernames.length).toBeGreaterThan(0)
+            expect(new Set(authenticatedUsernames)).toEqual(new Set(["interop"]))
             expect(forwarded[0]?.details).toEqual({
                 destinationHost: "127.0.0.1",
                 destinationPort,

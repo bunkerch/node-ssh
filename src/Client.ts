@@ -352,6 +352,46 @@ export interface ClientOptionsRequired
     debug?: (...message: unknown[]) => void
 }
 
+/** Normalize reusable authentication configuration without retaining encoded key containers. */
+export function normalizeClientAuthenticationAgent(options: Readonly<ClientOptions>): Agent {
+    const configuredAgent =
+        typeof options.agent === "string" ? createSocketAgent(options.agent) : options.agent
+    if (configuredAgent !== undefined && options.privateKey !== undefined) {
+        throw new TypeError("SSH agent and privateKey options are mutually exclusive")
+    }
+    if (options.certificate !== undefined && options.privateKey === undefined) {
+        throw new TypeError("SSH certificate option requires privateKey")
+    }
+    if (options.privateKey !== undefined) {
+        if (options.privateKey instanceof PrivateKey && options.passphrase !== undefined) {
+            throw new TypeError("SSH passphrase is only valid for an encoded privateKey")
+        }
+        const key =
+            options.privateKey instanceof PrivateKey
+                ? options.privateKey
+                : parseKey(options.privateKey, options.passphrase)
+        if (!(key instanceof PrivateKey)) {
+            throw new TypeError("SSH privateKey option must contain a private key")
+        }
+        let authenticationKey = key
+        if (options.certificate !== undefined) {
+            const certificate =
+                options.certificate instanceof PublicKey
+                    ? options.certificate
+                    : parseKey(options.certificate)
+            if (!(certificate instanceof PublicKey)) {
+                throw new TypeError("SSH certificate option must contain a public key")
+            }
+            authenticationKey = key.withCertificate(certificate)
+        }
+        return new PrivateKeyAgent(authenticationKey)
+    }
+    if (options.passphrase !== undefined) {
+        throw new TypeError("SSH passphrase option requires privateKey")
+    }
+    return configuredAgent ?? new NoneAgent()
+}
+
 export type ClientHostVerifier = (key: Buffer | string) => boolean | Promise<boolean>
 
 export interface ClientEvents {
@@ -610,48 +650,10 @@ export default class Client extends EventEmitter<ClientEvents> {
         if (this.#options.hostbased !== undefined) {
             this.#options.hostbased = Object.freeze({ ...this.#options.hostbased })
         }
-        if (typeof this.#options.agent === "string") {
-            this.#options.agent = createSocketAgent(this.#options.agent)
-        }
-        if (this.#options.agent !== undefined && this.#options.privateKey !== undefined) {
-            throw new TypeError("SSH agent and privateKey options are mutually exclusive")
-        }
-        if (this.#options.certificate !== undefined && this.#options.privateKey === undefined) {
-            throw new TypeError("SSH certificate option requires privateKey")
-        }
-        if (this.#options.privateKey !== undefined) {
-            if (
-                this.#options.privateKey instanceof PrivateKey &&
-                this.#options.passphrase !== undefined
-            ) {
-                throw new TypeError("SSH passphrase is only valid for an encoded privateKey")
-            }
-            const key =
-                this.#options.privateKey instanceof PrivateKey
-                    ? this.#options.privateKey
-                    : parseKey(this.#options.privateKey, this.#options.passphrase)
-            if (!(key instanceof PrivateKey)) {
-                throw new TypeError("SSH privateKey option must contain a private key")
-            }
-            let authenticationKey = key
-            if (this.#options.certificate !== undefined) {
-                const certificate =
-                    this.#options.certificate instanceof PublicKey
-                        ? this.#options.certificate
-                        : parseKey(this.#options.certificate)
-                if (!(certificate instanceof PublicKey)) {
-                    throw new TypeError("SSH certificate option must contain a public key")
-                }
-                authenticationKey = key.withCertificate(certificate)
-            }
-            this.#options.agent = new PrivateKeyAgent(authenticationKey)
-            this.#options.privateKey = undefined
-            this.#options.certificate = undefined
-            this.#options.passphrase = undefined
-        } else if (this.#options.passphrase !== undefined) {
-            throw new TypeError("SSH passphrase option requires privateKey")
-        }
-        this.#options.agent ??= new NoneAgent()
+        this.#options.agent = normalizeClientAuthenticationAgent(this.#options)
+        this.#options.privateKey = undefined
+        this.#options.certificate = undefined
+        this.#options.passphrase = undefined
         if (
             this.#options.ident !== undefined &&
             this.#options.protocolVersionExchange !== undefined

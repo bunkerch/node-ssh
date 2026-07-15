@@ -2,7 +2,15 @@ import { Agent as HTTPAgent, type AgentOptions as HTTPAgentOptions } from "node:
 import { Agent as HTTPSAgent, type AgentOptions as HTTPSAgentOptions } from "node:https"
 import type { Duplex } from "node:stream"
 import { connect as connectTLS, type ConnectionOptions as TLSConnectionOptions } from "node:tls"
-import Client, { type ClientOptions } from "./Client.js"
+import Client, { normalizeClientAuthenticationAgent, type ClientOptions } from "./Client.js"
+import type {
+    AlgorithmMatcher,
+    ClientAlgorithmList,
+    ClientAlgorithmOptions,
+} from "./AlgorithmOptions.js"
+import { normalizeDelayCompression } from "./DelayCompression.js"
+import { normalizeGSSAPIClientMechanisms } from "./GSSAPI.js"
+import ProtocolVersionExchange from "./ProtocolVersionExchange.js"
 import type ClientTCPIPChannel from "./channels/ClientTCPIPChannel.js"
 
 export interface SSHAgentOptions {
@@ -33,6 +41,80 @@ interface SocketCompatibleChannel extends ClientTCPIPChannel {
     destroySoon(): this
 }
 
+function snapshotMatcher(matcher: AlgorithmMatcher): AlgorithmMatcher {
+    return matcher instanceof RegExp ? new RegExp(matcher.source, matcher.flags) : matcher
+}
+
+function snapshotAlgorithmList(
+    list: ClientAlgorithmList | undefined,
+): ClientAlgorithmList | undefined {
+    if (list === undefined) return undefined
+    if (Array.isArray(list)) return Object.freeze([...list])
+    if (typeof list !== "object" || list === null) return list
+
+    const snapshot = Object.create(Object.getPrototypeOf(list)) as Record<string, unknown>
+    for (const [operation, value] of Object.entries(list)) {
+        snapshot[operation] = Array.isArray(value)
+            ? Object.freeze(value.map((matcher) => snapshotMatcher(matcher as AlgorithmMatcher)))
+            : value instanceof RegExp
+              ? snapshotMatcher(value)
+              : value
+    }
+    return Object.freeze(snapshot) as ClientAlgorithmList
+}
+
+function snapshotAlgorithms(
+    algorithms: ClientAlgorithmOptions | undefined,
+): ClientAlgorithmOptions | undefined {
+    if (algorithms === undefined) return undefined
+    return Object.freeze({
+        kex: snapshotAlgorithmList(algorithms.kex),
+        serverHostKey: snapshotAlgorithmList(algorithms.serverHostKey),
+        cipher: snapshotAlgorithmList(algorithms.cipher),
+        hmac: snapshotAlgorithmList(algorithms.hmac),
+        compress: snapshotAlgorithmList(algorithms.compress),
+    })
+}
+
+function snapshotClientOptions(options: Readonly<ClientOptions>): Readonly<ClientOptions> {
+    if (options.sock !== undefined) {
+        throw new TypeError("SSH HTTP agents cannot reuse an already-connected transport")
+    }
+    const agent = normalizeClientAuthenticationAgent(options)
+    return Object.freeze({
+        ...options,
+        ident: Buffer.isBuffer(options.ident) ? Buffer.from(options.ident) : options.ident,
+        protocolVersionExchange:
+            options.protocolVersionExchange === undefined
+                ? undefined
+                : new ProtocolVersionExchange(
+                      options.protocolVersionExchange.protocol_version,
+                      options.protocolVersionExchange.protocol_software,
+                      options.protocolVersionExchange.comments,
+                  ),
+        algorithms: snapshotAlgorithms(options.algorithms),
+        agent,
+        privateKey: undefined,
+        certificate: undefined,
+        passphrase: undefined,
+        hostbased:
+            options.hostbased === undefined ? undefined : Object.freeze({ ...options.hostbased }),
+        gssapi:
+            options.gssapi === undefined
+                ? undefined
+                : normalizeGSSAPIClientMechanisms(options.gssapi),
+        authenticationMethodsOrder:
+            options.authenticationMethodsOrder === undefined
+                ? undefined
+                : Object.freeze([...options.authenticationMethodsOrder]),
+        delayCompression:
+            options.delayCompression === undefined
+                ? undefined
+                : normalizeDelayCompression(options.delayCompression),
+        sock: undefined,
+    })
+}
+
 function socketCompatible(channel: ClientTCPIPChannel): SocketCompatibleChannel {
     const socket = channel as SocketCompatibleChannel
     socket.setKeepAlive = () => socket
@@ -59,12 +141,15 @@ function destination(options: ConnectionRequest): { host: string; port: number }
 
 class SSHConnectionFactory {
     readonly clients = new Set<Client>()
+    private readonly clientOptions: Readonly<ClientOptions>
 
     constructor(
-        private readonly clientOptions: Readonly<ClientOptions>,
+        clientOptions: Readonly<ClientOptions>,
         private readonly sourceHost: string,
         private readonly sourcePort: number,
-    ) {}
+    ) {
+        this.clientOptions = snapshotClientOptions(clientOptions)
+    }
 
     create(options: ConnectionRequest, callback: ConnectionCallback, secure: boolean): void {
         let target: { host: string; port: number }
