@@ -126,6 +126,25 @@ describe("ClientChannel", () => {
         channel.destroy()
     })
 
+    test("sends queued data before EOF and rejects later writes", async () => {
+        const { channel, sent } = createChannel()
+        const sending = channel.sendData("abcdefgh")
+
+        channel.eof()
+        expect(sent.map((packet) => packet.constructor)).toEqual([ChannelData, ChannelData])
+
+        channel.receiveWindowAdjust(3)
+        await sending
+        expect(sent.map((packet) => packet.constructor)).toEqual([
+            ChannelData,
+            ChannelData,
+            ChannelData,
+            ChannelEOF,
+        ])
+        await expect(channel.sendData("after EOF")).rejects.toThrow("closed for writing after EOF")
+        channel.destroy()
+    })
+
     test("rejects every queued send when packet emission fails", async () => {
         const { channel } = createChannel()
         channel.remoteWindowSize = 0

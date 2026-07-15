@@ -109,6 +109,26 @@ describe("server Channel", () => {
         ).toEqual(["abc", "de", "fgh"])
     })
 
+    test("sends queued output before EOF and rejects later writes", async () => {
+        const { channel, sent } = createChannel()
+        const sending = channel.sendData(Buffer.from("abcdefgh"))
+
+        channel.sendEOF()
+        expect(sent.map((packet) => packet.constructor)).toEqual([ChannelData, ChannelData])
+
+        channel.receiveWindowAdjust(3)
+        await sending
+        expect(sent.map((packet) => packet.constructor)).toEqual([
+            ChannelData,
+            ChannelData,
+            ChannelData,
+            ChannelEOF,
+        ])
+        await expect(channel.sendData(Buffer.from("after EOF"))).rejects.toThrow(
+            "closed for writing after EOF",
+        )
+    })
+
     test("awaits Promise-based shell output before later protocol messages", async () => {
         const { channel, sent } = createChannel(0, 3)
         channel.channel_type = "session"

@@ -100,6 +100,7 @@ export default class ClientChannel extends Duplex {
     private stdoutBlocked = false
     private stderrBlocked = false
     private sentEOF = false
+    private eofPacketSent = false
     private receivedEOF = false
     private sentEndOfWrite = false
     private receivedEndOfWrite = false
@@ -423,7 +424,7 @@ export default class ClientChannel extends Duplex {
             !this.sentClose
         ) {
             this.sentEOF = true
-            this.client.sendPacket(new ChannelEOF({ recipient_channel_id: this.remoteId }))
+            this.sendEOFIfReady()
         }
         return this
     }
@@ -488,6 +489,11 @@ export default class ClientChannel extends Duplex {
     private queueData(data: Buffer, atomic: boolean): Promise<void> {
         if (!this.isOpen) {
             return Promise.reject(new Error(`SSH channel ${this.localId} is not open for writing`))
+        }
+        if (this.sentEOF) {
+            return Promise.reject(
+                new Error(`SSH channel ${this.localId} is closed for writing after EOF`),
+            )
         }
         if (
             atomic &&
@@ -591,6 +597,7 @@ export default class ClientChannel extends Duplex {
                 this.pendingWrites.shift()
                 pending.resolve()
             }
+            this.sendEOFIfReady()
         } catch (error) {
             const writeError = error instanceof Error ? error : new Error(String(error))
             while (this.pendingWrites.length > 0) this.pendingWrites.shift()!.reject(writeError)
@@ -600,16 +607,32 @@ export default class ClientChannel extends Duplex {
 
     private sendClose(): void {
         if (this.transportClosed || this.sentClose || this.remoteId === undefined) return
+        const writeError = new Error(`SSH channel ${this.localId} closed during write`)
+        while (this.pendingWrites.length > 0) this.pendingWrites.shift()!.reject(writeError)
+        this.sendEOFIfReady()
         this.sentClose = true
         try {
             this.client.sendPacket(new ChannelClose({ recipient_channel_id: this.remoteId }))
         } finally {
-            const writeError = new Error(`SSH channel ${this.localId} closed during write`)
-            while (this.pendingWrites.length > 0) this.pendingWrites.shift()!.reject(writeError)
             const requestError = new Error(`SSH channel ${this.localId} closed during request`)
             while (this.pendingRequests.length > 0) {
                 this.pendingRequests.shift()!.reject(requestError)
             }
         }
+    }
+
+    private sendEOFIfReady(): void {
+        if (
+            !this.sentEOF ||
+            this.eofPacketSent ||
+            this.pendingWrites.length > 0 ||
+            this.transportClosed ||
+            this.sentClose ||
+            this.remoteId === undefined
+        ) {
+            return
+        }
+        this.client.sendPacket(new ChannelEOF({ recipient_channel_id: this.remoteId }))
+        this.eofPacketSent = true
     }
 }

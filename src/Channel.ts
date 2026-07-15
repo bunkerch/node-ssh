@@ -56,6 +56,7 @@ export default class Channel {
     private readonly pendingRequests: PendingChannelRequest[] = []
     private inputBlocked = false
     private sentEOF = false
+    private eofPacketSent = false
     private receivedEOF = false
     private sentEndOfWrite = false
     private receivedEndOfWrite = false
@@ -333,7 +334,7 @@ export default class Channel {
     sendEOF(): void {
         if (this.aborted || this.sentEOF || this.remoteId === undefined || this.sentClose) return
         this.sentEOF = true
-        this.client.sendPacket(new ChannelEOF({ recipient_channel_id: this.remoteId }))
+        this.sendEOFIfReady()
     }
 
     /** Ask the peer to stop sending channel data while keeping this channel open. */
@@ -405,6 +406,11 @@ export default class Channel {
         if (this.outboundStopped) {
             return Promise.reject(new Error(`SSH channel ${this.localId} received end-of-write`))
         }
+        if (this.sentEOF) {
+            return Promise.reject(
+                new Error(`SSH channel ${this.localId} is closed for writing after EOF`),
+            )
+        }
         if (data.length === 0) return Promise.resolve()
         if (
             atomic &&
@@ -475,6 +481,7 @@ export default class Channel {
                     pending.resolve()
                 }
             }
+            this.sendEOFIfReady()
         } catch (error) {
             const writeError = error instanceof Error ? error : new Error(String(error))
             this.failPendingWrites(writeError)
@@ -519,13 +526,29 @@ export default class Channel {
 
     private sendClose(): void {
         if (this.aborted || this.sentClose || this.remoteId === undefined) return
+        this.failPendingWrites(new Error(`SSH channel ${this.localId} closed during write`))
+        this.sendEOFIfReady()
         this.sentClose = true
         try {
             this.client.sendPacket(new ChannelClose({ recipient_channel_id: this.remoteId }))
         } finally {
-            this.failPendingWrites(new Error(`SSH channel ${this.localId} closed during write`))
             this.failPendingRequests(new Error(`SSH channel ${this.localId} closed during request`))
         }
+    }
+
+    private sendEOFIfReady(): void {
+        if (
+            !this.sentEOF ||
+            this.eofPacketSent ||
+            this.pendingWrites.length > 0 ||
+            this.aborted ||
+            this.sentClose ||
+            this.remoteId === undefined
+        ) {
+            return
+        }
+        this.client.sendPacket(new ChannelEOF({ recipient_channel_id: this.remoteId }))
+        this.eofPacketSent = true
     }
 
     private failPendingWrites(error: Error): void {

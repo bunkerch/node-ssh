@@ -138,6 +138,8 @@ through 3,000 milliseconds as recommended by the RFC.
 
 Calling `channel.end()` finishes standard input by sending channel EOF. Calling `channel.close()`
 sends EOF followed by CLOSE. A peer CLOSE is always acknowledged before the stream is destroyed.
+EOF waits behind data already accepted by `sendData()` and prevents every later write, so channel
+data cannot overtake the RFC 4254 half-close even when the peer's receive window is exhausted.
 
 The server-side `Shell` follows the same directional lifecycle. `shell.end()` finishes stdout by
 sending EOF but keeps stdin readable; the client may continue sending data because RFC 4254 leaves
