@@ -92,7 +92,103 @@ class ChannelReplyObservingClient extends Client {
     }
 }
 
+async function createForwardingPeers(agent: Agent<string>): Promise<{
+    client: Client
+    server: Server
+    connection: ServerClient
+    session: SessionChannel
+}> {
+    const server = new Server({
+        hostKeys: [await PrivateKey.generate("ssh-ed25519")],
+        sendAllHostKeys: false,
+    })
+    server.hooker.hook("noneAuthentication", (_hook, _context, decision) => {
+        decision.allowLogin = true
+    })
+    server.hooker.hook("channelOpenRequest", (_hook, channel, decision) => {
+        decision.allowOpen = channel instanceof SessionChannel
+    })
+    let connection!: ServerClient
+    server.on("connection", (peer) => {
+        connection = peer
+        peer.on("channel", (channel) => {
+            if (!(channel instanceof SessionChannel)) return
+            channel.hooker.hook("agentForwardRequest", (_hook, decision) => {
+                decision.success = true
+            })
+        })
+    })
+    server.listen({ host: "127.0.0.1", port: 0 })
+    await once(server, "listening")
+
+    const client = new Client({
+        hostname: "127.0.0.1",
+        port: (server.address() as AddressInfo).port,
+        username: "agent-forwarding-stream-validation",
+        agent,
+        authenticationMethodsOrder: [SSHAuthenticationMethods.None],
+    })
+    client.hooker.hook("hostKey", (_hook, decision) => {
+        decision.allowHostKey = true
+    })
+    await client.connect()
+    const session = await client.openSession()
+    await session.forwardAgent()
+    return { client, server, connection, session }
+}
+
 describe("client agent-forwarding defaults", () => {
+    test.each([
+        [
+            "a rejected provider operation",
+            async (): Promise<Duplex> => {
+                throw new Error("agent-forwarding-provider-private-metadata")
+            },
+        ],
+        ["a non-stream result", async (): Promise<Duplex> => ({}) as Duplex],
+        [
+            "an already-closed stream",
+            async (): Promise<Duplex> => {
+                const stream = new PassThrough()
+                stream.destroy()
+                return stream
+            },
+        ],
+    ])(
+        "localizes %s without closing SSH",
+        async (_label, getStream: () => Promise<Duplex>) => {
+            const diagnostics: unknown[][] = []
+            const agent: Agent<string> = { ...forwardableAgent, getStream }
+            const { client, server, connection, session } = await createForwardingPeers(agent)
+            client.on("debug", (...message) => diagnostics.push(message))
+
+            try {
+                await expect(connection.forwardAgent()).rejects.toMatchObject({
+                    reason_code: ChannelOpenFailureReasonCodes.SSH_OPEN_CONNECT_FAILED,
+                    message: "Could not connect to the authentication agent",
+                })
+                expect(client.isConnected).toBe(true)
+                const output = diagnostics
+                    .flatMap((message) => message)
+                    .map((value) =>
+                        value instanceof Error
+                            ? `${value.name}: ${value.message}`
+                            : typeof value === "string"
+                              ? value
+                              : JSON.stringify(value),
+                    )
+                    .join("\n")
+                expect(output).not.toContain("agent-forwarding-provider-private-metadata")
+            } finally {
+                session.close()
+                client.destroy()
+                connection.terminate()
+                await server.close()
+            }
+        },
+        15_000,
+    )
+
     test("negotiates the RFC 9987 request and channel names", async () => {
         const streams: Duplex[] = []
         const protocolTasks: Promise<void>[] = []

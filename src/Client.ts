@@ -1,7 +1,7 @@
 import crypto from "crypto"
 import EventEmitter from "node:events"
 import net from "node:net"
-import { isReadable, type Duplex } from "node:stream"
+import { Duplex, isReadable } from "node:stream"
 import {
     SocketState,
     SSHAuthenticationMethods,
@@ -3751,11 +3751,11 @@ export default class Client extends EventEmitter<ClientEvents> {
             return
         }
 
-        let stream: Awaited<ReturnType<NonNullable<Agent["getStream"]>>>
+        let candidate: unknown
         try {
-            stream = await getStream.call(this.#options.agent)
-        } catch (error) {
-            this.debug("Could not connect an incoming channel to the SSH agent", error)
+            candidate = await getStream.call(this.#options.agent)
+        } catch {
+            this.debug("Could not connect an incoming channel to the SSH agent")
             if (!this.canReplyToIncomingChannel(packet, generation)) return
             this.rejectIncomingChannel(
                 packet,
@@ -3766,7 +3766,27 @@ export default class Client extends EventEmitter<ClientEvents> {
         }
 
         if (!this.canReplyToIncomingChannel(packet, generation)) {
+            if (candidate instanceof Duplex) candidate.destroy()
+            return
+        }
+        if (!(candidate instanceof Duplex)) {
+            this.debug("Authentication agent returned an invalid forwarding stream")
+            this.rejectIncomingChannel(
+                packet,
+                ChannelOpenFailureReasonCodes.SSH_OPEN_CONNECT_FAILED,
+                "Could not connect to the authentication agent",
+            )
+            return
+        }
+        const stream = candidate
+        if (stream.destroyed || !stream.readable || !stream.writable) {
             stream.destroy()
+            this.debug("Authentication agent returned a closed forwarding stream")
+            this.rejectIncomingChannel(
+                packet,
+                ChannelOpenFailureReasonCodes.SSH_OPEN_CONNECT_FAILED,
+                "Could not connect to the authentication agent",
+            )
             return
         }
 
@@ -3788,7 +3808,7 @@ export default class Client extends EventEmitter<ClientEvents> {
                 channel.abort(error instanceof Error ? error : new Error(String(error)))
             }
             stream.destroy()
-            this.debug("Could not accept an incoming SSH agent channel", error)
+            this.debug("Could not accept an incoming SSH agent channel")
             if (!this.canReplyToIncomingChannel(packet, generation)) return
             this.rejectIncomingChannel(
                 packet,

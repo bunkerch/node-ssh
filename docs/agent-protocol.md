@@ -4,6 +4,11 @@
 protocol from RFC 9987 over an already-connected Node.js `Duplex`. The same classes work with a
 local agent socket and with an authorized forwarded-agent channel.
 
+An `Agent.getStream()` implementation used for forwarding must resolve to a live, readable and
+writable Node.js `Duplex`. A rejected operation, non-stream result, or already-closed stream rejects
+only that channel open with `SSH_OPEN_CONNECT_FAILED`; it does not close the SSH connection or
+forward the provider's error details to diagnostics.
+
 ## Client
 
 All client operations return promises. Agent messages do not carry request identifiers, so one
