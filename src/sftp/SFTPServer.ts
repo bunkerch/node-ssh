@@ -260,7 +260,9 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
         }
         this.requestIds.add(packet.requestId)
         this.queued.push(packet)
-        this.emit("requestReceived", packet)
+        if (this.listenerCount("requestReceived") > 0) {
+            this.emit("requestReceived", snapshotRequest(packet))
+        }
         this.scheduleDispatch()
     }
 
@@ -367,6 +369,83 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
 
 function isRequest(packet: SFTPPacket): packet is SFTPRequestPacket {
     return REQUEST_HOOK_NAMES.has(packet.type)
+}
+
+function snapshotAttributes(attributes: SFTPAttributes): Readonly<SFTPAttributes> {
+    return Object.freeze({
+        ...attributes,
+        ...(attributes.extended === undefined
+            ? {}
+            : {
+                  extended: Object.freeze(
+                      attributes.extended.map((attribute) =>
+                          Object.freeze({
+                              type: Buffer.from(attribute.type),
+                              data: Buffer.from(attribute.data),
+                          }),
+                      ),
+                  ),
+              }),
+    })
+}
+
+function snapshotRequest(request: SFTPRequestPacket): Readonly<SFTPRequestPacket> {
+    switch (request.type) {
+        case SFTPPacketType.Open:
+            return Object.freeze({
+                ...request,
+                filename: Buffer.from(request.filename),
+                attributes: snapshotAttributes(request.attributes),
+            })
+        case SFTPPacketType.Close:
+        case SFTPPacketType.FStat:
+        case SFTPPacketType.ReadDir:
+            return Object.freeze({ ...request, handle: Buffer.from(request.handle) })
+        case SFTPPacketType.Read:
+            return Object.freeze({ ...request, handle: Buffer.from(request.handle) })
+        case SFTPPacketType.Write:
+            return Object.freeze({
+                ...request,
+                handle: Buffer.from(request.handle),
+                data: Buffer.from(request.data),
+            })
+        case SFTPPacketType.LStat:
+        case SFTPPacketType.OpenDir:
+        case SFTPPacketType.Remove:
+        case SFTPPacketType.RmDir:
+        case SFTPPacketType.RealPath:
+        case SFTPPacketType.Stat:
+        case SFTPPacketType.ReadLink:
+            return Object.freeze({ ...request, path: Buffer.from(request.path) })
+        case SFTPPacketType.SetStat:
+        case SFTPPacketType.MkDir:
+            return Object.freeze({
+                ...request,
+                path: Buffer.from(request.path),
+                attributes: snapshotAttributes(request.attributes),
+            })
+        case SFTPPacketType.FSetStat:
+            return Object.freeze({
+                ...request,
+                handle: Buffer.from(request.handle),
+                attributes: snapshotAttributes(request.attributes),
+            })
+        case SFTPPacketType.Rename:
+        case SFTPPacketType.SymLink:
+            return Object.freeze({
+                ...request,
+                firstPath: Buffer.from(request.firstPath),
+                secondPath: Buffer.from(request.secondPath),
+            })
+        case SFTPPacketType.Extended:
+            return Object.freeze({ ...request, data: Buffer.from(request.data) })
+        default: {
+            const unsupported: never = request
+            throw new SFTPProtocolError(
+                `Cannot snapshot unsupported SFTP request type ${String(unsupported)}`,
+            )
+        }
+    }
 }
 
 function expectsStatus(type: SFTPPacketType): boolean {

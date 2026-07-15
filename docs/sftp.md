@@ -278,7 +278,9 @@ server.on("connection", (connection) => {
 awaited before the next request is dispatched. When no specific hook is registered, the generic
 `request` hook is used as a fallback. An entirely unhandled request gets
 `SFTPStatusCode.OperationUnsupported`. The EventEmitter `requestReceived` event is passive
-observation and does not take ownership of the response.
+observation and does not take ownership of the response. Its request object and nested metadata are
+frozen, and its buffers are owned copies: changing observed bytes cannot alter the request later
+delivered to an awaited Hooker handler.
 
 Complete each request exactly once with the appropriate method:
 

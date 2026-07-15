@@ -4,7 +4,7 @@ import type Shell from "../../src/channels/Session/Shell.js"
 import { decodeSFTPPacket, encodeSFTPPacket } from "../../src/sftp/codec.js"
 import SFTPServer from "../../src/sftp/SFTPServer.js"
 import { SFTPPacketType, SFTPStatusCode } from "../../src/sftp/constants.js"
-import type { SFTPPacket } from "../../src/sftp/types.js"
+import type { SFTPPacket, SFTPRequestPacket } from "../../src/sftp/types.js"
 
 class SFTPClientFixture extends Duplex {
     readonly responses: SFTPPacket[] = []
@@ -133,6 +133,83 @@ describe("SFTP server request engine", () => {
                 languageTag: "",
             },
         ])
+        fixture.destroy()
+    })
+
+    test("isolates passive request observation from awaited handlers", async () => {
+        const fixture = new SFTPClientFixture()
+        const server = new SFTPServer(asShell(fixture))
+        let observed: Readonly<SFTPRequestPacket> | undefined
+        let topLevelMutationRejected = false
+        let handledFilename: Buffer | undefined
+        let handledAttribute: Buffer | undefined
+        let handledWrite: Buffer | undefined
+        server.on("requestReceived", (request) => {
+            if (request.type === SFTPPacketType.Open) {
+                observed = request
+                topLevelMutationRejected = !Reflect.set(request, "requestId", 99)
+                request.filename.fill(0x78)
+                request.attributes.extended![0]!.type.fill(0x78)
+                request.attributes.extended![0]!.data.fill(0x78)
+            } else if (request.type === SFTPPacketType.Write) {
+                request.handle.fill(0x78)
+                request.data.fill(0x78)
+            }
+        })
+        server.hooker.hook("OPEN", (_hook, request) => {
+            handledFilename = Buffer.from(request.filename)
+            handledAttribute = Buffer.concat([
+                request.attributes.extended![0]!.type,
+                request.attributes.extended![0]!.data,
+            ])
+            server.handle(request.requestId, Buffer.from("handle"))
+        })
+        server.hooker.hook("WRITE", (_hook, request) => {
+            handledWrite = Buffer.concat([request.handle, request.data])
+            server.status(request.requestId, SFTPStatusCode.Ok)
+        })
+
+        fixture.send({ type: SFTPPacketType.Init, version: 3, extensions: [] })
+        fixture.send({
+            type: SFTPPacketType.Open,
+            requestId: 17,
+            filename: Buffer.from("authorized.txt"),
+            flags: 1,
+            attributes: {
+                permissions: 0o600,
+                extended: [{ type: Buffer.from("policy@test"), data: Buffer.from("allowed") }],
+            },
+        })
+        fixture.send({
+            type: SFTPPacketType.Write,
+            requestId: 18,
+            handle: Buffer.from("handle"),
+            offset: 0n,
+            data: Buffer.from("file contents"),
+        })
+
+        await flush()
+        if (!observed || observed.type !== SFTPPacketType.Open) {
+            throw new Error("SFTP request observation was not published")
+        }
+        expect(Object.isFrozen(observed)).toBe(true)
+        expect(Object.isFrozen(observed.attributes)).toBe(true)
+        expect(Object.isFrozen(observed.attributes.extended)).toBe(true)
+        expect(Object.isFrozen(observed.attributes.extended![0])).toBe(true)
+        expect(topLevelMutationRejected).toBe(true)
+        expect(handledFilename).toEqual(Buffer.from("authorized.txt"))
+        expect(handledAttribute).toEqual(Buffer.from("policy@testallowed"))
+        expect(handledWrite).toEqual(Buffer.from("handlefile contents"))
+        expect(fixture.responses[1]).toEqual({
+            type: SFTPPacketType.Handle,
+            requestId: 17,
+            handle: Buffer.from("handle"),
+        })
+        expect(fixture.responses[2]).toMatchObject({
+            type: SFTPPacketType.Status,
+            requestId: 18,
+            code: SFTPStatusCode.Ok,
+        })
         fixture.destroy()
     })
 
