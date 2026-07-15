@@ -724,8 +724,38 @@ export default class Client extends EventEmitter<ClientEvents> {
     constructor(options: ClientOptions) {
         super()
 
+        if (!isPlainConfigurationObject(options as unknown)) {
+            throw new TypeError("SSH client options must be an object")
+        }
         this.explicitAuthenticationMethodsOrder = options.authenticationMethodsOrder !== undefined
         this.#options = { ...options } as ClientOptionsRequired
+        if (
+            this.#options.algorithms !== undefined &&
+            !isPlainConfigurationObject(this.#options.algorithms)
+        ) {
+            throw new TypeError("SSH client algorithms option must be an object")
+        }
+        if (
+            this.#options.protocolVersionExchange !== undefined &&
+            !(this.#options.protocolVersionExchange instanceof ProtocolVersionExchange)
+        ) {
+            throw new TypeError(
+                "SSH client protocolVersionExchange option must be a ProtocolVersionExchange",
+            )
+        }
+        if (this.#options.sock !== undefined) {
+            const socket = this.#options.sock as unknown as Record<string, unknown>
+            if (
+                typeof socket !== "object" ||
+                socket === null ||
+                typeof socket.on !== "function" ||
+                typeof socket.once !== "function" ||
+                typeof socket.write !== "function" ||
+                typeof socket.destroy !== "function"
+            ) {
+                throw new TypeError("SSH sock option must be a duplex stream")
+            }
+        }
         if (this.#options.hostname === undefined) this.#options.hostname = "localhost"
         if (this.#options.port === undefined) this.#options.port = 22
         if (this.#options.forceIPv4 === undefined) this.#options.forceIPv4 = false
@@ -776,7 +806,9 @@ export default class Client extends EventEmitter<ClientEvents> {
         this.#options.noFlowControl = normalizeNoFlowControlPreference(this.#options.noFlowControl)
         this.#options.elevation = normalizeElevationPreference(this.#options.elevation)
         this.#options.delayCompression = normalizeDelayCompression(this.#options.delayCompression)
-        this.#options.gssapi = normalizeGSSAPIClientMechanisms(this.#options.gssapi ?? [])
+        this.#options.gssapi = normalizeGSSAPIClientMechanisms(
+            this.#options.gssapi === undefined ? [] : this.#options.gssapi,
+        )
         this.#options.gssapiDelegateCredentials = normalizeBooleanOption(
             this.#options.gssapiDelegateCredentials,
             false,
@@ -788,6 +820,26 @@ export default class Client extends EventEmitter<ClientEvents> {
             "gssapiKeyExchangeAuthentication",
         )
         if (this.#options.hostbased !== undefined) {
+            if (!isPlainConfigurationObject(this.#options.hostbased)) {
+                throw new TypeError("SSH hostbased option must be an object")
+            }
+            if (!(this.#options.hostbased.key instanceof PrivateKey)) {
+                throw new TypeError("SSH hostbased key must be a private key")
+            }
+            if (typeof this.#options.hostbased.localHostname !== "string") {
+                throw new TypeError("SSH hostbased local hostname must be a string")
+            }
+            if (typeof this.#options.hostbased.localUsername !== "string") {
+                throw new TypeError("SSH hostbased local username must be a string")
+            }
+            encodeSSHUTF8(this.#options.hostbased.localHostname, "SSH hostbased local hostname")
+            encodeSSHUTF8(this.#options.hostbased.localUsername, "SSH hostbased local username")
+            if (this.#options.hostbased.algorithm !== undefined) {
+                encodeSSHName(
+                    this.#options.hostbased.algorithm,
+                    "SSH hostbased signature algorithm",
+                )
+            }
             this.#options.hostbased = Object.freeze({ ...this.#options.hostbased })
         }
         this.#options.agent = normalizeClientAuthenticationAgent(this.#options)
@@ -805,23 +857,30 @@ export default class Client extends EventEmitter<ClientEvents> {
         this.#options.protocolVersionExchange =
             this.#options.ident === undefined
                 ? copyProtocolVersionExchange(
-                      this.#options.protocolVersionExchange ?? ProtocolVersionExchange.defaultValue,
+                      this.#options.protocolVersionExchange === undefined
+                          ? ProtocolVersionExchange.defaultValue
+                          : this.#options.protocolVersionExchange,
                   )
                 : ProtocolVersionExchange.fromIdent(this.#options.ident)
-        this.#options.authenticationMethodsOrder ??= [
-            SSHAuthenticationMethods.None,
-            ...(this.#options.gssapi.some(
-                (mechanism) => mechanism.createKeyExchangeContext !== undefined,
-            ) && this.#options.gssapiKeyExchangeAuthentication
-                ? [SSHAuthenticationMethods.GSSAPIKeyExchange]
-                : []),
-            ...(this.#options.gssapi.some((mechanism) => mechanism.createContext !== undefined)
-                ? [SSHAuthenticationMethods.GSSAPIWithMIC]
-                : []),
-            SSHAuthenticationMethods.PublicKey,
-            SSHAuthenticationMethods.Password,
-            SSHAuthenticationMethods.Hostbased,
-        ]
+        if (this.#options.authenticationMethodsOrder === undefined) {
+            this.#options.authenticationMethodsOrder = [
+                SSHAuthenticationMethods.None,
+                ...(this.#options.gssapi.some(
+                    (mechanism) => mechanism.createKeyExchangeContext !== undefined,
+                ) && this.#options.gssapiKeyExchangeAuthentication
+                    ? [SSHAuthenticationMethods.GSSAPIKeyExchange]
+                    : []),
+                ...(this.#options.gssapi.some((mechanism) => mechanism.createContext !== undefined)
+                    ? [SSHAuthenticationMethods.GSSAPIWithMIC]
+                    : []),
+                SSHAuthenticationMethods.PublicKey,
+                SSHAuthenticationMethods.Password,
+                SSHAuthenticationMethods.Hostbased,
+            ]
+        }
+        if (!Array.isArray(this.#options.authenticationMethodsOrder)) {
+            throw new TypeError("SSH authentication method order must be an array")
+        }
         this.#options.authenticationMethodsOrder = [...this.#options.authenticationMethodsOrder]
         if (this.#options.authenticationMethodsOrder.length === 0) {
             throw new TypeError("SSH authentication method order must contain at least one method")
@@ -862,14 +921,18 @@ export default class Client extends EventEmitter<ClientEvents> {
                 "gssapi-keyex authentication requires a GSS-API key-exchange mechanism",
             )
         }
-        this.#options.keepaliveInterval ??= 0
-        this.#options.keepaliveCountMax ??= 3
-        this.#options.rekeyBytes ??= DEFAULT_REKEY_BYTES
-        this.#options.rekeyInterval ??= DEFAULT_REKEY_INTERVAL
-        this.#options.readyTimeout ??= 20_000
-        this.#options.replyTimeout ??= 30_000
-        this.#options.maxPendingChannelOpens ??= 64
-        this.#options.maxChannels ??= 1024
+        if (this.#options.keepaliveInterval === undefined) this.#options.keepaliveInterval = 0
+        if (this.#options.keepaliveCountMax === undefined) this.#options.keepaliveCountMax = 3
+        if (this.#options.rekeyBytes === undefined) this.#options.rekeyBytes = DEFAULT_REKEY_BYTES
+        if (this.#options.rekeyInterval === undefined) {
+            this.#options.rekeyInterval = DEFAULT_REKEY_INTERVAL
+        }
+        if (this.#options.readyTimeout === undefined) this.#options.readyTimeout = 20_000
+        if (this.#options.replyTimeout === undefined) this.#options.replyTimeout = 30_000
+        if (this.#options.maxPendingChannelOpens === undefined) {
+            this.#options.maxPendingChannelOpens = 64
+        }
+        if (this.#options.maxChannels === undefined) this.#options.maxChannels = 1024
         if (
             !Number.isFinite(this.#options.keepaliveInterval) ||
             this.#options.keepaliveInterval < 0

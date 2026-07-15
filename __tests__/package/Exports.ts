@@ -670,6 +670,7 @@ describe("package exports", () => {
                     if (!(invalidForward instanceof Promise)) process.exit(69)
                     try { await invalidForward; process.exit(70) } catch (error) { if (!String(error).includes("destination port must be between 0 and 65535")) process.exit(71) }
                     try { new Server({ hostKeys: null }); process.exit(72) } catch (error) { if (!String(error).includes("hostKeys option must be an array")) process.exit(73) }
+                    try { new Client({ gssapi: null }); process.exit(74) } catch (error) { if (!String(error).includes("client GSS-API mechanisms must be an array")) process.exit(75) }
                     try { new Client({ port: 0 }); process.exit(57) } catch (error) { if (!String(error).includes("between 1 and 65535")) process.exit(58) }
                     try { new Server({ greeting: "invalid\\ud800greeting" }); process.exit(59) } catch (error) { if (!String(error).includes("not valid UTF-8 text")) process.exit(60) }
                     const legacy = generateKeyPairSync("dsa")

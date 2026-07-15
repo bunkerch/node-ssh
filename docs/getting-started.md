@@ -49,6 +49,14 @@ in registration order. Observe contained handler failures through the Hooker's
 with a primitive value. Ordinary `Client`, `Server`, and channel EventEmitter listeners are
 synchronous notifications, so do not put authorization work in an async event listener.
 
+Client configuration is validated when the client is constructed. Only `undefined` selects an
+option's documented default; `null` is rejected instead of silently enabling a default. The root
+options and `algorithms` and `hostbased` option groups must be objects, while `gssapi` and
+`authenticationMethodsOrder` must be arrays. A supplied `protocolVersionExchange` must be a
+`ProtocolVersionExchange`, and `sock` must provide the duplex-stream interface. Numeric timeouts,
+keepalive limits, rekey limits, and channel limits must satisfy their documented ranges. These
+checks also apply when JavaScript consumers bypass the generated TypeScript declarations.
+
 Both `Client` and `Server` accept a `debug(...message)` option for diagnostics that must be
 available from the start of their lifecycle. It receives the same arguments as the corresponding
 `debug` event; applications may use either or both. Authentication secrets and key material are
