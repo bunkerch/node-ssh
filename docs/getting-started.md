@@ -526,9 +526,12 @@ await client.connect()
 Passing a socket path calls `createSocketAgent(path)`. On POSIX it constructs `SSHAgent`. On Windows,
 named-pipe paths such as `\\.\pipe\agent` also use `SSHAgent`, while other paths use `CygwinAgent`
 for Cygwin's legacy socket-file transport. Construct a specific class directly to override that
-selection or configure Cygwin handshake limits. Path availability is checked when a Promise opens
-the connection rather than during construction, so a later-created socket works and connection
-failures remain asynchronous.
+selection or configure Cygwin handshake limits. Explicit paths must be non-empty strings without NUL
+bytes. Path availability is checked when a Promise opens the connection rather than during
+construction, so a later-created socket works and connection failures remain asynchronous. Custom
+agent objects are validated during client construction and must provide a valid `AgentType` plus
+`getPublicKeys()`, `getPublicKey()`, and `sign()` methods; an optional `getStream()` enables agent
+forwarding.
 
 On Windows, the special value `"pageant"` constructs `PageantAgent`. Pageant 0.75 and newer speaks
 the standard agent protocol over a per-user named pipe whose protected name is derived through the

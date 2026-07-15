@@ -14,6 +14,7 @@ import UserAuthRequest from "../../src/packets/UserAuthRequest.js"
 import { HostboundPublicKeyAuthMethod } from "../../src/auth/publickey.js"
 import ExtInfo from "../../src/packets/ExtInfo.js"
 import type { ProtocolPacketMetadata } from "../../src/packet.js"
+import { AgentType, type Agent } from "../../src/publickey/Agent.js"
 
 describe("RFC 4252 multi-method authentication", () => {
     test("rejects malformed authentication method orders during construction", () => {
@@ -35,6 +36,45 @@ describe("RFC 4252 multi-method authentication", () => {
                     authenticationMethodsOrder: ["future-auth" as SSHAuthenticationMethods],
                 }),
         ).toThrow("SSH authentication method order contains an unsupported method: future-auth")
+    })
+
+    test("rejects malformed authentication agents during construction", () => {
+        const methods = {
+            async getPublicKeys() {
+                return []
+            },
+            async getPublicKey() {
+                throw new Error("No identity")
+            },
+            async sign() {
+                throw new Error("No identity")
+            },
+        }
+        const valid: Agent<string> = {
+            type: AgentType.NonInteractive,
+            ...methods,
+        }
+
+        expect(() => new Client({ agent: null as never })).toThrow(
+            "SSH agent option must be an Agent or socket path",
+        )
+        expect(() => new Client({ agent: { ...methods, type: 99 } as never })).toThrow(
+            "SSH agent type must be Interactive or NonInteractive",
+        )
+        expect(
+            () =>
+                new Client({
+                    agent: {
+                        type: AgentType.NonInteractive,
+                        getPublicKey: () => undefined,
+                        sign: () => undefined,
+                    } as never,
+                }),
+        ).toThrow("SSH agent must implement getPublicKeys()")
+        expect(() => new Client({ agent: { ...valid, getStream: true } as never })).toThrow(
+            "SSH agent getStream must be a function when provided",
+        )
+        expect(() => new Client({ agent: valid })).not.toThrow()
     })
 
     test("owns the configured authentication method order before connecting", async () => {

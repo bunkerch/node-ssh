@@ -221,5 +221,6 @@ describe("Cygwin agent transport", () => {
             "integer between one and 1048576",
         )
         expect(() => new CygwinAgent("")).toThrow("non-empty string")
+        expect(() => new CygwinAgent("agent\0socket")).toThrow("without NUL bytes")
     })
 })

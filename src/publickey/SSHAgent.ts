@@ -24,9 +24,18 @@ export default class SSHAgent implements Agent<string> {
     readonly socketPath: string
 
     constructor(socketPath = process.env.SSH_AUTH_SOCK) {
-        if (!socketPath) {
+        if (socketPath === undefined) {
             throw new SSHAgentError(
                 "Could not find an SSH agent socket in $SSH_AUTH_SOCK; pass its path to new SSHAgent(path)",
+            )
+        }
+        if (
+            typeof socketPath !== "string" ||
+            socketPath.length === 0 ||
+            socketPath.includes("\0")
+        ) {
+            throw new TypeError(
+                "SSH agent socket path must be a non-empty string without NUL bytes",
             )
         }
         this.socketPath = socketPath

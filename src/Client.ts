@@ -76,7 +76,7 @@ import Disconnect, {
 } from "./packets/Disconnect.js"
 import ServiceRequest from "./packets/ServiceRequest.js"
 import ServiceAccept from "./packets/ServiceAccept.js"
-import Agent from "./publickey/Agent.js"
+import Agent, { AgentType } from "./publickey/Agent.js"
 import NoneAgent from "./publickey/NoneAgent.js"
 import GlobalRequest from "./packets/GlobalRequest.js"
 import RequestFailure from "./packets/RequestFailure.js"
@@ -364,6 +364,7 @@ export function normalizeClientAuthenticationAgent(options: Readonly<ClientOptio
     if (options.certificate !== undefined && options.privateKey === undefined) {
         throw new TypeError("SSH certificate option requires privateKey")
     }
+    if (configuredAgent !== undefined) validateAuthenticationAgent(configuredAgent)
     if (options.privateKey !== undefined) {
         if (options.privateKey instanceof PrivateKey && options.passphrase !== undefined) {
             throw new TypeError("SSH passphrase is only valid for an encoded privateKey")
@@ -392,6 +393,24 @@ export function normalizeClientAuthenticationAgent(options: Readonly<ClientOptio
         throw new TypeError("SSH passphrase option requires privateKey")
     }
     return configuredAgent ?? new NoneAgent()
+}
+
+function validateAuthenticationAgent(agent: unknown): asserts agent is Agent {
+    if (typeof agent !== "object" || agent === null) {
+        throw new TypeError("SSH agent option must be an Agent or socket path")
+    }
+    const candidate = agent as Record<string, unknown>
+    if (candidate.type !== AgentType.Interactive && candidate.type !== AgentType.NonInteractive) {
+        throw new TypeError("SSH agent type must be Interactive or NonInteractive")
+    }
+    for (const method of ["getPublicKeys", "getPublicKey", "sign"] as const) {
+        if (typeof candidate[method] !== "function") {
+            throw new TypeError(`SSH agent must implement ${method}()`)
+        }
+    }
+    if (candidate.getStream !== undefined && typeof candidate.getStream !== "function") {
+        throw new TypeError("SSH agent getStream must be a function when provided")
+    }
 }
 
 export type ClientHostVerifier = (key: Buffer | string) => boolean | Promise<boolean>

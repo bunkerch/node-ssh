@@ -69,6 +69,6 @@ export default class OnePasswordAgent extends SSHAgent {
     type = AgentType.Interactive
 
     constructor(agentSocketPath?: string) {
-        super(agentSocketPath || discoverOnePasswordAgentSocket())
+        super(agentSocketPath ?? discoverOnePasswordAgentSocket())
     }
 }

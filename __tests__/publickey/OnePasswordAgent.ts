@@ -14,4 +14,10 @@ describe("1Password agent discovery", () => {
         expect(agent.socketPath).toBe("custom-agent.sock")
         expect(agent.type).toBe(AgentType.Interactive)
     })
+
+    test("does not replace an invalid explicit path with platform discovery", () => {
+        expect(() => new OnePasswordAgent("")).toThrow(
+            "SSH agent socket path must be a non-empty string without NUL bytes",
+        )
+    })
 })

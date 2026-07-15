@@ -39,6 +39,14 @@ async function writeFragmented(socket: Socket, response: Buffer): Promise<void> 
 }
 
 describe("SSHAgent", () => {
+    test("rejects invalid explicit socket paths during construction", () => {
+        for (const socketPath of ["", "agent\0socket", 42, null] as unknown[]) {
+            expect(() => new SSHAgent(socketPath as string)).toThrow(
+                "SSH agent socket path must be a non-empty string without NUL bytes",
+            )
+        }
+    })
+
     test("defers path availability to connection time and accepts named pipes", async () => {
         const directory = await mkdtemp(join(tmpdir(), "modernssh-late-agent-"))
         const socketPath = join(directory, "agent.sock")

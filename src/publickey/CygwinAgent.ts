@@ -165,8 +165,14 @@ export default class CygwinAgent extends Agent<string> {
 
     constructor(socketPath: string, options: CygwinAgentOptions = {}) {
         super()
-        if (typeof socketPath !== "string" || socketPath.length === 0) {
-            throw new TypeError("Cygwin agent socket path must be a non-empty string")
+        if (
+            typeof socketPath !== "string" ||
+            socketPath.length === 0 ||
+            socketPath.includes("\0")
+        ) {
+            throw new TypeError(
+                "Cygwin agent socket path must be a non-empty string without NUL bytes",
+            )
         }
         this.socketPath = socketPath
         this.options = Object.freeze(validateOptions(options))
