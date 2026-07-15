@@ -6,15 +6,17 @@ import Server from "../../src/Server.js"
 import PrivateKey from "../../src/utils/PrivateKey.js"
 
 const methods = [
-    "diffie-hellman-group14-sha256",
-    "diffie-hellman-group15-sha512",
-    "diffie-hellman-group16-sha512",
-    "diffie-hellman-group17-sha512",
-    "diffie-hellman-group18-sha512",
+    ["RFC 4253", "diffie-hellman-group1-sha1"],
+    ["RFC 4253", "diffie-hellman-group14-sha1"],
+    ["RFC 8268", "diffie-hellman-group14-sha256"],
+    ["RFC 8268", "diffie-hellman-group15-sha512"],
+    ["RFC 8268", "diffie-hellman-group16-sha512"],
+    ["RFC 8268", "diffie-hellman-group17-sha512"],
+    ["RFC 8268", "diffie-hellman-group18-sha512"],
 ] as const
 
-describe("RFC 8268 fixed-group integration", () => {
-    test.each(methods)("exchanges protected traffic and rekeys with %s", async (keyExchange) => {
+describe("fixed-group Diffie-Hellman integration", () => {
+    test.each(methods)("%s traffic and rekey with %s", async (_, keyExchange) => {
         const server = new Server({
             hostKeys: [PrivateKey.generateSync("ssh-ed25519")],
             sendAllHostKeys: false,

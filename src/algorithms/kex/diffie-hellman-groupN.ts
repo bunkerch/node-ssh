@@ -25,22 +25,44 @@ export default class DiffieHellmanGroupN extends KeyExchange {
 
     private keyPair: DiffieHellman | DiffieHellmanGroup | undefined
     private privateKey: Buffer | undefined
+    private readonly parameters: Readonly<{ prime: Buffer; generator: Buffer }> | undefined
 
-    constructor(groupName: string, hashName: string, privateKey?: Buffer) {
+    constructor(
+        groupName: string,
+        hashName: string,
+        privateKey?: Buffer,
+        parameters?: Readonly<{ prime: Buffer; generator: Buffer }>,
+    ) {
         super(hashName)
         this.groupName = groupName
         this.privateKey = privateKey === undefined ? undefined : Buffer.from(privateKey)
+        this.parameters =
+            parameters === undefined
+                ? undefined
+                : {
+                      prime: Buffer.from(parameters.prime),
+                      generator: Buffer.from(parameters.generator),
+                  }
     }
 
     generateKeyPair() {
-        const group = createDiffieHellmanGroup(this.groupName)
         try {
-            if (this.privateKey === undefined) {
-                this.keyPair = group
-            } else {
-                const keyPair = createDiffieHellman(group.getPrime(), group.getGenerator())
-                keyPair.setPrivateKey(this.privateKey)
+            if (this.parameters !== undefined) {
+                const keyPair = createDiffieHellman(
+                    this.parameters.prime,
+                    this.parameters.generator,
+                )
+                if (this.privateKey !== undefined) keyPair.setPrivateKey(this.privateKey)
                 this.keyPair = keyPair
+            } else {
+                const group = createDiffieHellmanGroup(this.groupName)
+                if (this.privateKey === undefined) {
+                    this.keyPair = group
+                } else {
+                    const keyPair = createDiffieHellman(group.getPrime(), group.getGenerator())
+                    keyPair.setPrivateKey(this.privateKey)
+                    this.keyPair = keyPair
+                }
             }
             this.keyPair.generateKeys()
         } finally {

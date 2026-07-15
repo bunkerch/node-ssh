@@ -384,6 +384,14 @@ clients validate OpenSSH-selected safe groups, explicitly rekey, authenticate, a
 command. SHA-1 coverage exists for legacy compatibility, while SHA-256 precedes fixed MODP methods
 in the default preference.
 
+Fixed-group Diffie-Hellman evidence includes the legacy RFC 4253 group1/SHA-1 and group14/SHA-1
+methods as well as the RFC 8268 SHA-2 methods. The legacy primitive tests use the published Oakley
+Group 2 prime and a fixed private scalar to prove the public value, shared secret, exchange hash,
+and rejection boundaries independently of a named-group lookup. In-process peers exchange
+protected requests across rekey for every method. The system OpenSSH client explicitly enables
+both legacy names, transfers enough data to initiate a low-limit rekey, and completes a command;
+these opt-in tests are compatibility evidence rather than a deployment recommendation.
+
 AEAD interoperability forces ChaCha20-Poly1305 and both 128- and 256-bit AES-GCM variants in both
 peer roles. OpenSSH streams enough data to initiate low-limit rekeys against the modern server;
 separate modern clients force each cipher against the containerized server, explicitly rekey, and

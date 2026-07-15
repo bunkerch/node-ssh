@@ -7,9 +7,11 @@ import SessionChannel from "../../src/channels/SessionChannel.js"
 import PrivateKey from "../../src/utils/PrivateKey.js"
 
 const methods = [
-    "diffie-hellman-group14-sha256",
-    "diffie-hellman-group16-sha512",
-    "diffie-hellman-group18-sha512",
+    ["RFC 4253", "diffie-hellman-group1-sha1"],
+    ["RFC 4253", "diffie-hellman-group14-sha1"],
+    ["RFC 8268", "diffie-hellman-group14-sha256"],
+    ["RFC 8268", "diffie-hellman-group16-sha512"],
+    ["RFC 8268", "diffie-hellman-group18-sha512"],
 ] as const
 
 async function collectProcess(
@@ -31,10 +33,10 @@ async function collectProcess(
     }
 }
 
-describe("RFC 8268 OpenSSH interoperability", () => {
+describe("fixed-group Diffie-Hellman OpenSSH interoperability", () => {
     test.each(methods)(
-        "OpenSSH exchanges traffic and rekeys with %s",
-        async (keyExchange) => {
+        "%s OpenSSH exchanges traffic and rekeys with %s",
+        async (_, keyExchange) => {
             const server = new Server({
                 hostKeys: [PrivateKey.generateSync("ssh-ed25519")],
                 sendAllHostKeys: false,

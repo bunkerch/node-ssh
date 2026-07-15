@@ -705,6 +705,10 @@ The RFC 9142 legacy methods `diffie-hellman-group14-sha1`,
 `diffie-hellman-group1-sha1`, and `diffie-hellman-group-exchange-sha1` remain available for explicit
 interoperability but are never offered by default. SHA-1 host signatures, DSS, CBC/3DES, and
 MD5/SHA-1 MACs likewise require explicit configuration.
+The group1 implementation embeds its published RFC prime instead of depending on a
+runtime-specific alias for the 1024-bit group. Both fixed groups validate peer values in the open
+interval `(1, p-1)`. Fixed exchange-hash vectors, encrypted traffic across rekey, and explicitly
+enabled OpenSSH negotiation cover both SHA-1 methods.
 
 ```ts
 const client = new Client({

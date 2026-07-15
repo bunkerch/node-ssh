@@ -9,7 +9,7 @@ export default class DiffieHellmanGroup14SHA1 extends DiffieHellmanGroupN {
         return new DiffieHellmanGroup14SHA1()
     }
 
-    constructor() {
-        super("modp14", "sha1")
+    constructor(privateKey?: Buffer) {
+        super("modp14", "sha1", privateKey)
     }
 }
