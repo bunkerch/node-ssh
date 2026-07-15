@@ -30,7 +30,7 @@ import {
     serializeBuffer,
     serializeUint32,
 } from "../utils/Buffer.js"
-import AuthMethod from "./AuthMethod.js"
+import AuthMethod, { type AuthenticationGenerationGuard } from "./AuthMethod.js"
 
 export interface GSSAPIWithMICAuthMethodData {
     mechanismOIDs: readonly Buffer[]
@@ -72,7 +72,10 @@ export default class GSSAPIWithMICAuthMethod implements AuthMethod {
         return new GSSAPIWithMICAuthMethod({ mechanismOIDs })
     }
 
-    static async handleAuthentication(client: Client): Promise<boolean> {
+    static async handleAuthentication(
+        client: Client,
+        assertCurrent: AuthenticationGenerationGuard,
+    ): Promise<boolean> {
         const mechanisms = clientConfigurationFor(client).gssapi.filter(
             (mechanism) => mechanism.createContext !== undefined,
         )
@@ -81,6 +84,7 @@ export default class GSSAPIWithMICAuthMethod implements AuthMethod {
         // Imported only when authentication starts so this method module remains safe to
         // register from UserAuthRequest without introducing an eager module cycle.
         const { default: UserAuthRequest } = await import("../packets/UserAuthRequest.js")
+        assertCurrent()
 
         const packets = new PacketEventQueue(
             client,
@@ -100,6 +104,7 @@ export default class GSSAPIWithMICAuthMethod implements AuthMethod {
             )
 
             const response = await waitForGSSAPIAnswer(packets)
+            assertCurrent()
             if (response instanceof UserAuthFailure) return false
             if (!(response instanceof UserAuthGSSAPIResponse)) return false
             const mechanism = mechanisms.find(({ oid }) => oid.equals(response.oid))
@@ -115,8 +120,10 @@ export default class GSSAPIWithMICAuthMethod implements AuthMethod {
                     delegateCredentials: clientConfigurationFor(client).gssapiDelegateCredentials,
                 }),
             )
+            assertCurrent()
             assertClientContext(context)
             let step = normalizeGSSAPIContextStep(await context.step())
+            assertCurrent()
             while (true) {
                 if (step.token) client.sendPacket(new UserAuthGSSAPIToken(step.token))
                 if (step.complete) {
@@ -131,16 +138,19 @@ export default class GSSAPIWithMICAuthMethod implements AuthMethod {
                             await context.getMIC(micInput),
                             "GSS-API MIC",
                         )
+                        assertCurrent()
                         client.sendPacket(new UserAuthGSSAPIMIC(mic))
                     } else {
                         client.sendPacket(new UserAuthGSSAPIExchangeComplete())
                     }
-                    return await waitForGSSAPICompletion(client, packets, context)
+                    return await waitForGSSAPICompletion(client, packets, context, assertCurrent)
                 }
 
                 const answer = await waitForGSSAPIAnswer(packets)
+                assertCurrent()
                 if (answer instanceof UserAuthGSSAPIToken) {
                     step = normalizeGSSAPIContextStep(await context.step(answer.token))
+                    assertCurrent()
                     continue
                 }
                 if (answer instanceof UserAuthGSSAPIError) {
@@ -150,14 +160,17 @@ export default class GSSAPIWithMICAuthMethod implements AuthMethod {
                 if (answer instanceof UserAuthGSSAPIErrorToken) {
                     try {
                         await context.step(answer.token)
+                        assertCurrent()
                     } catch (error) {
+                        assertCurrent()
                         client.debug("GSS-API mechanism rejected the server error token:", error)
                     }
-                    return await waitForGSSAPIFailure(client, packets)
+                    return await waitForGSSAPIFailure(client, packets, assertCurrent)
                 }
                 return answer instanceof UserAuthSuccess
             }
         } catch (error) {
+            assertCurrent()
             if (error instanceof GSSAPIError && error.token) {
                 client.sendPacket(new UserAuthGSSAPIErrorToken(error.token))
             }
@@ -180,9 +193,11 @@ async function waitForGSSAPICompletion(
     client: Client,
     packets: PacketEventQueue,
     context: GSSAPIClientContext,
+    assertCurrent: AuthenticationGenerationGuard,
 ): Promise<boolean> {
     while (true) {
         const answer = await waitForGSSAPIAnswer(packets)
+        assertCurrent()
         if (answer instanceof UserAuthSuccess) return true
         if (answer instanceof UserAuthFailure) return false
         if (answer instanceof UserAuthGSSAPIError) {
@@ -192,18 +207,25 @@ async function waitForGSSAPICompletion(
         if (answer instanceof UserAuthGSSAPIErrorToken) {
             try {
                 await context.step(answer.token)
+                assertCurrent()
             } catch (error) {
+                assertCurrent()
                 client.debug("GSS-API mechanism rejected the server error token:", error)
             }
-            return await waitForGSSAPIFailure(client, packets)
+            return await waitForGSSAPIFailure(client, packets, assertCurrent)
         }
         throw new Error("Unexpected SSH packet after GSS-API context completion")
     }
 }
 
-async function waitForGSSAPIFailure(client: Client, packets: PacketEventQueue): Promise<boolean> {
+async function waitForGSSAPIFailure(
+    client: Client,
+    packets: PacketEventQueue,
+    assertCurrent: AuthenticationGenerationGuard,
+): Promise<boolean> {
     while (true) {
         const answer = await waitForGSSAPIAnswer(packets)
+        assertCurrent()
         if (answer instanceof UserAuthFailure) return false
         if (answer instanceof UserAuthGSSAPIError) {
             client.emit("gssapiError", answer.data)

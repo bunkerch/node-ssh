@@ -8,6 +8,8 @@ import UserAuthPKOK from "../packets/UserAuthPKOK.js"
 import UserAuthSuccess from "../packets/UserAuthSuccess.js"
 import { waitForMatchingPacket } from "../utils/PacketEventQueue.js"
 
+export type AuthenticationGenerationGuard = () => void
+
 export default abstract class AuthMethod {
     static method_name: string
     abstract method_name: string
@@ -24,8 +26,11 @@ export default abstract class AuthMethod {
         throw new Error("Not implemented")
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    static async handleAuthentication(client: Client): Promise<boolean> {
+    static async handleAuthentication(
+        client: Client,
+        assertCurrent: AuthenticationGenerationGuard,
+    ): Promise<boolean> {
+        assertCurrent()
         throw new Error("Not implemented")
     }
 
@@ -49,5 +54,8 @@ export default abstract class AuthMethod {
 export interface AuthMethodClass {
     method_name: SSHAuthenticationMethods
     parse(raw: Buffer): AuthMethod
-    handleAuthentication(client: Client): Promise<boolean>
+    handleAuthentication(
+        client: Client,
+        assertCurrent: AuthenticationGenerationGuard,
+    ): Promise<boolean>
 }

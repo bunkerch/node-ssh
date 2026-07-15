@@ -5,7 +5,7 @@ import { clientConfigurationFor } from "../ConnectionConfiguration.js"
 import { SSHAuthenticationMethods, SSHServiceNames } from "../constants.js"
 import UserAuthSuccess from "../packets/UserAuthSuccess.js"
 import { readNextBuffer, serializeBuffer } from "../utils/Buffer.js"
-import AuthMethod from "./AuthMethod.js"
+import AuthMethod, { type AuthenticationGenerationGuard } from "./AuthMethod.js"
 
 export default class GSSAPIKeyExchangeAuthMethod implements AuthMethod {
     static method_name = SSHAuthenticationMethods.GSSAPIKeyExchange
@@ -33,12 +33,17 @@ export default class GSSAPIKeyExchangeAuthMethod implements AuthMethod {
         return new GSSAPIKeyExchangeAuthMethod(mic)
     }
 
-    static async handleAuthentication(client: Client): Promise<boolean> {
+    static async handleAuthentication(
+        client: Client,
+        assertCurrent: AuthenticationGenerationGuard,
+    ): Promise<boolean> {
         const { default: UserAuthRequest } = await import("../packets/UserAuthRequest.js")
+        assertCurrent()
         const mic = await client.createGSSAPIKeyExchangeAuthenticationMIC(
             clientConfigurationFor(client).username,
             SSHServiceNames.Connection,
         )
+        assertCurrent()
         client.sendPacket(
             new UserAuthRequest({
                 username: clientConfigurationFor(client).username,
@@ -47,6 +52,7 @@ export default class GSSAPIKeyExchangeAuthMethod implements AuthMethod {
             }),
         )
         const answer = await AuthMethod.waitForAnswer(client)
+        assertCurrent()
         return answer instanceof UserAuthSuccess
     }
 }

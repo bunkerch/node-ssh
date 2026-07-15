@@ -1,6 +1,6 @@
 import assert from "assert"
 import UserAuthRequest from "../packets/UserAuthRequest.js"
-import AuthMethod from "./AuthMethod.js"
+import AuthMethod, { type AuthenticationGenerationGuard } from "./AuthMethod.js"
 import { readNextBinaryBoolean, readNextBuffer, serializeBuffer } from "../utils/Buffer.js"
 import { serializeBinaryBoolean } from "../utils/BinaryBoolean.js"
 import type Client from "../Client.js"
@@ -71,7 +71,10 @@ export default class PasswordAuthMethod implements AuthMethod {
         })
     }
 
-    static async handleAuthentication(client: Client): Promise<boolean> {
+    static async handleAuthentication(
+        client: Client,
+        assertCurrent: AuthenticationGenerationGuard,
+    ): Promise<boolean> {
         if (client.negotiatedAlgorithms?.cs.cipher === "none") {
             // we do not want to send the password
             // in clear text over the network
@@ -91,6 +94,7 @@ export default class PasswordAuthMethod implements AuthMethod {
             Object.freeze({ username: clientConfigurationFor(client).username! }),
             controller,
         )
+        assertCurrent()
         // no hook, or no password was provided by the user
         if (!policyCompleted || controller.password === undefined) {
             client.debug(
@@ -116,6 +120,7 @@ export default class PasswordAuthMethod implements AuthMethod {
                 }),
             )
             const answer = await AuthMethod.waitForAnswer!(client)
+            assertCurrent()
             if (answer instanceof UserAuthSuccess) return true
             if (answer instanceof UserAuthFailure) return false
             if (!(answer instanceof UserAuthPasswordChangeRequest)) return false
@@ -130,6 +135,7 @@ export default class PasswordAuthMethod implements AuthMethod {
                 }),
                 passwordChangeController,
             )
+            assertCurrent()
             if (!policyCompleted || passwordChangeController.newPassword === undefined) return false
             method.data.change_password = true
             method.data.newPassword = passwordChangeController.newPassword

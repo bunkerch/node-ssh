@@ -958,7 +958,9 @@ export default class Client extends EventEmitter<ClientEvents> {
                 "GSS-API key-exchange authentication MIC",
             )
         } finally {
-            this.initialGSSAPIKeyExchangeContext = undefined
+            if (this.initialGSSAPIKeyExchangeContext === context) {
+                this.initialGSSAPIKeyExchangeContext = undefined
+            }
             await closeGSSAPIContext(context)
         }
     }
@@ -1074,8 +1076,14 @@ export default class Client extends EventEmitter<ClientEvents> {
     }
 
     private assertConnectionGeneration(generation: number, operation: string): void {
-        if (generation !== this.connectionGeneration) {
-            throw new Error(`SSH connection was replaced during ${operation}`)
+        if (
+            generation !== this.connectionGeneration ||
+            this.state === SocketState.Closed ||
+            this.state === SocketState.Disconnected ||
+            !this.socket ||
+            this.socket.destroyed
+        ) {
+            throw new Error(`SSH connection closed or was replaced during ${operation}`)
         }
     }
 
@@ -2210,6 +2218,7 @@ export default class Client extends EventEmitter<ClientEvents> {
             throw new Error("Cannot initiate connection; client is not in a state to connect")
         }
         this.resetConnectionState()
+        const generation = this.connectionGeneration
         this.state = SocketState.Connecting
         const suppliedSocket = this.#options.sock
         if (
@@ -2309,6 +2318,7 @@ export default class Client extends EventEmitter<ClientEvents> {
             this.socket!.on("close", closeListener)
             if (suppliedSocket !== undefined) resolve()
         })
+        this.assertConnectionGeneration(generation, "connection setup")
 
         this.socket!.on("data", (data) => {
             try {
@@ -2322,9 +2332,11 @@ export default class Client extends EventEmitter<ClientEvents> {
         this.socket!.write(this.#options.protocolVersionExchange.toString())
 
         const [serverProtocolVersion] = await this.#waitEvent("serverProtocolVersion")
+        this.assertConnectionGeneration(generation, "connection setup")
         this.debug("Server protocol version:", serverProtocolVersion)
 
         await this.performKeyExchange()
+        this.assertConnectionGeneration(generation, "connection setup")
 
         this.debug("Starting authentication...")
 
@@ -2353,8 +2365,9 @@ export default class Client extends EventEmitter<ClientEvents> {
                 },
                 10_000,
             )
+            this.assertConnectionGeneration(generation, "authentication")
         } finally {
-            this.awaitingServiceAccept = false
+            if (generation === this.connectionGeneration) this.awaitingServiceAccept = false
         }
         assert(serviceAnswer.data.service_name == SSHServiceNames.UserAuth)
 
@@ -2401,6 +2414,7 @@ export default class Client extends EventEmitter<ClientEvents> {
                         context,
                         selection,
                     )
+                    this.assertConnectionGeneration(generation, "authentication policy")
                     if (!policyCompleted) {
                         throw new Error("Authentication method policy failed.")
                     }
@@ -2437,9 +2451,14 @@ export default class Client extends EventEmitter<ClientEvents> {
                 const failureSequence = this.authenticationFailureSequence
                 let success: boolean
                 try {
-                    success = await m.handleAuthentication(this)
+                    success = await m.handleAuthentication(this, () =>
+                        this.assertConnectionGeneration(generation, "authentication"),
+                    )
+                    this.assertConnectionGeneration(generation, "authentication")
                 } finally {
-                    this.activeAuthenticationMethod = undefined
+                    if (generation === this.connectionGeneration) {
+                        this.activeAuthenticationMethod = undefined
+                    }
                 }
                 if (success) {
                     this.debug(`Authentication successful with method`, m.method_name)
@@ -2461,10 +2480,11 @@ export default class Client extends EventEmitter<ClientEvents> {
                 }
             }
         } finally {
-            this.authenticationInProgress = false
+            if (generation === this.connectionGeneration) this.authenticationInProgress = false
         }
         this.hasAuthenticated = true
         await this.closeInitialGSSAPIKeyExchangeContext()
+        this.assertConnectionGeneration(generation, "authentication")
 
         // we are connected and logged in
         // we can now open channels

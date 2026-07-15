@@ -1180,4 +1180,71 @@ describe("RFC 4252 multi-method authentication", () => {
             })
         }
     }, 15_000)
+
+    test("does not send an old password decision on a reconnected transport", async () => {
+        const server = new Server({
+            hostKeys: [await PrivateKey.generate("ssh-ed25519")],
+            sendAllHostKeys: false,
+        })
+        server.hooker.hook("passwordAuthentication", (_hook, context, decision) => {
+            decision.allowLogin = context.password === "correct"
+        })
+        server.on("connection", (connection) => connection.on("error", () => undefined))
+        server.listen({ host: "127.0.0.1", port: 0 })
+        await once(server, "listening")
+
+        let releaseOldPassword!: () => void
+        const oldPasswordReleased = new Promise<void>((resolve) => {
+            releaseOldPassword = resolve
+        })
+        let reportOldPassword!: () => void
+        const oldPasswordStarted = new Promise<void>((resolve) => {
+            reportOldPassword = resolve
+        })
+        let passwordRequests = 0
+        const client = new Client({
+            hostname: "127.0.0.1",
+            port: (server.address() as AddressInfo).port,
+            username: "password-reconnect",
+            authenticationMethodsOrder: [SSHAuthenticationMethods.Password],
+        })
+        client.on("error", () => undefined)
+        client.hooker.hook("hostKey", (_hook, decision) => {
+            decision.allowHostKey = true
+        })
+        client.hooker.hook("passwordAuth", async (_hook, _context, decision) => {
+            passwordRequests++
+            if (passwordRequests === 1) {
+                reportOldPassword()
+                await oldPasswordReleased
+            }
+            decision.password = "correct"
+        })
+
+        try {
+            const oldConnection = client.connect().then(
+                () => undefined,
+                (error: unknown) => error,
+            )
+            await oldPasswordStarted
+
+            const oldTransportClosed = once(client, "close")
+            client.destroy()
+            await oldTransportClosed
+
+            await client.connect()
+            expect(passwordRequests).toBe(2)
+            expect(client.isConnected).toBe(true)
+
+            releaseOldPassword()
+            expect(await oldConnection).toBeInstanceOf(Error)
+            await new Promise<void>((resolve) => setImmediate(resolve))
+            expect(client.isConnected).toBe(true)
+        } finally {
+            releaseOldPassword()
+            client.destroy()
+            for (const connection of server.clients) connection.terminate()
+            await server.close()
+        }
+    }, 15_000)
 })

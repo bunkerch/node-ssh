@@ -1,6 +1,6 @@
 import assert from "assert"
 import UserAuthRequest from "../packets/UserAuthRequest.js"
-import AuthMethod from "./AuthMethod.js"
+import AuthMethod, { type AuthenticationGenerationGuard } from "./AuthMethod.js"
 import { readNextBinaryBoolean, readNextBuffer, serializeBuffer } from "../utils/Buffer.js"
 import { serializeBinaryBoolean } from "../utils/BinaryBoolean.js"
 import type Client from "../Client.js"
@@ -112,8 +112,12 @@ export default class PublicKeyAuthMethod implements AuthMethod {
         })
     }
 
-    static async handleAuthentication(client: Client): Promise<boolean> {
+    static async handleAuthentication(
+        client: Client,
+        assertCurrent: AuthenticationGenerationGuard,
+    ): Promise<boolean> {
         const keys = await clientConfigurationFor(client).agent.getPublicKeys()
+        assertCurrent()
         for (const key of keys) {
             const algorithms = key[1].signatureAlgorithms.filter(
                 (algorithm) =>
@@ -153,11 +157,13 @@ export default class PublicKeyAuthMethod implements AuthMethod {
                             packet.serializeForSignature(client),
                             algorithm,
                         )
+                        assertCurrent()
                     }
 
                     while (true) {
                         const seqno = client.sendPacket(packet)
                         const answer = await AuthMethod.waitForAnswer!(client, seqno)
+                        assertCurrent()
 
                         if (answer instanceof UserAuthSuccess) {
                             // public key accepted
@@ -174,6 +180,7 @@ export default class PublicKeyAuthMethod implements AuthMethod {
                             )
 
                             const keys = await clientConfigurationFor(client).agent.getPublicKeys()
+                            assertCurrent()
                             const key = keys.find((key) => key[1].equals(method.data.publicKey))
                             assert(
                                 key,
@@ -190,6 +197,7 @@ export default class PublicKeyAuthMethod implements AuthMethod {
                                 packet.serializeForSignature(client),
                                 algorithm,
                             )
+                            assertCurrent()
                         } else {
                             client.debug(
                                 `[Authentication]`,
@@ -207,6 +215,7 @@ export default class PublicKeyAuthMethod implements AuthMethod {
                         `Public Key authentication threw an error`,
                         err,
                     )
+                    assertCurrent()
                 }
             }
         }
@@ -289,7 +298,10 @@ export class HostboundPublicKeyAuthMethod extends PublicKeyAuthMethod {
         })
     }
 
-    static handleAuthentication(client: Client): Promise<boolean> {
-        return PublicKeyAuthMethod.handleAuthentication(client)
+    static handleAuthentication(
+        client: Client,
+        assertCurrent: AuthenticationGenerationGuard,
+    ): Promise<boolean> {
+        return PublicKeyAuthMethod.handleAuthentication(client, assertCurrent)
     }
 }

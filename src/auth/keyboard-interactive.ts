@@ -4,7 +4,7 @@ import { clientConfigurationFor } from "../ConnectionConfiguration.js"
 import type { ClientHookerKeyboardInteractiveController } from "../Client.js"
 import { SSHAuthenticationMethods, SSHServiceNames } from "../constants.js"
 import UserAuthRequest from "../packets/UserAuthRequest.js"
-import AuthMethod from "./AuthMethod.js"
+import AuthMethod, { type AuthenticationGenerationGuard } from "./AuthMethod.js"
 import UserAuthFailure from "../packets/UserAuthFailure.js"
 import UserAuthInfoRequest from "../packets/UserAuthInfoRequest.js"
 import UserAuthInfoResponse from "../packets/UserAuthInfoResponse.js"
@@ -60,7 +60,10 @@ export default class KeyboardInteractiveAuthMethod implements AuthMethod {
         })
     }
 
-    static async handleAuthentication(client: Client): Promise<boolean> {
+    static async handleAuthentication(
+        client: Client,
+        assertCurrent: AuthenticationGenerationGuard,
+    ): Promise<boolean> {
         if (!client.hooker.hasHooks("keyboardInteractive")) return false
 
         client.sendPacket(
@@ -74,6 +77,7 @@ export default class KeyboardInteractiveAuthMethod implements AuthMethod {
         let round = 0
         while (true) {
             const answer = await AuthMethod.waitForAnswer!(client)
+            assertCurrent()
             if (answer instanceof UserAuthSuccess) return true
             if (answer instanceof UserAuthFailure) return false
             if (!(answer instanceof UserAuthInfoRequest)) return false
@@ -93,6 +97,7 @@ export default class KeyboardInteractiveAuthMethod implements AuthMethod {
                 }),
                 controller,
             )
+            assertCurrent()
             if (!policyCompleted || !controller.responses) return false
             if (controller.responses.length !== answer.data.prompts.length) {
                 throw new Error("Keyboard-interactive response count does not match prompt count")

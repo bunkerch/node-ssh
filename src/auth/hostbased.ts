@@ -8,7 +8,7 @@ import UserAuthSuccess from "../packets/UserAuthSuccess.js"
 import { readNextBuffer, serializeBuffer } from "../utils/Buffer.js"
 import PublicKey from "../utils/PublicKey.js"
 import EncodedSignature from "../utils/Signature.js"
-import AuthMethod from "./AuthMethod.js"
+import AuthMethod, { type AuthenticationGenerationGuard } from "./AuthMethod.js"
 import { decodeSSHUTF8, encodeSSHUTF8 } from "../utils/SSHText.js"
 import { decodeSSHName, encodeSSHName } from "../utils/SSHName.js"
 
@@ -87,7 +87,10 @@ export default class HostbasedAuthMethod implements AuthMethod {
         })
     }
 
-    static async handleAuthentication(client: Client): Promise<boolean> {
+    static async handleAuthentication(
+        client: Client,
+        assertCurrent: AuthenticationGenerationGuard,
+    ): Promise<boolean> {
         const options = clientConfigurationFor(client).hostbased
         if (!options) return false
 
@@ -117,6 +120,7 @@ export default class HostbasedAuthMethod implements AuthMethod {
         client.sendPacket(request)
 
         const answer = await AuthMethod.waitForAnswer(client)
+        assertCurrent()
         if (answer instanceof UserAuthSuccess) return true
         if (answer instanceof UserAuthFailure) return false
         return false

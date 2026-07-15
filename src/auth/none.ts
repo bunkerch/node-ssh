@@ -1,6 +1,6 @@
 import assert from "assert"
 import UserAuthRequest from "../packets/UserAuthRequest.js"
-import AuthMethod from "./AuthMethod.js"
+import AuthMethod, { type AuthenticationGenerationGuard } from "./AuthMethod.js"
 import { serializeBuffer } from "../utils/Buffer.js"
 import type Client from "../Client.js"
 import { clientConfigurationFor } from "../ConnectionConfiguration.js"
@@ -30,7 +30,10 @@ export default class NoneAuthMethod implements AuthMethod {
         return new NoneAuthMethod({})
     }
 
-    static async handleAuthentication(client: Client) {
+    static async handleAuthentication(
+        client: Client,
+        assertCurrent: AuthenticationGenerationGuard,
+    ) {
         const seqno = client.sendPacket(
             new UserAuthRequest({
                 username: clientConfigurationFor(client).username,
@@ -40,6 +43,7 @@ export default class NoneAuthMethod implements AuthMethod {
         )
 
         const answer = await AuthMethod.waitForAnswer!(client, seqno)
+        assertCurrent()
         if (answer instanceof UserAuthSuccess) {
             return true
         }

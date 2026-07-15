@@ -73,7 +73,10 @@ Method selection does not carry secrets. Configure keys through `privateKey` or 
 interactive passwords and challenge responses through their dedicated awaited hooks. Password,
 password-change, and keyboard-interactive values are used only when every handler for that request
 completes without rejection. A later contained failure discards an earlier credential value before
-it can be sent to the server.
+it can be sent to the server. Credential, agent, GSS-API, and method-selection awaits are bound to
+the current transport generation. If the same `Client` reconnects while an old provider is still
+pending, that provider's eventual result is discarded before it can send an authentication packet
+on the replacement connection.
 
 RFC 4252 banners are delivered independently of the active method:
 
