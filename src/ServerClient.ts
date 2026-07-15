@@ -117,6 +117,13 @@ import ChannelOpenFailure, {
 import { channelFromChannelOpenPacket } from "./channels.js"
 import ChannelRequest from "./packets/ChannelRequest.js"
 import { ActionQueue } from "./utils/ActionQueue.js"
+import {
+    discardApplicationTrafficPause,
+    isApplicationTrafficPaused,
+    OutboundRekeyQueue,
+    pauseApplicationTraffic,
+    resumeApplicationTraffic,
+} from "./utils/RekeyQueue.js"
 import ChannelData from "./packets/ChannelData.js"
 import ChannelExtendedData from "./packets/ChannelExtendedData.js"
 import ChannelWindowAdjust from "./packets/ChannelWindowAdjust.js"
@@ -310,6 +317,8 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             this.clearHandshakeTimeout()
             this.clearKeepalive()
             this.clearRekeyTimer()
+            discardApplicationTrafficPause(this)
+            this.outboundRekeyQueue.clear()
             this.packetEncoder.dispose()
             this.packetDecoder.dispose()
             this.disposeTransportAlgorithms()
@@ -374,7 +383,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     private inboundNewKeysReady = false
     private readonly expectedInboundKeyExchangePackets = new Set<PacketType>()
     private discardNextGuessedKeyExchangePacket = false
-    private readonly packetsQueuedDuringKeyExchange: Packet[] = []
+    private readonly outboundRekeyQueue = new OutboundRekeyQueue()
     private readonly remoteChannelIds = new Set<number>()
     private readonly pendingRemoteChannelOpens = new Set<number>()
     private initialGSSAPIKeyExchangeContext?: GSSAPIKeyExchangeServerContext
@@ -954,6 +963,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         this.strictInitialExchange = !isRekey
         if (!isRekey) this.strictInitialPackets.clear()
         this.keyExchangeInProgress = true
+        pauseApplicationTraffic(this)
         this.clearRekeyTimer()
         this.peerKexInitReceived = peerInitiated
         this.inboundNewKeysReady = false
@@ -1164,9 +1174,11 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 )
                 if (delayCompression) this.delayCompressionRekeyBlocked = true
             }
-            while (this.packetsQueuedDuringKeyExchange.length > 0) {
-                this.writePacket(this.packetsQueuedDuringKeyExchange.shift()!)
-            }
+            resumeApplicationTraffic(this, () => {
+                this.outboundRekeyQueue.drain((packet, payload) =>
+                    this.writePacket(packet, payload),
+                )
+            })
             this.keyExchangeInProgress = false
             this.strictInitialExchange = false
             this.resetRekeyTimer()
@@ -1188,6 +1200,8 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             throw error
         } finally {
             this.#kexAlgorithm?.dispose()
+            discardApplicationTrafficPause(this)
+            this.outboundRekeyQueue.clear()
             this.keyExchangeInProgress = false
             this.strictInitialExchange = false
             this.expectedInboundKeyExchangePackets.clear()
@@ -2631,7 +2645,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     sendPacket(packet: Packet): number {
         const type = (packet.constructor as typeof Packet).type
         if (
-            this.keyExchangeInProgress &&
+            isApplicationTrafficPaused(this) &&
             (type >= 50 ||
                 type === PacketNameToType.SSH_MSG_PING ||
                 type === PacketNameToType.SSH_MSG_PONG ||
@@ -2640,15 +2654,15 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 type === PacketNameToType.SSH_MSG_SERVICE_REQUEST ||
                 type === PacketNameToType.SSH_MSG_SERVICE_ACCEPT)
         ) {
-            this.packetsQueuedDuringKeyExchange.push(packet)
+            this.outboundRekeyQueue.enqueue(packet)
             return -1
         }
         return this.writePacket(packet)
     }
 
-    private writePacket(packet: Packet): number {
+    private writePacket(packet: Packet, queuedPayload?: Buffer): number {
         this.debug("Sending packet:", this.packetForDebug(packet))
-        const payload = packet.serialize()
+        const payload = queuedPayload ?? packet.serialize()
         if (packet === this.#serverKexInit) this.#serverKexInitPayload = Buffer.from(payload)
         const encoded = this.packetEncoder.encode(payload)
         this.socket!.write(encoded.data)

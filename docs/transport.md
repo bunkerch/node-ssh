@@ -860,6 +860,15 @@ immediately, receiving it changes inbound protection immediately, and packet seq
 reset immediately after NEWKEYS when strict key exchange was negotiated. Existing channels remain
 open across the exchange.
 
+Channel data stays in its channel write queue during this interval, so `sendData()`, server shell
+writes, and Node stream write callbacks retain backpressure until outbound `NEWKEYS` installs the new
+keys. Previously queued control packets are written first, preserving call order. Other application
+packets retained by the transport are serialized when queued so later object mutation cannot alter
+their wire bytes, and the queue is bounded to 1,024 packets and 4 MiB. A synchronous one-way API such
+as `sendIgnore()` or `sendDebug()` throws if concurrent use fills that bound; Promise operations
+reject through their normal call path. Disconnect and failed key exchange discard the queue and
+settle channel work through the ordinary transport-close lifecycle.
+
 OpenSSH interoperability covers both directions: the modern client explicitly rekeys an OpenSSH
 server, and an OpenSSH client with a low `RekeyLimit` initiates multiple exchanges while streaming
 data through a modern server.

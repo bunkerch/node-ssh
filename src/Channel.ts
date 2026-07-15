@@ -17,6 +17,7 @@ import { ServerHookerChannelRequestController } from "./Server.js"
 import { ProtocolError } from "./packets/Disconnect.js"
 import { waitForReply } from "./ReplyTimeout.js"
 import allocateChannelIdentifier from "./utils/ChannelIdentifier.js"
+import { deferApplicationTraffic } from "./utils/RekeyQueue.js"
 
 export const DEFAULT_SERVER_CHANNEL_WINDOW_SIZE = 2 ** 21
 export const DEFAULT_SERVER_CHANNEL_PACKET_SIZE = 2 ** 15
@@ -68,6 +69,7 @@ export default class Channel {
     private openResolve!: () => void
     private openReject!: (error: Error) => void
     private readonly openPromise: Promise<void>
+    private readonly resumeWritesAfterRekey = () => this.flushPendingWrites()
 
     constructor(
         client: Client | ServerClient,
@@ -436,6 +438,7 @@ export default class Channel {
 
     private flushPendingWrites(): void {
         if (this.remoteId === undefined || this.sentClose) return
+        if (deferApplicationTraffic(this.client, this.resumeWritesAfterRekey)) return
         try {
             while (
                 this.pendingWrites.length > 0 &&

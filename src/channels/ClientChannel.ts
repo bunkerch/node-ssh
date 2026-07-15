@@ -18,6 +18,7 @@ import { decodeSSHLanguageTag, decodeSSHUTF8 } from "../utils/SSHText.js"
 import { ProtocolError } from "../packets/Disconnect.js"
 import { waitForReply } from "../ReplyTimeout.js"
 import allocateChannelIdentifier from "../utils/ChannelIdentifier.js"
+import { deferApplicationTraffic } from "../utils/RekeyQueue.js"
 
 export const DEFAULT_CHANNEL_WINDOW_SIZE = 2 ** 21
 export const DEFAULT_CHANNEL_PACKET_SIZE = 2 ** 15
@@ -108,6 +109,7 @@ export default class ClientChannel extends Duplex {
     private receivedClose = false
     private transportClosed = false
     private transportCloseError?: Error
+    private readonly resumeWritesAfterRekey = () => this.flushPendingWrites()
 
     constructor(
         client: Client,
@@ -558,6 +560,7 @@ export default class ClientChannel extends Duplex {
 
     private flushPendingWrites(): void {
         if (this.remoteId === undefined) return
+        if (deferApplicationTraffic(this.client, this.resumeWritesAfterRekey)) return
         try {
             while (this.pendingWrites.length > 0) {
                 const pending = this.pendingWrites[0]!

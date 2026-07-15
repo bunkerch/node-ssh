@@ -5,6 +5,8 @@ import { SSHAuthenticationMethods } from "../../src/constants.js"
 import Server, { type ServerOptions } from "../../src/Server.js"
 import type ServerClient from "../../src/ServerClient.js"
 import PrivateKey from "../../src/utils/PrivateKey.js"
+import SessionChannel from "../../src/channels/SessionChannel.js"
+import type Shell from "../../src/channels/Session/Shell.js"
 
 const algorithms = {
     kex: ["curve25519-sha256"],
@@ -99,6 +101,71 @@ describe("RFC 4253 automatic key re-exchange", () => {
             expect(client.isConnected).toBe(true)
             expect(peer.isConnected).toBe(true)
         } finally {
+            await closePeers(server, client)
+        }
+    }, 15_000)
+
+    test("backpressures channel writes in both directions until outbound NEWKEYS", async () => {
+        const { server, peer, client } = await connectPeers(
+            { rekeyBytes: 0, rekeyInterval: 0 },
+            { rekeyBytes: 0, rekeyInterval: 0 },
+        )
+        let releaseHostKey!: () => void
+        const hostKeyReleased = new Promise<void>((resolve) => {
+            releaseHostKey = resolve
+        })
+        let reportHostKey!: () => void
+        const hostKeyStarted = new Promise<void>((resolve) => {
+            reportHostKey = resolve
+        })
+        try {
+            server.hooker.hook("channelOpenRequest", (_hook, channel, controller) => {
+                controller.allowOpen = channel instanceof SessionChannel
+            })
+            let shell!: Shell
+            const shellReady = new Promise<void>((resolve) => {
+                peer.on("channel", (channel) => {
+                    if (!(channel instanceof SessionChannel)) return
+                    channel.hooker.hook("execRequest", (_hook, _context, controller) => {
+                        controller.success = true
+                    })
+                    channel.events.on("exec", (_command, openedShell) => {
+                        shell = openedShell
+                        resolve()
+                    })
+                })
+            })
+            const channel = await client.exec("rekey-backpressure")
+            await shellReady
+
+            client.hooker.hook("hostKey", async (_hook, controller) => {
+                reportHostKey()
+                await hostKeyReleased
+                controller.allowHostKey = true
+            })
+            const rekey = peer.rekey()
+            await hostKeyStarted
+
+            const clientData = once(channel, "data")
+            const serverData = once(shell, "data")
+            let clientWriteSettled = false
+            let serverWriteSettled = false
+            const clientWrite = channel.sendData(Buffer.from("to-server")).then(() => {
+                clientWriteSettled = true
+            })
+            const serverWrite = shell.writeStdout(Buffer.from("to-client")).then(() => {
+                serverWriteSettled = true
+            })
+            await new Promise<void>((resolve) => setImmediate(resolve))
+            expect(clientWriteSettled).toBe(false)
+            expect(serverWriteSettled).toBe(false)
+
+            releaseHostKey()
+            await Promise.all([rekey, clientWrite, serverWrite])
+            expect(await clientData).toEqual([Buffer.from("to-client")])
+            expect(await serverData).toEqual([Buffer.from("to-server")])
+        } finally {
+            releaseHostKey()
             await closePeers(server, client)
         }
     }, 15_000)

@@ -161,6 +161,13 @@ import {
     type RSASHA2SignatureAlgorithm,
 } from "./utils/HostKeysProof.js"
 import { ActionQueue } from "./utils/ActionQueue.js"
+import {
+    discardApplicationTrafficPause,
+    isApplicationTrafficPaused,
+    OutboundRekeyQueue,
+    pauseApplicationTraffic,
+    resumeApplicationTraffic,
+} from "./utils/RekeyQueue.js"
 import PrivateKeyAgent from "./publickey/PrivateKeyAgent.js"
 import { createSocketAgent } from "./publickey/SocketAgent.js"
 import { parseKey } from "./KeyParsing.js"
@@ -1148,7 +1155,7 @@ export default class Client extends EventEmitter<ClientEvents> {
     private inboundNewKeysReady = false
     private readonly expectedInboundKeyExchangePackets = new Set<PacketType>()
     private discardNextGuessedKeyExchangePacket = false
-    private readonly packetsQueuedDuringKeyExchange: Packet[] = []
+    private readonly outboundRekeyQueue = new OutboundRekeyQueue()
     private actionQueue = new ActionQueue()
     private connectionGeneration = 0
     private initialGSSAPIKeyExchangeContext?: GSSAPIKeyExchangeClientContext
@@ -1302,10 +1309,11 @@ export default class Client extends EventEmitter<ClientEvents> {
         this.clearRekeyTimer()
         this.automaticRekeyScheduled = false
         this.keyExchangeInProgress = false
+        discardApplicationTrafficPause(this)
         this.inboundNewKeysReady = false
         this.expectedInboundKeyExchangePackets.clear()
         this.discardNextGuessedKeyExchangePacket = false
-        this.packetsQueuedDuringKeyExchange.length = 0
+        this.outboundRekeyQueue.clear()
         this.actionQueue.close(new Error("SSH connection action queue was reset"))
         this.actionQueue = new ActionQueue()
     }
@@ -2296,6 +2304,7 @@ export default class Client extends EventEmitter<ClientEvents> {
         this.strictInitialExchange = !isRekey
         if (!isRekey) this.strictInitialPackets.clear()
         this.keyExchangeInProgress = true
+        pauseApplicationTraffic(this)
         this.clearRekeyTimer()
         this.peerKexInitReceived = peerInitiated
         this.inboundNewKeysReady = false
@@ -2537,16 +2546,15 @@ export default class Client extends EventEmitter<ClientEvents> {
                 this.advertisedAuthenticationExtInfo = true
                 if (delayCompression) this.delayCompressionRekeyBlocked = true
             }
-            while (this.packetsQueuedDuringKeyExchange.length > 0) {
-                this.writePacket(this.packetsQueuedDuringKeyExchange.shift()!)
-            }
+            resumeApplicationTraffic(this, () => {
+                this.outboundRekeyQueue.drain((packet, payload) =>
+                    this.writePacket(packet, payload),
+                )
+            })
             this.emit("clientNewKeys")
             if (!this.hasReceivedNewKeys) {
                 await this.#waitEvent("serverNewKeys")
                 this.assertConnectionGeneration(generation, "key exchange")
-            }
-            while (this.packetsQueuedDuringKeyExchange.length > 0) {
-                this.writePacket(this.packetsQueuedDuringKeyExchange.shift()!)
             }
             this.keyExchangeInProgress = false
             this.strictInitialExchange = false
@@ -2572,6 +2580,8 @@ export default class Client extends EventEmitter<ClientEvents> {
         } finally {
             negotiatedKeyExchange?.dispose()
             if (generation === this.connectionGeneration) {
+                discardApplicationTrafficPause(this)
+                this.outboundRekeyQueue.clear()
                 this.keyExchangeInProgress = false
                 this.strictInitialExchange = false
                 this.expectedInboundKeyExchangePackets.clear()
@@ -2643,6 +2653,8 @@ export default class Client extends EventEmitter<ClientEvents> {
                 this.clearReadyTimeout()
                 this.clearKeepalive()
                 this.clearRekeyTimer()
+                discardApplicationTrafficPause(this)
+                this.outboundRekeyQueue.clear()
                 this.packetEncoder.dispose()
                 this.packetDecoder.dispose()
                 this.disposeTransportAlgorithms()
@@ -3022,7 +3034,7 @@ export default class Client extends EventEmitter<ClientEvents> {
     sendPacket(packet: Packet): number {
         const type = (packet.constructor as typeof Packet).type
         if (
-            this.keyExchangeInProgress &&
+            isApplicationTrafficPaused(this) &&
             (type >= 50 ||
                 type === PacketNameToType.SSH_MSG_PING ||
                 type === PacketNameToType.SSH_MSG_PONG ||
@@ -3031,15 +3043,15 @@ export default class Client extends EventEmitter<ClientEvents> {
                 type === PacketNameToType.SSH_MSG_SERVICE_REQUEST ||
                 type === PacketNameToType.SSH_MSG_SERVICE_ACCEPT)
         ) {
-            this.packetsQueuedDuringKeyExchange.push(packet)
+            this.outboundRekeyQueue.enqueue(packet)
             return -1
         }
         return this.writePacket(packet)
     }
 
-    private writePacket(packet: Packet): number {
+    private writePacket(packet: Packet, queuedPayload?: Buffer): number {
         this.debug("Sending packet:", this.packetForDebug(packet))
-        const payload = packet.serialize()
+        const payload = queuedPayload ?? packet.serialize()
         if (packet === this.#clientKexInit) this.#clientKexInitPayload = Buffer.from(payload)
         const encoded = this.packetEncoder.encode(payload)
         this.socket!.write(encoded.data)
