@@ -1073,6 +1073,12 @@ export default class Client extends EventEmitter<ClientEvents> {
         this.actionQueue = new ActionQueue()
     }
 
+    private assertConnectionGeneration(generation: number, operation: string): void {
+        if (generation !== this.connectionGeneration) {
+            throw new Error(`SSH connection was replaced during ${operation}`)
+        }
+    }
+
     private async closeInitialGSSAPIKeyExchangeContext(): Promise<void> {
         const context = this.initialGSSAPIKeyExchangeContext
         this.initialGSSAPIKeyExchangeContext = undefined
@@ -1751,6 +1757,7 @@ export default class Client extends EventEmitter<ClientEvents> {
     private async performGSSAPIKeyExchange(
         algorithm: GSSAPIKeyExchange,
         retainContext: boolean,
+        generation: number,
     ): Promise<{
         hostKey: Buffer
         exchangeHash: Buffer
@@ -1767,16 +1774,19 @@ export default class Client extends EventEmitter<ClientEvents> {
             sequenceDetection: false,
         })
         assertGSSAPIKeyExchangeClientContext(context)
-        const packets = new PacketEventQueue(
-            this,
-            () => new KeyExchangeError("Connection closed during GSS-API key exchange"),
-        )
+        let packets: PacketEventQueue | undefined
         let hostKey: Buffer | undefined
         let receivedContextMessage = false
         let contextRetained = false
         try {
+            this.assertConnectionGeneration(generation, "GSS-API key exchange")
+            packets = new PacketEventQueue(
+                this,
+                () => new KeyExchangeError("Connection closed during GSS-API key exchange"),
+            )
             algorithm.generateKeyPair("client")
             let step = normalizeGSSAPIKeyExchangeContextStep(await context.step())
+            this.assertConnectionGeneration(generation, "GSS-API key exchange")
             const initialToken = requireGSSAPIKeyExchangeToken(step.token)
             this.expectInboundKeyExchange(
                 KexGSSAPIContinue.type,
@@ -1802,6 +1812,7 @@ export default class Client extends EventEmitter<ClientEvents> {
                 )
                 this.resumePacketProcessing()
                 const packet = await packets.next()
+                this.assertConnectionGeneration(generation, "GSS-API key exchange")
                 if (packet instanceof KexGSSAPIHostKey) {
                     if (hostKey || receivedContextMessage) {
                         throw new KeyExchangeError("Server sent an out-of-order GSS-API host key")
@@ -1822,6 +1833,7 @@ export default class Client extends EventEmitter<ClientEvents> {
                         )
                     }
                     step = normalizeGSSAPIKeyExchangeContextStep(await context.step(packet.token))
+                    this.assertConnectionGeneration(generation, "GSS-API key exchange")
                     this.sendPacket(
                         new KexGSSAPIContinue(requireGSSAPIKeyExchangeToken(step.token)),
                     )
@@ -1838,6 +1850,7 @@ export default class Client extends EventEmitter<ClientEvents> {
                         )
                     }
                     step = normalizeGSSAPIKeyExchangeContextStep(await context.step(packet.token))
+                    this.assertConnectionGeneration(generation, "GSS-API key exchange")
                     if (step.token !== undefined) {
                         throw new KeyExchangeError(
                             "GSS-API client produced a token after processing the final server token",
@@ -1863,7 +1876,9 @@ export default class Client extends EventEmitter<ClientEvents> {
                         packet.publicKey,
                     ),
                 )
-                if (!(await context.verifyMIC(exchangeHash, packet.mic))) {
+                const validMIC = await context.verifyMIC(exchangeHash, packet.mic)
+                this.assertConnectionGeneration(generation, "GSS-API key exchange")
+                if (!validMIC) {
                     throw new KeyExchangeError("Invalid GSS-API key-exchange MIC")
                 }
                 if (retainContext) {
@@ -1881,7 +1896,12 @@ export default class Client extends EventEmitter<ClientEvents> {
                 }
             }
         } catch (error) {
-            if (error instanceof GSSAPIError && error.token && this.socket?.writable) {
+            if (
+                generation === this.connectionGeneration &&
+                error instanceof GSSAPIError &&
+                error.token &&
+                this.socket?.writable
+            ) {
                 this.sendPacket(new KexGSSAPIContinue(error.token))
             }
             if (error instanceof KeyExchangeError) throw error
@@ -1889,7 +1909,7 @@ export default class Client extends EventEmitter<ClientEvents> {
                 error instanceof Error ? error.message : "GSS-API key exchange failed",
             )
         } finally {
-            packets.close()
+            packets?.close()
             if (!contextRetained) await closeGSSAPIContext(context)
         }
     }
@@ -1898,7 +1918,9 @@ export default class Client extends EventEmitter<ClientEvents> {
         if (this.keyExchangeInProgress) {
             throw new Error("SSH key exchange is already in progress")
         }
+        const generation = this.connectionGeneration
         const isRekey = this.sessionID !== undefined
+        let negotiatedKeyExchange: KexAlgorithm | undefined
         this.strictInitialExchange = !isRekey
         if (!isRekey) this.strictInitialPackets.clear()
         this.keyExchangeInProgress = true
@@ -1917,7 +1939,10 @@ export default class Client extends EventEmitter<ClientEvents> {
         try {
             this.#clientKexInit = this.createKexInit()
             this.sendPacket(this.#clientKexInit)
-            if (!peerInitiated) await this.#waitEvent("serverKexInit")
+            if (!peerInitiated) {
+                await this.#waitEvent("serverKexInit")
+                this.assertConnectionGeneration(generation, "key exchange")
+            }
             const serverKexInitBuffer = this.#serverKexInitPayload
             assert(serverKexInitBuffer, "Missing exact server KEXINIT payload")
             const serverKexInit = KexInit.parse(serverKexInitBuffer)
@@ -1944,6 +1969,7 @@ export default class Client extends EventEmitter<ClientEvents> {
 
             const kexAlgorithm = this.#kexAlgorithm
             assert(kexAlgorithm, "No key exchange algorithm was negotiated")
+            negotiatedKeyExchange = kexAlgorithm
             let hostKeyBlob: Buffer
             let signatureBlob: Buffer | undefined
             let h: Buffer | undefined
@@ -1956,7 +1982,9 @@ export default class Client extends EventEmitter<ClientEvents> {
                         this.#options.authenticationMethodsOrder.includes(
                             SSHAuthenticationMethods.GSSAPIKeyExchange,
                         ),
+                    generation,
                 )
+                this.assertConnectionGeneration(generation, "GSS-API key exchange")
                 hostKeyBlob = result.hostKey
                 h = result.exchangeHash
                 this.initialGSSAPIKeyExchangeContext = result.context
@@ -1965,12 +1993,14 @@ export default class Client extends EventEmitter<ClientEvents> {
                 kexAlgorithm.setRequest(defaultGroupExchangeRequest)
                 this.sendPacket(new KexDHGexRequest(defaultGroupExchangeRequest))
                 const [group] = await this.#waitEvent("serverKexDHGexGroup")
+                this.assertConnectionGeneration(generation, "key exchange")
                 kexAlgorithm.acceptServerGroup(group.data.p, group.data.g)
                 kexAlgorithm.generateKeyPair()
                 clientExchangeValue = kexAlgorithm.getPublicKey()
                 this.sendPacket(new KexDHGexInit({ e: clientExchangeValue }))
                 this.expectInboundKeyExchange(PacketNameToType.SSH_MSG_KEX_DH_GEX_REPLY)
                 const reply = (await this.#waitEvent("serverKexDHGexReply"))[0]
+                this.assertConnectionGeneration(generation, "key exchange")
                 kexAlgorithm.computeSharedSecret(reply.data.f)
                 serverExchangeValue = reply.data.f
                 hostKeyBlob = reply.data.K_S
@@ -1978,12 +2008,14 @@ export default class Client extends EventEmitter<ClientEvents> {
             } else if (kexAlgorithm instanceof RSA2048SHA256) {
                 this.expectInboundKeyExchange(PacketNameToType.SSH_MSG_KEXDH_INIT)
                 const [publicKey] = await this.#waitEvent("serverKexRSAPublicKey")
+                this.assertConnectionGeneration(generation, "key exchange")
                 kexAlgorithm.setServerKeys(publicKey.data.hostKey, publicKey.data.transientKey)
                 this.sendPacket(
                     new KexRSASecret({ encryptedSecret: kexAlgorithm.generateSecret() }),
                 )
                 this.expectInboundKeyExchange(PacketNameToType.SSH_MSG_KEX_DH_GEX_INIT)
                 const [done] = await this.#waitEvent("serverKexRSADone")
+                this.assertConnectionGeneration(generation, "key exchange")
                 hostKeyBlob = publicKey.data.hostKey
                 signatureBlob = done.data.signature
             } else {
@@ -1997,6 +2029,7 @@ export default class Client extends EventEmitter<ClientEvents> {
                     }),
                 )
                 const reply = (await this.#waitEvent("serverKexDHReply"))[0]
+                this.assertConnectionGeneration(generation, "key exchange")
                 kexAlgorithm.computeSharedSecret(reply.data.f)
                 serverExchangeValue = reply.data.f
                 hostKeyBlob = reply.data.K_S
@@ -2069,6 +2102,7 @@ export default class Client extends EventEmitter<ClientEvents> {
                 }
 
                 await this.verifyConfiguredHostKey(hostKeyBlob)
+                this.assertConnectionGeneration(generation, "key exchange")
                 this.negotiatedServerHostKey = Buffer.from(hostKeyBlob)
 
                 if (this.hooker.hasHooks("hostKey")) {
@@ -2078,6 +2112,7 @@ export default class Client extends EventEmitter<ClientEvents> {
                         controller,
                         hostKey,
                     )
+                    this.assertConnectionGeneration(generation, "host-key policy")
                     if (!policyCompleted || !controller.allowHostKey) {
                         throw new Error("Host key not allowed by hook")
                     }
@@ -2131,7 +2166,10 @@ export default class Client extends EventEmitter<ClientEvents> {
                 this.writePacket(this.packetsQueuedDuringKeyExchange.shift()!)
             }
             this.emit("clientNewKeys")
-            if (!this.hasReceivedNewKeys) await this.#waitEvent("serverNewKeys")
+            if (!this.hasReceivedNewKeys) {
+                await this.#waitEvent("serverNewKeys")
+                this.assertConnectionGeneration(generation, "key exchange")
+            }
             while (this.packetsQueuedDuringKeyExchange.length > 0) {
                 this.writePacket(this.packetsQueuedDuringKeyExchange.shift()!)
             }
@@ -2142,6 +2180,7 @@ export default class Client extends EventEmitter<ClientEvents> {
             this.emit("handshake", describeNegotiatedAlgorithms(algorithms))
             if (isRekey) this.emit("rekey")
         } catch (error) {
+            if (generation !== this.connectionGeneration) throw error
             if (error instanceof KeyExchangeError && this.socket?.writable) {
                 this.sendPacket(
                     new Disconnect({
@@ -2156,11 +2195,13 @@ export default class Client extends EventEmitter<ClientEvents> {
             }
             throw error
         } finally {
-            this.#kexAlgorithm?.dispose()
-            this.keyExchangeInProgress = false
-            this.strictInitialExchange = false
-            this.expectedInboundKeyExchangePackets.clear()
-            this.resetKeepalive()
+            negotiatedKeyExchange?.dispose()
+            if (generation === this.connectionGeneration) {
+                this.keyExchangeInProgress = false
+                this.strictInitialExchange = false
+                this.expectedInboundKeyExchangePackets.clear()
+                this.resetKeepalive()
+            }
         }
     }
 

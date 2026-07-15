@@ -1,5 +1,6 @@
 import { access, rm } from "node:fs/promises"
 import { execFile } from "node:child_process"
+import { once } from "node:events"
 import { AddressInfo, createConnection, createServer } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -1109,6 +1110,72 @@ describe("client/server integration", () => {
             expect(handshakes).toBe(2)
             expect(server.clients.size).toBe(1)
         } finally {
+            client.destroy()
+            for (const peer of server.clients) peer.terminate()
+            await server.close()
+        }
+    }, 15_000)
+
+    test("does not resume an old host-key decision on a reconnected transport", async () => {
+        const server = new Server({
+            hostKeys: [await PrivateKey.generate("ssh-ed25519")],
+            sendAllHostKeys: false,
+        })
+        server.hooker.hook("noneAuthentication", (_hook, _context, controller) => {
+            controller.allowLogin = true
+        })
+        server.on("connection", (peer) => peer.on("error", () => undefined))
+        server.listen({ host: "127.0.0.1", port: 0 })
+        await once(server, "listening")
+
+        let releaseOldDecision!: () => void
+        const oldDecisionReleased = new Promise<void>((resolve) => {
+            releaseOldDecision = resolve
+        })
+        let reportOldDecision!: () => void
+        const oldDecisionStarted = new Promise<void>((resolve) => {
+            reportOldDecision = resolve
+        })
+        let decisions = 0
+        const client = new Client({
+            hostname: "127.0.0.1",
+            port: (server.address() as AddressInfo).port,
+            username: "host-key-reconnect",
+            authenticationMethodsOrder: [SSHAuthenticationMethods.None],
+        })
+        client.on("error", () => undefined)
+        client.hooker.hook("hostKey", async (_hook, controller) => {
+            decisions++
+            if (decisions === 1) {
+                reportOldDecision()
+                await oldDecisionReleased
+            }
+            controller.allowHostKey = true
+        })
+
+        try {
+            const oldConnection = client.connect().then(
+                () => undefined,
+                (error: unknown) => error,
+            )
+            await within(oldDecisionStarted, "the old host-key decision")
+
+            const oldTransportClosed = once(client, "close")
+            client.destroy()
+            await within(oldTransportClosed, "the old transport to close")
+
+            await client.connect()
+            expect(decisions).toBe(2)
+            expect(client.isConnected).toBe(true)
+
+            releaseOldDecision()
+            expect(
+                await within(oldConnection, "the old connection attempt to settle"),
+            ).toBeInstanceOf(Error)
+            await new Promise<void>((resolve) => setImmediate(resolve))
+            expect(client.isConnected).toBe(true)
+        } finally {
+            releaseOldDecision()
             client.destroy()
             for (const peer of server.clients) peer.terminate()
             await server.close()

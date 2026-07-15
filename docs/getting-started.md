@@ -130,7 +130,9 @@ true and the same client may connect again. Each connection starts with fresh pr
 sequence numbers, negotiated keys, extensions, authentication state, channels, and forwarding
 state; configured options, event listeners, and hooks remain installed. A client constructed with
 an already-connected `sock` cannot reuse that destroyed transport, so supply a new client for a new
-injected socket. Concurrent `connect()` calls are rejected.
+injected socket. Concurrent `connect()` calls are rejected. An asynchronous host-key or key-exchange
+provider that finishes after its transport closes remains bound to that old connection; its result
+cannot install keys, send packets, or clean up state belonging to a later connection.
 
 When `keepaliveInterval` is greater than zero, the client sends
 `keepalive@openssh.com` global requests after authentication. Either success or failure is a valid
