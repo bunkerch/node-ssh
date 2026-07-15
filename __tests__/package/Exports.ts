@@ -4,6 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
 import {
+    AllowedSigners,
     Agent,
     buildGSSAPIKeyExchangeUserAuthMIC,
     Channel,
@@ -94,6 +95,7 @@ import {
     TerminalMode,
     TerminalModes,
     type ClientOptions,
+    type AllowedSignerVerificationOptions,
     type ClientSessionOptions,
     type ClientHookerIncomingChannelController,
     type CygwinAgentOptions,
@@ -169,6 +171,10 @@ describe("package exports", () => {
         }
         const sftpServerOptions: SFTPServerOptions = { maxConcurrentRequests: 32 }
         const detachedSignatureOptions: SSHSignatureOptions = { namespace: "package" }
+        const allowedSignerOptions: AllowedSignerVerificationOptions = {
+            principal: "packed@example.test",
+            namespace: "package",
+        }
 
         expect(clientOptions.hostname).toBe("example.test")
         expect(sessionOptions.pty).toBe(true)
@@ -187,7 +193,9 @@ describe("package exports", () => {
         expect(publicKeyServerOptions.attributes?.[0]?.name).toBe("comment")
         expect(sftpServerOptions.maxConcurrentRequests).toBe(32)
         expect(detachedSignatureOptions.namespace).toBe("package")
+        expect(allowedSignerOptions.principal).toBe("packed@example.test")
         expect([
+            AllowedSigners,
             Agent,
             Channel,
             ChannelOpenError,
@@ -237,7 +245,7 @@ describe("package exports", () => {
             SSHHTTPAgent,
             SSHHTTPSAgent,
             SSHSignature,
-        ]).toHaveLength(49)
+        ]).toHaveLength(50)
         expect(
             new ChannelOpenError(
                 ChannelOpenFailureReasonCodes.SSH_OPEN_ADMINISTRATIVELY_PROHIBITED,
@@ -303,6 +311,7 @@ describe("package exports", () => {
     test("compiled entry point provides the same side-effect-free API", async () => {
         const entry = await import("../../dist/index.js")
 
+        expect(entry.AllowedSigners).toBeFunction()
         expect(entry.Client).toBeDefined()
         expect(entry.ClientAgentChannel).toBeDefined()
         expect(entry.ClientDirectStreamLocalChannel).toBeDefined()
@@ -396,6 +405,7 @@ describe("package exports", () => {
         const keyRevocationList = await readFile("dist/KeyRevocationList.d.ts", "utf8")
         const securityKeyAttestation = await readFile("dist/SecurityKeyAttestation.d.ts", "utf8")
         const sshSignature = await readFile("dist/SSHSignature.d.ts", "utf8")
+        const allowedSigners = await readFile("dist/AllowedSigners.d.ts", "utf8")
         const agentProtocol = await readFile("dist/publickey/SSHAgentProtocol.d.ts", "utf8")
         const cygwinAgent = await readFile("dist/publickey/CygwinAgent.d.ts", "utf8")
         const pageantAgent = await readFile("dist/publickey/PageantAgent.d.ts", "utf8")
@@ -567,6 +577,9 @@ describe("package exports", () => {
             "verify(message: Buffer, expectedNamespace: string | Buffer)",
         )
         expect(sshSignature).not.toContain("callback")
+        expect(allowedSigners).toContain("static load(path: string): Promise<AllowedSigners>")
+        expect(allowedSigners).toContain("verify(")
+        expect(allowedSigners).not.toContain("callback")
         expect(securityKeyAttestation).toContain("get authenticatorData(): Buffer | undefined")
         expect(agentProtocol).toContain("getPublicKeys(): Promise<[string, PublicKey][]>")
         expect(agentProtocol).toContain("serve(stream: Duplex): Promise<void>")
@@ -618,7 +631,7 @@ describe("package exports", () => {
                     const { mkdtemp, rm } = await import("node:fs/promises")
                     const { tmpdir } = await import("node:os")
                     const { join } = await import("node:path")
-                    const { ChannelOpenError, ChannelOpenFailureReasonCodes, Client, ClientForwardedStreamLocalChannel, ClientForwardedTCPIPChannel, ClientX11Channel, createSocketAgent, CygwinAgent, CygwinAgentError, DELAY_COMPRESSION_EXTENSION, delayCompressionExtension, discoverPageantAgentSocket, DisconnectError, DisconnectReason, ELEVATION_EXTENSION, EncodedSignature, generateKeyPair, generateKeyPairSync, KeyRevocationList, KnownHosts, MAX_OPENSSH_AGENT_SESSION_BINDINGS, MAX_SSH_AGENT_MESSAGE_LENGTH, NO_FLOW_CONTROL_EXTENSION, OnePasswordAgent, OPENSSH_AGENT_SECURITY_KEY_PROVIDER, OPENSSH_AGENT_SESSION_BIND, PageantAgent, PageantAgentError, parseKey, parseRFC4716PublicKeyFile, PrivateKey, PrivateKeyAgent, PublicKey, PublicKeySubsystemClient, PublicKeySubsystemServer, PublicKeySubsystemStatusCode, SecurityKeyAttestation, serializeRFC4716PublicKey, Server, SessionChannel, SSH_ED25519_SECURITY_KEY_ALGORITHM, SSHAgentConstraintType, SSHAgentExtensionFailureError, SSHAgentMessageType, SSHAgentProtocolClient, SSHAgentProtocolError, SSHAgentProtocolServer, SSHED25519SecurityKeyPrivateKey, SSHED25519SecurityKeyPublicKey, SSHSignature } = await import("@bunkerch/modernssh")
+                    const { AllowedSigners, ChannelOpenError, ChannelOpenFailureReasonCodes, Client, ClientForwardedStreamLocalChannel, ClientForwardedTCPIPChannel, ClientX11Channel, createSocketAgent, CygwinAgent, CygwinAgentError, DELAY_COMPRESSION_EXTENSION, delayCompressionExtension, discoverPageantAgentSocket, DisconnectError, DisconnectReason, ELEVATION_EXTENSION, EncodedSignature, generateKeyPair, generateKeyPairSync, KeyRevocationList, KnownHosts, MAX_OPENSSH_AGENT_SESSION_BINDINGS, MAX_SSH_AGENT_MESSAGE_LENGTH, NO_FLOW_CONTROL_EXTENSION, OnePasswordAgent, OPENSSH_AGENT_SECURITY_KEY_PROVIDER, OPENSSH_AGENT_SESSION_BIND, PageantAgent, PageantAgentError, parseKey, parseRFC4716PublicKeyFile, PrivateKey, PrivateKeyAgent, PublicKey, PublicKeySubsystemClient, PublicKeySubsystemServer, PublicKeySubsystemStatusCode, SecurityKeyAttestation, serializeRFC4716PublicKey, Server, SessionChannel, SSH_ED25519_SECURITY_KEY_ALGORITHM, SSHAgentConstraintType, SSHAgentExtensionFailureError, SSHAgentMessageType, SSHAgentProtocolClient, SSHAgentProtocolError, SSHAgentProtocolServer, SSHED25519SecurityKeyPrivateKey, SSHED25519SecurityKeyPublicKey, SSHSignature } = await import("@bunkerch/modernssh")
                     const { privateKey, publicKey } = await generateKeyPair("ed25519", {
                         comment: "packed@example.test",
                     })
@@ -626,6 +639,8 @@ describe("package exports", () => {
                     if (!publicKey.verifySignature(message, privateKey.sign(message))) process.exit(2)
                     const detached = SSHSignature.sign(message, privateKey, { namespace: "package" })
                     if (!SSHSignature.parse(detached.toString()).verify(message, "package")) process.exit(49)
+                    const allowed = AllowedSigners.parse("packed@example.test " + publicKey.toString() + "\\n")
+                    if (!allowed.verify(message, detached, { principal: "packed@example.test", namespace: "package" })) process.exit(53)
                     const encrypted = privateKey.toString({ passphrase: "packed-secret", rounds: 1 })
                     const parsed = PrivateKey.fromString(encrypted, "packed-secret")
                     if (!parsed.data.publicKey.equals(publicKey)) process.exit(3)

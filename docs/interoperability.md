@@ -299,6 +299,12 @@ command-line verifier accepts library output through an allowed-signers file, an
 cryptographically verifies command-line output. RSA coverage proves SHA-2 signatures are used
 instead of RSA-SHA1.
 
+Allowed-signers coverage combines wildcard and negated principals, quoted namespace patterns,
+inclusive policy validity, exact keys, certificate authorities, certificate principals and
+validity, and KRL revocation. The system tool creates a certificate-backed detached signature and
+accepts the same CA policy file that the library loads; both verifiers accept the authorized
+principal, while the library rejects another principal and the revoked certificate.
+
 PPK import uses the RFC 8032 Ed25519 seed, public key, and empty-message signature as a fixed
 private-key vector in both version 2 and version 3 envelopes. The system `puttygen` independently
 accepts those fixtures, and generated version 3 fixtures cover RSA, DSA, Ed25519, Ed448, and every

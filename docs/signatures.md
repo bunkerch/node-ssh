@@ -37,9 +37,46 @@ if (!signature.verify(message, "com.example.release")) {
 ```
 
 `verify()` proves only that the embedded public key signed the message for that namespace. It does
-not decide whether that key is trusted. Compare `signature.publicKey` with a configured key or
-apply the application's certificate and revocation policy before accepting the result. A key
-revocation list can be checked with `KeyRevocationList.isRevoked()`.
+not decide whether that key is trusted. Compare `signature.publicKey` with a configured key or use
+`AllowedSigners` to apply principal, certificate-authority, namespace, time, and optional revocation
+policy before accepting the result.
+
+## Allowed signers
+
+`AllowedSigners` parses the same policy-file shape used by `ssh-keygen -Y verify`. Load the policy
+once and supply the expected identity and namespace for each verification:
+
+```ts
+import { AllowedSigners, KeyRevocationList, SSHSignature } from "@bunkerch/modernssh"
+
+const allowed = await AllowedSigners.load("allowed_signers")
+const revocations = await KeyRevocationList.load("revoked_signers.krl")
+const signature = SSHSignature.parse(await readFile("release.tar.gz.sig"))
+
+if (
+    !allowed.verify(await readFile("release.tar.gz"), signature, {
+        principal: "release@example.com",
+        namespace: "com.example.release",
+        revocations,
+    })
+) {
+    throw new Error("Untrusted release signature")
+}
+```
+
+Principal and namespace fields use case-sensitive `*` and `?` patterns, with `!` negation taking
+precedence over a positive match. Wildcards operate on UTF-8 bytes, so `?` matches one encoded byte
+rather than one Unicode code point. Supported options are `cert-authority`, `namespaces`,
+`valid-after`, and `valid-before`; keywords are case-insensitive and option values are quoted.
+Quoted namespace lists may contain spaces. Timestamps use `YYYYMMDD[Z]` or
+`YYYYMMDDHHMM[SS][Z]`. A `UTC` suffix is also accepted. Values without a suffix use the process's
+local time zone, matching the command-line format.
+
+For a `cert-authority` entry, the signature must embed a valid user certificate signed by that
+entry's key. Its certificate signature, validity interval, and exact requested principal are
+checked in addition to the allowed-signers patterns. An exact certificate entry without
+`cert-authority` is treated as an exact key, matching command-line behavior. Allowed-signers
+`valid-before` is inclusive, while a certificate's own `validBefore` instant is exclusive.
 
 ## Agent-backed signing
 
@@ -67,6 +104,10 @@ preimage, including its namespace and message digest, is sent to an agent—not 
 buffers are exposed through defensive copies. Unsupported future versions, unsupported hashes,
 RSA-SHA1, non-canonical base64, trailing fields, NUL namespaces, binary blobs above 1 MiB, and
 armored input above 2 MiB are rejected.
+
+Allowed-signers files are strict UTF-8 and bounded to 16 MiB with 64 KiB lines. Unknown or duplicate
+options, malformed patterns, invalid keys, impossible timestamps, reversed validity windows, NUL,
+and malformed quoting reject the complete file instead of silently weakening policy.
 
 The parser preserves non-empty reserved bytes for forward-compatible inspection and serialization,
 but version 1 signing always emits the required empty reserved field. Namespace values may be
