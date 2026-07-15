@@ -177,6 +177,7 @@ export type {
     ServerTransport,
 } from "./Server.js"
 export type { UserAuthPrompt } from "./packets/UserAuthInfoRequest.js"
+export { ChannelOpenError, ChannelOpenFailureReasonCodes } from "./packets/ChannelOpenFailure.js"
 export { DisconnectError, DisconnectReason, PeerDisconnectError } from "./packets/Disconnect.js"
 export type { PeerDisconnectInfo } from "./packets/Disconnect.js"
 export type { ProtocolDebugMessage } from "./packets/Debug.js"

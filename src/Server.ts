@@ -12,6 +12,7 @@ import EncodedSignature from "./utils/Signature.js"
 import Channel from "./Channel.js"
 import { SSHAuthenticationMethods } from "./constants.js"
 import { DisconnectError } from "./packets/Disconnect.js"
+import type { ChannelOpenError } from "./packets/ChannelOpenFailure.js"
 import { parseKey } from "./KeyParsing.js"
 import type ChannelRequest from "./packets/ChannelRequest.js"
 import { MAX_PREAMBLE_LINE_LENGTH, MAX_PREAMBLE_LINES } from "./IdentificationParser.js"
@@ -255,6 +256,8 @@ export interface ServerHookerGSSAPIAuthenticationController
 }
 export interface ServerHookerChannelOpenRequestController {
     allowOpen: boolean
+    /** Validated failure metadata sent when this policy denies the channel. */
+    rejection?: ChannelOpenError
 }
 export interface ServerHookerChannelRequestController {
     deny: boolean

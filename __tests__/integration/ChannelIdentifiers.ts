@@ -9,6 +9,7 @@ import type ServerClient from "../../src/ServerClient.js"
 import ChannelOpen from "../../src/packets/ChannelOpen.js"
 import ChannelOpenConfirmation from "../../src/packets/ChannelOpenConfirmation.js"
 import ChannelOpenFailure, {
+    ChannelOpenError,
     ChannelOpenFailureReasonCodes,
 } from "../../src/packets/ChannelOpenFailure.js"
 import ChannelWindowAdjust from "../../src/packets/ChannelWindowAdjust.js"
@@ -67,6 +68,40 @@ function nextDisconnect(peer: Client | ServerClient): Promise<Readonly<PeerDisco
 }
 
 describe("RFC 4254 channel identifiers", () => {
+    test("validates application-created channel rejection metadata", () => {
+        expect(() => new ChannelOpenError(-1, "invalid reason")).toThrow(
+            "SSH channel-open failure reason must be a uint32",
+        )
+        expect(() => new ChannelOpenError(1, "\ud800")).toThrow(
+            "SSH channel-open description is not valid UTF-8 text",
+        )
+        expect(() => new ChannelOpenError(1, "maintenance", "en_US")).toThrow(
+            "SSH channel-open language tag is not valid RFC 3066",
+        )
+    })
+
+    test("publishes a localized private-use channel rejection from async policy", async () => {
+        const { server, peer, client } = await createConnectedPeers()
+        server.hooker.hook("channelOpenRequest", async (_hook, _channel, controller) => {
+            await Promise.resolve()
+            controller.rejection = new ChannelOpenError(0xfe00_0001, "canal indisponible", "fr")
+        })
+
+        try {
+            await expect(client.openSession()).rejects.toMatchObject({
+                name: "ChannelOpenError",
+                reasonCode: 0xfe00_0001,
+                reason_code: 0xfe00_0001,
+                message: "canal indisponible",
+                languageTag: "fr",
+            })
+            expect(client.isConnected).toBe(true)
+        } finally {
+            await closePeers(server, client)
+            peer.terminate()
+        }
+    }, 15_000)
+
     async function openSession(server: Server, peer: ServerClient, client: Client) {
         server.hooker.hook("channelOpenRequest", async (_hook, _channel, controller) => {
             controller.allowOpen = true

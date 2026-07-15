@@ -225,8 +225,8 @@ export default class ClientChannel extends Duplex {
         this.openReject(
             new ChannelOpenError(
                 packet.data.reason_code,
-                packet.data.recipient_channel_id,
                 packet.data.description || `SSH channel ${this.localId} could not be opened`,
+                packet.data.language_tag,
             ),
         )
     }

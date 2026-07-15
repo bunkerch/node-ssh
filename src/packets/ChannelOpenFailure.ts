@@ -24,7 +24,7 @@ export enum ChannelOpenFailureReasonCodes {
 
 export interface ChannelOpenFailureData {
     recipient_channel_id: number
-    reason_code: ChannelOpenFailureReasonCodes
+    reason_code: number
     description: string
     language_tag: string
 }
@@ -64,7 +64,7 @@ export default class ChannelOpenFailure implements Packet {
         let recipientChannelId: number
         ;[recipientChannelId, raw] = readNextUint32(raw)
 
-        let reasonCode: ChannelOpenFailureReasonCodes
+        let reasonCode: number
         ;[reasonCode, raw] = readNextUint32(raw)
 
         let description: Buffer
@@ -85,27 +85,29 @@ export default class ChannelOpenFailure implements Packet {
 }
 
 export class ChannelOpenError extends Error {
-    name = "ChannelOpenError"
+    readonly name = "ChannelOpenError"
+    readonly reasonCode: number
+    readonly reason_code: number
+    readonly languageTag: string
 
-    reason_code: ChannelOpenFailureReasonCodes
-    recipient_channel_id: number
-
-    constructor(
-        reason_code: ChannelOpenFailureReasonCodes,
-        recipient_channel_id: number,
-        message: string,
-    ) {
+    constructor(reasonCode: number, message: string, languageTag = "") {
         super(message)
-        this.reason_code = reason_code
-        this.recipient_channel_id = recipient_channel_id
+        if (!Number.isInteger(reasonCode) || reasonCode < 0 || reasonCode > 0xffff_ffff) {
+            throw new RangeError("SSH channel-open failure reason must be a uint32")
+        }
+        encodeSSHUTF8(message, "SSH channel-open description")
+        encodeSSHLanguageTag(languageTag, "SSH channel-open language tag")
+        this.reasonCode = reasonCode
+        this.reason_code = reasonCode
+        this.languageTag = languageTag
     }
 
-    getOpenFailurePacket() {
+    getOpenFailurePacket(recipientChannelId: number): ChannelOpenFailure {
         return new ChannelOpenFailure({
             reason_code: this.reason_code,
             description: this.message,
-            language_tag: "",
-            recipient_channel_id: this.recipient_channel_id,
+            language_tag: this.languageTag,
+            recipient_channel_id: recipientChannelId,
         })
     }
 }

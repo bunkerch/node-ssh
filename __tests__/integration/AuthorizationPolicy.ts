@@ -4,6 +4,7 @@ import type { AddressInfo } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import Client from "../../src/Client.js"
+import { ChannelOpenError } from "../../src/packets/ChannelOpenFailure.js"
 import SessionChannel from "../../src/channels/SessionChannel.js"
 import { SSHAuthenticationMethods } from "../../src/constants.js"
 import Agent, { AgentType } from "../../src/publickey/Agent.js"
@@ -121,6 +122,7 @@ describe("contained authorization hook failures", () => {
         })
         server.hooker.hook("channelOpenRequest", (_hook, _channel, controller) => {
             controller.allowOpen = true
+            controller.rejection = new ChannelOpenError(0xfe00_0001, "stale rejection", "fr")
         })
         server.hooker.hook("channelOpenRequest", async () => {
             await Promise.resolve()
@@ -141,7 +143,11 @@ describe("contained authorization hook failures", () => {
 
         try {
             await client.connect()
-            await expect(client.openSession()).rejects.toThrow("not allowed")
+            await expect(client.openSession()).rejects.toMatchObject({
+                reasonCode: 1,
+                message: "Opening channel type not allowed by the server.",
+                languageTag: "",
+            })
             expect(hookErrors.map((error) => error.message)).toEqual([
                 "channel policy backend failed",
             ])

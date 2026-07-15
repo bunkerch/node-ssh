@@ -7,6 +7,8 @@ import {
     Agent,
     buildGSSAPIKeyExchangeUserAuthMIC,
     Channel,
+    ChannelOpenError,
+    ChannelOpenFailureReasonCodes,
     Client,
     ClientAgentChannel,
     ClientDirectStreamLocalChannel,
@@ -174,6 +176,8 @@ describe("package exports", () => {
         expect([
             Agent,
             Channel,
+            ChannelOpenError,
+            ChannelOpenFailureReasonCodes,
             Client,
             ClientAgentChannel,
             ClientDirectStreamLocalChannel,
@@ -216,7 +220,14 @@ describe("package exports", () => {
             SSHAgent,
             SSHHTTPAgent,
             SSHHTTPSAgent,
-        ]).toHaveLength(44)
+        ]).toHaveLength(46)
+        expect(
+            new ChannelOpenError(
+                ChannelOpenFailureReasonCodes.SSH_OPEN_ADMINISTRATIVELY_PROHIBITED,
+                "policy denied",
+                "en-US",
+            ).languageTag,
+        ).toBe("en-US")
         expect(
             new DisconnectError(
                 DisconnectReason.SSH_DISCONNECT_BY_APPLICATION,
@@ -282,6 +293,8 @@ describe("package exports", () => {
         expect(entry.ClientForwardedTCPIPChannel).toBeDefined()
         expect(entry.ClientTCPIPChannel).toBeDefined()
         expect(entry.ClientX11Channel).toBeDefined()
+        expect(entry.ChannelOpenError).toBeFunction()
+        expect(entry.ChannelOpenFailureReasonCodes.SSH_OPEN_RESOURCE_SHORTAGE).toBe(4)
         expect(entry.SSHHTTPAgent).toBeDefined()
         expect(entry.SSHHTTPSAgent).toBeDefined()
         expect(entry.HTTPAgent).toBe(entry.SSHHTTPAgent)
@@ -370,6 +383,7 @@ describe("package exports", () => {
             "dist/publickey/PublicKeySubsystemClient.d.ts",
             "utf8",
         )
+        const channelOpenFailure = await readFile("dist/packets/ChannelOpenFailure.d.ts", "utf8")
 
         expect(client).not.toContain("ClientSessionCallback")
         expect(client).not.toContain("ClientGlobalRequestCallback")
@@ -475,6 +489,7 @@ describe("package exports", () => {
         expect(server).toContain("set maxConnections(value: number)")
         expect(server).toContain("delayCompression?: DelayCompressionConfiguration")
         expect(server).toContain("bannerLanguageTag?: string")
+        expect(server).toContain("rejection?: ChannelOpenError")
         expect(server).toContain("replyTimeout?: number")
         expect(server).toContain("maxPendingChannelOpens?: number")
         expect(server).toContain("injectSocket(socket: ServerTransport): this")
@@ -532,6 +547,11 @@ describe("package exports", () => {
         expect(publicKeySubsystemClient).toContain("listAttributes(): Promise<")
         expect(publicKeySubsystemClient).toContain("end(): void")
         expect(publicKeySubsystemClient).not.toContain("callback")
+        expect(channelOpenFailure).toContain(
+            "constructor(reasonCode: number, message: string, languageTag?: string)",
+        )
+        expect(channelOpenFailure).toContain("readonly reasonCode: number")
+        expect(channelOpenFailure).toContain("readonly languageTag: string")
     })
 
     test("package archive exposes a working ESM API", async () => {
@@ -556,7 +576,7 @@ describe("package exports", () => {
                     "--eval",
                     `
                     const { once } = await import("node:events")
-                    const { Client, createSocketAgent, CygwinAgent, CygwinAgentError, DELAY_COMPRESSION_EXTENSION, delayCompressionExtension, discoverPageantAgentSocket, DisconnectError, DisconnectReason, ELEVATION_EXTENSION, EncodedSignature, generateKeyPair, generateKeyPairSync, KeyRevocationList, KnownHosts, MAX_OPENSSH_AGENT_SESSION_BINDINGS, MAX_SSH_AGENT_MESSAGE_LENGTH, NO_FLOW_CONTROL_EXTENSION, OnePasswordAgent, OPENSSH_AGENT_SECURITY_KEY_PROVIDER, OPENSSH_AGENT_SESSION_BIND, PageantAgent, PageantAgentError, parseKey, PrivateKey, PrivateKeyAgent, PublicKey, PublicKeySubsystemClient, PublicKeySubsystemServer, PublicKeySubsystemStatusCode, SecurityKeyAttestation, Server, SessionChannel, SSH_ED25519_SECURITY_KEY_ALGORITHM, SSHAgentConstraintType, SSHAgentExtensionFailureError, SSHAgentMessageType, SSHAgentProtocolClient, SSHAgentProtocolError, SSHAgentProtocolServer, SSHED25519SecurityKeyPrivateKey, SSHED25519SecurityKeyPublicKey } = await import("@bunkerch/modernssh")
+                    const { ChannelOpenError, ChannelOpenFailureReasonCodes, Client, createSocketAgent, CygwinAgent, CygwinAgentError, DELAY_COMPRESSION_EXTENSION, delayCompressionExtension, discoverPageantAgentSocket, DisconnectError, DisconnectReason, ELEVATION_EXTENSION, EncodedSignature, generateKeyPair, generateKeyPairSync, KeyRevocationList, KnownHosts, MAX_OPENSSH_AGENT_SESSION_BINDINGS, MAX_SSH_AGENT_MESSAGE_LENGTH, NO_FLOW_CONTROL_EXTENSION, OnePasswordAgent, OPENSSH_AGENT_SECURITY_KEY_PROVIDER, OPENSSH_AGENT_SESSION_BIND, PageantAgent, PageantAgentError, parseKey, PrivateKey, PrivateKeyAgent, PublicKey, PublicKeySubsystemClient, PublicKeySubsystemServer, PublicKeySubsystemStatusCode, SecurityKeyAttestation, Server, SessionChannel, SSH_ED25519_SECURITY_KEY_ALGORITHM, SSHAgentConstraintType, SSHAgentExtensionFailureError, SSHAgentMessageType, SSHAgentProtocolClient, SSHAgentProtocolError, SSHAgentProtocolServer, SSHED25519SecurityKeyPrivateKey, SSHED25519SecurityKeyPublicKey } = await import("@bunkerch/modernssh")
                     const { privateKey, publicKey } = await generateKeyPair("ed25519", {
                         comment: "packed@example.test",
                     })
@@ -668,6 +688,16 @@ describe("package exports", () => {
                     if (Buffer.concat(runtimeStdout).toString() !== "node-stdout") process.exit(43)
                     if (Buffer.concat(runtimeStderr).toString() !== "node-stderr") process.exit(44)
                     if (runtimeCommand.exitCode !== 7) process.exit(45)
+                    runtimeServer.hooker.hook("channelOpenRequest", (_hook, _channel, decision) => {
+                        decision.allowOpen = false
+                        decision.rejection = new ChannelOpenError(0xfe000002, "packed channel policy", "fr")
+                    })
+                    try {
+                        await runtimeClient.openSession()
+                        process.exit(48)
+                    } catch (error) {
+                        if (error.reasonCode !== 0xfe000002 || error.message !== "packed channel policy" || error.languageTag !== "fr") process.exit(49)
+                    }
                     runtimeClient.disconnect(new DisconnectError(DisconnectReason.SSH_DISCONNECT_BY_APPLICATION, "packed maintenance", "en-US"))
                     const runtimeDisconnectInfo = await Promise.race([runtimeDisconnect, runtimeFailure])
                     if (JSON.stringify(runtimeDisconnectInfo) !== JSON.stringify({ reasonCode: 11, description: "packed maintenance", languageTag: "en-US" })) process.exit(47)

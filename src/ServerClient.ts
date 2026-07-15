@@ -1281,14 +1281,12 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             ) {
                 throw new ChannelOpenError(
                     ChannelOpenFailureReasonCodes.SSH_OPEN_RESOURCE_SHORTAGE,
-                    packet.data.sender_channel_id,
                     "RFC 8308 no-flow-control permits only one simultaneous SSH channel",
                 )
             }
             if (this.noMoreSessionsRequested && packet.data.channel_type === "session") {
                 throw new ChannelOpenError(
                     ChannelOpenFailureReasonCodes.SSH_OPEN_ADMINISTRATIVELY_PROHIBITED,
-                    packet.data.sender_channel_id,
                     "Additional SSH session channels have been disabled",
                 )
             }
@@ -1305,11 +1303,19 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             )
             if (!this.isConnected) return
 
-            if (!policyCompleted || !controller.allowOpen) {
+            if (!policyCompleted) {
                 throw new ChannelOpenError(
                     ChannelOpenFailureReasonCodes.SSH_OPEN_ADMINISTRATIVELY_PROHIBITED,
-                    packet.data.sender_channel_id,
                     "Opening channel type not allowed by the server.",
+                )
+            }
+            if (!controller.allowOpen) {
+                throw (
+                    controller.rejection ??
+                    new ChannelOpenError(
+                        ChannelOpenFailureReasonCodes.SSH_OPEN_ADMINISTRATIVELY_PROHIBITED,
+                        "Opening channel type not allowed by the server.",
+                    )
                 )
             }
 
@@ -1323,7 +1329,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             if (!this.isConnected) return
 
             if (err instanceof ChannelOpenError) {
-                this.sendPacket(err.getOpenFailurePacket())
+                this.sendPacket(err.getOpenFailurePacket(packet.data.sender_channel_id))
             } else {
                 this.debug(`An error occured:`, err)
                 this.sendPacket(

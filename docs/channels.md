@@ -319,8 +319,20 @@ configure each accepted `SessionChannel`. Request hooks decide whether an indivi
 accepted; channel events provide its duplex stream after the success reply is sent.
 Channel admission also requires every registered `channelOpenRequest` handler to complete without
 rejection; a contained failure discards an allow decision made by an earlier handler.
+When policy intentionally denies an open, it may assign a validated `ChannelOpenError` to
+`decision.rejection`. The peer then receives its exact uint32 reason, UTF-8 description, and RFC
+3066 language tag. Named standard reasons are available through `ChannelOpenFailureReasonCodes`;
+future assignments and RFC 4254 private-use values remain usable as numbers. If opening is denied,
+`openSession()`, `forwardOut()`, and the other channel-opening Promise APIs reject with the same
+typed error and expose `reasonCode`, `message`, and `languageTag`.
 
 ```ts
+import {
+    ChannelOpenError,
+    ChannelOpenFailureReasonCodes,
+    SessionChannel,
+} from "@bunkerch/modernssh"
+
 async function runStatusCommand(stream) {
     stream.stdin.pipe(process.stdout)
     await stream.writeStderr("diagnostics\n")
@@ -330,7 +342,15 @@ async function runStatusCommand(stream) {
 }
 
 server.hooker.hook("channelOpenRequest", (_hook, channel, decision) => {
-    decision.allowOpen = channel instanceof SessionChannel
+    if (channel instanceof SessionChannel) {
+        decision.allowOpen = true
+        return
+    }
+    decision.rejection = new ChannelOpenError(
+        ChannelOpenFailureReasonCodes.SSH_OPEN_ADMINISTRATIVELY_PROHIBITED,
+        "channel type disabled by policy",
+        "en-US",
+    )
 })
 
 server.on("connection", (connection) => {

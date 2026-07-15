@@ -137,8 +137,8 @@ export default class Channel {
         this.openReject(
             new ChannelOpenError(
                 failure.data.reason_code,
-                failure.data.recipient_channel_id,
                 failure.data.description || `SSH channel ${this.localId} could not be opened`,
+                failure.data.language_tag,
             ),
         )
     }

@@ -20,7 +20,6 @@ export function channelFromChannelOpenPacket(packet: ChannelOpen, client: Client
     if (!constructor) {
         throw new ChannelOpenError(
             ChannelOpenFailureReasonCodes.SSH_OPEN_UNKNOWN_CHANNEL_TYPE,
-            packet.data.sender_channel_id,
             `Unknown channel type: ${JSON.stringify(packet.data.channel_type)}`,
         )
     }
