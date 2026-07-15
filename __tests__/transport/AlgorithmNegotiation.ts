@@ -2,6 +2,7 @@ import {
     chooseAlgorithms,
     default_algorithm_names,
     describeNegotiatedAlgorithms,
+    encryption_algorithms,
     kex_algorithms,
     mac_algorithms,
 } from "../../src/algorithms.js"
@@ -39,6 +40,15 @@ function select(clientOffer: KexInit, serverOffer: KexInit) {
 }
 
 describe("RFC 4253 algorithm negotiation", () => {
+    test("offers both ChaCha20-Poly1305 names with the standardized name first", () => {
+        expect(encryption_algorithms.has("chacha20-poly1305")).toBe(true)
+        expect(encryption_algorithms.has("chacha20-poly1305@openssh.com")).toBe(true)
+        expect(default_algorithm_names.cipher.slice(0, 2)).toEqual([
+            "chacha20-poly1305",
+            "chacha20-poly1305@openssh.com",
+        ])
+    })
+
     test("keeps historical truncated SHA-2 MAC names available only by explicit configuration", () => {
         expect(mac_algorithms.has("hmac-sha2-256-96")).toBe(true)
         expect(mac_algorithms.has("hmac-sha2-512-96")).toBe(true)
@@ -261,13 +271,13 @@ describe("RFC 4253 algorithm negotiation", () => {
 
     test("treats the MAC as implicit when AEAD ciphers are negotiated", () => {
         const clientOffer = offer({
-            encryption_algorithms_client_to_server: ["chacha20-poly1305@openssh.com"],
+            encryption_algorithms_client_to_server: ["chacha20-poly1305"],
             encryption_algorithms_server_to_client: ["aes256-gcm@openssh.com"],
             mac_algorithms_client_to_server: ["client-only-mac@example.test"],
             mac_algorithms_server_to_client: ["client-only-mac@example.test"],
         })
         const serverOffer = offer({
-            encryption_algorithms_client_to_server: ["chacha20-poly1305@openssh.com"],
+            encryption_algorithms_client_to_server: ["chacha20-poly1305"],
             encryption_algorithms_server_to_client: ["aes256-gcm@openssh.com"],
             mac_algorithms_client_to_server: ["server-only-mac@example.test"],
             mac_algorithms_server_to_client: ["server-only-mac@example.test"],
@@ -275,7 +285,7 @@ describe("RFC 4253 algorithm negotiation", () => {
 
         const algorithms = select(clientOffer, serverOffer)
 
-        expect(algorithms.clientEncryption.alg_name).toBe("chacha20-poly1305@openssh.com")
+        expect(algorithms.clientEncryption.alg_name).toBe("chacha20-poly1305")
         expect(algorithms.serverEncryption.alg_name).toBe("aes256-gcm@openssh.com")
         expect(algorithms.clientMac).toBeUndefined()
         expect(algorithms.serverMac).toBeUndefined()

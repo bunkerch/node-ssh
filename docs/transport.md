@@ -400,12 +400,15 @@ the packet. Each direction derives a 12-byte IV consisting of a four-byte fixed 
 eight-byte invocation counter that advances once per packet and must never wrap. No integrity key
 is used, and inbound plaintext is not accepted until its tag verifies.
 
-The `chacha20-poly1305@openssh.com` AEAD cipher uses two independent 256-bit ChaCha20 keys. One
-encrypts the four-byte packet length so framing can proceed without exposing the payload cipher; the
-other encrypts the body and derives a one-time Poly1305 key for the full encrypted packet. The
+The standardized `chacha20-poly1305` cipher and its wire-identical
+`chacha20-poly1305@openssh.com` predecessor use two independent 256-bit ChaCha20 keys. The default
+offer places the standardized name first and retains the deployed name for interoperability. One
+key encrypts the four-byte packet length so framing can proceed without exposing the payload cipher;
+the other encrypts the body and derives a one-time Poly1305 key for the full encrypted packet. The
 64-bit nonce is the SSH packet sequence number, the body starts at ChaCha20 block counter one, and
 the full 16-byte tag is verified before the body is decrypted. A separate MAC is not negotiated.
-Sequence-number reuse or wrap under one transport key is rejected and requires rekeying.
+Sequence-number reuse or wrap under one transport key is rejected and requires rekeying. Both names
+use strict key exchange whenever the peer advertises the matching standard or deployed marker.
 
 RFC 4344 `aes128-ctr`, `aes192-ctr`, and `aes256-ctr` use AES with 128-, 192-, and 256-bit keys and
 a 128-bit initial counter. Each direction keeps one continuous counter stream across packet

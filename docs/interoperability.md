@@ -127,9 +127,9 @@ reject attempts after cancellation.
 Transport tests likewise use deterministic identification, binary framing, encryption-boundary,
 MAC, AEAD, fragmentation, and maximum-size vectors. AES-GCM is checked against a published NIST
 primitive vector. ChaCha20 and Poly1305 are checked against RFC 8439 vectors. Both AEAD packet
-layouts have fixed SSH packets generated independently of the TypeScript codec. This keeps exact
-packet parsing failures local and diagnosable instead of relying on an external implementation to
-reject malformed bytes.
+layouts have fixed SSH packets independent of the TypeScript codec, including the published
+`chacha20-poly1305` worked example. This keeps exact packet parsing failures local and diagnosable
+instead of relying on an external implementation to reject malformed bytes.
 
 RFC 5647 coverage also fixes the registered `AEAD_AES_128_GCM` packet ciphertext and tag for an
 independently generated key, IV, payload, padding, and authenticated length. Negotiation tests
@@ -397,11 +397,12 @@ the pinned server, executes commands before and after an explicit rekey, preserv
 session ID, and derives a different exchange hash. These opt-in tests are compatibility evidence
 rather than a deployment recommendation.
 
-AEAD interoperability forces ChaCha20-Poly1305 and both 128- and 256-bit AES-GCM variants in both
-peer roles. OpenSSH streams enough data to initiate low-limit rekeys against the modern server;
-separate modern clients force each cipher against the containerized server, explicitly rekey, and
-execute a command. Negotiated handshake details prove that both directions use implicit integrity
-rather than a separate MAC.
+AEAD integration forces both the standardized and deployed ChaCha20-Poly1305 names through traffic
+and rekey. Independent-peer interoperability exercises the deployed name and both 128- and 256-bit
+AES-GCM variants in both peer roles. OpenSSH streams enough data to initiate low-limit rekeys against
+the modern server; separate modern clients force each supported cipher against the containerized
+server, explicitly rekey, and execute a command. Negotiated handshake details prove that both
+directions use implicit integrity rather than a separate MAC.
 
 CBC interoperability forces AES-128, AES-192, AES-256, and three-key 3DES in both peer roles.
 OpenSSH initiates low-limit rekeys against the modern server; separate modern clients explicitly

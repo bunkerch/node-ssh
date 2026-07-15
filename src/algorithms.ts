@@ -35,7 +35,9 @@ import AES256CTR from "./algorithms/encryption/aes256-ctr.js"
 import AES128GCMOpenSSH from "./algorithms/encryption/aes128-gcm-openssh.js"
 import AES256GCMOpenSSH from "./algorithms/encryption/aes256-gcm-openssh.js"
 import { AEADAES128GCM, AEADAES256GCM } from "./algorithms/encryption/aead-aes-gcm.js"
-import ChaCha20Poly1305OpenSSH from "./algorithms/encryption/chacha20-poly1305-openssh.js"
+import ChaCha20Poly1305OpenSSH, {
+    ChaCha20Poly1305,
+} from "./algorithms/encryption/chacha20-poly1305-openssh.js"
 import { SSHZlibCompressor, SSHZlibDecompressor } from "./algorithms/compression/zlib.js"
 import AES128CBC from "./algorithms/encryption/aes128-cbc.js"
 import AES192CBC from "./algorithms/encryption/aes192-cbc.js"
@@ -350,6 +352,7 @@ export abstract class EncryptionAlgorithm {
     ) => Buffer
 }
 export const encryption_algorithms = new Map<string, typeof EncryptionAlgorithm>([
+    ["chacha20-poly1305", ChaCha20Poly1305],
     ["chacha20-poly1305@openssh.com", ChaCha20Poly1305OpenSSH],
     ["aes256-gcm@openssh.com", AES256GCMOpenSSH],
     ["aes128-gcm@openssh.com", AES128GCMOpenSSH],
@@ -491,6 +494,7 @@ export const default_algorithm_names: ResolvedAlgorithmOptions = Object.freeze({
         "rsa-sha2-256",
     ]),
     cipher: Object.freeze([
+        "chacha20-poly1305",
         "chacha20-poly1305@openssh.com",
         "aes256-gcm@openssh.com",
         "aes128-gcm@openssh.com",

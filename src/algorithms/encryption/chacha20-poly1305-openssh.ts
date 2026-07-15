@@ -117,6 +117,15 @@ export default class ChaCha20Poly1305OpenSSH implements EncryptionAlgorithm {
     }
 }
 
+/** The standardized name is wire-identical to the deployed private-use name. */
+export class ChaCha20Poly1305 extends ChaCha20Poly1305OpenSSH {
+    static override alg_name = "chacha20-poly1305"
+
+    static override instantiate(key: Buffer, iv: Buffer): EncryptionAlgorithm {
+        return new ChaCha20Poly1305(key, iv)
+    }
+}
+
 function validateSequenceNumber(sequenceNumber: number): void {
     assert(
         Number.isSafeInteger(sequenceNumber) && sequenceNumber >= 0 && sequenceNumber <= UINT32_MAX,
