@@ -3,7 +3,7 @@ import Client from "../Client.js"
 import { clientConfigurationFor } from "../ConnectionConfiguration.js"
 import { serializeBinaryBoolean } from "../utils/BinaryBoolean.js"
 import { readNextBinaryBoolean, serializeBuffer, serializeUint32 } from "../utils/Buffer.js"
-import { normalizeSSHSignal } from "../utils/Signal.js"
+import { normalizeSSHSignal, OPENSSH_INFO_SIGNAL } from "../utils/Signal.js"
 import ClientChannel from "./ClientChannel.js"
 import ChannelRequest from "../packets/ChannelRequest.js"
 import { encodeSSHName } from "../utils/SSHName.js"
@@ -201,6 +201,12 @@ export default class ClientSessionChannel extends ClientChannel {
             serializeBuffer(Buffer.from(normalizeSSHSignal(name), "ascii")),
             false,
         )
+    }
+
+    /** Request SIGINFO on an OpenSSH-compatible BSD-derived server. */
+    async sendInfoSignal(): Promise<void> {
+        this.client.assertOpenSSHVendor()
+        await this.signal(OPENSSH_INFO_SIGNAL)
     }
 
     sendBreak(duration = 0): Promise<void> {

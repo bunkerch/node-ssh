@@ -1,4 +1,4 @@
-import { normalizeSSHSignal } from "../../src/utils/Signal.js"
+import { normalizeSSHSignal, OPENSSH_INFO_SIGNAL } from "../../src/utils/Signal.js"
 
 describe("SSH signal names", () => {
     test("normalizes the optional SIG prefix for RFC 4254 standard signals", () => {
@@ -7,6 +7,8 @@ describe("SSH signal names", () => {
     })
 
     test("accepts extension signal names without rewriting them", () => {
+        expect(OPENSSH_INFO_SIGNAL).toBe("INFO@openssh.com")
+        expect(normalizeSSHSignal(OPENSSH_INFO_SIGNAL)).toBe(OPENSSH_INFO_SIGNAL)
         expect(normalizeSSHSignal("SIG@example.com")).toBe("SIG@example.com")
         expect(normalizeSSHSignal("custom-signal@example.com")).toBe("custom-signal@example.com")
     })

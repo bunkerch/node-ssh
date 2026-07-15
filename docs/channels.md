@@ -138,6 +138,13 @@ terminal BREAK. The duration is an unsigned millisecond value; zero requests the
 `break(duration)` is an equivalent short form. Servers commonly clamp nonzero requests to 500
 through 3,000 milliseconds as recommended by the RFC.
 
+On an OpenSSH-compatible server running a BSD-derived operating system,
+`await channel.sendInfoSignal()` sends the published `INFO@openssh.com` signal extension. With the
+default `strictVendor` setting, the method rejects before writing when the peer does not identify as
+compatible. SSH signal notifications do not request a protocol reply, so the Promise confirms that
+the request was written, not that the remote process handled SIGINFO. Generic extension signals
+remain available through `signal(name)` when an application negotiates a separate convention.
+
 Calling `channel.end()` finishes standard input by sending channel EOF. Calling `channel.close()`
 sends EOF followed by CLOSE. A peer CLOSE is always acknowledged before the stream is destroyed.
 EOF waits behind data already accepted by `sendData()` and prevents every later write, so channel

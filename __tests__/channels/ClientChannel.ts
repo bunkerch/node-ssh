@@ -103,6 +103,51 @@ describe("ClientChannel", () => {
         channel.destroy()
     })
 
+    test("sends the OpenSSH SIGINFO extension only for a compatible peer", async () => {
+        const createStartedSession = async (strictVendor: boolean) => {
+            const client = new Client({ hostname: "unused", strictVendor })
+            const sent: Packet[] = []
+            client.sendPacket = (packet: Packet) => {
+                sent.push(packet)
+                return sent.length - 1
+            }
+            const channel = new ClientSessionChannel(client)
+            channel.confirmOpen(
+                new ChannelOpenConfirmation({
+                    recipient_channel_id: channel.localId,
+                    sender_channel_id: 42,
+                    initial_window_size: 32,
+                    maximum_packet_size: 32,
+                    args: Buffer.alloc(0),
+                }),
+            )
+            const executing = channel.exec("true")
+            channel.receiveRequestSuccess()
+            await executing
+            return { channel, sent }
+        }
+
+        const permitted = await createStartedSession(false)
+        await permitted.channel.sendInfoSignal()
+        expect(
+            permitted.sent.find(
+                (packet): packet is ChannelRequest =>
+                    packet instanceof ChannelRequest &&
+                    packet.data.request_type === "signal" &&
+                    packet.data.args.toString("hex") === "00000010494e464f406f70656e7373682e636f6d",
+            ),
+        ).toBeDefined()
+        permitted.channel.destroy()
+
+        const rejected = await createStartedSession(true)
+        const before = rejected.sent.length
+        await expect(rejected.channel.sendInfoSignal()).rejects.toThrow(
+            "strictVendor enabled and server is not OpenSSH or compatible version",
+        )
+        expect(rejected.sent).toHaveLength(before)
+        rejected.channel.destroy()
+    })
+
     test("queues awaited sends across packet and window limits", async () => {
         const { channel, sent } = createChannel()
         const input = Buffer.from("abcdefgh")

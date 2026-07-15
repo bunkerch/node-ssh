@@ -444,6 +444,8 @@ describe("package exports", () => {
         expect(entry.SSHAgentMessageType.IdentitiesAnswer).toBe(12)
         expect(entry.MAX_SSH_AGENT_MESSAGE_LENGTH).toBe(256 * 1024)
         expect(entry.OPENSSH_AGENT_SESSION_BIND).toBe("session-bind@openssh.com")
+        expect(entry.OPENSSH_INFO_SIGNAL).toBe("INFO@openssh.com")
+        expect(entry.ClientSessionChannel.prototype.sendInfoSignal).toBeFunction()
         expect(entry.CygwinAgent).toBeFunction()
         expect(entry.CygwinAgentError).toBeFunction()
         expect(entry.createSocketAgent).toBeFunction()
@@ -595,6 +597,8 @@ describe("package exports", () => {
         }
         expect(clientChannel).toContain("sendData(data: Buffer | string")
         expect(clientSession).toContain("forwardAgent(): Promise<void>")
+        expect(clientSession).toContain("sendInfoSignal(): Promise<void>")
+        expect(index).toContain('export { OPENSSH_INFO_SIGNAL } from "./utils/Signal.js"')
         expect(channel).toContain("sendData(data: Buffer): Promise<void>")
         expect(channel).toContain("sendExtendedData(dataType: number, data: Buffer): Promise<void>")
         expect(serverClient).not.toContain("ServerGlobalRequestCallback")
@@ -759,7 +763,7 @@ describe("package exports", () => {
                     const { tmpdir } = await import("node:os")
                     const { join } = await import("node:path")
                     const { PassThrough } = await import("node:stream")
-                    const { AllowedSigners, ChannelOpenError, ChannelOpenFailureReasonCodes, Client, ClientForwardedStreamLocalChannel, ClientForwardedTCPIPChannel, ClientX11Channel, createSocketAgent, CygwinAgent, CygwinAgentError, DELAY_COMPRESSION_EXTENSION, delayCompressionExtension, discoverPageantAgentSocket, DisconnectError, DisconnectReason, ELEVATION_EXTENSION, EncodedSignature, generateKeyPair, generateKeyPairSync, KeyRevocationList, KnownHosts, MAX_OPENSSH_AGENT_SESSION_BINDINGS, MAX_SSH_AGENT_MESSAGE_LENGTH, NO_FLOW_CONTROL_EXTENSION, OnePasswordAgent, OPENSSH_AGENT_SECURITY_KEY_PROVIDER, OPENSSH_AGENT_SESSION_BIND, PageantAgent, PageantAgentError, parseKey, parseRFC4716PublicKeyFile, PrivateKey, PrivateKeyAgent, ProtocolVersionExchange, PublicKey, PublicKeySubsystemClient, PublicKeySubsystemServer, PublicKeySubsystemStatusCode, SecurityKeyAttestation, serializeRFC4716PublicKey, Server, SessionChannel, SSH_ED25519_SECURITY_KEY_ALGORITHM, SSHAgentConstraintType, SSHAgentExtensionFailureError, SSHAgentMessageType, SSHAgentProtocolClient, SSHAgentProtocolError, SSHAgentProtocolServer, SSHED25519SecurityKeyPrivateKey, SSHED25519SecurityKeyPublicKey, SSHSignature } = await import("@bunkerch/modernssh")
+                    const { AllowedSigners, ChannelOpenError, ChannelOpenFailureReasonCodes, Client, ClientForwardedStreamLocalChannel, ClientForwardedTCPIPChannel, ClientSessionChannel, ClientX11Channel, createSocketAgent, CygwinAgent, CygwinAgentError, DELAY_COMPRESSION_EXTENSION, delayCompressionExtension, discoverPageantAgentSocket, DisconnectError, DisconnectReason, ELEVATION_EXTENSION, EncodedSignature, generateKeyPair, generateKeyPairSync, KeyRevocationList, KnownHosts, MAX_OPENSSH_AGENT_SESSION_BINDINGS, MAX_SSH_AGENT_MESSAGE_LENGTH, NO_FLOW_CONTROL_EXTENSION, OnePasswordAgent, OPENSSH_AGENT_SECURITY_KEY_PROVIDER, OPENSSH_AGENT_SESSION_BIND, OPENSSH_INFO_SIGNAL, PageantAgent, PageantAgentError, parseKey, parseRFC4716PublicKeyFile, PrivateKey, PrivateKeyAgent, ProtocolVersionExchange, PublicKey, PublicKeySubsystemClient, PublicKeySubsystemServer, PublicKeySubsystemStatusCode, SecurityKeyAttestation, serializeRFC4716PublicKey, Server, SessionChannel, SSH_ED25519_SECURITY_KEY_ALGORITHM, SSHAgentConstraintType, SSHAgentExtensionFailureError, SSHAgentMessageType, SSHAgentProtocolClient, SSHAgentProtocolError, SSHAgentProtocolServer, SSHED25519SecurityKeyPrivateKey, SSHED25519SecurityKeyPublicKey, SSHSignature } = await import("@bunkerch/modernssh")
                     const { privateKey, publicKey } = await generateKeyPair("ed25519", {
                         comment: "packed@example.test",
                     })
@@ -844,6 +848,7 @@ describe("package exports", () => {
                     if (typeof CygwinAgent !== "function" || typeof CygwinAgentError !== "function" || typeof createSocketAgent !== "function") process.exit(19)
                     if (SSHAgentMessageType.ExtensionResponse !== 29 || SSHAgentConstraintType.Extension !== 255 || typeof SSHAgentExtensionFailureError !== "function") process.exit(21)
                     if (OPENSSH_AGENT_SESSION_BIND !== "session-bind@openssh.com" || MAX_OPENSSH_AGENT_SESSION_BINDINGS !== 16) process.exit(22)
+                    if (OPENSSH_INFO_SIGNAL !== "INFO@openssh.com" || typeof ClientSessionChannel.prototype.sendInfoSignal !== "function") process.exit(95)
                     const securityKey = PublicKey.parse(Buffer.from("0000001a736b2d7373682d65643235353139406f70656e7373682e636f6d00000020d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a000000087373683a74657374", "hex"))
                     const securityKeySignature = EncodedSignature.parse(Buffer.from("0000001a736b2d7373682d65643235353139406f70656e7373682e636f6d00000040f2330a0e0f6b9da42b530f7e14a4bb4db0832754452a0bdb90c002f6c922508ead849b2fb57a5552fcd92d407616d7347dafb9335e1e46a806f01de7bcd2d10f010000002a", "hex"))
                     if (!(securityKey.data.algorithm instanceof SSHED25519SecurityKeyPublicKey)) process.exit(23)

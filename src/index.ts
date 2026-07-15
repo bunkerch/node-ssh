@@ -159,6 +159,7 @@ export type {
     ClientX11Options,
     ClientX11Request,
 } from "./channels/ClientSessionChannel.js"
+export { OPENSSH_INFO_SIGNAL } from "./utils/Signal.js"
 export { default as ClientTCPIPChannel } from "./channels/ClientTCPIPChannel.js"
 export { default as ClientForwardedTCPIPChannel } from "./channels/ClientForwardedTCPIPChannel.js"
 export { default as ClientDirectStreamLocalChannel } from "./channels/ClientDirectStreamLocalChannel.js"

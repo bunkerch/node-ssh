@@ -105,6 +105,10 @@ describe("client/server integration", () => {
         const runtimeControlsComplete = new Promise<void>((resolve) => {
             resolveRuntimeControls = resolve
         })
+        let resolveInfoSignal!: () => void
+        const infoSignalReceived = new Promise<void>((resolve) => {
+            resolveInfoSignal = resolve
+        })
         const serverChannelRequests: string[] = []
         let resolveServerChannelNotification: (() => void) | undefined
         const serverChannelNotification = new Promise<void>((resolve) => {
@@ -200,6 +204,7 @@ describe("client/server integration", () => {
                 })
                 channel.events.on("signal", (signal) => {
                     runtimeControls.push(`event:signal:${signal}`)
+                    if (signal === "INFO@openssh.com") resolveInfoSignal()
                     resolveRuntimeControls?.()
                 })
                 channel.events.on("sftp", (sftp) => {
@@ -611,6 +616,12 @@ describe("client/server integration", () => {
                 "hook:signal:TERM",
                 "event:signal:TERM",
             ])
+            await configured.sendInfoSignal()
+            await infoSignalReceived
+            expect(runtimeControls.slice(-2)).toEqual([
+                "hook:signal:INFO@openssh.com",
+                "event:signal:INFO@openssh.com",
+            ])
             await expect(
                 configured.request("signal", serializeBuffer(Buffer.from("TERM", "ascii"))),
             ).rejects.toThrow("request failed (signal)")
@@ -625,7 +636,7 @@ describe("client/server integration", () => {
                     ]),
                 ),
             ).rejects.toThrow("request failed (window-change)")
-            expect(runtimeControls).toHaveLength(4)
+            expect(runtimeControls).toHaveLength(6)
             const xonXoff = new Promise<boolean>((resolve) => configured.once("xonXoff", resolve))
             expect(configuredShell!.setXonXoff(false)).toBe(configuredShell!)
             expect(await xonXoff).toBe(false)

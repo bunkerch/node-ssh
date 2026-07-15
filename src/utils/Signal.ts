@@ -14,6 +14,9 @@ const STANDARD_SIGNALS = new Set([
     "USR2",
 ])
 
+/** OpenSSH extension that requests SIGINFO on BSD-derived systems. */
+export const OPENSSH_INFO_SIGNAL = "INFO@openssh.com"
+
 export function normalizeSSHSignal(value: string): string {
     const withoutPrefix = value.startsWith("SIG") ? value.slice(3) : value
     const signal = STANDARD_SIGNALS.has(withoutPrefix) ? withoutPrefix : value
