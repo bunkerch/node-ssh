@@ -103,6 +103,79 @@ describe("RFC 4253 automatic key re-exchange", () => {
         }
     }, 15_000)
 
+    test("does not report an old peer-initiated rekey failure on a reconnected transport", async () => {
+        const server = new Server({
+            hostKeys: [await PrivateKey.generate("ssh-ed25519")],
+            sendAllHostKeys: false,
+            algorithms,
+            rekeyBytes: 0,
+            rekeyInterval: 0,
+        })
+        server.hooker.hook("noneAuthentication", (_hook, _context, controller) => {
+            controller.allowLogin = true
+        })
+        const peers: ServerClient[] = []
+        server.on("connection", (peer) => {
+            peers.push(peer)
+            peer.on("error", () => undefined)
+        })
+        server.listen({ host: "127.0.0.1", port: 0 })
+        await once(server, "listening")
+
+        let releaseOldDecision!: () => void
+        const oldDecisionReleased = new Promise<void>((resolve) => {
+            releaseOldDecision = resolve
+        })
+        let reportOldDecision!: () => void
+        const oldDecisionStarted = new Promise<void>((resolve) => {
+            reportOldDecision = resolve
+        })
+        let hostKeyDecisions = 0
+        const client = new Client({
+            hostname: "127.0.0.1",
+            port: (server.address() as AddressInfo).port,
+            username: "peer-rekey-reconnect",
+            authenticationMethodsOrder: [SSHAuthenticationMethods.None],
+            algorithms,
+            rekeyBytes: 0,
+            rekeyInterval: 0,
+        })
+        client.on("error", () => undefined)
+        client.hooker.hook("hostKey", async (_hook, controller) => {
+            hostKeyDecisions++
+            if (hostKeyDecisions === 2) {
+                reportOldDecision()
+                await oldDecisionReleased
+            }
+            controller.allowHostKey = true
+        })
+
+        try {
+            await client.connect()
+            const oldRekey = peers[0].rekey().then(
+                () => undefined,
+                (error: unknown) => error,
+            )
+            await oldDecisionStarted
+
+            const oldTransportClosed = once(client, "close")
+            client.destroy()
+            await oldTransportClosed
+            expect(await oldRekey).toBeInstanceOf(Error)
+
+            await client.connect()
+            expect(hostKeyDecisions).toBe(3)
+            expect(client.isConnected).toBe(true)
+
+            releaseOldDecision()
+            await new Promise<void>((resolve) => setImmediate(resolve))
+            expect(client.isConnected).toBe(true)
+        } finally {
+            releaseOldDecision()
+            await closePeers(server, client)
+        }
+    }, 15_000)
+
     test("validates byte and timer limits for both peer roles", () => {
         expect(() => new Client({ rekeyBytes: -1 })).toThrow("non-negative safe integer")
         expect(() => new Client({ rekeyBytes: 1.5 })).toThrow("non-negative safe integer")

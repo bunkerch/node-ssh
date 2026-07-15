@@ -2860,7 +2860,9 @@ export default class Client extends EventEmitter<ClientEvents> {
             void this.actionQueue
                 .queueAction("globalRequest", () => this.handleServerGlobalRequest(p, generation))
                 .catch((error: Error) => {
-                    if (this.isConnected) this.socket?.destroy(error)
+                    if (generation === this.connectionGeneration && this.isConnected) {
+                        this.socket?.destroy(error)
+                    }
                 })
         }
         this.routeGlobalRequestReply(p)
@@ -2948,8 +2950,13 @@ export default class Client extends EventEmitter<ClientEvents> {
 
             case PacketNameToType.SSH_MSG_KEXINIT:
                 if (this.sessionID !== undefined && !this.keyExchangeInProgress) {
+                    const generation = this.connectionGeneration
                     void waitForReply(this, this.performKeyExchange(true), "key exchange").catch(
-                        (error: Error) => this.socket?.destroy(error),
+                        (error: Error) => {
+                            if (generation === this.connectionGeneration) {
+                                this.socket?.destroy(error)
+                            }
+                        },
                     )
                 }
                 this.emit("serverKexInit", p as KexInit, Buffer.from(this.#serverKexInitPayload!))
@@ -3271,10 +3278,13 @@ export default class Client extends EventEmitter<ClientEvents> {
                 if (channel.remoteId !== undefined) this.remoteChannelIds.delete(channel.remoteId)
             }
         } else if (packet instanceof ChannelRequest) {
+            const generation = this.connectionGeneration
             void this.actionQueue
                 .queueAction(`channelRequest:${recipient}`, () => channel.receiveRequest(packet))
                 .catch((error: Error) => {
-                    if (this.isConnected) this.handleMessageError(error)
+                    if (generation === this.connectionGeneration && this.isConnected) {
+                        this.handleMessageError(error)
+                    }
                 })
         } else if (packet instanceof ChannelSuccess) {
             channel.receiveRequestSuccess()

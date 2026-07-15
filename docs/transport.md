@@ -787,6 +787,9 @@ packets, including framing, padding, and authentication data, and resets separat
 direction installs replacement keys. The time limit is measured from completion of the exchange.
 Automatic and explicit exchanges share the same state machine, queueing, events, and failure
 handling; a peer-initiated exchange suppresses a simultaneously due local automatic exchange.
+Detached handling of a peer-initiated exchange remains bound to that transport generation. If the
+same `Client` reconnects while an old host-key decision is pending, the old exchange cannot report
+its eventual failure by closing the replacement transport.
 
 RFC 4253 permits either peer to initiate rekeying as soon as the initial key exchange has
 completed, including during service negotiation or user authentication. `rekey()` follows that
