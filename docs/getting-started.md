@@ -401,8 +401,10 @@ default or choose a larger policy-approved size. Ed25519 and Ed448 have fixed si
 Ed448 is available for explicit deployments that need its higher security level; it is not in the
 default host-key offer because it is not broadly deployed.
 Comments cannot contain NUL or line endings because the public-key format is line-oriented. Key
-generation uses the runtime cryptographic random source; write private material with restrictive
-permissions and avoid logging it.
+generation snapshots and validates its plain options object before asynchronous cryptographic work,
+so later caller mutation cannot change the generated key metadata. It uses the runtime
+cryptographic random source; write private material with restrictive permissions and avoid logging
+it.
 
 Pass encryption options to `PrivateKey.toString()` or `serialize()` when persisting generated or
 loaded keys. Encryption uses OpenSSH's `bcrypt` KDF with 16 rounds and `aes256-ctr` by default,

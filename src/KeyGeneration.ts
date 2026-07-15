@@ -1,5 +1,6 @@
 import PrivateKey, { SSHRSAPrivateKey } from "./utils/PrivateKey.js"
 import PublicKey, { encodeSSHKeyComment } from "./utils/PublicKey.js"
+import { isPlainConfigurationObject } from "./utils/Configuration.js"
 
 export type KeyPairType = "ed25519" | "ed448" | "rsa" | "ecdsa" | "dsa"
 
@@ -13,6 +14,24 @@ export interface GenerateKeyPairOptions {
 export interface GeneratedKeyPair {
     readonly privateKey: PrivateKey
     readonly publicKey: PublicKey
+}
+
+interface NormalizedGenerateKeyPairOptions {
+    readonly bits: number | undefined
+    readonly comment: string | undefined
+}
+
+function normalizeOptions(options: GenerateKeyPairOptions): NormalizedGenerateKeyPairOptions {
+    if (!isPlainConfigurationObject(options)) {
+        throw new TypeError("SSH key generation options must be an object")
+    }
+    const bits = options.bits
+    const comment = options.comment
+    if (comment !== undefined && typeof comment !== "string") {
+        throw new TypeError("SSH key generation comment must be a string")
+    }
+    validateComment(comment)
+    return Object.freeze({ bits, comment })
 }
 
 function validateComment(comment: string | undefined): void {
@@ -61,13 +80,13 @@ export async function generateKeyPair(
     type: KeyPairType,
     options: GenerateKeyPairOptions = {},
 ): Promise<GeneratedKeyPair> {
-    validateComment(options.comment)
-    const name = algorithm(type, options.bits)
+    const normalized = normalizeOptions(options)
+    const name = algorithm(type, normalized.bits)
     const privateKey =
         type === "rsa"
-            ? await SSHRSAPrivateKey.generate(options.bits ?? 3072)
+            ? await SSHRSAPrivateKey.generate(normalized.bits ?? 3072)
             : await PrivateKey.generate(name!)
-    return attachComment(privateKey, options.comment)
+    return attachComment(privateKey, normalized.comment)
 }
 
 /** Generate a supported SSH key pair synchronously using Node's cryptographic random source. */
@@ -75,11 +94,11 @@ export function generateKeyPairSync(
     type: KeyPairType,
     options: GenerateKeyPairOptions = {},
 ): GeneratedKeyPair {
-    validateComment(options.comment)
-    const name = algorithm(type, options.bits)
+    const normalized = normalizeOptions(options)
+    const name = algorithm(type, normalized.bits)
     const privateKey =
         type === "rsa"
-            ? SSHRSAPrivateKey.generateSync(options.bits ?? 3072)
+            ? SSHRSAPrivateKey.generateSync(normalized.bits ?? 3072)
             : PrivateKey.generateSync(name!)
-    return attachComment(privateKey, options.comment)
+    return attachComment(privateKey, normalized.comment)
 }

@@ -125,5 +125,24 @@ describe("SSH key-pair generation", () => {
         )
         expect(() => generateKeyPairSync("rsa", { bits: 1023 })).toThrow("between 1024 and 16384")
         expect(() => generateKeyPairSync("ed448", { bits: 448 })).toThrow("does not accept bits")
+        await expect(generateKeyPair("ed25519", null as never)).rejects.toThrow(
+            "options must be an object",
+        )
+        expect(() => generateKeyPairSync("ed25519", [] as never)).toThrow(
+            "options must be an object",
+        )
+        await expect(generateKeyPair("ed25519", { comment: 42 as never })).rejects.toThrow(
+            "comment must be a string",
+        )
+    })
+
+    test("owns asynchronous generation options before cryptographic work", async () => {
+        const options = { comment: "original@example.test" }
+        const generation = generateKeyPair("ed25519", options)
+        options.comment = "mutated@example.test"
+
+        const pair = await generation
+        expect(pair.publicKey.data.comment).toBe("original@example.test")
+        expect(pair.privateKey.data.comment).toBe("original@example.test")
     })
 })

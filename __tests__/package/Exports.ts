@@ -775,6 +775,11 @@ describe("package exports", () => {
                     const { privateKey, publicKey } = await generateKeyPair("ed25519", {
                         comment: "packed@example.test",
                     })
+                    const generationOptions = { comment: "owned@example.test" }
+                    const ownedGeneration = generateKeyPair("ed25519", generationOptions)
+                    generationOptions.comment = "mutated@example.test"
+                    if ((await ownedGeneration).publicKey.data.comment !== "owned@example.test") process.exit(98)
+                    try { await generateKeyPair("ed25519", null); process.exit(99) } catch (error) { if (!String(error).includes("options must be an object")) process.exit(100) }
                     const message = Buffer.from("packed-key-generation")
                     if (!publicKey.verifySignature(message, privateKey.sign(message))) process.exit(2)
                     const detached = SSHSignature.sign(message, privateKey, { namespace: "package" })
