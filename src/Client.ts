@@ -167,6 +167,7 @@ import PrivateKeyAgent from "./publickey/PrivateKeyAgent.js"
 import { createSocketAgent } from "./publickey/SocketAgent.js"
 import { parseKey } from "./KeyParsing.js"
 import { decodeSSHUTF8, encodeSSHUTF8 } from "./utils/SSHText.js"
+import { encodeSSHName } from "./utils/SSHName.js"
 import {
     closeGSSAPIContext,
     buildGSSAPIKeyExchangeUserAuthMIC,
@@ -1363,6 +1364,7 @@ export default class Client extends EventEmitter<ClientEvents> {
     }
 
     async exec(command: string, options: ClientSessionOptions = {}): Promise<ClientSessionChannel> {
+        encodeSSHUTF8(command, "SSH exec command")
         const sessionOptions = snapshotSessionOptions(options)
         const channel = await this.openSessionChannel()
         try {
@@ -1388,16 +1390,16 @@ export default class Client extends EventEmitter<ClientEvents> {
         }
     }
 
-    subsystem(name: string): Promise<ClientSessionChannel> {
-        return this.openSessionChannel().then(async (channel) => {
-            try {
-                await channel.subsystem(name)
-                return channel
-            } catch (error) {
-                channel.close()
-                throw error
-            }
-        })
+    async subsystem(name: string): Promise<ClientSessionChannel> {
+        encodeSSHName(name, "SSH subsystem name")
+        const channel = await this.openSessionChannel()
+        try {
+            await channel.subsystem(name)
+            return channel
+        } catch (error) {
+            channel.close()
+            throw error
+        }
     }
 
     subsys(name: string): Promise<ClientSessionChannel> {
@@ -1456,12 +1458,16 @@ export default class Client extends EventEmitter<ClientEvents> {
         })
     }
 
-    forwardOut(
+    async forwardOut(
         sourceHost: string,
         sourcePort: number,
         destinationHost: string,
         destinationPort: number,
     ): Promise<ClientTCPIPChannel> {
+        this.validatePort(destinationPort, "destination port")
+        this.validatePort(sourcePort, "source port")
+        encodeSSHUTF8(destinationHost, "direct-tcpip destination address")
+        encodeSSHUTF8(sourceHost, "direct-tcpip originator address")
         return this.openClientChannel(
             new ClientTCPIPChannel(this, {
                 sourceHost,
@@ -1480,12 +1486,10 @@ export default class Client extends EventEmitter<ClientEvents> {
         return this.cancelRemoteForward(bindAddress, bindPort)
     }
 
-    openssh_forwardOutStreamLocal(socketPath: string): Promise<ClientDirectStreamLocalChannel> {
-        try {
-            this.assertOpenSSHVendor()
-        } catch (error) {
-            return Promise.reject(error)
-        }
+    async openssh_forwardOutStreamLocal(
+        socketPath: string,
+    ): Promise<ClientDirectStreamLocalChannel> {
+        this.assertOpenSSHVendor()
         this.validateSocketPath(socketPath)
         return this.openClientChannel(new ClientDirectStreamLocalChannel(this, socketPath))
     }
@@ -1884,9 +1888,14 @@ export default class Client extends EventEmitter<ClientEvents> {
     }
 
     private validateSocketPath(socketPath: string): void {
-        if (socketPath.length === 0 || socketPath.includes("\0")) {
+        if (
+            typeof socketPath !== "string" ||
+            socketPath.length === 0 ||
+            socketPath.includes("\0")
+        ) {
             throw new TypeError("SSH stream-local socket path must be non-empty and contain no NUL")
         }
+        encodeSSHUTF8(socketPath, "SSH stream-local socket path")
     }
 
     private remoteForwardingKey(address: string, port: number): string {

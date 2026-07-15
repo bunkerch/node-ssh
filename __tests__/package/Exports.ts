@@ -666,6 +666,9 @@ describe("package exports", () => {
                     const invalidSession = new Client({}).exec("true", { agentForward: "false" })
                     if (!(invalidSession instanceof Promise)) process.exit(66)
                     try { await invalidSession; process.exit(67) } catch (error) { if (!String(error).includes("session agentForward option must be a boolean")) process.exit(68) }
+                    const invalidForward = new Client({}).forwardOut("source.example", 0, "target.example", -1)
+                    if (!(invalidForward instanceof Promise)) process.exit(69)
+                    try { await invalidForward; process.exit(70) } catch (error) { if (!String(error).includes("destination port must be between 0 and 65535")) process.exit(71) }
                     try { new Client({ port: 0 }); process.exit(57) } catch (error) { if (!String(error).includes("between 1 and 65535")) process.exit(58) }
                     try { new Server({ greeting: "invalid\\ud800greeting" }); process.exit(59) } catch (error) { if (!String(error).includes("not valid UTF-8 text")) process.exit(60) }
                     const legacy = generateKeyPairSync("dsa")

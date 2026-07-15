@@ -19,7 +19,9 @@ The addresses are protocol metadata; the library does not create the destination
 The receiving server decides whether the request is allowed and connects or otherwise services the
 stream. Ports are validated as unsigned 16-bit TCP port numbers before a packet is sent. Address
 and socket-path text must be valid UTF-8 on the wire; malformed input is rejected before it reaches
-an authorization hook, listener lookup, or channel event.
+an authorization hook, listener lookup, or channel event. Direct TCP and stream-local opens
+validate this metadata before allocating a channel identifier. As Promise-only operations, they
+report invalid input through rejection rather than a synchronous throw.
 
 Forwarding channels consume the same connection-wide `maxChannels` allowance as sessions, X11,
 agent forwarding, and other channels. This bounds accepted network connections even when an

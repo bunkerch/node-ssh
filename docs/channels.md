@@ -58,6 +58,10 @@ configuration must use their documented scalar or object shapes. Invalid input r
 returned Promise; it never throws synchronously or turns a truthy value such as the string
 `"false"` into an enabled forwarding request.
 
+The command text passed to `exec()` must be valid UTF-8, and `subsystem()` requires an RFC 4250 SSH
+name. These values are validated before allocating a channel identifier. Invalid values reject the
+operation without opening a disposable session first.
+
 For PTY, environment, resize, signal, or subsystem setup, open a session explicitly and make the
 requests in protocol order:
 
