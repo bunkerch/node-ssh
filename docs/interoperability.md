@@ -487,10 +487,14 @@ directory, and identity lookup extensions. Whole-file helpers are exercised for 
 write, append, size limits, and existence checks; parallel upload and download use deliberately
 uneven chunks against the real server. Writable and inclusive-range readable Node streams are also
 round-tripped through OpenSSH, and returned mode bits are checked through `SFTPStats` file-type
-predicates. The system OpenSSH `sftp` client uploads, lists, renames, symlinks, downloads, and removes
-files through a policy-controlled modern server. Independent literal vectors cover every baseline
-request and response layout and every extension payload; malformed framing, counts, flags, handles,
-response types, request identifiers, and extension replies are rejected without relying on another
+predicates. The system OpenSSH `sftp` client uploads, flushes, lists, renames, creates a hard link,
+copies data server-side, queries filesystem space, downloads, and removes files through a
+policy-controlled modern server. The copied and linked contents are downloaded independently and
+compared byte-for-byte. The observed requests prove negotiation and use of
+the limits, fsync, statvfs, POSIX-rename, hard-link, copy-data, and identity-lookup
+extensions in the server role. Independent literal vectors cover every baseline request and
+response layout and every extension payload; malformed framing, counts, flags, handles, response
+types, request identifiers, and extension replies are rejected without relying on another
 JavaScript SSH implementation. In-process write control proves that awaited server responses settle
 only after channel output completes and reject on output failure. A separate encrypted connection
 proves that a later pipelined request can complete while an earlier async server hook remains

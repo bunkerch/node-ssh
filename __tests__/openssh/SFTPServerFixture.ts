@@ -3,6 +3,7 @@ import {
     chmod,
     chown,
     lstat,
+    link,
     mkdir,
     open,
     readdir,
@@ -10,6 +11,7 @@ import {
     rename,
     rmdir,
     stat,
+    statfs,
     symlink,
     truncate,
     unlink,
@@ -19,7 +21,16 @@ import {
 import { posix, resolve, sep } from "node:path"
 import SFTPServer from "../../src/sftp/SFTPServer.js"
 import { SFTPOpenFlags, SFTPStatusCode } from "../../src/sftp/constants.js"
-import type { SFTPAttributes } from "../../src/sftp/types.js"
+import {
+    decodeSFTPCopyDataExtension,
+    decodeSFTPExtensionString,
+    decodeSFTPHandleExtension,
+    decodeSFTPTwoPathExtension,
+    decodeSFTPUsersGroupsExtension,
+    encodeSFTPStatVFS,
+    encodeSFTPUsersGroups,
+} from "../../src/sftp/openssh.js"
+import type { SFTPAttributes, SFTPExtension } from "../../src/sftp/types.js"
 
 interface FileResource {
     type: "file"
@@ -33,6 +44,23 @@ interface DirectoryResource {
 }
 
 type Resource = FileResource | DirectoryResource
+
+const FILESYSTEM_EXTENSION_VERSIONS: readonly (readonly [string, string])[] = [
+    ["posix-rename@openssh.com", "1"],
+    ["statvfs@openssh.com", "2"],
+    ["hardlink@openssh.com", "1"],
+    ["fsync@openssh.com", "1"],
+    ["expand-path@openssh.com", "1"],
+    ["copy-data", "1"],
+    ["home-directory", "1"],
+    ["users-groups-by-id@openssh.com", "1"],
+]
+
+export const FILESYSTEM_SFTP_EXTENSIONS: readonly SFTPExtension[] = Object.freeze(
+    FILESYSTEM_EXTENSION_VERSIONS.map(([name, version]) =>
+        Object.freeze({ name, data: Buffer.from(version) }),
+    ),
+)
 
 export function attachFilesystemSFTPServer(server: SFTPServer, root: string): void {
     const resources = new Map<string, Resource>()
@@ -86,14 +114,10 @@ export function attachFilesystemSFTPServer(server: SFTPServer, root: string): vo
     }
 
     server.hooker.hook("OPEN", async (_hook, request) => {
+        const path = resolvePath(request.filename)
         await respond(
             request.requestId,
-            () =>
-                open(
-                    resolvePath(request.filename),
-                    nodeOpenFlags(request.flags),
-                    request.attributes.permissions ?? 0o666,
-                ),
+            () => open(path, nodeOpenFlags(request.flags), request.attributes.permissions ?? 0o666),
             (file) => server.handle(request.requestId, issueHandle({ type: "file", file })),
         )
     })
@@ -296,6 +320,113 @@ export function attachFilesystemSFTPServer(server: SFTPServer, root: string): vo
             () => server.status(request.requestId, SFTPStatusCode.Ok),
         )
     })
+    server.hooker.hook("EXTENDED", async (_hook, request) => {
+        switch (request.request) {
+            case "posix-rename@openssh.com":
+            case "hardlink@openssh.com": {
+                const { firstPath, secondPath } = decodeSFTPTwoPathExtension(request.data)
+                await respond(
+                    request.requestId,
+                    () =>
+                        request.request === "posix-rename@openssh.com"
+                            ? rename(resolvePath(firstPath), resolvePath(secondPath))
+                            : link(resolvePath(firstPath), resolvePath(secondPath)),
+                    () => server.status(request.requestId, SFTPStatusCode.Ok),
+                )
+                return
+            }
+            case "statvfs@openssh.com": {
+                const path = decodeSFTPExtensionString(request.data)
+                await respond(
+                    request.requestId,
+                    () => statfs(resolvePath(path), { bigint: true }),
+                    (value) =>
+                        server.extendedReply(
+                            request.requestId,
+                            encodeSFTPStatVFS({
+                                blockSize: value.bsize,
+                                fragmentSize: value.bsize,
+                                blocks: value.blocks,
+                                blocksFree: value.bfree,
+                                blocksAvailable: value.bavail,
+                                files: value.files,
+                                filesFree: value.ffree,
+                                filesAvailable: value.ffree,
+                                filesystemId: 0n,
+                                flags: 0n,
+                                maximumFilenameLength: 255n,
+                            }),
+                        ),
+                )
+                return
+            }
+            case "fsync@openssh.com": {
+                const handle = decodeSFTPHandleExtension(request.data)
+                await respond(
+                    request.requestId,
+                    async () => {
+                        const resource = getResource(handle)
+                        if (resource.type !== "file") {
+                            throw Object.assign(new Error("Not a file"), { code: "EBADF" })
+                        }
+                        await resource.file.sync()
+                    },
+                    () => server.status(request.requestId, SFTPStatusCode.Ok),
+                )
+                return
+            }
+            case "expand-path@openssh.com":
+            case "home-directory": {
+                const value = decodeSFTPExtensionString(request.data)
+                const path =
+                    request.request === "home-directory"
+                        ? value.length === 0 || value.equals(Buffer.from("interop"))
+                            ? "/"
+                            : undefined
+                        : value.equals(Buffer.from("~"))
+                          ? "/"
+                          : value.subarray(0, 2).equals(Buffer.from("~/"))
+                            ? virtualPath(value.subarray(1))
+                            : virtualPath(value)
+                if (path === undefined) {
+                    await server.status(request.requestId, SFTPStatusCode.NoSuchFile)
+                    return
+                }
+                await server.name(request.requestId, {
+                    filename: Buffer.from(path),
+                    longname: Buffer.from(path),
+                    attributes: {},
+                })
+                return
+            }
+            case "copy-data": {
+                const copy = decodeSFTPCopyDataExtension(request.data)
+                if (copy.sourceHandle.equals(copy.destinationHandle)) {
+                    await server.status(request.requestId, SFTPStatusCode.InvalidParameter)
+                    return
+                }
+                await respond(
+                    request.requestId,
+                    () => copyFileData(copy, getResource),
+                    () => server.status(request.requestId, SFTPStatusCode.Ok),
+                )
+                return
+            }
+            case "users-groups-by-id@openssh.com": {
+                const { uids, gids } = decodeSFTPUsersGroupsExtension(request.data)
+                await server.extendedReply(
+                    request.requestId,
+                    encodeSFTPUsersGroups({
+                        usernames: uids.map(String),
+                        groupNames: gids.map(String),
+                    }),
+                )
+                return
+            }
+            default:
+                await server.status(request.requestId, SFTPStatusCode.OperationUnsupported)
+        }
+    })
 
     server.on("close", () => {
         for (const resource of resources.values()) {
@@ -303,6 +434,40 @@ export function attachFilesystemSFTPServer(server: SFTPServer, root: string): vo
         }
         resources.clear()
     })
+}
+
+async function copyFileData(
+    copy: ReturnType<typeof decodeSFTPCopyDataExtension>,
+    getResource: (handle: Buffer) => Resource,
+): Promise<void> {
+    const source = getResource(copy.sourceHandle)
+    const destination = getResource(copy.destinationHandle)
+    if (source.type !== "file" || destination.type !== "file") {
+        throw Object.assign(new Error("Not a file"), { code: "EBADF" })
+    }
+    let sourceOffset = safePosition(copy.sourceOffset)
+    let destinationOffset = safePosition(copy.destinationOffset)
+    let remaining = copy.length === 0n ? undefined : safePosition(copy.length)
+    const buffer = Buffer.allocUnsafe(32 * 1024)
+    while (remaining === undefined || remaining > 0) {
+        const length = remaining === undefined ? buffer.length : Math.min(buffer.length, remaining)
+        const { bytesRead } = await source.file.read(buffer, 0, length, sourceOffset)
+        if (bytesRead === 0) break
+        let written = 0
+        while (written < bytesRead) {
+            const result = await destination.file.write(
+                buffer,
+                written,
+                bytesRead - written,
+                destinationOffset + written,
+            )
+            if (result.bytesWritten === 0) throw new Error("File copy made no progress")
+            written += result.bytesWritten
+        }
+        sourceOffset += bytesRead
+        destinationOffset += bytesRead
+        if (remaining !== undefined) remaining -= bytesRead
+    }
 }
 
 function nodeOpenFlags(flags: number): number {

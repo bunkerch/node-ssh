@@ -19,7 +19,7 @@ import { SSHAuthenticationMethods } from "../../src/constants.js"
 import { SFTPStatusError } from "../../src/sftp/SFTPClient.js"
 import { SFTPPacketType, SFTPStatusCode } from "../../src/sftp/constants.js"
 import Packet from "../../src/packet.js"
-import { attachFilesystemSFTPServer } from "./SFTPServerFixture.js"
+import { attachFilesystemSFTPServer, FILESYSTEM_SFTP_EXTENSIONS } from "./SFTPServerFixture.js"
 
 const execFileAsync = promisify(execFile)
 const imageName = "modernssh-openssh-test:bookworm"
@@ -1976,6 +1976,8 @@ describe("OpenSSH interoperability", () => {
         const root = join(directory, "root")
         const sourcePath = join(directory, "source.bin")
         const destinationPath = join(directory, "destination.bin")
+        const copiedDestinationPath = join(directory, "copied-destination.bin")
+        const hardlinkDestinationPath = join(directory, "hardlink-destination.bin")
         const contents = Buffer.allocUnsafe(70_000)
         for (let index = 0; index < contents.length; index++) contents[index] = index % 239
         await writeFile(sourcePath, contents)
@@ -1997,11 +1999,18 @@ describe("OpenSSH interoperability", () => {
                 if (!(channel instanceof SessionChannel)) return
                 channel.hooker.hook("subsystemRequest", (_hook, context, decision) => {
                     decision.success = context.subsystem === "sftp"
+                    if (decision.success) {
+                        decision.sftp = { extensions: FILESYSTEM_SFTP_EXTENSIONS }
+                    }
                 })
                 channel.events.on("sftp", (sftp) => {
                     sftp.on("error", (error) => errors.push(error))
                     sftp.on("requestReceived", (request) => {
-                        requests.push(`${SFTPPacketType[request.type]}:${request.requestId}`)
+                        requests.push(
+                            request.type === SFTPPacketType.Extended
+                                ? `Extended:${request.request}`
+                                : `${SFTPPacketType[request.type]}:${request.requestId}`,
+                        )
                     })
                     attachFilesystemSFTPServer(sftp, root)
                 })
@@ -2017,6 +2026,7 @@ describe("OpenSSH interoperability", () => {
                 [
                     "-F",
                     "/dev/null",
+                    "-f",
                     "-b",
                     "-",
                     "-P",
@@ -2038,11 +2048,18 @@ describe("OpenSSH interoperability", () => {
                 [
                     "mkdir /transfer",
                     `put ${sourcePath} /transfer/source.bin`,
+                    "df /transfer",
                     "ls -l /transfer",
                     "rename /transfer/source.bin /transfer/renamed.bin",
+                    "ln /transfer/renamed.bin /transfer/hard.bin",
+                    "cp /transfer/renamed.bin /transfer/copied.bin",
                     "symlink /transfer/renamed.bin /transfer/renamed.link",
                     `get /transfer/renamed.bin ${destinationPath}`,
+                    `get /transfer/copied.bin ${copiedDestinationPath}`,
+                    `get /transfer/hard.bin ${hardlinkDestinationPath}`,
                     "rm /transfer/renamed.link",
+                    "rm /transfer/hard.bin",
+                    "rm /transfer/copied.bin",
                     "rm /transfer/renamed.bin",
                     "rmdir /transfer",
                     "quit",
@@ -2064,7 +2081,20 @@ describe("OpenSSH interoperability", () => {
                 errors: [],
             })
             expect(await readFile(destinationPath)).toEqual(contents)
+            expect(await readFile(copiedDestinationPath)).toEqual(contents)
+            expect(await readFile(hardlinkDestinationPath)).toEqual(contents)
             expect(result.stdout).toContain("renamed.bin")
+            expect(requests).toEqual(
+                expect.arrayContaining([
+                    "Extended:limits@openssh.com",
+                    "Extended:fsync@openssh.com",
+                    "Extended:statvfs@openssh.com",
+                    "Extended:posix-rename@openssh.com",
+                    "Extended:hardlink@openssh.com",
+                    "Extended:copy-data",
+                    "Extended:users-groups-by-id@openssh.com",
+                ]),
+            )
         } finally {
             for (const client of server.clients) client.terminate()
             await new Promise<void>((resolve, reject) => {
