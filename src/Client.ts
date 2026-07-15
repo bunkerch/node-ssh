@@ -3585,7 +3585,7 @@ export default class Client extends EventEmitter<ClientEvents> {
                 controller,
             )
             if (!this.canReplyToIncomingChannel(packet, generation)) return
-            if (!policyCompleted || !controller.allowOpen) {
+            if (!policyCompleted || !controller.allowOpen || channel.destroyed) {
                 const rejection =
                     policyCompleted && controller.rejection
                         ? controller.rejection
@@ -3653,7 +3653,7 @@ export default class Client extends EventEmitter<ClientEvents> {
                 controller,
             )
             if (!this.canReplyToIncomingChannel(packet, generation)) return
-            if (!policyCompleted || !controller.allowOpen) {
+            if (!policyCompleted || !controller.allowOpen || channel.destroyed) {
                 const rejection =
                     policyCompleted && controller.rejection
                         ? controller.rejection
@@ -3787,7 +3787,7 @@ export default class Client extends EventEmitter<ClientEvents> {
                 controller,
             )
             if (!this.canReplyToIncomingChannel(packet, generation)) return
-            if (!policyCompleted || !controller.allowOpen) {
+            if (!policyCompleted || !controller.allowOpen || channel.destroyed) {
                 const rejection =
                     policyCompleted && controller.rejection
                         ? controller.rejection

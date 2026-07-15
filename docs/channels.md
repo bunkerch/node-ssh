@@ -481,7 +481,8 @@ greater exposure. Cookies are validated as non-empty hexadecimal data. `single: 
 exactly one incoming channel, and all unused authorization is removed when its session closes.
 Policy may set `decision.rejection` to a `ChannelOpenError` with a specific failure reason,
 description, and language tag. A decision completed after transport teardown is discarded and its
-proposed channel is destroyed.
+proposed channel is destroyed. Destroying a proposal during policy denies it even if a later hook
+sets `allowOpen`.
 
 On a server, `x11Request` receives the requested single-connection flag, authentication protocol,
 hex cookie, and screen. Every handler must complete successfully before the authorization is

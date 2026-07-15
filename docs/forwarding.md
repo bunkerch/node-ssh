@@ -132,7 +132,8 @@ can expose a listener beyond loopback when the SSH server permits gateway ports,
 the requested bind and every connection's source metadata. Policy can set `decision.rejection` to
 a validated `ChannelOpenError` when the server should receive a specific uint32 reason, UTF-8
 description, and RFC 3066 language tag. A policy decision that completes after transport teardown
-is discarded and its proposed channel is destroyed.
+is discarded and its proposed channel is destroyed. Destroying the proposed channel during policy
+denies the open even if a later handler sets `allowOpen`.
 
 ### Allowing remote forwarding on a server
 
@@ -231,7 +232,8 @@ Socket paths must be non-empty and cannot contain NUL. Filesystem ownership, per
 socket replacement, and path visibility are controlled by the SSH server and its operating system.
 Policy can provide a `ChannelOpenError` in `decision.rejection` for a specific failure reason,
 description, and language tag. Decisions completed after transport teardown are discarded and the
-proposed channel is destroyed.
+proposed channel is destroyed. A channel destroyed during policy cannot be confirmed by a later
+approval.
 
 ### Allowing UNIX-socket forwarding on a server
 

@@ -283,6 +283,36 @@ test("returns localized stream-local policy denial without closing SSH", async (
     }
 }, 15_000)
 
+test("does not confirm a stream-local channel destroyed during admission policy", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "modernssh-incoming-policy-destroyed-"))
+    const socketPath = join(directory, "forwarded.sock")
+    const { server, peer, client } = await createConnectedPeers()
+    let published = false
+    client.on("unix connection", () => {
+        published = true
+    })
+    client.hooker.hook("streamLocalConnection", async (_hook, channel) => {
+        await Promise.resolve()
+        channel.destroy()
+    })
+    client.hooker.hook("streamLocalConnection", (_hook, _channel, controller) => {
+        controller.allowOpen = true
+    })
+
+    try {
+        await client.openssh_forwardInStreamLocal(socketPath)
+        await expect(peer.openssh_forwardOutStreamLocal(socketPath)).rejects.toMatchObject({
+            reasonCode: 1,
+            message: "Remote stream-local forwarding connection was rejected",
+        })
+        expect(published).toBe(false)
+        expect(client.isConnected).toBe(true)
+    } finally {
+        await closePeers(server, peer, client)
+        await rm(directory, { recursive: true, force: true })
+    }
+}, 15_000)
+
 test("returns localized X11 policy denial without closing SSH", async () => {
     const { server, peer, client } = await createConnectedPeers()
     const session = await client.openSession()
@@ -299,6 +329,35 @@ test("returns localized X11 policy denial without closing SSH", async () => {
             message: "affichage interdit",
             languageTag: "fr",
         })
+        expect(client.isConnected).toBe(true)
+        session.close()
+    } finally {
+        await closePeers(server, peer, client)
+    }
+}, 15_000)
+
+test("does not confirm an X11 channel destroyed during admission policy", async () => {
+    const { server, peer, client } = await createConnectedPeers()
+    const session = await client.openSession()
+    await session.requestX11()
+    let published = false
+    client.on("x11", () => {
+        published = true
+    })
+    client.hooker.hook("x11Connection", async (_hook, channel) => {
+        await Promise.resolve()
+        channel.destroy()
+    })
+    client.hooker.hook("x11Connection", (_hook, _channel, controller) => {
+        controller.allowOpen = true
+    })
+
+    try {
+        await expect(peer.x11("198.51.100.42", 60_043)).rejects.toMatchObject({
+            reasonCode: 1,
+            message: "X11 forwarding connection was rejected",
+        })
+        expect(published).toBe(false)
         expect(client.isConnected).toBe(true)
         session.close()
     } finally {
@@ -329,6 +388,35 @@ test("contains a rejected TCP policy and discards an earlier approval", async ()
             languageTag: "",
         })
         expect(policyErrors.map((error) => error.message)).toEqual(["TCP policy backend failed"])
+        expect(client.isConnected).toBe(true)
+    } finally {
+        await closePeers(server, peer, client)
+    }
+}, 15_000)
+
+test("does not confirm a TCP channel destroyed during admission policy", async () => {
+    const { server, peer, client } = await createConnectedPeers()
+    const port = await client.forwardIn("127.0.0.1", 0)
+    let published = false
+    client.on("tcp connection", () => {
+        published = true
+    })
+    client.hooker.hook("tcpConnection", async (_hook, channel) => {
+        await Promise.resolve()
+        channel.destroy()
+    })
+    client.hooker.hook("tcpConnection", (_hook, _channel, controller) => {
+        controller.allowOpen = true
+    })
+
+    try {
+        await expect(
+            peer.forwardOut("127.0.0.1", port, "198.51.100.23", 51_238),
+        ).rejects.toMatchObject({
+            reasonCode: 1,
+            message: "Remote forwarding connection was rejected",
+        })
+        expect(published).toBe(false)
         expect(client.isConnected).toBe(true)
     } finally {
         await closePeers(server, peer, client)
