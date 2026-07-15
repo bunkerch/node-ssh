@@ -35,6 +35,11 @@ checks stdout, stderr, and exit status, and closes both sides. This verifies tha
 declarations, dependency list, package exports, and actual Node transport runtime work together
 rather than relying on source imports or Bun's runtime compatibility.
 
+The HTTP-agent integration also launches a native Node.js consumer of the built ESM entry point.
+It uses `SSHHTTPSAgent` through Node's real `https.get()` agent contract, negotiates TLS with a
+self-signed endpoint above an encrypted `direct-tcpip` channel, verifies the HTTPS response, and
+asserts the exact forwarding destination and originator metadata observed by the SSH server.
+
 The OpenSSH server test requires Docker. The image is tagged locally as
 `modernssh-openssh-test:bookworm`; Docker reuses its build cache after the first run. The pinned base
 image makes the operating-system fixture reproducible, while installing the distribution's

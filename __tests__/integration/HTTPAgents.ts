@@ -1,11 +1,20 @@
+import { execFile } from "node:child_process"
+import { once } from "node:events"
+import { mkdtemp, readFile, rm } from "node:fs/promises"
 import { createServer as createHTTPServer } from "node:http"
+import { createServer as createHTTPSServer } from "node:https"
 import { AddressInfo, createConnection, type Server as NetServer } from "node:net"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import type { Duplex } from "node:stream"
+import { promisify } from "node:util"
 import { SSHHTTPAgent } from "../../src/HTTPAgents.js"
 import DirectTCPIPChannel from "../../src/channels/DirectTCPIPChannel.js"
 import Server from "../../src/Server.js"
 import { SSHAuthenticationMethods } from "../../src/constants.js"
 import PrivateKey from "../../src/utils/PrivateKey.js"
+
+const execFileAsync = promisify(execFile)
 
 function listen(server: NetServer): Promise<void> {
     return new Promise((resolve) => {
@@ -114,4 +123,131 @@ describe("SSH-backed HTTP agents", () => {
             await close(destination)
         }
     })
+
+    test("performs an HTTPS request with TLS above the SSH channel", async () => {
+        const directory = await mkdtemp(join(tmpdir(), "modernssh-https-agent-"))
+        const keyPath = join(directory, "key.pem")
+        const certificatePath = join(directory, "certificate.pem")
+        await execFileAsync("openssl", [
+            "req",
+            "-x509",
+            "-newkey",
+            "rsa:2048",
+            "-nodes",
+            "-subj",
+            "/CN=127.0.0.1",
+            "-addext",
+            "subjectAltName=IP:127.0.0.1",
+            "-days",
+            "1",
+            "-keyout",
+            keyPath,
+            "-out",
+            certificatePath,
+        ])
+        const destination = createHTTPSServer(
+            {
+                key: await readFile(keyPath),
+                cert: await readFile(certificatePath),
+            },
+            (request, response) => {
+                response.end(`secure ${request.method} ${request.url}`)
+            },
+        )
+        await listen(destination)
+        const destinationPort = (destination.address() as AddressInfo).port
+
+        const server = new Server({
+            hostKeys: [await PrivateKey.generate("ssh-ed25519")],
+            sendAllHostKeys: false,
+        })
+        const forwarded: DirectTCPIPChannel[] = []
+        const errors: Error[] = []
+        server.hooker.hook("noneAuthentication", (_hook, _context, decision) => {
+            decision.allowLogin = true
+        })
+        server.hooker.hook("channelOpenRequest", (_hook, channel, decision) => {
+            decision.allowOpen =
+                channel instanceof DirectTCPIPChannel &&
+                channel.details.destinationHost === "127.0.0.1" &&
+                channel.details.destinationPort === destinationPort
+        })
+        server.on("connection", (connection) => {
+            connection.on("error", (error) => errors.push(error))
+            connection.on("channel", (channel) => {
+                if (!(channel instanceof DirectTCPIPChannel)) return
+                forwarded.push(channel)
+                const socket = createConnection({
+                    host: channel.details.destinationHost,
+                    port: channel.details.destinationPort,
+                })
+                socket.on("error", (error) => channel.stream.destroy(error))
+                channel.stream.pipe(socket).pipe(channel.stream)
+            })
+        })
+        server.listen({ host: "127.0.0.1", port: 0 })
+        await once(server, "listening")
+        const sshPort = (server.address() as AddressInfo).port
+
+        try {
+            const script = String.raw`
+                import { get } from "node:https"
+                import { SSHHTTPSAgent, SSHAuthenticationMethods } from "./dist/index.js"
+
+                const agent = new SSHHTTPSAgent({
+                    hostname: "127.0.0.1",
+                    port: ${sshPort},
+                    username: "secure-agent",
+                    authenticationMethodsOrder: [SSHAuthenticationMethods.None],
+                })
+                try {
+                    const result = await new Promise((resolve, reject) => {
+                        const request = get({
+                            hostname: "127.0.0.1",
+                            port: ${destinationPort},
+                            path: "/private?ready=1",
+                            agent,
+                            rejectUnauthorized: false,
+                        }, (response) => {
+                            const chunks = []
+                            response.on("data", (chunk) => chunks.push(chunk))
+                            response.on("end", () => resolve({
+                                statusCode: response.statusCode ?? 0,
+                                body: Buffer.concat(chunks).toString(),
+                            }))
+                        })
+                        request.on("error", reject)
+                    })
+                    process.stdout.write(JSON.stringify(result))
+                } finally {
+                    agent.destroy()
+                }
+            `
+            const { stdout, stderr } = await execFileAsync("node", [
+                "--input-type=module",
+                "--eval",
+                script,
+            ])
+            const result = JSON.parse(stdout) as { statusCode: number; body: string }
+
+            expect(stderr).toBe("")
+            expect(result).toEqual({
+                statusCode: 200,
+                body: "secure GET /private?ready=1",
+            })
+            expect(forwarded).toHaveLength(1)
+            expect(forwarded[0]?.details).toEqual({
+                destinationHost: "127.0.0.1",
+                destinationPort,
+                sourceHost: "127.0.0.1",
+                sourcePort: 0,
+            })
+            expect(errors).toEqual([])
+        } finally {
+            for (const client of server.clients) client.terminate()
+            await close(server.server!)
+            await close(destination)
+            await rm(directory, { recursive: true, force: true })
+        }
+    }, 15_000)
 })
