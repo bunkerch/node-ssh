@@ -427,18 +427,21 @@ const server = new Server({
 })
 ```
 
-`handshakeTimeout` bounds each admitted socket after the awaited `preconnect` policy, through
-identification, initial key exchange, and acceptance of the `ssh-userauth` service. It defaults to
-20 seconds; `0` disables it. Before identification completes the server cannot safely send a binary
-disconnect, so expiry destroys the socket and emits `Timed out while waiting for SSH handshake`
-through that `ServerClient`'s `error` event. Accepting the service clears this timer before any
+`handshakeTimeout` bounds each owned socket from the start of the awaited `preconnect` policy,
+through identification, initial key exchange, and acceptance of the `ssh-userauth` service. It
+defaults to 20 seconds; `0` disables it. Before identification completes the server cannot safely
+send a binary disconnect, so expiry destroys the socket with `Timed out while waiting for SSH
+handshake`. A `ServerClient` error listener installed by `preconnect`, or synchronously by the later
+`connection` event, observes transport errors; earlier errors without a listener remain contained
+and are sent to configured diagnostics. Accepting the service clears this timer before any
 authentication policy runs.
 
 When at least one `preconnect` hook is installed, admission is denied until the hook chain completes
 without a rejected handler and explicitly sets `allowConnection = true`. A contained async hook
 rejection is still reported through Hooker's `uncaughtException` event, but it cannot retain an
 allow decision made by an earlier handler. Rejected sockets are terminated before the server emits
-`connection` or adds them to `server.clients`.
+`connection` or adds them to `server.clients`. If admission does not settle before
+`handshakeTimeout`, transport closure also releases its reserved connection slot.
 
 `authenticationTimeout` bounds the whole authentication phase in milliseconds after the service is
 accepted; its RFC-recommended default is ten minutes, and `0` disables this deadline.

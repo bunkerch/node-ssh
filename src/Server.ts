@@ -649,12 +649,23 @@ export default class Server extends EventEmitter<ServerEvents> {
         try {
             if (this.hooker.hasHooks("preconnect")) {
                 const controller: ServerHookerPreconnectController = { allowConnection: false }
-                const policyCompleted = await this.hooker.triggerHookChecked(
-                    "preconnect",
-                    controller,
-                    client,
-                )
-                if (!policyCompleted || !controller.allowConnection) {
+                let removeCloseListener!: () => void
+                const closed = new Promise<false>((resolve) => {
+                    const onClose = (): void => resolve(false)
+                    client.once("close", onClose)
+                    removeCloseListener = () => client.off("close", onClose)
+                })
+                const policyCompleted = await Promise.race([
+                    this.hooker.triggerHookChecked("preconnect", controller, client),
+                    closed,
+                ]).finally(removeCloseListener)
+                if (
+                    !policyCompleted ||
+                    !controller.allowConnection ||
+                    socket.destroyed ||
+                    !isReadable(socket) ||
+                    !socket.writable
+                ) {
                     client.terminate()
                     return
                 }

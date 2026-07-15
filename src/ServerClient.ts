@@ -284,7 +284,8 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         })
 
         this.socket.on("error", (error) => {
-            this.emit("error", error)
+            if (this.listenerCount("error") > 0) this.emit("error", error)
+            else this.debug("SSH transport error before an error listener was attached:", error)
         })
 
         this.socket.on("end", () => {
@@ -326,6 +327,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             )
             this.emit("close")
         })
+        this.startHandshakeTimeout()
     }
 
     private buffering: Buffer = Buffer.alloc(0)
@@ -1155,7 +1157,6 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     }
 
     async connect(): Promise<void> {
-        this.startHandshakeTimeout()
         this.state = SocketState.Connecting
         const clientProtocolVersionPromise = this.#waitEvent("clientProtocolVersion")
 

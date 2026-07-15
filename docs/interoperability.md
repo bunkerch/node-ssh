@@ -167,10 +167,12 @@ a readiness or handshake deadline.
 Server admission integration verifies that the public connection event receives an immutable
 snapshot of both TCP endpoints and retains it after the peer closes. A separate real SSH handshake
 proves that a rejected async `preconnect` chain fails closed even when an earlier handler allowed
-the connection. Encrypted client/server tests apply the same multi-handler failure to host-key trust
-and user authentication, proving that a contained later rejection cannot retain an earlier allow
-decision. The same real transport seam verifies channel admission, TCP and stream-local listener
-creation, and application global requests in both peer directions.
+the connection, while a silent admission hook is bounded by the handshake deadline and releases its
+transport slot without publishing a connection. Encrypted client/server tests apply the same
+multi-handler failure to host-key trust and user authentication, proving that a contained later
+rejection cannot retain an earlier allow decision. The same real transport seam verifies channel
+admission, TCP and stream-local listener creation, and application global requests in both peer
+directions.
 Private channel requests are exercised in both directions. Session tests separately prove that a
 later policy failure cannot retain earlier approval for shell, exec, subsystem, PTY, environment,
 BREAK, agent-forwarding, or X11 requests and cannot publish the corresponding accepted state or
