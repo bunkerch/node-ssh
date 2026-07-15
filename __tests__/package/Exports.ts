@@ -124,6 +124,7 @@ import {
     type SFTPServerOptions,
     type SFTPWriteResult,
     type ServerConnectionInfo,
+    type ServerConnectionListener,
     type ServerOptions,
     type PublicKeySubsystemAddOptions,
     type PublicKeySubsystemServerOptions,
@@ -137,6 +138,7 @@ describe("package exports", () => {
         const sessionOptions: ClientSessionOptions = { env: { LANG: "C" }, pty: true }
         const serverOptions: ServerOptions = { sendAllHostKeys: false }
         const connectionInfo: ServerConnectionInfo = { remoteAddress: "127.0.0.1" }
+        const connectionListener: ServerConnectionListener = () => undefined
         const incomingChannelDecision: ClientHookerIncomingChannelController = {
             allowOpen: false,
         }
@@ -210,6 +212,7 @@ describe("package exports", () => {
         expect(serverOptions.sendAllHostKeys).toBe(false)
         expect(serverOptions.bannerLanguageTag).toBe("en-US")
         expect(connectionInfo.remoteAddress).toBe("127.0.0.1")
+        expect(connectionListener).toBeFunction()
         expect(incomingChannelDecision.allowOpen).toBe(false)
         expect(keyExchangeOptions.service).toBe("host")
         expect(agentProtocolOptions.requestTimeout).toBe(250)
@@ -615,6 +618,10 @@ describe("package exports", () => {
             "get clientElevationPreference(): ElevationRequest | undefined",
         )
         expect(server).toContain("getConnections(): Promise<number>")
+        expect(server).toContain(
+            "constructor(options?: ServerOptions, connectionListener?: ServerConnectionListener)",
+        )
+        expect(index).toContain("ServerConnectionListener")
         expect(server).toContain("get maxConnections(): number")
         expect(server).toContain("set maxConnections(value: number)")
         expect(server).toContain("get listening(): boolean")
@@ -913,7 +920,8 @@ describe("package exports", () => {
                     const runtimeFailure = new Promise((_, reject) => { rejectRuntime = reject })
                     let resolveRuntimeDisconnect
                     const runtimeDisconnect = new Promise((resolve) => { resolveRuntimeDisconnect = resolve })
-                    const runtimeServer = new Server({ hostKeys: [privateKey], sendAllHostKeys: false, banner: "packed-banner", bannerLanguageTag: "en-US" })
+                    let runtimeConstructorConnections = 0
+                    const runtimeServer = new Server({ hostKeys: [privateKey], sendAllHostKeys: false, banner: "packed-banner", bannerLanguageTag: "en-US" }, () => { runtimeConstructorConnections++ })
                     runtimeServer.on("error", rejectRuntime)
                     runtimeServer.hooker.hook("noneAuthentication", (_hook, _context, decision) => { decision.allowLogin = true })
                     runtimeServer.hooker.hook("channelOpenRequest", (_hook, channel, decision) => { decision.allowOpen = channel instanceof SessionChannel })
@@ -946,6 +954,7 @@ describe("package exports", () => {
                     runtimeClient.on("banner", (message, languageTag) => runtimeBanners.push([message, languageTag]))
                     runtimeClient.on("error", rejectRuntime)
                     await Promise.race([runtimeClient.connect(), runtimeFailure])
+                    if (runtimeConstructorConnections !== 1) process.exit(107)
                     if (JSON.stringify(runtimeBanners) !== JSON.stringify([["packed-banner", "en-US"]])) process.exit(46)
                     const runtimeCommand = await Promise.race([runtimeClient.exec("packed-node-runtime"), runtimeFailure])
                     const runtimeStdout = []

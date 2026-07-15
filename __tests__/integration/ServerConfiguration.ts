@@ -5,6 +5,9 @@ describe("server configuration normalization", () => {
     test("does not treat malformed values as omitted options", async () => {
         const hostKey = await PrivateKey.generate("ssh-ed25519")
         expect(() => new Server(null as never)).toThrow("SSH server options must be an object")
+        expect(() => new Server({ hostKeys: [hostKey] }, null as never)).toThrow(
+            "SSH server connection listener must be a function",
+        )
         const cases: readonly [ServerOptions, string][] = [
             [{ hostKeys: null as never }, "SSH server hostKeys option must be an array"],
             [

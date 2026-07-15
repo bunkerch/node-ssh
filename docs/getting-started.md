@@ -279,26 +279,27 @@ and applies its ordinary `preconnect`, key-exchange, authentication, channel, an
 import { readFile } from "node:fs/promises"
 import { Server } from "@bunkerch/modernssh"
 
-const server = new Server({
-    hostKeys: [
-        await readFile("./ssh_host_ed25519_key"),
-        {
-            key: await readFile("./ssh_host_ecdsa_key"),
-            passphrase: process.env.SSH_HOST_KEY_PASSPHRASE,
-        },
-    ],
-})
+const server = new Server(
+    {
+        hostKeys: [
+            await readFile("./ssh_host_ed25519_key"),
+            {
+                key: await readFile("./ssh_host_ecdsa_key"),
+                passphrase: process.env.SSH_HOST_KEY_PASSPHRASE,
+            },
+        ],
+    },
+    (connection, endpoint) => {
+        console.log("SSH peer", endpoint.remoteAddress, endpoint.remotePort)
+        connection.on("error", (error) => {
+            console.error("SSH peer error", error)
+        })
+    },
+)
 
 server.hooker.hook("passwordAuthentication", (_hook, context, decision) => {
     decision.allowLogin =
         context.username === "deploy" && context.password === process.env.SSH_PASSWORD
-})
-
-server.on("connection", (connection, endpoint) => {
-    console.log("SSH peer", endpoint.remoteAddress, endpoint.remotePort)
-    connection.on("error", (error) => {
-        console.error("SSH peer error", error)
-    })
 })
 
 server.listen(22, "127.0.0.1")
@@ -325,6 +326,9 @@ enabling a default or generating a temporary identity.
 `listening` event, and `address()`, `ref()`, and `unref()` remain synchronous. The readonly
 `server.listening` and `server.connections` properties provide synchronous state snapshots;
 `await server[Symbol.asyncDispose]()` closes an active listener and also permits `await using`.
+The optional second constructor argument is registered as a synchronous `connection` EventEmitter
+listener and receives the same `ServerClient` and immutable endpoint snapshot as `server.on()`; it
+is not an operation-completion callback.
 Set `server.maxConnections` before listening to bound the transports owned concurrently by the
 server:
 

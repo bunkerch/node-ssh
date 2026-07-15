@@ -8,15 +8,17 @@ import PrivateKey from "../../src/utils/PrivateKey.js"
 
 test("server connection events retain immutable transport endpoint metadata", async () => {
     const hostKey = await PrivateKey.generate("ssh-ed25519")
-    const server = new Server({ hostKeys: [hostKey], sendAllHostKeys: false })
-    server.hooker.hook("noneAuthentication", (_hook, _context, controller) => {
-        controller.allowLogin = true
-    })
     let peer: ServerClient | undefined
     let connectionInfo: Readonly<ServerConnectionInfo> | undefined
-    server.on("connection", (connection, info) => {
-        peer = connection
-        connectionInfo = info
+    const server = new Server(
+        { hostKeys: [hostKey], sendAllHostKeys: false },
+        (connection, info) => {
+            peer = connection
+            connectionInfo = info
+        },
+    )
+    server.hooker.hook("noneAuthentication", (_hook, _context, controller) => {
+        controller.allowLogin = true
     })
     server.listen({ host: "127.0.0.1", port: 0 })
     await once(server, "listening")

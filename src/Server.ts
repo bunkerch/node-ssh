@@ -188,6 +188,11 @@ export interface ServerEvents {
     connection: [client: ServerClient, info: Readonly<ServerConnectionInfo>]
 }
 
+export type ServerConnectionListener = (
+    client: ServerClient,
+    info: Readonly<ServerConnectionInfo>,
+) => void
+
 export interface ServerHookerPreconnectController {
     allowConnection: boolean
 }
@@ -388,10 +393,13 @@ export type ServerHooker = {
 export default class Server extends EventEmitter<ServerEvents> {
     readonly #options: ServerOptionsRequired
 
-    constructor(options: ServerOptions = {}) {
+    constructor(options: ServerOptions = {}, connectionListener?: ServerConnectionListener) {
         super()
         if (!isPlainConfigurationObject(options)) {
             throw new TypeError("SSH server options must be an object")
+        }
+        if (connectionListener !== undefined && typeof connectionListener !== "function") {
+            throw new TypeError("SSH server connection listener must be a function")
         }
         this.#options = { ...options } as ServerOptionsRequired
         if (
@@ -671,6 +679,7 @@ export default class Server extends EventEmitter<ServerEvents> {
             this.hostKeysReady = Promise.resolve()
         }
         registerServerConfiguration(this, this.#options)
+        if (connectionListener !== undefined) this.on("connection", connectionListener)
     }
 
     hooker = new Hooker<ServerHooker>()
