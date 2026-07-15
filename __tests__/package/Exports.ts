@@ -551,6 +551,7 @@ describe("package exports", () => {
         expect(server).toContain("replyTimeout?: number")
         expect(server).toContain("maxPendingChannelOpens?: number")
         expect(server).toContain("maxChannels?: number")
+        expect(server).toContain("maxRemoteForwardings?: number")
         expect(server).toContain("maxSessionEnvironmentVariables?: number")
         expect(server).toContain("maxSessionEnvironmentBytes?: number")
         expect(sessionChannel).toContain("get env(): ReadonlyMap<string, string>")

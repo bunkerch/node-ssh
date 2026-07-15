@@ -81,6 +81,8 @@ export interface ServerOptions {
     maxPendingChannelOpens?: number
     /** Maximum simultaneous active and pending SSH channels per connection. */
     maxChannels?: number
+    /** Maximum active TCP and stream-local remote forwarding listeners per connection. */
+    maxRemoteForwardings?: number
     /** Maximum environment variables retained by one server session channel. */
     maxSessionEnvironmentVariables?: number
     /** Maximum UTF-8 bytes retained in one server session channel's environment. */
@@ -526,6 +528,9 @@ export default class Server extends EventEmitter<ServerEvents> {
             this.#options.maxPendingChannelOpens = 64
         }
         if (this.#options.maxChannels === undefined) this.#options.maxChannels = 1024
+        if (this.#options.maxRemoteForwardings === undefined) {
+            this.#options.maxRemoteForwardings = 64
+        }
         if (this.#options.maxSessionEnvironmentVariables === undefined) {
             this.#options.maxSessionEnvironmentVariables = 256
         }
@@ -567,6 +572,14 @@ export default class Server extends EventEmitter<ServerEvents> {
         if (!Number.isSafeInteger(this.#options.maxChannels) || this.#options.maxChannels < 0) {
             throw new RangeError(
                 "SSH maximum simultaneous channels must be a non-negative safe integer",
+            )
+        }
+        if (
+            !Number.isSafeInteger(this.#options.maxRemoteForwardings) ||
+            this.#options.maxRemoteForwardings < 0
+        ) {
+            throw new RangeError(
+                "SSH maximum remote forwardings must be a non-negative safe integer",
             )
         }
         if (

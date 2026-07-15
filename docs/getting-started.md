@@ -147,6 +147,12 @@ open with RFC 4254 resource shortage; it does not close the connection or invoke
 rejected peer open. A slot becomes available only after both sides exchange `CHANNEL_CLOSE`. Set
 the value to zero to disable every channel while retaining transport and global-request access.
 
+On `Server`, `maxRemoteForwardings` defaults to 64 and bounds the combined active TCP and
+stream-local remote forwarding listeners owned by each authenticated connection. The limit is
+checked before forwarding policy or an operating-system listener runs. Cancellation immediately
+recovers capacity after stopping new connections; zero denies every remote forwarding request
+without disabling direct channels or application global requests.
+
 On `Server`, `maxSessionEnvironmentVariables` and `maxSessionEnvironmentBytes` bound the
 environment retained by each session channel. They default to 256 variables and 64 KiB of combined
 UTF-8 name/value bytes. These limits are independent of channel flow control because RFC 4254

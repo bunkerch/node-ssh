@@ -1554,6 +1554,10 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     private async handleTCPIPForward(packet: GlobalRequest): Promise<void> {
         try {
             const context = this.parseTCPIPForwardArgs(packet.data.args)
+            if (!this.hasRemoteForwardingCapacity()) {
+                if (packet.data.want_reply) this.sendPacket(new RequestFailure({}))
+                return
+            }
             const controller = { allow: false }
             const policyCompleted = await this.server.hooker.triggerHookChecked(
                 "tcpipForward",
@@ -1650,6 +1654,10 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     private async handleStreamLocalForward(packet: GlobalRequest): Promise<void> {
         try {
             const context = this.parseStreamLocalForwardArgs(packet.data.args)
+            if (!this.hasRemoteForwardingCapacity()) {
+                if (packet.data.want_reply) this.sendPacket(new RequestFailure({}))
+                return
+            }
             const controller = { allow: false }
             const policyCompleted = await this.server.hooker.triggerHookChecked(
                 "streamLocalForward",
@@ -1733,6 +1741,13 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
 
     private remoteForwardingKey(bindAddress: string, bindPort: number): string {
         return `${bindAddress}\0${bindPort}`
+    }
+
+    private hasRemoteForwardingCapacity(): boolean {
+        return (
+            this.remoteForwardListeners.size + this.remoteStreamLocalListeners.size <
+            this.#configuration.maxRemoteForwardings
+        )
     }
 
     private async handleForwardedTCPIPConnection(

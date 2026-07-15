@@ -48,6 +48,10 @@ describe("server configuration normalization", () => {
                 "SSH maximum session environment variables must be a non-negative safe integer",
             ],
             [
+                { hostKeys: [hostKey], maxRemoteForwardings: -1 },
+                "SSH maximum remote forwardings must be a non-negative safe integer",
+            ],
+            [
                 { hostKeys: [hostKey], maxSessionEnvironmentBytes: 1.5 },
                 "SSH maximum session environment bytes must be a non-negative safe integer",
             ],

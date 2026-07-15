@@ -175,6 +175,12 @@ requesting client for each connection. Requests for port zero receive the alloca
 connection also closes all of its listeners. Existing tunnel channels retain the normal independent
 EOF and CLOSE lifecycle.
 
+TCP and stream-local listeners share the server's per-connection `maxRemoteForwardings` capacity,
+which defaults to 64. A request beyond the limit fails before its policy hook or operating-system
+listener runs. Cancellation recovers the slot after stopping acceptance, and setting the limit to
+zero disables both forms of remote forwarding while leaving direct forwarding available for its
+separate channel-open policy.
+
 An application may also represent an incoming connection explicitly after the client has requested
 and the server has accepted the exact bind. `ServerClient.forwardOut()` checks that authorization,
 opens the RFC 4254 `forwarded-tcpip` channel, and returns its flow-controlled channel:
@@ -275,6 +281,7 @@ connections, and disconnecting SSH closes every listener owned by that connectio
 are never unlinked to make room for a listener: a stale or occupied path makes the request fail.
 The policy chain must complete without a rejected handler before the listener is created, so an
 earlier allow cannot survive a contained backend failure.
+These listeners consume the same `maxRemoteForwardings` capacity as RFC 4254 TCP listeners.
 
 For an explicitly represented incoming UNIX connection, call
 `connection.openssh_forwardOutStreamLocal(socketPath)`. The path must exactly match a currently
