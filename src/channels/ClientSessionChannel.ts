@@ -10,6 +10,7 @@ import { encodeSSHName } from "../utils/SSHName.js"
 import type { TerminalModeSettings } from "../TerminalModes.js"
 import { encodeSSHUTF8 } from "../utils/SSHText.js"
 import { agentRequestName, type AgentForwardingProtocol } from "../AgentForwarding.js"
+import { isPlainConfigurationObject } from "../utils/Configuration.js"
 
 export interface ClientPtyOptions {
     term?: string
@@ -45,6 +46,7 @@ export default class ClientSessionChannel extends ClientChannel {
     private started = false
     private ptyRequested = false
     private agentForwardingRequested = false
+    private agentForwardingRequest?: Promise<void>
     private x11Requested = false
 
     constructor(client: Client) {
@@ -74,6 +76,9 @@ export default class ClientSessionChannel extends ClientChannel {
     async requestPty(options: ClientPtyOptions = {}): Promise<void> {
         this.ensureNotStarted("request a PTY")
         if (this.ptyRequested) throw new Error(`SSH session channel ${this.localId} has a PTY`)
+        if (!isPlainConfigurationObject(options)) {
+            throw new TypeError("SSH PTY options must be an object")
+        }
         this.ptyRequested = true
         const columns = options.columns ?? options.cols ?? 80
         const rows = options.rows ?? 24
@@ -128,17 +133,31 @@ export default class ClientSessionChannel extends ClientChannel {
     private async requestAgentForwarding(protocol: AgentForwardingProtocol): Promise<void> {
         this.ensureNotStarted("request agent forwarding")
         if (this.agentForwardingRequested) return
+        if (this.agentForwardingRequest !== undefined) {
+            await this.agentForwardingRequest
+            return
+        }
         if (!clientConfigurationFor(this.client).agent.getStream) {
             throw new Error("The configured authentication agent cannot be forwarded")
         }
-        await this.request(agentRequestName(protocol))
-        this.agentForwardingRequested = true
-        this.client.agentForwardingEnabled = true
+        const request = this.request(agentRequestName(protocol)).then(() => {
+            this.agentForwardingRequested = true
+            this.client.agentForwardingEnabled = true
+        })
+        this.agentForwardingRequest = request
+        try {
+            await request
+        } finally {
+            if (this.agentForwardingRequest === request) this.agentForwardingRequest = undefined
+        }
     }
 
     async requestX11(options: ClientX11Options = {}): Promise<Readonly<ClientX11Request>> {
         this.ensureNotStarted("request X11 forwarding")
         if (this.x11Requested) throw new Error(`SSH session channel ${this.localId} has X11`)
+        if (!isPlainConfigurationObject(options)) {
+            throw new TypeError("SSH X11 options must be an object")
+        }
         const single = options.single ?? false
         const protocol = options.protocol ?? "MIT-MAGIC-COOKIE-1"
         if (!/^[\x21-\x7e]+$/u.test(protocol)) {
@@ -152,16 +171,21 @@ export default class ClientSessionChannel extends ClientChannel {
         }
         const screen = this.uint32(options.screen ?? 0, "X11 screen number")
         const normalizedCookie = cookie.toLowerCase()
-        await this.request(
-            "x11-req",
-            Buffer.concat([
-                serializeBinaryBoolean(single),
-                serializeBuffer(Buffer.from(protocol, "ascii")),
-                serializeBuffer(Buffer.from(normalizedCookie, "ascii")),
-                serializeUint32(screen),
-            ]),
-        )
         this.x11Requested = true
+        try {
+            await this.request(
+                "x11-req",
+                Buffer.concat([
+                    serializeBinaryBoolean(single),
+                    serializeBuffer(Buffer.from(protocol, "ascii")),
+                    serializeBuffer(Buffer.from(normalizedCookie, "ascii")),
+                    serializeUint32(screen),
+                ]),
+            )
+        } catch (error) {
+            this.x11Requested = false
+            throw error
+        }
         this.client.registerX11Forwarding(this.localId, single)
         this.once("close", () => this.client.unregisterX11Forwarding(this.localId))
         return Object.freeze({ single, protocol, cookie: normalizedCookie, screen })

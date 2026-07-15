@@ -11,6 +11,7 @@ import Packet from "../../src/packet.js"
 import { serializeBuffer } from "../../src/utils/Buffer.js"
 import { ProtocolError } from "../../src/packets/Disconnect.js"
 import { TerminalMode } from "../../src/TerminalModes.js"
+import { AgentType } from "../../src/publickey/Agent.js"
 
 function createChannel(options: { initialWindowSize?: number; maximumPacketSize?: number } = {}) {
     const client = new Client({ hostname: "unused" })
@@ -60,7 +61,121 @@ describe("ClientChannel", () => {
         await expect(channel.requestPty({ term: "\ud800" })).rejects.toThrow(
             "SSH PTY terminal type is not valid UTF-8 text",
         )
+        await expect(channel.requestPty(null as never)).rejects.toThrow(
+            "SSH PTY options must be an object",
+        )
+        await expect(channel.requestX11(null as never)).rejects.toThrow(
+            "SSH X11 options must be an object",
+        )
         expect(sent).toEqual([])
+        channel.destroy()
+    })
+
+    test("reserves one X11 request and permits retry only after failure", async () => {
+        const client = new Client({ hostname: "unused", strictVendor: false })
+        const sent: Packet[] = []
+        client.sendPacket = (packet: Packet) => {
+            sent.push(packet)
+            return sent.length - 1
+        }
+        const channel = new ClientSessionChannel(client)
+        channel.confirmOpen(
+            new ChannelOpenConfirmation({
+                recipient_channel_id: channel.localId,
+                sender_channel_id: 42,
+                initial_window_size: 32,
+                maximum_packet_size: 32,
+                args: Buffer.alloc(0),
+            }),
+        )
+
+        const first = channel
+            .requestX11({ cookie: "00112233445566778899aabbccddeeff" })
+            .catch((error: Error) => error)
+        await expect(
+            channel.requestX11({ cookie: "ffeeddccbbaa99887766554433221100" }),
+        ).rejects.toThrow("has X11")
+        expect(
+            sent.filter(
+                (packet) =>
+                    packet instanceof ChannelRequest && packet.data.request_type === "x11-req",
+            ),
+        ).toHaveLength(1)
+
+        channel.receiveRequestFailure()
+        expect(await first).toBeInstanceOf(Error)
+        const retry = channel.requestX11({ cookie: "ffeeddccbbaa99887766554433221100" })
+        expect(
+            sent.filter(
+                (packet) =>
+                    packet instanceof ChannelRequest && packet.data.request_type === "x11-req",
+            ),
+        ).toHaveLength(2)
+        channel.receiveRequestSuccess()
+        await expect(retry).resolves.toMatchObject({
+            cookie: "ffeeddccbbaa99887766554433221100",
+        })
+        channel.destroy()
+    })
+
+    test("shares one in-flight agent-forwarding result and retries after failure", async () => {
+        const agent = {
+            type: AgentType.NonInteractive,
+            async getPublicKeys() {
+                return []
+            },
+            async getPublicKey() {
+                throw new Error("No fixture identity")
+            },
+            async sign() {
+                throw new Error("No fixture identity")
+            },
+            async getStream() {
+                throw new Error("No forwarded stream expected")
+            },
+        }
+        const client = new Client({ hostname: "unused", strictVendor: false, agent })
+        const sent: Packet[] = []
+        client.sendPacket = (packet: Packet) => {
+            sent.push(packet)
+            return sent.length - 1
+        }
+        const channel = new ClientSessionChannel(client)
+        channel.confirmOpen(
+            new ChannelOpenConfirmation({
+                recipient_channel_id: channel.localId,
+                sender_channel_id: 42,
+                initial_window_size: 32,
+                maximum_packet_size: 32,
+                args: Buffer.alloc(0),
+            }),
+        )
+
+        const first = channel.forwardAgent().catch((error: Error) => error)
+        const second = channel.forwardAgent().catch((error: Error) => error)
+        expect(
+            sent.filter(
+                (packet) =>
+                    packet instanceof ChannelRequest &&
+                    packet.data.request_type === "auth-agent-req@openssh.com",
+            ),
+        ).toHaveLength(1)
+
+        channel.receiveRequestFailure()
+        expect(await first).toBeInstanceOf(Error)
+        expect(await second).toBeInstanceOf(Error)
+        const retry = channel.forwardAgent()
+        expect(
+            sent.filter(
+                (packet) =>
+                    packet instanceof ChannelRequest &&
+                    packet.data.request_type === "auth-agent-req@openssh.com",
+            ),
+        ).toHaveLength(2)
+        channel.receiveRequestSuccess()
+        await retry
+        await channel.forwardAgent()
+        expect(sent).toHaveLength(2)
         channel.destroy()
     })
 

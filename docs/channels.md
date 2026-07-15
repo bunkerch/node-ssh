@@ -484,6 +484,9 @@ servers and authenticated principals. A `modernssh` server advertises RFC 9987 v
 both request forms, and opens the channel form corresponding to the accepted request. The explicit
 `connection.openssh_forwardAgent()` helper remains available when a server must force the
 pre-standardization channel name for a known compatibility peer.
+Concurrent forwarding calls on one session share the same in-flight peer request. Every caller
+observes its success or failure, and a rejected request may be retried without sending duplicate
+requests while the first result is pending.
 
 ## X11 forwarding
 
@@ -519,6 +522,9 @@ setup packet with the real cookie; the normalized request returned by `requestX1
 generated value for this purpose. Alternatively, explicitly supply the real cookie and accept the
 greater exposure. Cookies are validated as non-empty hexadecimal data. `single: true` authorizes
 exactly one incoming channel, and all unused authorization is removed when its session closes.
+The session reserves X11 forwarding while its request is awaiting a reply, so a concurrent request
+is rejected without sending a duplicate. A failed peer request releases that reservation and may
+be retried.
 Local argument-validation and channel-capacity failures occur before an outgoing X11 open and do
 not consume that single authorization.
 Policy may set `decision.rejection` to a `ChannelOpenError` with a specific failure reason,
