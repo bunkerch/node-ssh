@@ -26,6 +26,7 @@ import {
     RFC9987_AGENT_REQUEST,
     type AgentForwardingProtocol,
 } from "../AgentForwarding.js"
+import { serverConfigurationFor } from "../ConnectionConfiguration.js"
 
 export interface SessionPtyInfo {
     term: string
@@ -149,7 +150,6 @@ export default class SessionChannel extends Channel {
     hooker = new Hooker<SessionChannelHooker>()
     events = new EventEmitter<SessionChannelEvents>()
 
-    env = new Map<string, string>()
     consumed = false
 
     shell: Shell | undefined
@@ -157,8 +157,14 @@ export default class SessionChannel extends Channel {
     publicKey: PublicKeySubsystemServer | undefined
     pty: Readonly<SessionPtyInfo> | undefined
     x11: Readonly<SessionX11Request> | undefined
+    private readonly environment = new Map<string, string>()
     private readonly pendingInput: Buffer[] = []
     private inputEnded = false
+    private environmentBytes = 0
+
+    get env(): ReadonlyMap<string, string> {
+        return new Map(this.environment)
+    }
 
     constructor(client: Client | ServerClient, channel_type: string, clientArgs = Buffer.alloc(0)) {
         if (client instanceof Client) {
@@ -270,6 +276,8 @@ export default class SessionChannel extends Channel {
                     value: "<redacted>",
                 })
 
+                if (!this.environmentFits(key, value)) break
+
                 const controller: SessionChannelHookerEnvRequestController = {
                     success: false,
                 }
@@ -286,7 +294,8 @@ export default class SessionChannel extends Channel {
                 if (!this.isOpen) return
 
                 if (policyCompleted && controller.success) {
-                    this.env.set(key, value)
+                    this.retainEnvironment(key, value)
+                    this.environment.set(key, value)
                     this.sendRequestSuccess(request)
                     this.events.emit("env", key, value)
                     return
@@ -603,6 +612,7 @@ export default class SessionChannel extends Channel {
 
     protected handleClose(): void {
         ;(this.client as ServerClient).unregisterX11Forwarding(this.localId)
+        this.pendingInput.length = 0
         this.shell?.closeFromRemote()
     }
 
@@ -616,6 +626,27 @@ export default class SessionChannel extends Channel {
         if (this.inputEnded) this.shell.receiveEOF()
         if (hasCapacity) this.resumeInput()
         return this.shell
+    }
+
+    private environmentFits(key: string, value: string): boolean {
+        const limits = serverConfigurationFor((this.client as ServerClient).server)
+        const exists = this.environment.has(key)
+        if (!exists && this.environment.size >= limits.maxSessionEnvironmentVariables) return false
+        const previous = exists ? this.environment.get(key)! : ""
+        const nextBytes =
+            this.environmentBytes -
+            (exists ? Buffer.byteLength(key) + Buffer.byteLength(previous) : 0) +
+            Buffer.byteLength(key) +
+            Buffer.byteLength(value)
+        return nextBytes <= limits.maxSessionEnvironmentBytes
+    }
+
+    private retainEnvironment(key: string, value: string): void {
+        if (this.environment.has(key)) {
+            this.environmentBytes -=
+                Buffer.byteLength(key) + Buffer.byteLength(this.environment.get(key)!)
+        }
+        this.environmentBytes += Buffer.byteLength(key) + Buffer.byteLength(value)
     }
 
     private sendRequestSuccess(request: ChannelRequest): void {

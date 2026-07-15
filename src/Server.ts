@@ -81,6 +81,10 @@ export interface ServerOptions {
     maxPendingChannelOpens?: number
     /** Maximum simultaneous active and pending SSH channels per connection. */
     maxChannels?: number
+    /** Maximum environment variables retained by one server session channel. */
+    maxSessionEnvironmentVariables?: number
+    /** Maximum UTF-8 bytes retained in one server session channel's environment. */
+    maxSessionEnvironmentBytes?: number
     /** Maximum rejected non-`none` authentication requests per connection. */
     maxAuthenticationAttempts?: number
     /** Milliseconds between authenticated per-connection SSH keepalive probes. Zero disables. */
@@ -522,6 +526,12 @@ export default class Server extends EventEmitter<ServerEvents> {
             this.#options.maxPendingChannelOpens = 64
         }
         if (this.#options.maxChannels === undefined) this.#options.maxChannels = 1024
+        if (this.#options.maxSessionEnvironmentVariables === undefined) {
+            this.#options.maxSessionEnvironmentVariables = 256
+        }
+        if (this.#options.maxSessionEnvironmentBytes === undefined) {
+            this.#options.maxSessionEnvironmentBytes = 64 * 1024
+        }
         if (this.#options.maxAuthenticationAttempts === undefined) {
             this.#options.maxAuthenticationAttempts = 20
         }
@@ -557,6 +567,22 @@ export default class Server extends EventEmitter<ServerEvents> {
         if (!Number.isSafeInteger(this.#options.maxChannels) || this.#options.maxChannels < 0) {
             throw new RangeError(
                 "SSH maximum simultaneous channels must be a non-negative safe integer",
+            )
+        }
+        if (
+            !Number.isSafeInteger(this.#options.maxSessionEnvironmentVariables) ||
+            this.#options.maxSessionEnvironmentVariables < 0
+        ) {
+            throw new RangeError(
+                "SSH maximum session environment variables must be a non-negative safe integer",
+            )
+        }
+        if (
+            !Number.isSafeInteger(this.#options.maxSessionEnvironmentBytes) ||
+            this.#options.maxSessionEnvironmentBytes < 0
+        ) {
+            throw new RangeError(
+                "SSH maximum session environment bytes must be a non-negative safe integer",
             )
         }
         if (

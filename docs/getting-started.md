@@ -147,6 +147,12 @@ open with RFC 4254 resource shortage; it does not close the connection or invoke
 rejected peer open. A slot becomes available only after both sides exchange `CHANNEL_CLOSE`. Set
 the value to zero to disable every channel while retaining transport and global-request access.
 
+On `Server`, `maxSessionEnvironmentVariables` and `maxSessionEnvironmentBytes` bound the
+environment retained by each session channel. They default to 256 variables and 64 KiB of combined
+UTF-8 name/value bytes. These limits are independent of channel flow control because RFC 4254
+environment requests do not consume the channel data window. Set either value to zero to deny every
+environment request without disabling exec, shell, or subsystem sessions.
+
 For direct TCP connections, `localAddress` and `localPort` select the source binding. Set exactly
 one of `forceIPv4` or `forceIPv6` to restrict hostname resolution to that address family. If both
 flags have the same value, normal system resolution is used. These four options are ignored when

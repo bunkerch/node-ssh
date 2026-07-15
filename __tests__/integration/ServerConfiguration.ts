@@ -43,6 +43,14 @@ describe("server configuration normalization", () => {
                 { hostKeys: [hostKey], algorithms: null as never },
                 "SSH server algorithms option must be an object",
             ],
+            [
+                { hostKeys: [hostKey], maxSessionEnvironmentVariables: -1 },
+                "SSH maximum session environment variables must be a non-negative safe integer",
+            ],
+            [
+                { hostKeys: [hostKey], maxSessionEnvironmentBytes: 1.5 },
+                "SSH maximum session environment bytes must be a non-negative safe integer",
+            ],
         ]
 
         for (const [options, message] of cases) {

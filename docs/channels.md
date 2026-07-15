@@ -414,6 +414,12 @@ available in `channel.pty` and `channel.env`; the corresponding `pty`, `env`, an
 are emitted after acceptance. Every decision-bearing handler must complete without rejection before
 its success is retained or any accepted state or event is published. Session command, terminal, and
 environment text must be valid UTF-8; malformed values are rejected before any policy hook runs.
+`channel.env` returns a readonly snapshot, so observation cannot mutate later session state. A
+server retains at most `maxSessionEnvironmentVariables` entries and
+`maxSessionEnvironmentBytes` combined UTF-8 name/value bytes per session (256 and 64 KiB by
+default). Replacing an existing name is charged for its new value rather than as another entry.
+Requests that would exceed either limit fail before application policy runs; one-way requests are
+silently ignored because RFC 4254 provides no reply for them.
 Runtime `windowChange` and `signal` notifications first run ordered, awaited hooks and are then
 exposed as observation events:
 
