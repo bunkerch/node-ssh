@@ -77,6 +77,8 @@ export interface ServerOptions {
     replyTimeout?: number
     /** Maximum peer channel-open decisions allowed to remain pending per connection. */
     maxPendingChannelOpens?: number
+    /** Maximum simultaneous active and pending SSH channels per connection. */
+    maxChannels?: number
     /** Maximum rejected non-`none` authentication requests per connection. */
     maxAuthenticationAttempts?: number
     /** Milliseconds between authenticated per-connection SSH keepalive probes. Zero disables. */
@@ -446,6 +448,7 @@ export default class Server extends EventEmitter<ServerEvents> {
         this.#options.authenticationTimeout ??= 600_000
         this.#options.replyTimeout ??= 30_000
         this.#options.maxPendingChannelOpens ??= 64
+        this.#options.maxChannels ??= 1024
         this.#options.maxAuthenticationAttempts ??= 20
         this.#options.keepaliveInterval ??= 0
         this.#options.keepaliveCountMax ??= 3
@@ -472,6 +475,11 @@ export default class Server extends EventEmitter<ServerEvents> {
         ) {
             throw new RangeError(
                 "SSH maximum pending channel opens must be a non-negative safe integer",
+            )
+        }
+        if (!Number.isSafeInteger(this.#options.maxChannels) || this.#options.maxChannels < 0) {
+            throw new RangeError(
+                "SSH maximum simultaneous channels must be a non-negative safe integer",
             )
         }
         if (

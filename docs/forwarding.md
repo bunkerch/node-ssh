@@ -21,6 +21,10 @@ stream. Ports are validated as unsigned 16-bit TCP port numbers before a packet 
 and socket-path text must be valid UTF-8 on the wire; malformed input is rejected before it reaches
 an authorization hook, listener lookup, or channel event.
 
+Forwarding channels consume the same connection-wide `maxChannels` allowance as sessions, X11,
+agent forwarding, and other channels. This bounds accepted network connections even when an
+application or remote forwarding listener can produce them faster than they close.
+
 ## HTTP and HTTPS agents
 
 `HTTPAgent` and `HTTPSAgent` integrate direct forwarding with Node's `http` and `https` clients.

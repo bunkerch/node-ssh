@@ -516,6 +516,15 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
 
     private assertChannelCapacity(): void {
         if (
+            this.channels.size + this.pendingRemoteChannelOpens.size >=
+            this.#configuration.maxChannels
+        ) {
+            throw new ChannelOpenError(
+                ChannelOpenFailureReasonCodes.SSH_OPEN_RESOURCE_SHORTAGE,
+                `SSH simultaneous channel limit of ${this.#configuration.maxChannels} reached`,
+            )
+        }
+        if (
             this.noFlowControlEnabled &&
             (this.channels.size !== 0 || this.remoteChannelIds.size !== 0)
         ) {
@@ -1320,6 +1329,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             }
 
             this.debug(`Opening channel`, channel)
+            this.pendingRemoteChannelOpens.delete(packet.data.sender_channel_id)
             this.channels.set(channel.localId, channel)
             accepted = true
             this.sendPacket(channel.getChannelOpenConfirmationPacket())
@@ -2987,7 +2997,11 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                         new ChannelOpenFailure({
                             recipient_channel_id: (p as ChannelOpen).data.sender_channel_id,
                             reason_code: ChannelOpenFailureReasonCodes.SSH_OPEN_RESOURCE_SHORTAGE,
-                            description: "Too many SSH channel opens are awaiting decisions",
+                            description:
+                                this.channels.size + this.pendingRemoteChannelOpens.size >=
+                                this.#configuration.maxChannels
+                                    ? `SSH simultaneous channel limit of ${this.#configuration.maxChannels} reached`
+                                    : "Too many SSH channel opens are awaiting decisions",
                             language_tag: "",
                         }),
                     )
@@ -3330,6 +3344,12 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
 
     private reserveIncomingRemoteChannelId(remoteId: number): boolean {
         this.assertRemoteChannelIdAvailable(remoteId)
+        if (
+            this.channels.size + this.pendingRemoteChannelOpens.size >=
+            this.#configuration.maxChannels
+        ) {
+            return false
+        }
         if (this.pendingRemoteChannelOpens.size >= this.#configuration.maxPendingChannelOpens) {
             return false
         }

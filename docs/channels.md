@@ -279,6 +279,10 @@ The implementation follows RFC 4254 channel rules:
   defaults to 64 in both roles. Reaching the limit rejects additional opens with RFC 4254 resource
   shortage without closing the connection or invoking their policy/provider. Zero rejects every
   peer-initiated open. Established channels do not consume this pending-decision allowance.
+- `maxChannels` bounds all active channels and pending peer opens on a connection and defaults to
+  1024 in both roles. It applies equally to local opens and peer opens. Reaching the limit reports
+  RFC 4254 resource shortage without closing the connection or invoking policy for a rejected peer
+  open. Capacity is recovered after both CLOSE messages are exchanged; zero disables all channels.
 - Outbound data is split to the peer's maximum packet size and paused when its window is empty.
 - Inbound stdout and stderr share the advertised receive window. Window adjustments are sent as
   stream consumers make room. A zero adjustment is a valid no-op; an adjustment that would raise

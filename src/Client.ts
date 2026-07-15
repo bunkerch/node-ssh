@@ -310,6 +310,8 @@ export interface ClientOptions {
     replyTimeout?: number
     /** Maximum peer channel-open decisions allowed to remain pending. */
     maxPendingChannelOpens?: number
+    /** Maximum simultaneous active and pending SSH channels. */
+    maxChannels?: number
     /** Already-connected duplex transport, such as an SSH direct-tcpip channel. */
     sock?: Duplex
     /** Receive the same already-redacted diagnostic arguments as the `debug` event. */
@@ -729,6 +731,7 @@ export default class Client extends EventEmitter<ClientEvents> {
         this.#options.readyTimeout ??= 20_000
         this.#options.replyTimeout ??= 30_000
         this.#options.maxPendingChannelOpens ??= 64
+        this.#options.maxChannels ??= 1024
         if (
             !Number.isFinite(this.#options.keepaliveInterval) ||
             this.#options.keepaliveInterval < 0
@@ -755,6 +758,11 @@ export default class Client extends EventEmitter<ClientEvents> {
         ) {
             throw new RangeError(
                 "SSH maximum pending channel opens must be a non-negative safe integer",
+            )
+        }
+        if (!Number.isSafeInteger(this.#options.maxChannels) || this.#options.maxChannels < 0) {
+            throw new RangeError(
+                "SSH maximum simultaneous channels must be a non-negative safe integer",
             )
         }
         if (
@@ -1389,12 +1397,7 @@ export default class Client extends EventEmitter<ClientEvents> {
         if (!this.isConnected || !this.hasAuthenticated) {
             throw new Error("Cannot open an SSH channel before authentication completes")
         }
-        if (
-            this.noFlowControlEnabled &&
-            (this.channels.size !== 0 || this.remoteChannelIds.size !== 0)
-        ) {
-            throw new Error("RFC 8308 no-flow-control permits only one simultaneous SSH channel")
-        }
+        this.assertChannelCapacity()
 
         this.channels.set(channel.localId, channel)
         try {
@@ -3433,12 +3436,30 @@ export default class Client extends EventEmitter<ClientEvents> {
 
     private reserveIncomingRemoteChannelId(remoteId: number): boolean {
         this.assertRemoteChannelIdAvailable(remoteId)
+        if (this.channels.size + this.pendingRemoteChannelOpens.size >= this.#options.maxChannels) {
+            return false
+        }
         if (this.pendingRemoteChannelOpens.size >= this.#options.maxPendingChannelOpens) {
             return false
         }
         this.remoteChannelIds.add(remoteId)
         this.pendingRemoteChannelOpens.add(remoteId)
         return true
+    }
+
+    private assertChannelCapacity(): void {
+        if (this.channels.size + this.pendingRemoteChannelOpens.size >= this.#options.maxChannels) {
+            throw new ChannelOpenError(
+                ChannelOpenFailureReasonCodes.SSH_OPEN_RESOURCE_SHORTAGE,
+                `SSH simultaneous channel limit of ${this.#options.maxChannels} reached`,
+            )
+        }
+        if (
+            this.noFlowControlEnabled &&
+            (this.channels.size !== 0 || this.remoteChannelIds.size !== 0)
+        ) {
+            throw new Error("RFC 8308 no-flow-control permits only one simultaneous SSH channel")
+        }
     }
 
     private async verifyConfiguredHostKey(serializedHostKey: Buffer): Promise<void> {
@@ -3492,7 +3513,10 @@ export default class Client extends EventEmitter<ClientEvents> {
             this.rejectIncomingChannel(
                 packet,
                 ChannelOpenFailureReasonCodes.SSH_OPEN_RESOURCE_SHORTAGE,
-                "Too many SSH channel opens are awaiting decisions",
+                this.channels.size + this.pendingRemoteChannelOpens.size >=
+                    this.#options.maxChannels
+                    ? `SSH simultaneous channel limit of ${this.#options.maxChannels} reached`
+                    : "Too many SSH channel opens are awaiting decisions",
             )
             return
         }
@@ -3608,9 +3632,9 @@ export default class Client extends EventEmitter<ClientEvents> {
             }
 
             channel.acceptOpen(packet)
+            this.pendingRemoteChannelOpens.delete(packet.data.sender_channel_id)
             this.channels.set(channel.localId, channel)
             this.sendPacket(channel.getOpenConfirmationPacket())
-            this.pendingRemoteChannelOpens.delete(packet.data.sender_channel_id)
             this.emit("tcp connection", channel.details, channel)
         } finally {
             this.pendingIncomingChannels.delete(channel)
@@ -3676,9 +3700,9 @@ export default class Client extends EventEmitter<ClientEvents> {
             }
 
             channel.acceptOpen(packet)
+            this.pendingRemoteChannelOpens.delete(packet.data.sender_channel_id)
             this.channels.set(channel.localId, channel)
             this.sendPacket(channel.getOpenConfirmationPacket())
-            this.pendingRemoteChannelOpens.delete(packet.data.sender_channel_id)
             this.emit("x11", channel.details, channel)
         } finally {
             this.pendingIncomingChannels.delete(channel)
@@ -3731,6 +3755,7 @@ export default class Client extends EventEmitter<ClientEvents> {
         try {
             const acceptedChannel = new ClientAgentChannel(this, packet)
             channel = acceptedChannel
+            this.pendingRemoteChannelOpens.delete(packet.data.sender_channel_id)
             this.channels.set(acceptedChannel.localId, acceptedChannel)
             stream.on("error", () => acceptedChannel.destroy())
             stream.on("close", () => acceptedChannel.close())
@@ -3738,7 +3763,6 @@ export default class Client extends EventEmitter<ClientEvents> {
             channel.on("close", () => stream.destroy())
             stream.pipe(channel).pipe(stream)
             this.sendPacket(channel.getOpenConfirmationPacket())
-            this.pendingRemoteChannelOpens.delete(packet.data.sender_channel_id)
         } catch (error) {
             if (channel !== undefined) {
                 this.channels.delete(channel.localId)
@@ -3810,9 +3834,9 @@ export default class Client extends EventEmitter<ClientEvents> {
             }
 
             channel.acceptOpen(packet)
+            this.pendingRemoteChannelOpens.delete(packet.data.sender_channel_id)
             this.channels.set(channel.localId, channel)
             this.sendPacket(channel.getOpenConfirmationPacket())
-            this.pendingRemoteChannelOpens.delete(packet.data.sender_channel_id)
             this.emit("unix connection", channel.details, channel)
         } finally {
             this.pendingIncomingChannels.delete(channel)

@@ -2,6 +2,7 @@ import { once } from "node:events"
 import { AddressInfo } from "node:net"
 import Client from "../../src/Client.js"
 import ClientSessionChannel from "../../src/channels/ClientSessionChannel.js"
+import ClientForwardedTCPIPChannel from "../../src/channels/ClientForwardedTCPIPChannel.js"
 import SessionChannel from "../../src/channels/SessionChannel.js"
 import { SSHAuthenticationMethods } from "../../src/constants.js"
 import Server from "../../src/Server.js"
@@ -20,6 +21,8 @@ async function createConnectedPeers(
     options: {
         serverMaxPendingChannelOpens?: number
         clientMaxPendingChannelOpens?: number
+        serverMaxChannels?: number
+        clientMaxChannels?: number
     } = {},
 ): Promise<{
     server: Server
@@ -31,6 +34,7 @@ async function createConnectedPeers(
         hostKeys: [hostKey],
         sendAllHostKeys: false,
         maxPendingChannelOpens: options.serverMaxPendingChannelOpens,
+        maxChannels: options.serverMaxChannels,
     })
     server.hooker.hook("noneAuthentication", async (_hook, _context, controller) => {
         controller.allowLogin = true
@@ -49,6 +53,7 @@ async function createConnectedPeers(
         username: "channel-identifier-test",
         authenticationMethodsOrder: [SSHAuthenticationMethods.None],
         maxPendingChannelOpens: options.clientMaxPendingChannelOpens,
+        maxChannels: options.clientMaxChannels,
     })
     client.hooker.hook("hostKey", async (_hook, controller) => {
         controller.allowHostKey = true
@@ -230,6 +235,153 @@ describe("RFC 4254 channel identifiers", () => {
             )
         }
     })
+
+    test("validates simultaneous channel limits in both roles", () => {
+        for (const maxChannels of [
+            -1,
+            0.5,
+            Number.NaN,
+            Number.POSITIVE_INFINITY,
+            Number.MAX_SAFE_INTEGER + 1,
+        ]) {
+            expect(() => new Client({ maxChannels })).toThrow(
+                "SSH maximum simultaneous channels must be a non-negative safe integer",
+            )
+            expect(() => new Server({ maxChannels })).toThrow(
+                "SSH maximum simultaneous channels must be a non-negative safe integer",
+            )
+        }
+    })
+
+    test("client rejects a local open at capacity before invoking server policy", async () => {
+        const { server, peer, client } = await createConnectedPeers({ clientMaxChannels: 1 })
+        let policyCalls = 0
+        server.hooker.hook("channelOpenRequest", (_hook, channel, controller) => {
+            policyCalls++
+            controller.allowOpen = channel instanceof SessionChannel
+        })
+
+        try {
+            const first = await client.openSession()
+            expect(policyCalls).toBe(1)
+            await expect(client.openSession()).rejects.toMatchObject({
+                name: "ChannelOpenError",
+                reasonCode: ChannelOpenFailureReasonCodes.SSH_OPEN_RESOURCE_SHORTAGE,
+                message: "SSH simultaneous channel limit of 1 reached",
+            })
+            expect(policyCalls).toBe(1)
+
+            const closed = once(first, "close")
+            first.close()
+            await closed
+        } finally {
+            await closePeers(server, client)
+            peer.terminate()
+        }
+    }, 15_000)
+
+    test("server rejects a local open at capacity before invoking client policy", async () => {
+        const { server, peer, client } = await createConnectedPeers({ serverMaxChannels: 1 })
+        server.hooker.hook("tcpipForward", (_hook, _context, controller) => {
+            controller.allow = true
+        })
+        const accepted: ClientForwardedTCPIPChannel[] = []
+        client.hooker.hook("tcpConnection", (_hook, channel, controller) => {
+            accepted.push(channel)
+            controller.allowOpen = true
+        })
+
+        try {
+            const port = await client.forwardIn("127.0.0.1", 0)
+            await peer.forwardOut("127.0.0.1", port, "127.0.0.1", 41_000)
+            expect(accepted).toHaveLength(1)
+            await expect(
+                peer.forwardOut("127.0.0.1", port, "127.0.0.1", 41_001),
+            ).rejects.toMatchObject({
+                name: "ChannelOpenError",
+                reasonCode: ChannelOpenFailureReasonCodes.SSH_OPEN_RESOURCE_SHORTAGE,
+                message: "SSH simultaneous channel limit of 1 reached",
+            })
+            expect(accepted).toHaveLength(1)
+
+            const closed = once(accepted[0]!, "close")
+            accepted[0]!.close()
+            await closed
+        } finally {
+            await closePeers(server, client)
+        }
+    }, 15_000)
+
+    test("server channel capacity rejects excess opens and recovers after close", async () => {
+        const { server, peer, client } = await createConnectedPeers({ serverMaxChannels: 1 })
+        const accepted: SessionChannel[] = []
+        server.hooker.hook("channelOpenRequest", (_hook, channel, controller) => {
+            controller.allowOpen = channel instanceof SessionChannel
+        })
+        peer.on("channel", (channel) => {
+            if (channel instanceof SessionChannel) accepted.push(channel)
+        })
+
+        try {
+            const first = await client.openSession()
+            expect(accepted).toHaveLength(1)
+            await expect(client.openSession()).rejects.toMatchObject({
+                name: "ChannelOpenError",
+                reasonCode: ChannelOpenFailureReasonCodes.SSH_OPEN_RESOURCE_SHORTAGE,
+                message: "SSH simultaneous channel limit of 1 reached",
+            })
+            expect(client.isConnected).toBe(true)
+
+            const clientClosed = once(first, "close")
+            first.close()
+            await clientClosed
+
+            const replacement = await client.openSession()
+            expect(accepted).toHaveLength(2)
+            replacement.close()
+        } finally {
+            await closePeers(server, client)
+        }
+    }, 15_000)
+
+    test("client channel capacity rejects excess server opens and recovers after close", async () => {
+        const { server, peer, client } = await createConnectedPeers({ clientMaxChannels: 1 })
+        server.hooker.hook("tcpipForward", (_hook, _context, controller) => {
+            controller.allow = true
+        })
+        const accepted: ClientForwardedTCPIPChannel[] = []
+        let policyCalls = 0
+        client.hooker.hook("tcpConnection", (_hook, channel, controller) => {
+            policyCalls++
+            controller.allowOpen = true
+            accepted.push(channel)
+        })
+
+        try {
+            const port = await client.forwardIn("127.0.0.1", 0)
+            await peer.forwardOut("127.0.0.1", port, "127.0.0.1", 40_000)
+            expect(accepted).toHaveLength(1)
+            await expect(
+                peer.forwardOut("127.0.0.1", port, "127.0.0.1", 40_001),
+            ).rejects.toMatchObject({
+                name: "ChannelOpenError",
+                reasonCode: ChannelOpenFailureReasonCodes.SSH_OPEN_RESOURCE_SHORTAGE,
+                message: "SSH simultaneous channel limit of 1 reached",
+            })
+            expect(policyCalls).toBe(1)
+            expect(client.isConnected).toBe(true)
+
+            const clientClosed = once(accepted[0]!, "close")
+            accepted[0]!.close()
+            await clientClosed
+
+            const replacement = await peer.forwardOut("127.0.0.1", port, "127.0.0.1", 40_002)
+            expect(policyCalls).toBe(2)
+            replacement.close()
+        } finally {
+            await closePeers(server, client)
+        }
+    }, 15_000)
 
     test("wraps client channel identifiers at the uint32 boundary and skips active ids", async () => {
         const { server, peer, client } = await createConnectedPeers()

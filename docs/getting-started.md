@@ -119,6 +119,13 @@ The same server option bounds client opens awaiting `channelOpenRequest` policy 
 Additional opens receive RFC 4254 resource shortage while the SSH connection remains usable. Set
 the value to zero when that role must reject every peer-initiated channel.
 
+`maxChannels` defaults to 1024 in both roles and bounds all simultaneous channels on one SSH
+connection, including locally initiated channels, established peer channels, and peer opens still
+awaiting policy. Reaching the limit rejects a local open with `ChannelOpenError` or answers a peer
+open with RFC 4254 resource shortage; it does not close the connection or invoke policy for the
+rejected peer open. A slot becomes available only after both sides exchange `CHANNEL_CLOSE`. Set
+the value to zero to disable every channel while retaining transport and global-request access.
+
 For direct TCP connections, `localAddress` and `localPort` select the source binding. Set exactly
 one of `forceIPv4` or `forceIPv6` to restrict hostname resolution to that address family. If both
 flags have the same value, normal system resolution is used. These four options are ignored when
