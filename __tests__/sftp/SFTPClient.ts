@@ -847,6 +847,16 @@ describe("SFTP client request engine", () => {
         })
 
         const client = await SFTPClient.connect(asClientChannel(fixture))
+        expect(() => client.supportsExtension("invalid,name")).toThrow(
+            "SFTP extension name must not contain a comma",
+        )
+        await expect(client.extended("a".repeat(65))).rejects.toThrow(
+            "SFTP extension name must be 1 to 64 printable US-ASCII characters",
+        )
+        await expect(client.extended("query@-example.test")).rejects.toThrow(
+            "SFTP extension name extension domain is invalid",
+        )
+        expect(requests).toEqual([])
         const requestData = Buffer.from("question")
         const replyPromise = client.extended("query@example.test", requestData, { version: "2" })
         requestData.fill(0)

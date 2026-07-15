@@ -3,6 +3,7 @@ import { constants as bufferConstants } from "node:buffer"
 import EventEmitter from "node:events"
 import { open as openLocalFile } from "node:fs/promises"
 import type { FileHandle } from "node:fs/promises"
+import { validateSSHName } from "../utils/SSHName.js"
 import { encodeSFTPPacket, SFTPPacketParser, SFTPProtocolError } from "./codec.js"
 import {
     MAX_SFTP_HANDLE_LENGTH,
@@ -344,6 +345,7 @@ export default class SFTPClient extends EventEmitter<SFTPClientEvents> {
     }
 
     supportsExtension(name: string, version?: string): boolean {
+        validateSSHName(name, "SFTP extension name")
         const versionBytes =
             version === undefined ? undefined : encodeSSHUTF8(version, "SFTP extension version")
         return this.negotiatedExtensions.some(
@@ -358,10 +360,10 @@ export default class SFTPClient extends EventEmitter<SFTPClientEvents> {
         data: Buffer = Buffer.alloc(0),
         options: SFTPExtendedRequestOptions = {},
     ): Promise<SFTPExtensionResponsePacket> {
-        if (!/^[\x21-\x7e]+$/u.test(name)) {
-            return Promise.reject(
-                new TypeError("SFTP extension name must be non-empty printable ASCII"),
-            )
+        try {
+            validateSSHName(name, "SFTP extension name")
+        } catch (error) {
+            return Promise.reject(error)
         }
         if (!Buffer.isBuffer(data)) {
             return Promise.reject(new TypeError("SFTP extension data must be a buffer"))

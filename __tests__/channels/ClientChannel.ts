@@ -368,6 +368,20 @@ describe("ClientChannel", () => {
         channel.destroy()
     })
 
+    test("rejects malformed RFC names before allocating a request", async () => {
+        const { channel, sent } = createChannel()
+
+        await expect(channel.request("two,names")).rejects.toThrow("must not contain a comma")
+        await expect(channel.request("a".repeat(65))).rejects.toThrow(
+            "must be 1 to 64 printable US-ASCII characters",
+        )
+        await expect(channel.request("request@-example.test")).rejects.toThrow(
+            "extension domain is invalid",
+        )
+        expect(sent).toEqual([])
+        channel.destroy()
+    })
+
     test("does not send CLOSE after the transport has already closed", () => {
         const { channel, sent } = createChannel()
 

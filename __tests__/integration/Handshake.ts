@@ -364,7 +364,16 @@ describe("client/server integration", () => {
                 "SSH global request denied@example.test failed",
             )
             await expect(client.globalRequest("invalid request name")).rejects.toThrow(
-                "SSH global request name must be non-empty printable ASCII",
+                "SSH global request name must be 1 to 64 printable US-ASCII characters",
+            )
+            await expect(client.globalRequest("invalid,request")).rejects.toThrow(
+                "SSH global request name must not contain a comma",
+            )
+            await expect(client.globalRequest("a".repeat(65))).rejects.toThrow(
+                "SSH global request name must be 1 to 64 printable US-ASCII characters",
+            )
+            await expect(client.globalRequest("query@-example.test")).rejects.toThrow(
+                "SSH global request name extension domain is invalid",
             )
             expect(
                 await client.globalRequest("ordered-one@example.test", Buffer.from("third")),
@@ -388,6 +397,9 @@ describe("client/server integration", () => {
             ])
             await expect(serverPeer!.globalRequest("server-denied@example.test")).rejects.toThrow(
                 "SSH global request server-denied@example.test failed",
+            )
+            await expect(serverPeer!.globalRequest("invalid,request")).rejects.toThrow(
+                "SSH global request name must not contain a comma",
             )
             expect(
                 await serverPeer!.globalRequest(

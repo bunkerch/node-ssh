@@ -18,6 +18,7 @@ import { ProtocolError } from "./packets/Disconnect.js"
 import { waitForReply } from "./ReplyTimeout.js"
 import allocateChannelIdentifier from "./utils/ChannelIdentifier.js"
 import { deferApplicationTraffic } from "./utils/RekeyQueue.js"
+import { validateSSHName } from "./utils/SSHName.js"
 
 export const DEFAULT_SERVER_CHANNEL_WINDOW_SIZE = 2 ** 21
 export const DEFAULT_SERVER_CHANNEL_PACKET_SIZE = 2 ** 15
@@ -237,6 +238,10 @@ export default class Channel {
         if (!this.isOpen || this.remoteId === undefined) {
             throw new Error(`SSH channel ${this.localId} is not open`)
         }
+        validateSSHName(type, "SSH channel request name")
+        if (!Buffer.isBuffer(args)) {
+            throw new TypeError("SSH channel request arguments must be a buffer")
+        }
         this.client.sendPacket(
             new ChannelRequest({
                 recipient_channel_id: this.remoteId,
@@ -251,10 +256,10 @@ export default class Channel {
         if (!this.isOpen || this.remoteId === undefined) {
             return Promise.reject(new Error(`SSH channel ${this.localId} is not open`))
         }
-        if (!/^[\x21-\x7e]+$/u.test(type)) {
-            return Promise.reject(
-                new TypeError("SSH channel request type must be non-empty printable ASCII"),
-            )
+        try {
+            validateSSHName(type, "SSH channel request name")
+        } catch (error) {
+            return Promise.reject(error)
         }
         if (!Buffer.isBuffer(args)) {
             return Promise.reject(new TypeError("SSH channel request arguments must be a buffer"))

@@ -107,6 +107,7 @@ import Channel from "./Channel.js"
 import GlobalRequest from "./packets/GlobalRequest.js"
 import { readNextBuffer, readNextUint32, serializeBuffer, serializeUint32 } from "./utils/Buffer.js"
 import { decodeSSHUTF8, encodeSSHUTF8 } from "./utils/SSHText.js"
+import { validateSSHName } from "./utils/SSHName.js"
 import RequestFailure from "./packets/RequestFailure.js"
 import RequestSuccess from "./packets/RequestSuccess.js"
 import ChannelOpen from "./packets/ChannelOpen.js"
@@ -794,9 +795,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     }
 
     private validateGlobalRequest(name: string, args: Buffer): void {
-        if (!/^[\x21-\x7e]+$/u.test(name)) {
-            throw new TypeError("SSH global request name must be non-empty printable ASCII")
-        }
+        validateSSHName(name, "SSH global request name")
         if (!Buffer.isBuffer(args)) {
             throw new TypeError("SSH global request arguments must be a buffer")
         }

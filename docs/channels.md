@@ -122,6 +122,10 @@ hook. Its request packet is the fifth argument; set `handled = true` and set `su
 application work has completed. Unknown requests fail by default. One-way requests still invoke the
 hook but never receive a protocol reply.
 
+Generic request types use the RFC 4251 name grammar: 1–64 printable US-ASCII characters, no comma,
+and at most one non-leading `@` followed by a valid DNS domain. Arguments must be a `Buffer`.
+Malformed input rejects before a reply waiter is allocated or a packet is sent.
+
 Generic request policy fails closed in both directions: every registered handler must complete
 without rejection before `success` or the server's `handled` override is honored. A contained later
 failure discards decisions made by earlier handlers.

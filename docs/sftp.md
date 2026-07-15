@@ -252,6 +252,11 @@ const reply = await sftp.extended("lookup@example.com", Buffer.from("alice"), {
 if (reply.type === SFTPPacketType.ExtendedReply) console.log(reply.data)
 ```
 
+Extension names follow the RFC 4251 name grammar: 1–64 printable US-ASCII characters, no comma,
+and at most one non-leading `@` followed by a valid DNS domain. `supportsExtension()` validates the
+same grammar. `extended()` rejects malformed names before consuming a request identifier or
+writing a packet.
+
 Extensions that define another successful response packet declare it explicitly:
 
 ```ts
