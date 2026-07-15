@@ -13,6 +13,7 @@ import ChannelOpenFailure, {
     ChannelOpenError,
     ChannelOpenFailureReasonCodes,
 } from "../../src/packets/ChannelOpenFailure.js"
+import ChannelClose from "../../src/packets/ChannelClose.js"
 import ChannelWindowAdjust from "../../src/packets/ChannelWindowAdjust.js"
 import { DisconnectReason, type PeerDisconnectInfo } from "../../src/packets/Disconnect.js"
 import PrivateKey from "../../src/utils/PrivateKey.js"
@@ -70,6 +71,23 @@ async function closePeers(server: Server, client: Client): Promise<void> {
 
 function nextDisconnect(peer: Client | ServerClient): Promise<Readonly<PeerDisconnectInfo>> {
     return new Promise((resolve) => peer.once("disconnect", resolve))
+}
+
+function within<T>(promise: Promise<T>, label: string): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error(`Timed out waiting for ${label}`)), 1_000)
+        timer.unref()
+        promise.then(
+            (value) => {
+                clearTimeout(timer)
+                resolve(value)
+            },
+            (error: unknown) => {
+                clearTimeout(timer)
+                reject(error as Error)
+            },
+        )
+    })
 }
 
 describe("RFC 4254 channel identifiers", () => {
@@ -605,6 +623,37 @@ describe("RFC 4254 channel identifiers", () => {
                 await expect(disconnect).resolves.toMatchObject({
                     reasonCode: DisconnectReason.SSH_DISCONNECT_PROTOCOL_ERROR,
                     description: `SSH channel ${channel.localId} open was settled twice`,
+                })
+            } finally {
+                await closePeers(server, client)
+            }
+        },
+        15_000,
+    )
+
+    test.each(["client", "server"] as const)(
+        "disconnects the %s for channel traffic before open confirmation",
+        async (sender) => {
+            const { server, peer, client } = await createConnectedPeers()
+            const channel =
+                sender === "server"
+                    ? new ClientSessionChannel(client)
+                    : new SessionChannel(peer, "session")
+            const packetSender = sender === "server" ? peer : client
+            if (channel instanceof ClientSessionChannel) {
+                client.channels.set(channel.localId, channel)
+            } else {
+                peer.channels.set(channel.localId, channel)
+            }
+            void channel.waitUntilOpen().catch(() => undefined)
+            const disconnect = nextDisconnect(packetSender)
+
+            try {
+                packetSender.sendPacket(new ChannelClose({ recipient_channel_id: channel.localId }))
+                await expect(within(disconnect, "pre-confirmation disconnect")).resolves.toEqual({
+                    reasonCode: DisconnectReason.SSH_DISCONNECT_PROTOCOL_ERROR,
+                    description: `SSH channel ${channel.localId} received traffic before open confirmation`,
+                    languageTag: "",
                 })
             } finally {
                 await closePeers(server, client)

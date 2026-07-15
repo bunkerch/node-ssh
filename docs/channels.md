@@ -130,6 +130,8 @@ Request hooks are awaited before their decisions change channel state or produce
 events. A peer CLOSE remains terminal and is acknowledged immediately even while a hook is pending;
 any decision that finishes after the channel closes is discarded. Pending writes and outbound
 request Promises reject on close instead of waiting for an application hook that may never settle.
+Channel traffic received before the corresponding open confirmation is a connection-level protocol
+error; an unconfirmed channel cannot be used as an early data, request, EOF, or CLOSE path.
 
 `sendBreak(duration)` implements RFC 4335 and waits for the server to confirm that it performed a
 terminal BREAK. The duration is an unsigned millisecond value; zero requests the device default.

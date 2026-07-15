@@ -3655,6 +3655,11 @@ export default class Client extends EventEmitter<ClientEvents> {
         const recipient = this.channelRecipient(packet)
         if (recipient === undefined) return
         const channel = this.getChannel(recipient)
+        if (channel.remoteId === undefined) {
+            throw new ProtocolError(
+                `SSH channel ${channel.localId} received traffic before open confirmation`,
+            )
+        }
 
         if (packet instanceof ChannelWindowAdjust) {
             channel.receiveWindowAdjust(packet.data.bytes_to_add)

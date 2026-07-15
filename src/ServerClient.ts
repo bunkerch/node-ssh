@@ -1392,6 +1392,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             this.terminate()
             return
         }
+        this.assertChannelConfirmed(channel)
 
         // Make sure PTY setup is handled before exec, shell, and later requests.
         const lock = await this.queue.obtainLock(
@@ -3451,12 +3452,21 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                         `Received a packet for unknown SSH channel ${localId}`,
                     )
                 }
+                this.assertChannelConfirmed(channel)
                 action(channel)
             })
             .catch((error: Error) => {
                 if (!this.isConnected) return
                 this.handleMessageError(error)
             })
+    }
+
+    private assertChannelConfirmed(channel: Channel): void {
+        if (channel.remoteId === undefined) {
+            throw new ProtocolError(
+                `SSH channel ${channel.localId} received traffic before open confirmation`,
+            )
+        }
     }
 }
 
