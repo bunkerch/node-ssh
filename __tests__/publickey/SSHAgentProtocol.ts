@@ -277,10 +277,31 @@ describe("SSH agent protocol", () => {
 
     test("closes after response framing violations and validates resource limits", async () => {
         expect(() => new SSHAgentProtocolServer({ maxMessageLength: 0 })).toThrow("positive uint32")
+        expect(() => new SSHAgentProtocolServer(null as never)).toThrow(
+            "SSH agent protocol server options must be an object",
+        )
+        expect(() => new SSHAgentProtocolServer({ maxMessageLength: null as never })).toThrow(
+            "positive uint32",
+        )
         const [validationStream, validationPeer] = streamPair()
         expect(() => new SSHAgentProtocolClient(validationStream, { requestTimeout: 0.5 })).toThrow(
             "integer between zero and 2147483647",
         )
+        expect(() => new SSHAgentProtocolClient(validationStream, null as never)).toThrow(
+            "SSH agent protocol client options must be an object",
+        )
+        expect(
+            () =>
+                new SSHAgentProtocolClient(validationStream, {
+                    maxMessageLength: null as never,
+                }),
+        ).toThrow("positive uint32")
+        expect(
+            () =>
+                new SSHAgentProtocolClient(validationStream, {
+                    requestTimeout: null as never,
+                }),
+        ).toThrow("integer between zero and 2147483647")
         validationStream.destroy()
         validationPeer.destroy()
 

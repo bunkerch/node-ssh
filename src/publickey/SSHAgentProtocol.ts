@@ -10,6 +10,7 @@ import {
     serializeUint32,
 } from "../utils/Buffer.js"
 import { Hooker } from "../utils/Hooker.js"
+import { isPlainConfigurationObject } from "../utils/Configuration.js"
 import PrivateKey, {
     parseCertificatePrivateKey,
     serializeCertificatePrivateKey,
@@ -303,17 +304,23 @@ function createConnectionState(stream: Duplex): SSHAgentProtocolConnectionState 
     }) as unknown as SSHAgentProtocolConnectionState
 }
 
-function validateOptions(options: SSHAgentProtocolOptions): Required<SSHAgentProtocolOptions> {
-    const maxMessageLength = options.maxMessageLength ?? MAX_SSH_AGENT_MESSAGE_LENGTH
-    const requestTimeout = options.requestTimeout ?? 10_000
+function normalizeMaxMessageLength(value: unknown): number {
+    const maxMessageLength = value === undefined ? MAX_SSH_AGENT_MESSAGE_LENGTH : value
     if (
+        typeof maxMessageLength !== "number" ||
         !Number.isSafeInteger(maxMessageLength) ||
         maxMessageLength < 1 ||
         maxMessageLength > 0xffff_ffff
     ) {
         throw new RangeError("SSH agent maximum message length must be a positive uint32")
     }
+    return maxMessageLength
+}
+
+function normalizeRequestTimeout(value: unknown): number {
+    const requestTimeout = value === undefined ? 10_000 : value
     if (
+        typeof requestTimeout !== "number" ||
         !Number.isSafeInteger(requestTimeout) ||
         requestTimeout < 0 ||
         requestTimeout > 0x7fff_ffff
@@ -322,7 +329,28 @@ function validateOptions(options: SSHAgentProtocolOptions): Required<SSHAgentPro
             "SSH agent request timeout must be an integer between zero and 2147483647",
         )
     }
-    return { maxMessageLength, requestTimeout }
+    return requestTimeout
+}
+
+function normalizeClientOptions(
+    options: SSHAgentProtocolOptions,
+): Required<SSHAgentProtocolOptions> {
+    if (!isPlainConfigurationObject(options)) {
+        throw new TypeError("SSH agent protocol client options must be an object")
+    }
+    return {
+        maxMessageLength: normalizeMaxMessageLength(options.maxMessageLength),
+        requestTimeout: normalizeRequestTimeout(options.requestTimeout),
+    }
+}
+
+function normalizeServerOptions(
+    options: SSHAgentProtocolServerOptions,
+): Required<SSHAgentProtocolServerOptions> {
+    if (!isPlainConfigurationObject(options)) {
+        throw new TypeError("SSH agent protocol server options must be an object")
+    }
+    return { maxMessageLength: normalizeMaxMessageLength(options.maxMessageLength) }
 }
 
 function frame(payload: Buffer, maxMessageLength: number): Buffer {
@@ -584,6 +612,15 @@ function serializePrivateKeyRequest(
     if (!(privateKey instanceof PrivateKey)) {
         throw new TypeError("SSH agent identity must be a PrivateKey")
     }
+    if (!isPlainConfigurationObject(options)) {
+        throw new TypeError("SSH agent add-identity options must be an object")
+    }
+    if (options.comment !== undefined && typeof options.comment !== "string") {
+        throw new TypeError("SSH agent identity comment must be a string")
+    }
+    if (options.constraints !== undefined && !Array.isArray(options.constraints)) {
+        throw new TypeError("SSH agent identity constraints must be an array")
+    }
     const certificate = privateKey.data.publicKey.data.algorithm instanceof SSHCertificatePublicKey
     const underlyingPublicKey = privateKey.data.algorithm.getPublicKey()
     if (!certificate && privateKey.data.alg !== underlyingPublicKey.data.alg) {
@@ -594,7 +631,7 @@ function serializePrivateKeyRequest(
             `SSH agent does not support private key type ${privateKey.data.alg}`,
         )
     }
-    const constraints = options.constraints ?? []
+    const constraints = options.constraints === undefined ? [] : options.constraints
     validateSecurityKeyProviderConstraint(privateKey, constraints)
     const keyData = certificate
         ? serializeCertificatePrivateKey(privateKey)
@@ -610,7 +647,9 @@ function serializePrivateKeyRequest(
             keyData,
             serializeBuffer(
                 encodeSSHUTF8(
-                    options.comment ?? privateKey.data.comment ?? "",
+                    options.comment === undefined
+                        ? (privateKey.data.comment ?? "")
+                        : options.comment,
                     "SSH agent identity comment",
                 ),
             ),
@@ -753,7 +792,7 @@ export class SSHAgentProtocolClient extends Agent<string> {
             throw new TypeError("SSH agent protocol client requires a Duplex stream")
         }
         this.stream = stream
-        this.options = Object.freeze(validateOptions(options))
+        this.options = Object.freeze(normalizeClientOptions(options))
         this.#iterator = stream[Symbol.asyncIterator]()
     }
 
@@ -839,7 +878,13 @@ export class SSHAgentProtocolClient extends Agent<string> {
         pin: string | Buffer = Buffer.alloc(0),
         options: SSHAgentAddTokenOptions = {},
     ): Promise<void> {
-        const constraints = options.constraints ?? []
+        if (!isPlainConfigurationObject(options)) {
+            throw new TypeError("SSH agent add-token options must be an object")
+        }
+        if (options.constraints !== undefined && !Array.isArray(options.constraints)) {
+            throw new TypeError("SSH agent token constraints must be an array")
+        }
+        const constraints = options.constraints === undefined ? [] : options.constraints
         const encodedConstraints = serializeConstraints(constraints, "token")
         const encodedTokenId = encodeOpaqueString(tokenId, "SSH agent token identifier")
         const encodedPin = encodeOpaqueString(pin, "SSH agent token PIN")
@@ -1105,8 +1150,7 @@ export class SSHAgentProtocolServer {
     #lockState: { salt: Buffer; verifier: Buffer } | undefined
 
     constructor(options: SSHAgentProtocolServerOptions = {}) {
-        const { maxMessageLength } = validateOptions({ ...options, requestTimeout: 0 })
-        this.options = Object.freeze({ maxMessageLength })
+        this.options = Object.freeze(normalizeServerOptions(options))
     }
 
     get locked(): boolean {

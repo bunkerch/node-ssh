@@ -50,9 +50,11 @@ The management methods are:
 
 - `addIdentity(privateKey, options?)` adds a DSA, ECDSA, Ed25519, Ed448, RSA, security-key,
   certificate-backed, or registered custom private-key type. `options.comment` overrides the key
-  comment.
+  comment. The option bag must be a plain object, the comment must be a string when present, and
+  constraints must be an array.
 - `addToken(tokenId, pin?, options?)` asks the agent to load keys from a hardware token. The add
-  request treats the token identifier and PIN as opaque SSH strings.
+  request treats the token identifier and PIN as opaque SSH strings. Its option bag must be a plain
+  object and its constraints must be an array.
 - `removeIdentity(publicKey)`, `removeAllIdentities()`, and `removeToken(tokenId, pin?)` remove
   loaded identities. RFC 9987 requires the remove-token identifier and PIN to be valid UTF-8.
 - `lock(passphrase)` and `unlock(passphrase)` change the agent lock state.
@@ -130,7 +132,8 @@ await agent.addIdentity(privateKey, {
 Lifetime values are unsigned 32-bit seconds. A confirmation constraint asks the agent to obtain
 explicit approval for each private-key operation. An extension constraint consumes the remaining
 bytes of the request because RFC 9987 gives its data no separate length; it must therefore be the
-last constraint. Unknown constraints fail closed on the server.
+last constraint. Unknown constraints fail closed on the server. Explicit `null` is never treated as
+an empty constraint list, because doing so would silently remove restrictions from the added key.
 
 Destination restrictions use a typed constraint so their boundary remains parseable when another
 constraint follows:
@@ -311,7 +314,8 @@ backing removal succeeds. The protocol server cannot delete application-owned ke
 
 Both roles default to a 256 KiB agent-message limit. Configure `maxMessageLength` on either role
 when a tighter bound is appropriate, and configure `requestTimeout` on the client. A zero client
-timeout disables the deadline.
+timeout disables the deadline. Client and server option bags must be plain objects. Only omitted
+values select defaults; explicit `null` limits and timeouts are rejected.
 
 The fixed-frame tests cover RFC 9987 identity, token, constraint, removal, lock, and extension
 layouts plus the published session-binding, destination-constraint, and security-key provider

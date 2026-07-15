@@ -1141,6 +1141,21 @@ describe("SSH agent management protocol", () => {
         await expect(client.extension("fail@example.com")).rejects.toBeInstanceOf(
             SSHAgentExtensionFailureError,
         )
+        await expect(client.addIdentity(fixedPrivateKey(), null as never)).rejects.toThrow(
+            "SSH agent add-identity options must be an object",
+        )
+        await expect(
+            client.addIdentity(fixedPrivateKey(), { constraints: null as never }),
+        ).rejects.toThrow("SSH agent identity constraints must be an array")
+        await expect(
+            client.addIdentity(fixedPrivateKey(), { comment: null as never }),
+        ).rejects.toThrow("SSH agent identity comment must be a string")
+        await expect(client.addToken("token", "", null as never)).rejects.toThrow(
+            "SSH agent add-token options must be an object",
+        )
+        await expect(client.addToken("token", "", { constraints: null as never })).rejects.toThrow(
+            "SSH agent token constraints must be an array",
+        )
         await expect(
             client.addIdentity(fixedPrivateKey(), {
                 constraints: [

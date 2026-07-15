@@ -641,6 +641,7 @@ describe("package exports", () => {
                     const { mkdtemp, rm } = await import("node:fs/promises")
                     const { tmpdir } = await import("node:os")
                     const { join } = await import("node:path")
+                    const { PassThrough } = await import("node:stream")
                     const { AllowedSigners, ChannelOpenError, ChannelOpenFailureReasonCodes, Client, ClientForwardedStreamLocalChannel, ClientForwardedTCPIPChannel, ClientX11Channel, createSocketAgent, CygwinAgent, CygwinAgentError, DELAY_COMPRESSION_EXTENSION, delayCompressionExtension, discoverPageantAgentSocket, DisconnectError, DisconnectReason, ELEVATION_EXTENSION, EncodedSignature, generateKeyPair, generateKeyPairSync, KeyRevocationList, KnownHosts, MAX_OPENSSH_AGENT_SESSION_BINDINGS, MAX_SSH_AGENT_MESSAGE_LENGTH, NO_FLOW_CONTROL_EXTENSION, OnePasswordAgent, OPENSSH_AGENT_SECURITY_KEY_PROVIDER, OPENSSH_AGENT_SESSION_BIND, PageantAgent, PageantAgentError, parseKey, parseRFC4716PublicKeyFile, PrivateKey, PrivateKeyAgent, ProtocolVersionExchange, PublicKey, PublicKeySubsystemClient, PublicKeySubsystemServer, PublicKeySubsystemStatusCode, SecurityKeyAttestation, serializeRFC4716PublicKey, Server, SessionChannel, SSH_ED25519_SECURITY_KEY_ALGORITHM, SSHAgentConstraintType, SSHAgentExtensionFailureError, SSHAgentMessageType, SSHAgentProtocolClient, SSHAgentProtocolError, SSHAgentProtocolServer, SSHED25519SecurityKeyPrivateKey, SSHED25519SecurityKeyPublicKey, SSHSignature } = await import("@bunkerch/modernssh")
                     const { privateKey, publicKey } = await generateKeyPair("ed25519", {
                         comment: "packed@example.test",
@@ -681,6 +682,15 @@ describe("package exports", () => {
                     if (!(invalidPublicKeySubsystemOptions instanceof Promise)) process.exit(83)
                     try { await invalidPublicKeySubsystemOptions; process.exit(84) } catch (error) { if (!String(error).includes("Public-key subsystem client options must be an object")) process.exit(85) }
                     try { new PublicKeySubsystemServer(null, null); process.exit(86) } catch (error) { if (!String(error).includes("Public-key subsystem server options must be an object")) process.exit(87) }
+                    try { new SSHAgentProtocolServer(null); process.exit(88) } catch (error) { if (!String(error).includes("SSH agent protocol server options must be an object")) process.exit(89) }
+                    const packedAgentStream = new PassThrough()
+                    const packedAgent = new SSHAgentProtocolClient(packedAgentStream)
+                    const invalidAgentOptions = packedAgent.addIdentity(privateKey, null)
+                    if (!(invalidAgentOptions instanceof Promise)) process.exit(90)
+                    try { await invalidAgentOptions; process.exit(91) } catch (error) { if (!String(error).includes("SSH agent add-identity options must be an object")) process.exit(92) }
+                    const invalidAgentConstraints = packedAgent.addIdentity(privateKey, { constraints: null })
+                    try { await invalidAgentConstraints; process.exit(93) } catch (error) { if (!String(error).includes("SSH agent identity constraints must be an array")) process.exit(94) }
+                    packedAgent.destroy()
                     try { new Client({ port: 0 }); process.exit(57) } catch (error) { if (!String(error).includes("between 1 and 65535")) process.exit(58) }
                     try { new Server({ greeting: "invalid\\ud800greeting" }); process.exit(59) } catch (error) { if (!String(error).includes("not valid UTF-8 text")) process.exit(60) }
                     const legacy = generateKeyPairSync("dsa")
