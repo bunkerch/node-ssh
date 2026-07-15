@@ -2679,9 +2679,11 @@ describe("OpenSSH interoperability", () => {
                 channel.on("end", () => channel.close())
             })
             let x11Details: { originatorAddress: string; originatorPort: number } | undefined
-            client.on("x11", (details, accept) => {
+            client.hooker.hook("x11Connection", (_hook, _channel, controller) => {
+                controller.allowOpen = true
+            })
+            client.on("x11", (details, x11) => {
                 x11Details = details
-                const x11 = accept()!
                 x11.on("data", (data: Buffer) => x11.write(data.toString().toUpperCase()))
                 x11.on("end", () => x11.close())
             })

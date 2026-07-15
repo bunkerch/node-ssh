@@ -448,18 +448,20 @@ pre-standardization channel name for a known compatibility peer.
 ## X11 forwarding
 
 RFC 4254 X11 forwarding is also disabled by default. A client requests it on a session before
-starting a program and handles each independent connection synchronously:
+starting a program. Each incoming connection then passes through the awaited `x11Connection`
+Hooker policy and is denied by default. The hook receives the proposed channel, whose immutable
+details identify the originator. Set `allowOpen` only after authorization and local display setup
+complete; the passive `x11` event runs after channel confirmation.
 
 ```ts
-client.on("x11", (details, accept, reject) => {
-    if (details.originatorAddress !== "127.0.0.1") {
-        reject()
+client.hooker.hook("x11Connection", async (_hook, channel, decision) => {
+    if (!(await authorizeX11Origin(channel.details.originatorAddress))) {
         return
     }
-    const channel = accept()
-    if (!channel) return
+
     const display = net.connect({ host: "127.0.0.1", port: 6000 })
     channel.pipe(display).pipe(channel)
+    decision.allowOpen = true
 })
 
 const session = await client.openSession()
@@ -477,6 +479,9 @@ setup packet with the real cookie; the normalized request returned by `requestX1
 generated value for this purpose. Alternatively, explicitly supply the real cookie and accept the
 greater exposure. Cookies are validated as non-empty hexadecimal data. `single: true` authorizes
 exactly one incoming channel, and all unused authorization is removed when its session closes.
+Policy may set `decision.rejection` to a `ChannelOpenError` with a specific failure reason,
+description, and language tag. A decision completed after transport teardown is discarded and its
+proposed channel is destroyed.
 
 On a server, `x11Request` receives the requested single-connection flag, authentication protocol,
 hex cookie, and screen. Every handler must complete successfully before the authorization is

@@ -19,7 +19,6 @@ export default class ClientX11Channel extends ClientChannel {
         assert(packet.data.channel_type === ClientX11Channel.channelType)
         super(client, ClientX11Channel.channelType)
         this.details = Object.freeze(ClientX11Channel.parseDetails(packet.data.args))
-        this.acceptOpen(packet)
     }
 
     static parseDetails(raw: Buffer): X11ConnectionDetails {

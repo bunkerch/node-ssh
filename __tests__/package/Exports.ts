@@ -414,6 +414,9 @@ describe("package exports", () => {
         expect(client).toContain("streamLocalConnection: [")
         expect(client).toContain("channel: ClientForwardedStreamLocalChannel")
         expect(client).not.toContain("accept: () => ClientForwardedStreamLocalChannel")
+        expect(client).toContain("x11Connection: [")
+        expect(client).toContain("channel: ClientX11Channel")
+        expect(client).not.toContain("accept: () => ClientX11Channel")
         expect(client).toContain("disconnect(error?: DisconnectError): this")
         expect(client).toContain("authenticationMethodsOrder?: readonly SSHAuthenticationMethods[]")
         expect(client).toContain("replyTimeout?: number")
@@ -590,7 +593,7 @@ describe("package exports", () => {
                     const { mkdtemp, rm } = await import("node:fs/promises")
                     const { tmpdir } = await import("node:os")
                     const { join } = await import("node:path")
-                    const { ChannelOpenError, ChannelOpenFailureReasonCodes, Client, ClientForwardedStreamLocalChannel, ClientForwardedTCPIPChannel, createSocketAgent, CygwinAgent, CygwinAgentError, DELAY_COMPRESSION_EXTENSION, delayCompressionExtension, discoverPageantAgentSocket, DisconnectError, DisconnectReason, ELEVATION_EXTENSION, EncodedSignature, generateKeyPair, generateKeyPairSync, KeyRevocationList, KnownHosts, MAX_OPENSSH_AGENT_SESSION_BINDINGS, MAX_SSH_AGENT_MESSAGE_LENGTH, NO_FLOW_CONTROL_EXTENSION, OnePasswordAgent, OPENSSH_AGENT_SECURITY_KEY_PROVIDER, OPENSSH_AGENT_SESSION_BIND, PageantAgent, PageantAgentError, parseKey, PrivateKey, PrivateKeyAgent, PublicKey, PublicKeySubsystemClient, PublicKeySubsystemServer, PublicKeySubsystemStatusCode, SecurityKeyAttestation, Server, SessionChannel, SSH_ED25519_SECURITY_KEY_ALGORITHM, SSHAgentConstraintType, SSHAgentExtensionFailureError, SSHAgentMessageType, SSHAgentProtocolClient, SSHAgentProtocolError, SSHAgentProtocolServer, SSHED25519SecurityKeyPrivateKey, SSHED25519SecurityKeyPublicKey } = await import("@bunkerch/modernssh")
+                    const { ChannelOpenError, ChannelOpenFailureReasonCodes, Client, ClientForwardedStreamLocalChannel, ClientForwardedTCPIPChannel, ClientX11Channel, createSocketAgent, CygwinAgent, CygwinAgentError, DELAY_COMPRESSION_EXTENSION, delayCompressionExtension, discoverPageantAgentSocket, DisconnectError, DisconnectReason, ELEVATION_EXTENSION, EncodedSignature, generateKeyPair, generateKeyPairSync, KeyRevocationList, KnownHosts, MAX_OPENSSH_AGENT_SESSION_BINDINGS, MAX_SSH_AGENT_MESSAGE_LENGTH, NO_FLOW_CONTROL_EXTENSION, OnePasswordAgent, OPENSSH_AGENT_SECURITY_KEY_PROVIDER, OPENSSH_AGENT_SESSION_BIND, PageantAgent, PageantAgentError, parseKey, PrivateKey, PrivateKeyAgent, PublicKey, PublicKeySubsystemClient, PublicKeySubsystemServer, PublicKeySubsystemStatusCode, SecurityKeyAttestation, Server, SessionChannel, SSH_ED25519_SECURITY_KEY_ALGORITHM, SSHAgentConstraintType, SSHAgentExtensionFailureError, SSHAgentMessageType, SSHAgentProtocolClient, SSHAgentProtocolError, SSHAgentProtocolServer, SSHED25519SecurityKeyPrivateKey, SSHED25519SecurityKeyPublicKey } = await import("@bunkerch/modernssh")
                     const { privateKey, publicKey } = await generateKeyPair("ed25519", {
                         comment: "packed@example.test",
                     })
@@ -676,8 +679,9 @@ describe("package exports", () => {
                         connection.on("error", rejectRuntime)
                         connection.once("disconnect", resolveRuntimeDisconnect)
                         connection.on("channel", (channel) => {
-                            if (!(channel instanceof SessionChannel)) return
-                            channel.hooker.hook("execRequest", (_hook, context, decision) => { decision.success = context.command === "packed-node-runtime" })
+                        if (!(channel instanceof SessionChannel)) return
+                        channel.hooker.hook("execRequest", (_hook, context, decision) => { decision.success = context.command === "packed-node-runtime" })
+                        channel.hooker.hook("x11Request", (_hook, _context, decision) => { decision.success = true })
                             channel.events.on("exec", (_command, shell) => {
                                 void (async () => {
                                     await shell.writeStdout("node-stdout")
@@ -733,6 +737,19 @@ describe("package exports", () => {
                     runtimeServerStreamLocalChannel.close()
                     await runtimeClient.openssh_unforwardInStreamLocal(runtimeSocketPath)
                     await rm(runtimeSocketDirectory, { recursive: true, force: true })
+                    const runtimeX11Session = await runtimeClient.openSession()
+                    await runtimeX11Session.requestX11()
+                    runtimeClient.hooker.hook("x11Connection", async (_hook, channel, decision) => {
+                        await Promise.resolve()
+                        if (channel.details.originatorAddress === "192.0.2.50") decision.allowOpen = true
+                    })
+                    const runtimeX11Connection = once(runtimeClient, "x11")
+                    const runtimeServerX11 = runtimeConnection.x11("192.0.2.50", 60050)
+                    const [[runtimeX11Details, runtimeClientX11], runtimeServerX11Channel] = await Promise.all([runtimeX11Connection, runtimeServerX11])
+                    if (!(runtimeClientX11 instanceof ClientX11Channel) || runtimeX11Details !== runtimeClientX11.details) process.exit(52)
+                    runtimeClientX11.close()
+                    runtimeServerX11Channel.close()
+                    runtimeX11Session.close()
                     runtimeServer.hooker.hook("channelOpenRequest", (_hook, _channel, decision) => {
                         decision.allowOpen = false
                         decision.rejection = new ChannelOpenError(0xfe000002, "packed channel policy", "fr")

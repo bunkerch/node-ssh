@@ -8,6 +8,8 @@ import Server from "../../src/Server.js"
 import type ServerClient from "../../src/ServerClient.js"
 import type ClientForwardedStreamLocalChannel from "../../src/channels/ClientForwardedStreamLocalChannel.js"
 import type ClientForwardedTCPIPChannel from "../../src/channels/ClientForwardedTCPIPChannel.js"
+import type ClientX11Channel from "../../src/channels/ClientX11Channel.js"
+import SessionChannel from "../../src/channels/SessionChannel.js"
 import { SSHAuthenticationMethods } from "../../src/constants.js"
 import { ChannelOpenError } from "../../src/packets/ChannelOpenFailure.js"
 import PrivateKey from "../../src/utils/PrivateKey.js"
@@ -47,9 +49,18 @@ async function createConnectedPeers(): Promise<{
     server.hooker.hook("streamLocalForward", (_hook, _context, controller) => {
         controller.allow = true
     })
+    server.hooker.hook("channelOpenRequest", (_hook, channel, controller) => {
+        controller.allowOpen = channel instanceof SessionChannel
+    })
     let peer: ServerClient | undefined
     server.on("connection", (connection) => {
         peer = connection
+        connection.on("channel", (channel) => {
+            if (!(channel instanceof SessionChannel)) return
+            channel.hooker.hook("x11Request", (_hook, _request, controller) => {
+                controller.success = true
+            })
+        })
     })
     server.listen({ host: "127.0.0.1", port: 0 })
     await once(server, "listening")
@@ -118,6 +129,56 @@ test("awaits client TCP forwarding policy before publishing the accepted channel
         expect(clientChannel.isOpen).toBe(true)
         clientChannel.close()
         acceptedServerChannel.close()
+    } finally {
+        releasePolicy()
+        await closePeers(server, peer, client)
+    }
+}, 15_000)
+
+test("awaits client X11 policy before publishing the accepted channel", async () => {
+    const { server, peer, client } = await createConnectedPeers()
+    const session = await client.openSession()
+    await session.requestX11()
+    let releasePolicy!: () => void
+    const policyBlocked = new Promise<void>((resolve) => {
+        releasePolicy = resolve
+    })
+    let reportPolicyStarted!: () => void
+    const policyStarted = new Promise<void>((resolve) => {
+        reportPolicyStarted = resolve
+    })
+    client.hooker.hook("x11Connection", async (_hook, channel, controller) => {
+        reportPolicyStarted()
+        expect(channel.details).toEqual({
+            originatorAddress: "192.0.2.40",
+            originatorPort: 60_040,
+        })
+        await policyBlocked
+        controller.allowOpen = true
+    })
+    const observed = once(client, "x11") as Promise<
+        [details: Readonly<ClientX11Channel["details"]>, channel: ClientX11Channel]
+    >
+
+    try {
+        let serverSettled = false
+        const serverChannel = peer.x11("192.0.2.40", 60_040).finally(() => {
+            serverSettled = true
+        })
+        void serverChannel.catch(() => undefined)
+        await within(policyStarted, "X11 forwarding policy")
+        expect(serverSettled).toBe(false)
+
+        releasePolicy()
+        const [[details, clientChannel], acceptedServerChannel] = await Promise.all([
+            observed,
+            serverChannel,
+        ])
+        expect(details).toEqual(clientChannel.details)
+        expect(clientChannel.isOpen).toBe(true)
+        clientChannel.close()
+        acceptedServerChannel.close()
+        session.close()
     } finally {
         releasePolicy()
         await closePeers(server, peer, client)
@@ -219,6 +280,29 @@ test("returns localized stream-local policy denial without closing SSH", async (
     } finally {
         await closePeers(server, peer, client)
         await rm(directory, { recursive: true, force: true })
+    }
+}, 15_000)
+
+test("returns localized X11 policy denial without closing SSH", async () => {
+    const { server, peer, client } = await createConnectedPeers()
+    const session = await client.openSession()
+    await session.requestX11()
+    client.hooker.hook("x11Connection", async (_hook, _channel, controller) => {
+        await Promise.resolve()
+        controller.rejection = new ChannelOpenError(0xfe00_0005, "affichage interdit", "fr")
+    })
+
+    try {
+        await expect(peer.x11("198.51.100.40", 60_041)).rejects.toMatchObject({
+            name: "ChannelOpenError",
+            reasonCode: 0xfe00_0005,
+            message: "affichage interdit",
+            languageTag: "fr",
+        })
+        expect(client.isConnected).toBe(true)
+        session.close()
+    } finally {
+        await closePeers(server, peer, client)
     }
 }, 15_000)
 
@@ -333,5 +417,47 @@ test("discards a stream-local policy decision completed after transport teardown
         releasePolicy()
         await closePeers(server, peer, client)
         await rm(directory, { recursive: true, force: true })
+    }
+}, 15_000)
+
+test("discards an X11 policy decision completed after transport teardown", async () => {
+    const { server, peer, client } = await createConnectedPeers()
+    const session = await client.openSession()
+    await session.requestX11()
+    let releasePolicy!: () => void
+    const policyBlocked = new Promise<void>((resolve) => {
+        releasePolicy = resolve
+    })
+    let reportPolicyStarted!: () => void
+    const policyStarted = new Promise<void>((resolve) => {
+        reportPolicyStarted = resolve
+    })
+    let proposedChannel: ClientX11Channel | undefined
+    let published = false
+    client.on("x11", () => {
+        published = true
+    })
+    client.hooker.hook("x11Connection", async (_hook, channel, controller) => {
+        proposedChannel = channel
+        reportPolicyStarted()
+        await policyBlocked
+        controller.allowOpen = true
+    })
+
+    try {
+        const serverChannel = peer.x11("198.51.100.41", 60_042)
+        void serverChannel.catch(() => undefined)
+        await within(policyStarted, "blocked X11 forwarding policy")
+        const closed = once(client, "close")
+        client.destroy()
+        await closed
+        releasePolicy()
+
+        await expect(serverChannel).rejects.toThrow("SSH connection closed")
+        expect(proposedChannel?.destroyed).toBe(true)
+        expect(published).toBe(false)
+    } finally {
+        releasePolicy()
+        await closePeers(server, peer, client)
     }
 }, 15_000)
