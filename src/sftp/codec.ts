@@ -145,7 +145,7 @@ function encodeExtensions(extensions: readonly SFTPExtension[]): Buffer {
     )
 }
 
-function decodeSFTPAttributes(reader: Reader): SFTPAttributes {
+function readSFTPAttributes(reader: Reader): SFTPAttributes {
     const flags = reader.uint32("attribute flags")
     if ((flags & ~SFTP_ATTRIBUTE_FLAGS_MASK) !== 0) {
         throw new SFTPProtocolError(`Unsupported SFTP attribute flags 0x${flags.toString(16)}`)
@@ -178,6 +178,14 @@ function decodeSFTPAttributes(reader: Reader): SFTPAttributes {
         }
         attributes.extended = extended
     }
+    return attributes
+}
+
+export function decodeSFTPAttributes(data: Buffer): SFTPAttributes {
+    if (!Buffer.isBuffer(data)) throw new TypeError("SFTP attributes data must be a buffer")
+    const reader = new Reader(data)
+    const attributes = readSFTPAttributes(reader)
+    reader.done()
     return attributes
 }
 
@@ -257,7 +265,7 @@ export function decodeSFTPPacket(frame: Buffer): SFTPPacket {
                 requestId: requestId(reader),
                 filename: reader.string("filename"),
                 flags: reader.uint32("open flags"),
-                attributes: decodeSFTPAttributes(reader),
+                attributes: readSFTPAttributes(reader),
             }
             break
         case SFTPPacketType.Close:
@@ -297,7 +305,7 @@ export function decodeSFTPPacket(frame: Buffer): SFTPPacket {
                 type,
                 requestId: requestId(reader),
                 path: reader.string("path"),
-                attributes: decodeSFTPAttributes(reader),
+                attributes: readSFTPAttributes(reader),
             }
             break
         case SFTPPacketType.FSetStat:
@@ -305,7 +313,7 @@ export function decodeSFTPPacket(frame: Buffer): SFTPPacket {
                 type,
                 requestId: requestId(reader),
                 handle: readHandle(reader),
-                attributes: decodeSFTPAttributes(reader),
+                attributes: readSFTPAttributes(reader),
             }
             break
         case SFTPPacketType.MkDir:
@@ -313,7 +321,7 @@ export function decodeSFTPPacket(frame: Buffer): SFTPPacket {
                 type,
                 requestId: requestId(reader),
                 path: reader.string("path"),
-                attributes: decodeSFTPAttributes(reader),
+                attributes: readSFTPAttributes(reader),
             }
             break
         case SFTPPacketType.Rename:
@@ -354,7 +362,7 @@ export function decodeSFTPPacket(frame: Buffer): SFTPPacket {
                 names.push({
                     filename: reader.string("filename"),
                     longname: reader.string("longname"),
-                    attributes: decodeSFTPAttributes(reader),
+                    attributes: readSFTPAttributes(reader),
                 })
             }
             packet = { type, requestId: id, names }
@@ -364,7 +372,7 @@ export function decodeSFTPPacket(frame: Buffer): SFTPPacket {
             packet = {
                 type,
                 requestId: requestId(reader),
-                attributes: decodeSFTPAttributes(reader),
+                attributes: readSFTPAttributes(reader),
             }
             break
         case SFTPPacketType.Extended:

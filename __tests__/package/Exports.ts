@@ -24,7 +24,13 @@ import {
     DirectStreamLocalChannel,
     DisconnectError,
     DisconnectReason,
+    decodeSFTPCopyDataExtension,
+    decodeSFTPExtensionString,
+    decodeSFTPHandleExtension,
+    decodeSFTPLSetStatExtension,
     decodeSFTPLimits,
+    decodeSFTPTwoPathExtension,
+    decodeSFTPUsersGroupsExtension,
     DELAY_COMPRESSION_EXTENSION,
     delayCompressionExtension,
     DiskAgent,
@@ -112,6 +118,7 @@ import {
     type SSHAgentConstraint,
     type SSHSignatureOptions,
     type SFTPReadResult,
+    type SFTPCopyDataExtension,
     type SFTPServerOptions,
     type SFTPWriteResult,
     type ServerConnectionInfo,
@@ -181,6 +188,13 @@ describe("package exports", () => {
             advertiseLimits: true,
         }
         const sftpReadResult: SFTPReadResult = { bytesRead: 0, buffer: Buffer.alloc(0) }
+        const copyRequest: SFTPCopyDataExtension = {
+            sourceHandle: Buffer.from("source"),
+            sourceOffset: 0n,
+            length: 1n,
+            destinationHandle: Buffer.from("destination"),
+            destinationOffset: 2n,
+        }
         const sftpWriteResult: SFTPWriteResult = { bytesWritten: 0, buffer: Buffer.alloc(0) }
         const detachedSignatureOptions: SSHSignatureOptions = { namespace: "package" }
         const allowedSignerOptions: AllowedSignerVerificationOptions = {
@@ -210,6 +224,7 @@ describe("package exports", () => {
         expect(sftpServerOptions.maxWriteLength).toBe(32_768)
         expect(sftpServerOptions.advertiseLimits).toBe(true)
         expect(sftpReadResult.bytesRead).toBe(0)
+        expect(copyRequest.destinationOffset).toBe(2n)
         expect(sftpWriteResult.bytesWritten).toBe(0)
         expect(detachedSignatureOptions.namespace).toBe("package")
         expect(allowedSignerOptions.principal).toBe("packed@example.test")
@@ -292,7 +307,13 @@ describe("package exports", () => {
         expect(TerminalMode.ECHO).toBe(53)
         expect(TerminalModes).toBe(TerminalMode)
         expect(encodeSFTPPacket).toBeFunction()
+        expect(decodeSFTPCopyDataExtension).toBeFunction()
+        expect(decodeSFTPExtensionString).toBeFunction()
+        expect(decodeSFTPHandleExtension).toBeFunction()
+        expect(decodeSFTPLSetStatExtension).toBeFunction()
         expect(decodeSFTPLimits).toBeFunction()
+        expect(decodeSFTPTwoPathExtension).toBeFunction()
+        expect(decodeSFTPUsersGroupsExtension).toBeFunction()
         expect(encodeSFTPLimits).toBeFunction()
         expect(SFTPPacketParser).toBeFunction()
         expect(SFTPPacketType.Init).toBe(1)
@@ -305,6 +326,7 @@ describe("package exports", () => {
         expect(stringToFlags("r")).toBe(OPEN_MODE.READ)
         expect(flagsToString(OPEN_MODE.READ)).toBe("r")
         expect(STATUS_CODE.OK).toBe(0)
+        expect(STATUS_CODE.INVALID_PARAMETER).toBe(23)
         expect(SSHAgentProtocolClient).toBeFunction()
         expect(SSHAgentProtocolServer).toBeFunction()
         expect(SSHAgentProtocolError).toBeFunction()
@@ -389,7 +411,14 @@ describe("package exports", () => {
         expect(entry.SFTPWriteStream).toBeDefined()
         expect(entry.OPEN_MODE.READ).toBe(1)
         expect(entry.STATUS_CODE.OK).toBe(0)
+        expect(entry.STATUS_CODE.INVALID_PARAMETER).toBe(23)
         expect(entry.decodeSFTPLimits).toBeDefined()
+        expect(entry.decodeSFTPCopyDataExtension).toBeFunction()
+        expect(entry.decodeSFTPExtensionString).toBeFunction()
+        expect(entry.decodeSFTPHandleExtension).toBeFunction()
+        expect(entry.decodeSFTPLSetStatExtension).toBeFunction()
+        expect(entry.decodeSFTPTwoPathExtension).toBeFunction()
+        expect(entry.decodeSFTPUsersGroupsExtension).toBeFunction()
         expect(entry.encodeSFTPLimits).toBeDefined()
         expect(entry.TerminalMode.TTY_OP_OSPEED).toBe(129)
         expect(entry.TerminalModes).toBe(entry.TerminalMode)
@@ -435,6 +464,7 @@ describe("package exports", () => {
         const cygwinAgent = await readFile("dist/publickey/CygwinAgent.d.ts", "utf8")
         const pageantAgent = await readFile("dist/publickey/PageantAgent.d.ts", "utf8")
         const sftpServer = await readFile("dist/sftp/SFTPServer.d.ts", "utf8")
+        const sftpExtensions = await readFile("dist/sftp/openssh.d.ts", "utf8")
         const publicKeySubsystemClient = await readFile(
             "dist/publickey/PublicKeySubsystemClient.d.ts",
             "utf8",
@@ -609,6 +639,12 @@ describe("package exports", () => {
             expect(sftpServer).toMatch(new RegExp(`${response}\\([^;]+\\): Promise<void>`))
         }
         expect(sftpServer).not.toContain("callback")
+        expect(sftpExtensions).toContain(
+            "decodeSFTPCopyDataExtension(data: Buffer): Readonly<SFTPCopyDataExtension>",
+        )
+        expect(sftpExtensions).toContain(
+            "decodeSFTPUsersGroupsExtension(data: Buffer): Readonly<SFTPUsersGroupsExtension>",
+        )
         expect(shell).toContain("writeStdout(data: Buffer | string")
         expect(shell).toContain("writeStderr(data: Buffer | string")
         expect(privateKey).toContain(

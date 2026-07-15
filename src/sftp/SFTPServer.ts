@@ -38,6 +38,7 @@ const STATUS_MESSAGES: Readonly<Record<number, string>> = {
     [SFTPStatusCode.Failure]: "Failure",
     [SFTPStatusCode.BadMessage]: "Bad message",
     [SFTPStatusCode.OperationUnsupported]: "Operation unsupported",
+    [SFTPStatusCode.InvalidParameter]: "Invalid parameter",
 }
 
 export type SFTPRequestOf<T extends SFTPPacketType> = Readonly<SFTPRequestPacket & { type: T }>
@@ -258,8 +259,11 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
         if (code === SFTPStatusCode.NoConnection || code === SFTPStatusCode.ConnectionLost) {
             throw new Error("SFTP servers must not send client-only connection status codes")
         }
-        if (!(code in STATUS_MESSAGES)) throw new Error(`Unknown SFTP v3 status code ${code}`)
+        if (!(code in STATUS_MESSAGES)) throw new Error(`Unknown SFTP status code ${code}`)
         const request = this.requireActive(requestId)
+        if (code === SFTPStatusCode.InvalidParameter && request.type !== SFTPPacketType.Extended) {
+            throw new Error("SFTP invalid-parameter status is only valid for extension requests")
+        }
         if (code === SFTPStatusCode.Ok && !expectsStatus(request.type)) {
             throw new Error(`SFTP request type ${request.type} requires a data response on success`)
         }

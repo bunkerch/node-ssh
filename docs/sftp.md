@@ -265,6 +265,19 @@ The main methods are `opensshPosixRename`, `opensshStatVFS`, `opensshFStatVFS`, 
 and `usersGroups`. The `ext_openssh_*` aliases preserve earlier public spellings where they differ
 from the preferred method names.
 
+Server handlers can decode the published request bodies with the exported strict helpers. Use
+`decodeSFTPExtensionString()` for path and username requests,
+`decodeSFTPHandleExtension()` for `fstatvfs` and `fsync`, and
+`decodeSFTPTwoPathExtension()` for POSIX rename and hard links. Dedicated decoders cover
+`lsetstat`, `copy-data`, and `users-groups-by-id`. Every decoder requires the complete layout,
+rejects truncation and trailing bytes, and returns owned buffers. Handle decoders enforce the SFTP
+256-byte handle bound. `copy-data` offsets and lengths remain `bigint`; user and group identifiers
+remain unsigned 32-bit numbers.
+
+The published `copy-data` protocol requires `SFTPStatusCode.InvalidParameter` when both handles are
+the same. The server permits this registered status only for `EXTENDED` requests; baseline SFTP v3
+requests retain the v3 status-code set.
+
 When `limits@openssh.com` version 1 is advertised, session setup requests it automatically. The
 exact unsigned 64-bit reply remains available as `sftp.limits`; safe request sizes are reflected in
 `maxReadLength` and `maxWriteLength`, and `maxOpenHandles` is `Infinity` when the server reports no
@@ -324,6 +337,28 @@ server.on("connection", (connection) => {
             })
         })
     })
+})
+```
+
+An application-owned extension remains an awaited policy operation. Advertise the exact supported
+version and decode its complete request before touching the backing store:
+
+```ts
+import { decodeSFTPTwoPathExtension, SFTPServer, SFTPStatusCode } from "modernssh"
+
+const sftp = new SFTPServer(shell, {
+    extensions: [{ name: "posix-rename@openssh.com", data: Buffer.from("1") }],
+})
+
+sftp.hooker.hook("EXTENDED", async (_hook, request) => {
+    if (request.request !== "posix-rename@openssh.com") {
+        await sftp.status(request.requestId, SFTPStatusCode.OperationUnsupported)
+        return
+    }
+
+    const { firstPath, secondPath } = decodeSFTPTwoPathExtension(request.data)
+    await renameWithinAuthorizedRoot(firstPath, secondPath)
+    await sftp.status(request.requestId, SFTPStatusCode.Ok)
 })
 ```
 

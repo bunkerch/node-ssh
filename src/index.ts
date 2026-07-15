@@ -115,8 +115,14 @@ export type {
     SFTPSymlinkPaths,
 } from "./sftp/SFTPServer.js"
 export {
+    decodeSFTPCopyDataExtension,
+    decodeSFTPExtensionString,
+    decodeSFTPHandleExtension,
+    decodeSFTPLSetStatExtension,
     decodeSFTPLimits,
     decodeSFTPStatVFS,
+    decodeSFTPTwoPathExtension,
+    decodeSFTPUsersGroupsExtension,
     decodeSFTPUsersGroups,
     encodeSFTPCopyDataExtension,
     encodeSFTPExtensionString,
@@ -125,7 +131,15 @@ export {
     encodeSFTPTwoPathExtension,
     encodeSFTPUsersGroupsExtension,
 } from "./sftp/openssh.js"
-export type { SFTPLimits, SFTPStatVFS, SFTPUserGroupNames } from "./sftp/openssh.js"
+export type {
+    SFTPCopyDataExtension,
+    SFTPLimits,
+    SFTPLSetStatExtension,
+    SFTPStatVFS,
+    SFTPTwoPathExtension,
+    SFTPUserGroupNames,
+    SFTPUsersGroupsExtension,
+} from "./sftp/openssh.js"
 export {
     default as ClientChannel,
     DEFAULT_CHANNEL_PACKET_SIZE,

@@ -1,7 +1,13 @@
 import { describe, expect, test } from "bun:test"
 import {
+    decodeSFTPCopyDataExtension,
+    decodeSFTPExtensionString,
+    decodeSFTPHandleExtension,
+    decodeSFTPLSetStatExtension,
     decodeSFTPLimits,
     decodeSFTPStatVFS,
+    decodeSFTPTwoPathExtension,
+    decodeSFTPUsersGroupsExtension,
     decodeSFTPUsersGroups,
     encodeSFTPCopyDataExtension,
     encodeSFTPExtensionString,
@@ -37,6 +43,48 @@ describe("OpenSSH SFTP extension fixed vectors", () => {
         expect(encodeSFTPUsersGroupsExtension([1, 0xffff_ffff], [])).toEqual(
             hex(`00000008 00000001 ffffffff 00000000`),
         )
+    })
+
+    test("decodes exact path, handle, attribute, copy, and identity request vectors", () => {
+        expect(decodeSFTPExtensionString(hex(`00000001 2f`))).toEqual(Buffer.from("/"))
+        expect(decodeSFTPHandleExtension(hex(`00000001 68`))).toEqual(Buffer.from("h"))
+        expect(decodeSFTPTwoPathExtension(hex(`00000001 61 00000001 62`))).toEqual({
+            firstPath: Buffer.from("a"),
+            secondPath: Buffer.from("b"),
+        })
+        expect(decodeSFTPLSetStatExtension(hex(`00000001 2f 00000004 000001ed`))).toEqual({
+            path: Buffer.from("/"),
+            attributes: { permissions: 0o755 },
+        })
+        expect(
+            decodeSFTPCopyDataExtension(
+                hex(`
+                    00000001 68
+                    0000000000000001
+                    0000000000000002
+                    00000001 64
+                    0000000000000003
+                `),
+            ),
+        ).toEqual({
+            sourceHandle: Buffer.from("h"),
+            sourceOffset: 1n,
+            length: 2n,
+            destinationHandle: Buffer.from("d"),
+            destinationOffset: 3n,
+        })
+        expect(decodeSFTPUsersGroupsExtension(hex(`00000008 00000001 ffffffff 00000000`))).toEqual({
+            uids: [1, 0xffff_ffff],
+            gids: [],
+        })
+
+        const encodedPaths = hex(`00000001 61 00000001 62`)
+        const decodedPaths = decodeSFTPTwoPathExtension(encodedPaths)
+        encodedPaths.fill(0)
+        expect(decodedPaths).toEqual({
+            firstPath: Buffer.from("a"),
+            secondPath: Buffer.from("b"),
+        })
     })
 
     test("decodes statvfs and limits replies without losing uint64 precision", () => {
@@ -118,6 +166,24 @@ describe("OpenSSH SFTP extension fixed vectors", () => {
             encodeSFTPCopyDataExtension(Buffer.alloc(0), -1n, 0n, Buffer.alloc(0), 0n),
         ).toThrow("uint64")
         expect(() => encodeSFTPUsersGroupsExtension([0x1_0000_0000], [])).toThrow("uint32")
+        expect(() => decodeSFTPExtensionString(hex(`00000001 2f 00`))).toThrow("trailing")
+        expect(() =>
+            decodeSFTPHandleExtension(Buffer.concat([hex(`00000101`), Buffer.alloc(257)])),
+        ).toThrow("extension handle exceeds 256 bytes")
+        expect(() => decodeSFTPTwoPathExtension(hex(`00000001 61 00000002 62`))).toThrow(
+            "Truncated",
+        )
+        expect(() => decodeSFTPLSetStatExtension(hex(`00000001 2f 00000010`))).toThrow(
+            "Unsupported SFTP attribute flags",
+        )
+        expect(() =>
+            decodeSFTPCopyDataExtension(
+                Buffer.concat([hex(`00000101`), Buffer.alloc(257), Buffer.alloc(28)]),
+            ),
+        ).toThrow("source handle exceeds 256 bytes")
+        expect(() => decodeSFTPUsersGroupsExtension(hex(`00000001 00 00000000`))).toThrow(
+            "not a sequence of uint32",
+        )
         expect(() => encodeSFTPExtensionString("\ud800")).toThrow(
             "SFTP extension string is not valid UTF-8 text",
         )

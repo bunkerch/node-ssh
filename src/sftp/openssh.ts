@@ -1,4 +1,5 @@
-import { encodeSFTPAttributes, SFTPProtocolError } from "./codec.js"
+import { decodeSFTPAttributes, encodeSFTPAttributes, SFTPProtocolError } from "./codec.js"
+import { MAX_SFTP_HANDLE_LENGTH } from "./constants.js"
 import type { SFTPAttributes } from "./types.js"
 import { decodeSSHUTF8, encodeSSHUTF8 } from "../utils/SSHText.js"
 
@@ -31,10 +32,35 @@ export interface SFTPUserGroupNames {
     groupNames: readonly string[]
 }
 
+export interface SFTPTwoPathExtension {
+    firstPath: Buffer
+    secondPath: Buffer
+}
+
+export interface SFTPLSetStatExtension {
+    path: Buffer
+    attributes: Readonly<SFTPAttributes>
+}
+
+export interface SFTPCopyDataExtension {
+    sourceHandle: Buffer
+    sourceOffset: bigint
+    length: bigint
+    destinationHandle: Buffer
+    destinationOffset: bigint
+}
+
+export interface SFTPUsersGroupsExtension {
+    uids: readonly number[]
+    gids: readonly number[]
+}
+
 class Reader {
     private offset = 0
 
-    constructor(private readonly data: Buffer) {}
+    constructor(private readonly data: Buffer) {
+        if (!Buffer.isBuffer(data)) throw new TypeError("SFTP extension data must be a buffer")
+    }
 
     get remaining(): number {
         return this.data.length - this.offset
@@ -57,8 +83,14 @@ class Reader {
     string(name: string): Buffer {
         const length = this.uint32(`${name} length`)
         if (length > this.remaining) throw new SFTPProtocolError(`Truncated ${name}`)
-        const value = this.data.subarray(this.offset, this.offset + length)
+        const value = Buffer.from(this.data.subarray(this.offset, this.offset + length))
         this.offset += length
+        return value
+    }
+
+    rest(): Buffer {
+        const value = Buffer.from(this.data.subarray(this.offset))
+        this.offset = this.data.length
         return value
     }
 
@@ -90,6 +122,20 @@ export function encodeSFTPExtensionString(value: Buffer | string): Buffer {
     return Buffer.concat([uint32(data.length, "SFTP string length"), data])
 }
 
+export function decodeSFTPExtensionString(data: Buffer): Buffer {
+    const reader = new Reader(data)
+    const value = reader.string("SFTP extension string")
+    reader.done("SFTP extension request")
+    return value
+}
+
+export function decodeSFTPHandleExtension(data: Buffer): Buffer {
+    const reader = new Reader(data)
+    const value = extensionHandle(reader, "extension handle")
+    reader.done("SFTP handle extension request")
+    return value
+}
+
 export function encodeSFTPTwoPathExtension(firstPath: Buffer, secondPath: Buffer): Buffer {
     return Buffer.concat([
         encodeSFTPExtensionString(firstPath),
@@ -97,8 +143,25 @@ export function encodeSFTPTwoPathExtension(firstPath: Buffer, secondPath: Buffer
     ])
 }
 
+export function decodeSFTPTwoPathExtension(data: Buffer): Readonly<SFTPTwoPathExtension> {
+    const reader = new Reader(data)
+    const value = Object.freeze({
+        firstPath: reader.string("first path"),
+        secondPath: reader.string("second path"),
+    })
+    reader.done("SFTP two-path extension request")
+    return value
+}
+
 export function encodeSFTPLSetStatExtension(path: Buffer, attributes: SFTPAttributes): Buffer {
     return Buffer.concat([encodeSFTPExtensionString(path), encodeSFTPAttributes(attributes)])
+}
+
+export function decodeSFTPLSetStatExtension(data: Buffer): Readonly<SFTPLSetStatExtension> {
+    const reader = new Reader(data)
+    const path = reader.string("lsetstat path")
+    const attributes = decodeSFTPAttributes(reader.rest())
+    return Object.freeze({ path, attributes: Object.freeze(attributes) })
 }
 
 export function encodeSFTPCopyDataExtension(
@@ -117,6 +180,19 @@ export function encodeSFTPCopyDataExtension(
     ])
 }
 
+export function decodeSFTPCopyDataExtension(data: Buffer): Readonly<SFTPCopyDataExtension> {
+    const reader = new Reader(data)
+    const value = Object.freeze({
+        sourceHandle: extensionHandle(reader, "source handle"),
+        sourceOffset: reader.uint64("source offset"),
+        length: reader.uint64("copy length"),
+        destinationHandle: extensionHandle(reader, "destination handle"),
+        destinationOffset: reader.uint64("destination offset"),
+    })
+    reader.done("SFTP copy-data extension request")
+    return value
+}
+
 export function encodeSFTPUsersGroupsExtension(
     uids: readonly number[],
     gids: readonly number[],
@@ -127,6 +203,14 @@ export function encodeSFTPUsersGroupsExtension(
         encodeSFTPExtensionString(encodedUids),
         encodeSFTPExtensionString(encodedGids),
     ])
+}
+
+export function decodeSFTPUsersGroupsExtension(data: Buffer): Readonly<SFTPUsersGroupsExtension> {
+    const reader = new Reader(data)
+    const uids = decodeUint32List(reader.string("uids"), "uids")
+    const gids = decodeUint32List(reader.string("gids"), "gids")
+    reader.done("SFTP users-groups extension request")
+    return Object.freeze({ uids, gids })
 }
 
 export function decodeSFTPStatVFS(data: Buffer): Readonly<SFTPStatVFS> {
@@ -184,4 +268,22 @@ function decodeNames(data: Buffer, name: string): readonly string[] {
         names.push(decodeSSHUTF8(reader.string(name), `SFTP ${name} entry`))
     }
     return names
+}
+
+function extensionHandle(reader: Reader, name: string): Buffer {
+    const handle = reader.string(name)
+    if (handle.length > MAX_SFTP_HANDLE_LENGTH) {
+        throw new SFTPProtocolError(`SFTP ${name} exceeds ${MAX_SFTP_HANDLE_LENGTH} bytes`)
+    }
+    return handle
+}
+
+function decodeUint32List(data: Buffer, name: string): readonly number[] {
+    if (data.length % 4 !== 0) {
+        throw new SFTPProtocolError(`SFTP ${name} list is not a sequence of uint32 values`)
+    }
+    const reader = new Reader(data)
+    const values: number[] = []
+    while (reader.remaining > 0) values.push(reader.uint32(name))
+    return Object.freeze(values)
 }

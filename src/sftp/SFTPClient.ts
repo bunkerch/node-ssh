@@ -85,6 +85,7 @@ const STATUS_MESSAGES: Readonly<Record<number, string>> = {
     [SFTPStatusCode.NoConnection]: "No connection",
     [SFTPStatusCode.ConnectionLost]: "Connection lost",
     [SFTPStatusCode.OperationUnsupported]: "Operation unsupported",
+    [SFTPStatusCode.InvalidParameter]: "Invalid parameter",
 }
 
 const STRING_OPEN_FLAGS: Readonly<Record<string, number>> = {
@@ -151,6 +152,7 @@ export const STATUS_CODE = Object.freeze({
     NO_CONNECTION: SFTPStatusCode.NoConnection,
     CONNECTION_LOST: SFTPStatusCode.ConnectionLost,
     OP_UNSUPPORTED: SFTPStatusCode.OperationUnsupported,
+    INVALID_PARAMETER: SFTPStatusCode.InvalidParameter,
 })
 
 interface PendingRequest {

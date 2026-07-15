@@ -1050,6 +1050,54 @@ describe("SFTP server request engine", () => {
         fixture.destroy()
     })
 
+    test("sends the registered invalid-parameter status only for extension requests", async () => {
+        const fixture = new SFTPClientFixture()
+        const server = new SFTPServer(asShell(fixture), { advertiseLimits: false })
+        server.hooker.hook("READ", async (_hook, request) => {
+            expect(() => server.status(request.requestId, SFTPStatusCode.InvalidParameter)).toThrow(
+                "only valid for extension requests",
+            )
+            await server.status(request.requestId, SFTPStatusCode.Failure)
+        })
+        server.hooker.hook("EXTENDED", async (_hook, request) => {
+            await server.status(request.requestId, SFTPStatusCode.InvalidParameter)
+        })
+
+        fixture.send({ type: SFTPPacketType.Init, version: 3, extensions: [] })
+        fixture.send({
+            type: SFTPPacketType.Read,
+            requestId: 20,
+            handle: Buffer.from("h"),
+            offset: 0n,
+            length: 1,
+        })
+        fixture.send({
+            type: SFTPPacketType.Extended,
+            requestId: 21,
+            request: "copy-data",
+            data: Buffer.alloc(0),
+        })
+        await flush()
+
+        expect(fixture.responses).toEqual([
+            expect.objectContaining({
+                type: SFTPPacketType.Version,
+            }),
+            expect.objectContaining({
+                type: SFTPPacketType.Status,
+                requestId: 20,
+                code: SFTPStatusCode.Failure,
+            }),
+            expect.objectContaining({
+                type: SFTPPacketType.Status,
+                requestId: 21,
+                code: SFTPStatusCode.InvalidParameter,
+                message: "Invalid parameter",
+            }),
+        ])
+        fixture.destroy()
+    })
+
     test("rejects malformed response buffers without claiming the request", async () => {
         const fixture = new SFTPClientFixture()
         const server = new SFTPServer(asShell(fixture))

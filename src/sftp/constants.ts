@@ -42,6 +42,8 @@ export enum SFTPStatusCode {
     NoConnection = 6,
     ConnectionLost = 7,
     OperationUnsupported = 8,
+    /** Registered extension status used by copy-data version 1. */
+    InvalidParameter = 23,
 }
 
 export enum SFTPOpenFlags {
