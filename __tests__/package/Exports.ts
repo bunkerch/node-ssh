@@ -687,6 +687,8 @@ describe("package exports", () => {
         expect(privateKey).toContain(
             "fromPuTTY(data: string | Buffer, passphrase?: string | Buffer): PrivateKey",
         )
+        expect(privateKey).toContain("toPEM(): string")
+        expect(publicKey).toContain("toPEM(): string")
         expect(publicKey).toContain("export declare abstract class PublicKeyAlgorithm")
         expect(publicKey).not.toContain("PublicKeyAlgoritm")
         expect(index).not.toContain("PublicKeyAlgoritm")
@@ -779,6 +781,8 @@ describe("package exports", () => {
                     const parsed = PrivateKey.fromString(encrypted, "packed-secret")
                     if (!parsed.data.publicKey.equals(publicKey)) process.exit(3)
                     if (!parseKey(publicKey.toString()).equals(publicKey)) process.exit(4)
+                    if (!PublicKey.fromPEM(publicKey.toPEM()).equals(publicKey)) process.exit(96)
+                    if (!PrivateKey.fromPEM(privateKey.toPEM()).data.publicKey.equals(publicKey)) process.exit(97)
                     const configured = new Client({ privateKey: encrypted, passphrase: "packed-secret" })
                     if ("options" in configured) process.exit(5)
                     const emptyPasswordClient = new Client({ password: "" })

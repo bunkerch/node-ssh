@@ -22,6 +22,7 @@ import { parseBufferToMpintBuffer } from "./mpint.js"
 import { decodeSSHName, encodeSSHName } from "./SSHName.js"
 import { decodeSSHUTF8, encodeSSHUTF8 } from "./SSHText.js"
 import {
+    dsaPublicKey,
     dsaParametersFromPublicKey,
     type DSAParameters,
     validateDSAParameters,
@@ -165,6 +166,11 @@ export default class PublicKey {
     toString(): string {
         if (this.data.comment !== undefined) encodeSSHKeyComment(this.data.comment)
         return `${this.data.alg} ${this.serialize().toString("base64")}${this.data.comment ? ` ${this.data.comment}` : ""}`
+    }
+
+    /** Export the underlying cryptographic public key as SubjectPublicKeyInfo PEM. */
+    toPEM(): string {
+        return publicKeyObject(this).export({ format: "pem", type: "spki" }) as string
     }
 
     hash(algorithm: "md5" | "sha256" | "sha512"): string {
@@ -325,6 +331,72 @@ export default class PublicKey {
 
         return keys
     }
+}
+
+function jwkInteger(value: Buffer): string {
+    let first = 0
+    while (first < value.length - 1 && value[first] === 0) first++
+    return value.subarray(first).toString("base64url")
+}
+
+function publicKeyObject(key: PublicKey): crypto.KeyObject {
+    const algorithm = key.data.algorithm
+    if (algorithm instanceof SSHCertificatePublicKey) {
+        return publicKeyObject(algorithm.publicKey)
+    }
+    if (algorithm instanceof SSHED25519SecurityKeyPublicKey) {
+        return crypto.createPublicKey({
+            key: {
+                kty: "OKP",
+                crv: "Ed25519",
+                x: algorithm.data.publicKey.toString("base64url"),
+            },
+            format: "jwk",
+        })
+    }
+    if (algorithm instanceof SSHECDSASecurityKeyPublicKey) {
+        return crypto.createPublicKey({
+            key: new SSHECDSAPublicKey(ECDSA_CURVES[0], {
+                publicKey: algorithm.data.publicKey,
+            }).toJWK(),
+            format: "jwk",
+        })
+    }
+    if (algorithm instanceof SSHED25519PublicKey) {
+        return crypto.createPublicKey({
+            key: {
+                kty: "OKP",
+                crv: "Ed25519",
+                x: algorithm.data.publicKey.toString("base64url"),
+            },
+            format: "jwk",
+        })
+    }
+    if (algorithm instanceof SSHED448PublicKey) {
+        return crypto.createPublicKey({
+            key: {
+                kty: "OKP",
+                crv: "Ed448",
+                x: algorithm.data.publicKey.toString("base64url"),
+            },
+            format: "jwk",
+        })
+    }
+    if (algorithm instanceof SSHRSAPublicKey) {
+        return crypto.createPublicKey({
+            key: {
+                kty: "RSA",
+                n: jwkInteger(algorithm.data.modulus),
+                e: jwkInteger(algorithm.data.publicExponent),
+            },
+            format: "jwk",
+        })
+    }
+    if (algorithm instanceof SSHECDSAPublicKey) {
+        return crypto.createPublicKey({ key: algorithm.toJWK(), format: "jwk" })
+    }
+    if (algorithm instanceof SSHDSSPublicKey) return dsaPublicKey(algorithm.data)
+    throw new Error(`SSH public key ${key.data.alg} cannot be exported as PEM`)
 }
 
 export type SSHCertificateRole = "user" | "host"

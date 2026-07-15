@@ -74,6 +74,9 @@ describe("security-key private identities", () => {
         expect(() => privateKey.sign(Buffer.from("requires hardware"))).toThrow(
             "requires an SSH agent security-key provider",
         )
+        expect(() => privateKey.toPEM()).toThrow(
+            "Hardware-backed SSH private keys cannot be exported as PEM",
+        )
     })
 
     test("exposes both security-key public-key implementations", () => {
@@ -89,6 +92,9 @@ describe("security-key private identities", () => {
             SSHECDSASecurityKeyPublicKey,
         )
         expect(privateKey.data.algorithm).toBeInstanceOf(SSHECDSASecurityKeyPrivateKey)
+        expect(() => privateKey.toPEM()).toThrow(
+            "Hardware-backed SSH private keys cannot be exported as PEM",
+        )
         const data = (privateKey.data.algorithm as SSHECDSASecurityKeyPrivateKey).data
         expect(data.application).toBe("ssh:test")
         expect(data.flags).toBe(5)

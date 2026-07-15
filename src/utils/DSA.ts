@@ -1,5 +1,11 @@
 import assert from "node:assert"
-import { checkPrimeSync, createHash, type KeyObject } from "node:crypto"
+import {
+    checkPrimeSync,
+    createHash,
+    createPrivateKey,
+    createPublicKey,
+    type KeyObject,
+} from "node:crypto"
 import asn1js from "asn1js"
 import { decodeBigIntBE, encodeBigIntBE } from "./BigInt.js"
 import { modularInverse, withRFC6979Nonce } from "./RFC6979.js"
@@ -105,6 +111,58 @@ export function dsaParametersFromPrivateKey(key: KeyObject): DSAPrivateParameter
     const parameters = { p, q, g, y, x }
     validateDSAPrivateParameters(parameters)
     return parameters
+}
+
+/** Construct a Node public key from validated SSH DSA parameters. */
+export function dsaPublicKey(parameters: DSAParameters): KeyObject {
+    validateDSAParameters(parameters)
+    const algorithm = dsaAlgorithmIdentifier(parameters)
+    const publicValue = new asn1js.Integer({
+        isHexOnly: true,
+        valueHex: parameters.y,
+    }).toBER(false)
+    const subjectPublicKeyInfo = new asn1js.Sequence({
+        value: [algorithm, new asn1js.BitString({ unusedBits: 0, valueHex: publicValue })],
+    })
+    return createPublicKey({
+        key: Buffer.from(subjectPublicKeyInfo.toBER(false)),
+        format: "der",
+        type: "spki",
+    })
+}
+
+/** Construct a Node private key from validated SSH DSA parameters. */
+export function dsaPrivateKey(parameters: DSAPrivateParameters): KeyObject {
+    validateDSAPrivateParameters(parameters)
+    const privateValue = new asn1js.Integer({
+        isHexOnly: true,
+        valueHex: parameters.x,
+    }).toBER(false)
+    const privateKeyInfo = new asn1js.Sequence({
+        value: [
+            new asn1js.Integer({ value: 0 }),
+            dsaAlgorithmIdentifier(parameters),
+            new asn1js.OctetString({ valueHex: privateValue }),
+        ],
+    })
+    return createPrivateKey({
+        key: Buffer.from(privateKeyInfo.toBER(false)),
+        format: "der",
+        type: "pkcs8",
+    })
+}
+
+function dsaAlgorithmIdentifier(parameters: DSAParameters): asn1js.Sequence {
+    return new asn1js.Sequence({
+        value: [
+            new asn1js.ObjectIdentifier({ value: DSA_OID }),
+            new asn1js.Sequence({
+                value: [parameters.p, parameters.q, parameters.g].map(
+                    (value) => new asn1js.Integer({ isHexOnly: true, valueHex: value }),
+                ),
+            }),
+        ],
+    })
 }
 
 function parseSequence(der: Buffer): asn1js.BaseBlock[] {

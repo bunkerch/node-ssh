@@ -8,6 +8,7 @@ import PublicKey, {
     parseCertificateOptions,
     SSHCertificatePublicKey,
 } from "../../src/utils/PublicKey.js"
+import PrivateKey from "../../src/utils/PrivateKey.js"
 
 const execFileAsync = promisify(execFile)
 
@@ -70,6 +71,7 @@ describe("certificate public keys", () => {
             "permit-user-rc",
         ])
         expect(algorithm.data.signatureKey.data.alg).toBe("ssh-ed25519")
+        expect(PublicKey.fromPEM(certificate.toPEM()).equals(algorithm.publicKey)).toBe(true)
     })
 
     test("requires a principal in standard certificates while retaining legacy parsing", () => {
@@ -177,6 +179,13 @@ describe("certificate public keys", () => {
                       ? "ssh-rsa"
                       : "ecdsa-sha2-nistp256",
             )
+            const subjectPrivateKey = PrivateKey.fromString(await readFile(subject, "utf8"))
+            const certifiedPrivateKey = subjectPrivateKey.withCertificate(certificate)
+            expect(
+                PrivateKey.fromPEM(certifiedPrivateKey.toPEM()).data.publicKey.equals(
+                    algorithm.publicKey,
+                ),
+            ).toBe(true)
 
             const tampered = Buffer.from(certificate.serialize())
             tampered[tampered.length - 1] ^= 1

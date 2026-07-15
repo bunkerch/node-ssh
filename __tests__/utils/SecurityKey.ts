@@ -6,7 +6,9 @@ import { promisify } from "node:util"
 import EncodedSignature from "../../src/utils/Signature.js"
 import PublicKey, {
     SSHCertificatePublicKey,
+    SSHECDSAPublicKey,
     SSHECDSASecurityKeyPublicKey,
+    SSHED25519PublicKey,
     SSHED25519SecurityKeyPublicKey,
 } from "../../src/utils/PublicKey.js"
 
@@ -69,6 +71,16 @@ describe("OpenSSH security-key identities", () => {
         )
         expect((ecdsa.data.algorithm as SSHECDSASecurityKeyPublicKey).data.application).toBe(
             "ssh:test",
+        )
+        const plainEd25519 = PublicKey.fromPEM(ed25519.toPEM())
+        const plainECDSA = PublicKey.fromPEM(ecdsa.toPEM())
+        expect(plainEd25519.data.alg).toBe("ssh-ed25519")
+        expect(plainECDSA.data.alg).toBe("ecdsa-sha2-nistp256")
+        expect((plainEd25519.data.algorithm as SSHED25519PublicKey).data.publicKey).toEqual(
+            (ed25519.data.algorithm as SSHED25519SecurityKeyPublicKey).data.publicKey,
+        )
+        expect((plainECDSA.data.algorithm as SSHECDSAPublicKey).data.publicKey).toEqual(
+            (ecdsa.data.algorithm as SSHECDSASecurityKeyPublicKey).data.publicKey,
         )
 
         const ed25519Encoded = EncodedSignature.parse(ed25519Signature)

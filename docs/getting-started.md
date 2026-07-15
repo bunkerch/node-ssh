@@ -501,6 +501,15 @@ Call `PublicKey.fromPEM()` directly when the input is known to be a public PEM. 
 Ed448, RSA, legacy DSA, and the three supported ECDSA curves and converts them to the canonical SSH
 public-key form.
 
+`PublicKey.toPEM()` exports the underlying cryptographic identity as SubjectPublicKeyInfo PEM, and
+`PrivateKey.toPEM()` exports locally held private material as unencrypted PKCS#8 PEM. Both cover
+Ed25519, Ed448, RSA, legacy DSA, and every supported ECDSA curve. PEM cannot retain SSH comments,
+certificate metadata, or security-key application metadata: certificate and security-key public
+objects therefore export their underlying plain public identity. A certificate-backed private key
+exports its private scalar, while a hardware-backed security-key handle rejects private PEM export
+because it contains no scalar. Treat PKCS#8 output as sensitive plaintext; prefer encrypted
+`PrivateKey.toString()` for persistent SSH key storage.
+
 Key envelopes validate algorithm identifiers with the RFC 4250 SSH-name rules and require the name
 to match the contained key implementation. Private envelopes additionally require their public
 identity to match the private material. Constructed envelopes copy their metadata object, so later

@@ -44,6 +44,7 @@ import {
 } from "./OpenSSHPrivateKeyCipher.js"
 import { parseBufferToMpintBuffer, serializeMpintBufferToBuffer } from "./mpint.js"
 import {
+    dsaPrivateKey,
     dsaParametersFromPrivateKey,
     signDSA,
     type DSAPrivateParameters,
@@ -357,6 +358,14 @@ export default class PrivateKey {
         return PrivateKey.toStringMany([this], options)
     }
 
+    /** Export the locally held private scalar as unencrypted PKCS#8 PEM. */
+    toPEM(): string {
+        return privateKeyObject(this.data.algorithm).export({
+            format: "pem",
+            type: "pkcs8",
+        }) as string
+    }
+
     static toStringMany(
         keys: readonly PrivateKey[],
         options?: OpenSSHPrivateKeyEncryptionOptions,
@@ -417,6 +426,78 @@ export default class PrivateKey {
 
         return algo.generateSync()
     }
+}
+
+function jwkInteger(value: Buffer): string {
+    let first = 0
+    while (first < value.length - 1 && value[first] === 0) first++
+    return value.subarray(first).toString("base64url")
+}
+
+function privateKeyObject(algorithm: PrivateKeyAlgorithm): KeyObject {
+    if (
+        algorithm instanceof SSHED25519SecurityKeyPrivateKey ||
+        algorithm instanceof SSHECDSASecurityKeyPrivateKey
+    ) {
+        throw new Error("Hardware-backed SSH private keys cannot be exported as PEM")
+    }
+    if (algorithm instanceof SSHED25519PrivateKey) {
+        return createPrivateKey({
+            key: {
+                kty: "OKP",
+                crv: "Ed25519",
+                x: algorithm.data.publicKey.toString("base64url"),
+                d: algorithm.data.privateKey.subarray(0, 32).toString("base64url"),
+            },
+            format: "jwk",
+        })
+    }
+    if (algorithm instanceof SSHED448PrivateKey) {
+        return createPrivateKey({
+            key: {
+                kty: "OKP",
+                crv: "Ed448",
+                x: algorithm.data.publicKey.toString("base64url"),
+                d: algorithm.data.privateKey.subarray(0, 57).toString("base64url"),
+            },
+            format: "jwk",
+        })
+    }
+    if (algorithm instanceof SSHRSAPrivateKey) {
+        const d = decodeBigIntBE(algorithm.data.privateExponent)
+        const p = decodeBigIntBE(algorithm.data.p)
+        const q = decodeBigIntBE(algorithm.data.q)
+        return createPrivateKey({
+            key: {
+                kty: "RSA",
+                n: jwkInteger(algorithm.data.modulus),
+                e: jwkInteger(algorithm.data.publicExponent),
+                d: jwkInteger(algorithm.data.privateExponent),
+                p: jwkInteger(algorithm.data.p),
+                q: jwkInteger(algorithm.data.q),
+                dp: jwkInteger(encodeBigIntBE(d % (p - 1n))),
+                dq: jwkInteger(encodeBigIntBE(d % (q - 1n))),
+                qi: jwkInteger(algorithm.data.iqmp),
+            },
+            format: "jwk",
+        })
+    }
+    if (algorithm instanceof SSHECDSAPrivateKey) {
+        const publicKey = algorithm.getPublicKey().data.algorithm
+        assert(publicKey instanceof SSHECDSAPublicKey)
+        return createPrivateKey({
+            key: {
+                ...publicKey.toJWK(),
+                d: fixedWidthInteger(
+                    algorithm.data.privateKey,
+                    algorithm.curve.coordinateLength,
+                ).toString("base64url"),
+            },
+            format: "jwk",
+        })
+    }
+    if (algorithm instanceof SSHDSSPrivateKey) return dsaPrivateKey(algorithm.data)
+    throw new Error("SSH private key cannot be exported as PEM")
 }
 
 function readPuTTYPrivateMpint(raw: Buffer): [Buffer, Buffer] {
