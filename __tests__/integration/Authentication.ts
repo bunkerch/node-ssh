@@ -168,6 +168,55 @@ describe("RFC 4252 multi-method authentication", () => {
         }
     }, 15_000)
 
+    test("distinguishes an empty configured password from an absent credential", async () => {
+        expect(() => new Client({ password: null as unknown as string })).toThrow(
+            "SSH password option must be a string",
+        )
+        expect(() => new Client({ password: "invalid\ud800password" })).toThrow(
+            "SSH password is not valid UTF-8 text",
+        )
+
+        const server = new Server({
+            hostKeys: [await PrivateKey.generate("ssh-ed25519")],
+            sendAllHostKeys: false,
+        })
+        const observedPasswords: string[] = []
+        server.hooker.hook("passwordAuthentication", (_hook, context, decision) => {
+            observedPasswords.push(context.password)
+            decision.allowLogin = context.username === "empty-password" && context.password === ""
+        })
+        server.listen({ host: "127.0.0.1", port: 0 })
+        await once(server, "listening")
+
+        const options = {
+            hostname: "127.0.0.1",
+            port: (server.address() as AddressInfo).port,
+            authenticationMethodsOrder: [SSHAuthenticationMethods.Password],
+        } as const
+        const configured = new Client({ ...options, username: "empty-password", password: "" })
+        const absent = new Client({ ...options, username: "absent-password" })
+        for (const client of [configured, absent]) {
+            client.hooker.hook("hostKey", (_hook, decision) => {
+                decision.allowHostKey = true
+            })
+        }
+
+        try {
+            await configured.connect()
+            expect(configured.isConnected).toBe(true)
+            configured.destroy()
+            await once(configured, "close")
+
+            await expect(absent.connect()).rejects.toThrow("All authentication methods failed")
+            expect(observedPasswords).toEqual([""])
+        } finally {
+            configured.destroy()
+            absent.destroy()
+            for (const connection of server.clients) connection.terminate()
+            await server.close()
+        }
+    }, 15_000)
+
     test("completes rekeys initiated by both roles during authentication", async () => {
         const hostKey = await PrivateKey.generate("ssh-ed25519")
         const server = new Server({ hostKeys: [hostKey], sendAllHostKeys: false })

@@ -658,6 +658,9 @@ describe("package exports", () => {
                     if (!parseKey(publicKey.toString()).equals(publicKey)) process.exit(4)
                     const configured = new Client({ privateKey: encrypted, passphrase: "packed-secret" })
                     if ("options" in configured) process.exit(5)
+                    const emptyPasswordClient = new Client({ password: "" })
+                    const emptyPasswordDecision = { password: undefined }
+                    if (!await emptyPasswordClient.hooker.triggerHookChecked("passwordAuth", { username: "root" }, emptyPasswordDecision) || emptyPasswordDecision.password !== "") process.exit(61)
                     try { new Client({ port: 0 }); process.exit(57) } catch (error) { if (!String(error).includes("between 1 and 65535")) process.exit(58) }
                     try { new Server({ greeting: "invalid\\ud800greeting" }); process.exit(59) } catch (error) { if (!String(error).includes("not valid UTF-8 text")) process.exit(60) }
                     const legacy = generateKeyPairSync("dsa")

@@ -342,6 +342,7 @@ export interface ClientOptionsRequired
             | "hostbased"
             | "ident"
             | "algorithms"
+            | "password"
             | "privateKey"
             | "certificate"
             | "passphrase"
@@ -358,6 +359,7 @@ export interface ClientOptionsRequired
     gssapi: readonly GSSAPIClientMechanism[]
     ident?: string | Buffer
     algorithms?: ClientAlgorithmOptions
+    password?: string
     privateKey?: PrivateKey | string | Buffer
     certificate?: PublicKey | string | Buffer
     passphrase?: string | Buffer
@@ -635,7 +637,7 @@ function clientDiagnosticSummary(
         forceIPv6: options.forceIPv6,
         strictVendor: options.strictVendor,
         username: options.username,
-        password: options.password ? "<redacted>" : "",
+        password: options.password === undefined ? "" : "<redacted>",
         agent: options.agent instanceof NoneAgent ? "" : "<configured>",
         agentForward: options.agentForward,
         hostVerifier: options.hostVerifier ? "<configured>" : "",
@@ -683,7 +685,6 @@ export default class Client extends EventEmitter<ClientEvents> {
         if (this.#options.forceIPv6 === undefined) this.#options.forceIPv6 = false
         this.#options.strictVendor ??= true
         this.#options.username ??= "root"
-        this.#options.password ??= ""
         validateEndpointText(this.#options.hostname, "hostname")
         if (
             !Number.isInteger(this.#options.port) ||
@@ -697,6 +698,12 @@ export default class Client extends EventEmitter<ClientEvents> {
         }
         validateAddressFamilyFlag(this.#options.forceIPv4, "forceIPv4")
         validateAddressFamilyFlag(this.#options.forceIPv6, "forceIPv6")
+        if (this.#options.password !== undefined) {
+            if (typeof this.#options.password !== "string") {
+                throw new TypeError("SSH password option must be a string")
+            }
+            encodeSSHUTF8(this.#options.password, "SSH password")
+        }
         if (this.#options.debug !== undefined && typeof this.#options.debug !== "function") {
             throw new TypeError("SSH debug option must be a function")
         }
@@ -864,13 +871,14 @@ export default class Client extends EventEmitter<ClientEvents> {
             this.debug("Client created with options:", clientDiagnosticSummary(this.#options))
         })
 
-        if (this.#options.password) {
+        const configuredPassword = this.#options.password
+        if (configuredPassword !== undefined) {
             this.hooker.hook("passwordAuth", async (controller, context, answer) => {
                 // should not happen, but we've been given a
                 // pair of username and password, we want them
                 // to be used together.
                 if (context.username != this.#options.username) return
-                answer.password = this.#options.password
+                answer.password = configuredPassword
             })
 
             setImmediate(() => {

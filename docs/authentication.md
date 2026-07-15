@@ -78,6 +78,12 @@ the current transport generation. If the same `Client` reconnects while an old p
 pending, that provider's eventual result is discarded before it can send an authentication packet
 on the replacement connection.
 
+The `password` client option installs the same awaited credential policy for a fixed value. An
+explicit empty string is preserved and sent as an empty RFC 4252 password; omitting the option means
+that no automatic password credential is configured. Configured password text is validated as
+UTF-8 during construction. Applications should generally prefer a credential provider when a
+password must be acquired or refreshed interactively.
+
 RFC 4252 banners are delivered independently of the active method:
 
 ```ts
