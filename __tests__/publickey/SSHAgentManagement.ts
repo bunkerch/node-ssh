@@ -770,6 +770,52 @@ describe("SSH agent management protocol", () => {
         secondServerStream.destroy()
     })
 
+    test("discards a globally queued request after its stream is destroyed", async () => {
+        const [firstClientStream, firstServerStream] = streamPair()
+        const [secondClientStream, secondServerStream] = streamPair()
+        const server = new SSHAgentProtocolServer()
+        let releaseLock!: () => void
+        let reportLockStarted!: () => void
+        const lockStarted = new Promise<void>((resolve) => {
+            reportLockStarted = resolve
+        })
+        const lockGate = new Promise<void>((resolve) => {
+            releaseLock = resolve
+        })
+        let removals = 0
+        server.hooker.hook("lock", async (_hook, _request, decision) => {
+            reportLockStarted()
+            await lockGate
+            decision.success = true
+        })
+        server.hooker.hook("removeAllIdentities", (_hook, decision) => {
+            removals++
+            decision.success = true
+        })
+        const firstServing = server.serve(firstServerStream)
+        const secondServing = server.serve(secondServerStream)
+        const firstClient = new SSHAgentProtocolClient(firstClientStream)
+
+        const locking = firstClient.lock("secret")
+        await lockStarted
+        secondClientStream.write(removeAllFrame)
+        while (secondServerStream.readableLength !== 0) {
+            await new Promise<void>((resolve) => setImmediate(resolve))
+        }
+        secondServerStream.destroy()
+        releaseLock()
+
+        await locking
+        await expect(secondServing).rejects.toThrow("closed before handling its queued request")
+        expect(removals).toBe(0)
+
+        firstClientStream.end()
+        await firstServing
+        firstClient.destroy()
+        firstServerStream.destroy()
+        secondClientStream.destroy()
+    })
+
     test("validates and records OpenSSH session bindings per served connection", async () => {
         const [clientStream, serverStream] = streamPair()
         const server = new SSHAgentProtocolServer()

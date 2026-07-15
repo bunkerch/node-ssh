@@ -217,7 +217,8 @@ The available hooks are `identities`, `sign`, `addIdentity`, `addToken`, `remove
 `removeAllIdentities`, `removeToken`, `lock`, `unlock`, `extension`, `queryExtensions`, and
 `sessionBind`. Hooks run in wire order. Requests across multiple streams served by one server are
 also globally ordered so a successful lock cannot race a later sensitive operation on another
-stream.
+stream. Before a globally queued request reaches policy, the server rechecks its originating
+stream and discards the request if that stream has already closed.
 
 Every hook receives an `SSHAgentProtocolConnectionContext` as its final argument. Its `stream`
 identifies the served connection, `sessionBindAttempted` records even malformed or refused bind

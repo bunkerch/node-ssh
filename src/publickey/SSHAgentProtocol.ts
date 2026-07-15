@@ -1153,7 +1153,15 @@ export class SSHAgentProtocolServer {
     }
 
     #orderedRequest(payload: Buffer, connection: SSHAgentProtocolConnectionState): Promise<Buffer> {
-        const operation = this.#requestQueue.then(() => this.#handleRequest(payload, connection))
+        const operation = this.#requestQueue.then(() => {
+            const { stream } = connection.context
+            if (stream.destroyed || !stream.writable) {
+                throw new SSHAgentProtocolError(
+                    "SSH agent stream closed before handling its queued request",
+                )
+            }
+            return this.#handleRequest(payload, connection)
+        })
         this.#requestQueue = operation.then(
             () => undefined,
             () => undefined,
