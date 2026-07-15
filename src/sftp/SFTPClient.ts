@@ -293,10 +293,12 @@ export default class SFTPClient {
     }
 
     supportsExtension(name: string, version?: string): boolean {
+        const versionBytes =
+            version === undefined ? undefined : encodeSSHUTF8(version, "SFTP extension version")
         return this.negotiatedExtensions.some(
             (extension) =>
                 extension.name === name &&
-                (version === undefined || extension.data.toString("ascii") === version),
+                (versionBytes === undefined || extension.data.equals(versionBytes)),
         )
     }
 

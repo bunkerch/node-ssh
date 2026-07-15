@@ -23,6 +23,8 @@ The resulting `SFTPClient` exposes the negotiated version, the duplicate-preserv
 announcement list, `supportsExtension(name, version?)`, and its immutable `requestTimeout`.
 Each `extensions` read is a frozen defensive snapshot; changing an advertised data buffer cannot
 enable, disable, or alter the capabilities used internally by `supportsExtension`.
+Version matching compares the advertised opaque bytes exactly with the requested UTF-8 version;
+non-ASCII bytes cannot alias an ASCII version through lossy decoding.
 The timeout defaults to the connection's `replyTimeout`; direct `SFTPClient.connect()` calls default
 to 30 seconds. It must be a positive finite number.
 
