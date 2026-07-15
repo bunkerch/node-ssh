@@ -16,6 +16,7 @@ import { MAXIMUM_CHANNEL_WINDOW_SIZE } from "./constants.js"
 import { ServerHookerChannelRequestController } from "./Server.js"
 import { ProtocolError } from "./packets/Disconnect.js"
 import { waitForReply } from "./ReplyTimeout.js"
+import allocateChannelIdentifier from "./utils/ChannelIdentifier.js"
 
 export const DEFAULT_SERVER_CHANNEL_WINDOW_SIZE = 2 ** 21
 export const DEFAULT_SERVER_CHANNEL_PACKET_SIZE = 2 ** 15
@@ -74,7 +75,7 @@ export default class Channel {
     ) {
         this.client = client
         this.channel_type = channel_type
-        this.localId = client.localChannelIndex++
+        this.localId = allocateChannelIdentifier(client)
         this.clientArgs = clientArgs
         this.openPromise = new Promise<void>((resolve, reject) => {
             this.openResolve = resolve

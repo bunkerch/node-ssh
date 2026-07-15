@@ -60,6 +60,11 @@ channel opens, session exit status and signal metadata,
 `keepalive@openssh.com`, standard data, stderr extended data, EOF, and CLOSE. Every vector is parsed
 into asserted fields and serialized back to the exact original bytes.
 
+Encrypted integration tests allocate channel number `0xffffffff` in each peer role, wrap the next
+allocation to zero, and prove that an identifier which remains active is skipped. Separate negative
+tests reject peer reuse while an open is pending, duplicate remote identifiers, contradictory open
+outcomes, and window overflow.
+
 Generic global-request integration sends concurrent requests through an awaited server hook and
 proves their opaque replies remain ordered, covers deny-by-default and one-way notification paths,
 and exercises ordered server-initiated requests through the client's awaited hook using the public

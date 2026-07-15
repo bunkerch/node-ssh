@@ -281,6 +281,9 @@ The implementation follows RFC 4254 channel rules:
 - Outbound channel opens and reply-requesting channel requests use the connection's `replyTimeout`.
   Expiry rejects the operation and closes the connection so a late ordered reply cannot be
   misattributed.
+- Local channel numbers span the complete RFC 4254 `uint32` range, wrap after `0xffffffff`, and
+  skip identifiers that are still active. An identifier becomes reusable only after its channel
+  has closed.
 - Local or peer CLOSE promptly settles pending writes and outbound requests; settlement never waits
   for the peer's CLOSE acknowledgement. Late results from request hooks cannot create session
   resources, emit request events, or send request replies.

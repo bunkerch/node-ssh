@@ -17,6 +17,7 @@ import { normalizeSSHSignal } from "../utils/Signal.js"
 import { decodeSSHLanguageTag, decodeSSHUTF8 } from "../utils/SSHText.js"
 import { ProtocolError } from "../packets/Disconnect.js"
 import { waitForReply } from "../ReplyTimeout.js"
+import allocateChannelIdentifier from "../utils/ChannelIdentifier.js"
 
 export const DEFAULT_CHANNEL_WINDOW_SIZE = 2 ** 21
 export const DEFAULT_CHANNEL_PACKET_SIZE = 2 ** 15
@@ -122,7 +123,7 @@ export default class ClientChannel extends Duplex {
         })
         this.client = client
         this.type = type
-        this.localId = client.localChannelIndex++
+        this.localId = allocateChannelIdentifier(client)
         this.localInitialWindowSize = options.initialWindowSize ?? DEFAULT_CHANNEL_WINDOW_SIZE
         this.localMaximumPacketSize = options.maximumPacketSize ?? DEFAULT_CHANNEL_PACKET_SIZE
         this.localWindowSize = this.localInitialWindowSize

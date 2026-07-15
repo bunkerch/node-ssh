@@ -133,6 +133,7 @@ describe("packet tunnel channels", () => {
         const sent: Packet[] = []
         const peer = {
             localChannelIndex: 0,
+            channels: new Map(),
             noFlowControl: false,
             debug(...message: unknown[]) {
                 void message

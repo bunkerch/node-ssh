@@ -99,6 +99,76 @@ describe("RFC 4254 channel identifiers", () => {
         }
     }, 15_000)
 
+    test("wraps client channel identifiers at the uint32 boundary and skips active ids", async () => {
+        const { server, peer, client } = await createConnectedPeers()
+        server.hooker.hook("channelOpenRequest", async (_hook, _channel, controller) => {
+            controller.allowOpen = true
+        })
+        peer.on("channel", (channel) => {
+            if (!(channel instanceof SessionChannel)) return
+            channel.hooker.hook("execRequest", async (_hook, _context, controller) => {
+                controller.success = true
+            })
+        })
+
+        try {
+            client.localChannelIndex = 0xffff_ffff
+            const highest = await client.exec("highest")
+            expect(highest.localId).toBe(0xffff_ffff)
+            expect(client.localChannelIndex).toBe(0)
+
+            client.localChannelIndex = 0xffff_ffff
+            const wrapped = await client.exec("wrapped")
+            expect(wrapped.localId).toBe(0)
+            expect(client.localChannelIndex).toBe(1)
+
+            const closes = [highest, wrapped].map(async (channel) => {
+                const closed = new Promise<void>((resolve) => channel.once("close", resolve))
+                channel.close()
+                await closed
+            })
+            await Promise.all(closes)
+        } finally {
+            await closePeers(server, client)
+        }
+    }, 15_000)
+
+    test("wraps server channel identifiers at the uint32 boundary and skips active ids", async () => {
+        const { server, peer, client } = await createConnectedPeers()
+        const serverChannels: SessionChannel[] = []
+        server.hooker.hook("channelOpenRequest", async (_hook, _channel, controller) => {
+            controller.allowOpen = true
+        })
+        peer.on("channel", (channel) => {
+            if (!(channel instanceof SessionChannel)) return
+            serverChannels.push(channel)
+            channel.hooker.hook("execRequest", async (_hook, _context, controller) => {
+                controller.success = true
+            })
+        })
+
+        try {
+            peer.localChannelIndex = 0xffff_ffff
+            const highest = await client.exec("highest-server-id")
+            expect(serverChannels.at(-1)?.localId).toBe(0xffff_ffff)
+            expect(peer.localChannelIndex).toBe(0)
+
+            peer.localChannelIndex = 0xffff_ffff
+            const wrapped = await client.exec("wrapped-server-id")
+            expect(serverChannels.at(-1)?.localId).toBe(0)
+            expect(peer.localChannelIndex).toBe(1)
+
+            const closes = [highest, wrapped].map(async (channel) => {
+                const closed = new Promise<void>((resolve) => channel.once("close", resolve))
+                channel.close()
+                await closed
+            })
+            await Promise.all(closes)
+        } finally {
+            await closePeers(server, client)
+        }
+    }, 15_000)
+
     test("disconnects a client that reuses an identifier while its first open is pending", async () => {
         const { server, peer, client } = await createConnectedPeers()
         let releasePolicy!: () => void

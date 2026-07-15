@@ -64,7 +64,7 @@ describe("server Channel", () => {
     })
 
     test("rejects malformed UTF-8 session policy text", () => {
-        const peer = { localChannelIndex: 0 } as ServerClient
+        const peer = { localChannelIndex: 0, channels: new Map() } as unknown as ServerClient
         const channel = new SessionChannel(peer, "session")
         const malformed = Buffer.from([0xff])
 
