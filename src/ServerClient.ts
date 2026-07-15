@@ -606,8 +606,12 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         return this.openForwardedTCPIPChannel(boundAddress, boundPort, remoteAddress, remotePort)
     }
 
-    openssh_forwardOutStreamLocal(socketPath: string): Promise<ForwardedStreamLocalChannel> {
+    forwardOutStreamLocal(socketPath: string): Promise<ForwardedStreamLocalChannel> {
         return this.openForwardedStreamLocalChannel(socketPath)
+    }
+
+    openssh_forwardOutStreamLocal(socketPath: string): Promise<ForwardedStreamLocalChannel> {
+        return this.forwardOutStreamLocal(socketPath)
     }
 
     registerX11Forwarding(sessionId: number, single: boolean): void {

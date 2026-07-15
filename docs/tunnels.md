@@ -12,7 +12,7 @@ Open a point-to-point (layer-3) channel and request automatic interface-unit sel
 ```ts
 import { Client, TunnelMode } from "@bunkerch/modernssh"
 
-const tunnel = await client.openssh_openTunnel(TunnelMode.PointToPoint)
+const tunnel = await client.openTunnel(TunnelMode.PointToPoint)
 
 tunnel.events.on("packet", ({ family, data }) => {
     // `data` is one complete IPv4 or IPv6 datagram.
@@ -25,8 +25,9 @@ await tunnel.sendIPv6(ipv6Datagram)
 Pass a non-negative unit number as the second argument to request a particular unit. For a layer-2
 channel, use `TunnelMode.Ethernet`, listen for `frame`, and call `sendFrame(frame)`.
 
-The client method is vendor-gated when strict vendor checking is enabled, consistently with other
-vendor extensions. These operations return Promises.
+`openTunnel()` is vendor-gated when strict vendor checking is enabled, consistently with other
+vendor extensions. It returns a Promise. The older `openssh_openTunnel()` spelling remains a thin
+alias for existing applications.
 
 ## Server policy
 

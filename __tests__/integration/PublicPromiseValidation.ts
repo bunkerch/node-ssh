@@ -27,7 +27,7 @@ describe("public Promise operation validation", () => {
                 "direct-tcpip destination address is not valid UTF-8 text",
             ],
             [
-                () => client.openssh_forwardOutStreamLocal(""),
+                () => client.forwardOutStreamLocal(""),
                 "SSH stream-local socket path must be non-empty and contain no NUL",
             ],
         ]

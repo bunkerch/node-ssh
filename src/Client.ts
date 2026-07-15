@@ -1558,15 +1558,17 @@ export default class Client extends EventEmitter<ClientEvents> {
         return this.cancelRemoteForward(bindAddress, bindPort)
     }
 
-    async openssh_forwardOutStreamLocal(
-        socketPath: string,
-    ): Promise<ClientDirectStreamLocalChannel> {
+    async forwardOutStreamLocal(socketPath: string): Promise<ClientDirectStreamLocalChannel> {
         this.assertOpenSSHVendor()
         this.validateSocketPath(socketPath)
         return this.openClientChannel(new ClientDirectStreamLocalChannel(this, socketPath))
     }
 
-    openssh_openTunnel(
+    openssh_forwardOutStreamLocal(socketPath: string): Promise<ClientDirectStreamLocalChannel> {
+        return this.forwardOutStreamLocal(socketPath)
+    }
+
+    openTunnel(
         mode: TunnelMode,
         unit: number = AUTOMATIC_TUNNEL_UNIT,
     ): Promise<ClientTunnelChannel> {
@@ -1578,12 +1580,27 @@ export default class Client extends EventEmitter<ClientEvents> {
         }
     }
 
-    openssh_forwardInStreamLocal(socketPath: string): Promise<void> {
+    openssh_openTunnel(
+        mode: TunnelMode,
+        unit: number = AUTOMATIC_TUNNEL_UNIT,
+    ): Promise<ClientTunnelChannel> {
+        return this.openTunnel(mode, unit)
+    }
+
+    forwardInStreamLocal(socketPath: string): Promise<void> {
         return this.requestRemoteStreamLocalForward(socketPath)
     }
 
-    openssh_unforwardInStreamLocal(socketPath: string): Promise<void> {
+    openssh_forwardInStreamLocal(socketPath: string): Promise<void> {
+        return this.forwardInStreamLocal(socketPath)
+    }
+
+    unforwardInStreamLocal(socketPath: string): Promise<void> {
         return this.cancelRemoteStreamLocalForward(socketPath)
+    }
+
+    openssh_unforwardInStreamLocal(socketPath: string): Promise<void> {
+        return this.unforwardInStreamLocal(socketPath)
     }
 
     private async openSessionChannel(): Promise<ClientSessionChannel> {

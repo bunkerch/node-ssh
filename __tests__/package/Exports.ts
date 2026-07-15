@@ -327,6 +327,11 @@ describe("package exports", () => {
         expect(SFTPServer).toBeFunction()
         expect(SFTPStats).toBeFunction()
         expect(SFTPWriteStream).toBeFunction()
+        expect(Client.prototype.forwardOutStreamLocal).toBeFunction()
+        expect(Client.prototype.forwardInStreamLocal).toBeFunction()
+        expect(Client.prototype.unforwardInStreamLocal).toBeFunction()
+        expect(Client.prototype.openTunnel).toBeFunction()
+        expect(ServerClient.prototype.forwardOutStreamLocal).toBeFunction()
         expect(stringToFlags("r")).toBe(OPEN_MODE.READ)
         expect(flagsToString(OPEN_MODE.READ)).toBe("r")
         expect(STATUS_CODE.OK).toBe(0)
@@ -413,6 +418,11 @@ describe("package exports", () => {
         expect(entry.SFTPServer).toBeDefined()
         expect(entry.SFTPStats).toBeDefined()
         expect(entry.SFTPWriteStream).toBeDefined()
+        expect(entry.Client.prototype.forwardOutStreamLocal).toBeFunction()
+        expect(entry.Client.prototype.forwardInStreamLocal).toBeFunction()
+        expect(entry.Client.prototype.unforwardInStreamLocal).toBeFunction()
+        expect(entry.Client.prototype.openTunnel).toBeFunction()
+        expect(entry.ServerClient.prototype.forwardOutStreamLocal).toBeFunction()
         expect(entry.OPEN_MODE.READ).toBe(1)
         expect(entry.STATUS_CODE.OK).toBe(0)
         expect(entry.STATUS_CODE.INVALID_PARAMETER).toBe(23)
@@ -496,6 +506,17 @@ describe("package exports", () => {
         expect(client).not.toContain("options: ClientOptionsRequired")
         expect(server).not.toContain("options: ServerOptionsRequired")
         expect(client).toContain("globalRequest(name: string, args?: Buffer): Promise<Buffer>")
+        expect(client).toContain(
+            "forwardOutStreamLocal(socketPath: string): Promise<ClientDirectStreamLocalChannel>",
+        )
+        expect(client).toContain("forwardInStreamLocal(socketPath: string): Promise<void>")
+        expect(client).toContain("unforwardInStreamLocal(socketPath: string): Promise<void>")
+        expect(client).toContain(
+            "openTunnel(mode: TunnelMode, unit?: number): Promise<ClientTunnelChannel>",
+        )
+        expect(serverClient).toContain(
+            "forwardOutStreamLocal(socketPath: string): Promise<ForwardedStreamLocalChannel>",
+        )
         expect(client).toContain("tcpConnection: [")
         expect(client).toContain("channel: ClientForwardedTCPIPChannel")
         expect(client).not.toContain("accept: () => ClientForwardedTCPIPChannel")
@@ -917,13 +938,13 @@ describe("package exports", () => {
                         if (channel.details.socketPath === runtimeSocketPath) decision.allowOpen = true
                     })
                     const runtimeStreamLocalConnection = once(runtimeClient, "unix connection")
-                    await runtimeClient.openssh_forwardInStreamLocal(runtimeSocketPath)
-                    const runtimeServerStreamLocal = runtimeConnection.openssh_forwardOutStreamLocal(runtimeSocketPath)
+                    await runtimeClient.forwardInStreamLocal(runtimeSocketPath)
+                    const runtimeServerStreamLocal = runtimeConnection.forwardOutStreamLocal(runtimeSocketPath)
                     const [[runtimeStreamLocalDetails, runtimeClientStreamLocal], runtimeServerStreamLocalChannel] = await Promise.all([runtimeStreamLocalConnection, runtimeServerStreamLocal])
                     if (!(runtimeClientStreamLocal instanceof ClientForwardedStreamLocalChannel) || runtimeStreamLocalDetails !== runtimeClientStreamLocal.details) process.exit(51)
                     runtimeClientStreamLocal.close()
                     runtimeServerStreamLocalChannel.close()
-                    await runtimeClient.openssh_unforwardInStreamLocal(runtimeSocketPath)
+                    await runtimeClient.unforwardInStreamLocal(runtimeSocketPath)
                     await rm(runtimeSocketDirectory, { recursive: true, force: true })
                     const runtimeX11Session = await runtimeClient.openSession()
                     await runtimeX11Session.requestX11()

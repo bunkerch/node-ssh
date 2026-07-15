@@ -714,9 +714,9 @@ describe("client/server integration", () => {
             })
             expect(listenerStillAccepts).toBe(false)
 
-            await client.openssh_forwardInStreamLocal(streamLocalPath)
+            await client.forwardInStreamLocal(streamLocalPath)
             await access(streamLocalPath)
-            await expect(serverPeer!.openssh_forwardOutStreamLocal("bad\0path")).rejects.toThrow(
+            await expect(serverPeer!.forwardOutStreamLocal("bad\0path")).rejects.toThrow(
                 "contain no NUL",
             )
             client.hooker.hook("streamLocalConnection", (_hook, _channel, controller) => {
@@ -727,7 +727,7 @@ describe("client/server integration", () => {
             >
             const [clientUnix, serverUnix] = await Promise.all([
                 incomingUnix.then(([, channel]) => channel),
-                serverPeer!.openssh_forwardOutStreamLocal(streamLocalPath),
+                serverPeer!.forwardOutStreamLocal(streamLocalPath),
             ])
             const serverUnixData = new Promise<Buffer>((resolve) =>
                 serverUnix.stream.once("data", resolve),
@@ -740,10 +740,10 @@ describe("client/server integration", () => {
             serverUnix.stream.write(Buffer.from("unix-server"))
             expect(await clientUnixData).toEqual(Buffer.from("unix-server"))
             clientUnix.close()
-            await client.openssh_unforwardInStreamLocal(streamLocalPath)
-            await expect(
-                serverPeer!.openssh_forwardOutStreamLocal(streamLocalPath),
-            ).rejects.toThrow("did not request stream-local forwarding")
+            await client.unforwardInStreamLocal(streamLocalPath)
+            await expect(serverPeer!.forwardOutStreamLocal(streamLocalPath)).rejects.toThrow(
+                "did not request stream-local forwarding",
+            )
             for (let attempt = 0; attempt < 50; attempt++) {
                 try {
                     await access(streamLocalPath)

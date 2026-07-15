@@ -215,18 +215,18 @@ channel a second time. The SSH connection remains available for unrelated channe
 
 [OpenSSH's `streamlocal` extension](https://github.com/openssh/openssh-portable/blob/master/PROTOCOL)
 applies the same direct and remote forwarding model to UNIX-domain sockets. It is not part of RFC
-4254, so these APIs use an `openssh_` prefix and require a peer that implements the
-OpenSSH extension.
+4254, so these APIs require a peer that implements the OpenSSH extension and retain vendor gating
+when `strictVendor` is enabled.
 
 `Client` defaults `strictVendor` to `true`, so these methods reject before sending a request unless
 the peer advertises a compatible OpenSSH identification. Explicitly set `strictVendor: false` for a
 trusted alternative implementation of the same extension.
 
-`openssh_forwardOutStreamLocal()` opens a `direct-streamlocal@openssh.com` channel to a socket on
+`forwardOutStreamLocal()` opens a `direct-streamlocal@openssh.com` channel to a socket on
 the SSH server:
 
 ```ts
-const socket = await client.openssh_forwardOutStreamLocal("/run/app/control.sock")
+const socket = await client.forwardOutStreamLocal("/run/app/control.sock")
 localSocket.pipe(socket).pipe(localSocket)
 ```
 
@@ -247,9 +247,12 @@ client.hooker.hook("streamLocalConnection", async (_hook, channel, decision) => 
     decision.allowOpen = true
 })
 
-await client.openssh_forwardInStreamLocal("/run/user/1000/modernssh.sock")
-await client.openssh_unforwardInStreamLocal("/run/user/1000/modernssh.sock")
+await client.forwardInStreamLocal("/run/user/1000/modernssh.sock")
+await client.unforwardInStreamLocal("/run/user/1000/modernssh.sock")
 ```
+
+The older `openssh_forwardOutStreamLocal()`, `openssh_forwardInStreamLocal()`, and
+`openssh_unforwardInStreamLocal()` spellings remain Promise-returning aliases.
 
 Socket paths must be non-empty and cannot contain NUL. An active or pending request for the same
 path rejects locally before sending a duplicate global request. Filesystem ownership, permissions,
@@ -284,9 +287,10 @@ earlier allow cannot survive a contained backend failure.
 These listeners consume the same `maxRemoteForwardings` capacity as RFC 4254 TCP listeners.
 
 For an explicitly represented incoming UNIX connection, call
-`connection.openssh_forwardOutStreamLocal(socketPath)`. The path must exactly match a currently
+`connection.forwardOutStreamLocal(socketPath)`. The path must exactly match a currently
 accepted stream-local forwarding request and contain no NUL. It resolves to a
 `ForwardedStreamLocalChannel`; pipe the local socket through `channel.stream` as with TCP.
+The older `connection.openssh_forwardOutStreamLocal()` spelling remains an alias.
 
 Incoming `direct-streamlocal@openssh.com` channels use the normal `channelOpenRequest` policy and
 are also denied by default. Inspect the exact destination before connecting it to a local socket:

@@ -48,7 +48,7 @@ describe("packet tunnel integration", () => {
 
         try {
             await client.connect()
-            const tunnel = await client.openssh_openTunnel(TunnelMode.PointToPoint, 7)
+            const tunnel = await client.openTunnel(TunnelMode.PointToPoint, 7)
             expect(policyFinished).toBe(true)
             expect(tunnel.unit).toBe(7)
             const echoed = new Promise<Buffer>((resolve) => {

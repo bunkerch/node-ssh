@@ -3028,13 +3028,13 @@ describe("OpenSSH interoperability", () => {
             })
             await client.unforwardIn("0.0.0.0", 40_000)
 
-            const directStreamLocal = await client.openssh_forwardOutStreamLocal("/tmp/echo.sock")
+            const directStreamLocal = await client.forwardOutStreamLocal("/tmp/echo.sock")
             expect(await exchangeChannel(directStreamLocal, "direct stream local", 19)).toBe(
                 "direct stream local",
             )
 
             const forwardedSocketPath = "/tmp/modernssh-forward.sock"
-            await client.openssh_forwardInStreamLocal(forwardedSocketPath)
+            await client.forwardInStreamLocal(forwardedSocketPath)
             const { stdout: streamLocalOutput } = await execFileAsync("docker", [
                 "exec",
                 containerId,
@@ -3043,7 +3043,7 @@ describe("OpenSSH interoperability", () => {
                 `printf 'remote stream local' | socat - UNIX-CONNECT:${forwardedSocketPath}`,
             ])
             expect(streamLocalOutput).toBe("REMOTE STREAM LOCAL")
-            await client.openssh_unforwardInStreamLocal(forwardedSocketPath)
+            await client.unforwardInStreamLocal(forwardedSocketPath)
 
             const jumpTransport = await client.forwardOut("127.0.0.1", 12_345, "127.0.0.1", 22)
             const nestedClient = new Client({
