@@ -484,6 +484,10 @@ export class SSHCertificatePublicKey implements PublicKeyAlgorithm {
             !(signatureKey.data.algorithm instanceof SSHCertificatePublicKey),
             "Certificate authority key must not be a certificate",
         )
+        const principals = parseCertificatePrincipals(principalsRaw)
+        if (algorithmName.endsWith(STANDARD_CERTIFICATE_SUFFIX)) {
+            assert(principals.length > 0, "Standard certificate must contain a principal")
+        }
         const outerAlgorithm = serializeBuffer(Buffer.from(algorithmName, "utf8"))
         return new SSHCertificatePublicKey(
             algorithmName,
@@ -493,7 +497,7 @@ export class SSHCertificatePublicKey implements PublicKeyAlgorithm {
                 serial,
                 role: roleNumber === 1 ? "user" : "host",
                 identifier: decodeUTF8(identifier, "certificate identifier"),
-                principals: parseCertificatePrincipals(principalsRaw),
+                principals,
                 validAfter,
                 validBefore,
                 criticalOptions: parseCertificateOptions(criticalOptionsRaw),

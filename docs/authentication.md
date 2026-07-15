@@ -378,7 +378,10 @@ Malformed discovered public-key files are skipped and can be reported through th
 Standard certificate key types are accepted when configured or supplied explicitly. This includes
 Ed448 user identities: the request advertises `ssh-ed448-cert`, signs with the underlying
 `ssh-ed448` algorithm, verifies possession before policy, and leaves CA and principal authorization
-to the awaited hook. Draft-only certificate names are not added to interoperable defaults.
+to the awaited hook. The active working-group names remain outside interoperable defaults until
+they are registered. Standard certificates must contain at least one principal as required by the
+working-group format; the older deployed certificate encoding retains its empty-principal parsing
+semantics for compatibility, so policy must handle that case deliberately.
 
 On the server, `context.certificate` contains the verified certificate when present. Before the
 awaited policy hook runs, the library checks its CA signature, user role, validity interval, and
