@@ -164,6 +164,20 @@ function normalizeGreeting(greeting: string): string {
     return lines.map((line) => `${line}\r\n`).join("")
 }
 
+function isPlainConfigurationObject(value: unknown): boolean {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) return false
+    const prototype = Object.getPrototypeOf(value)
+    return prototype === Object.prototype || prototype === null
+}
+
+function normalizeBooleanOption(value: unknown, fallback: boolean, field: string): boolean {
+    if (value === undefined) return fallback
+    if (typeof value !== "boolean") {
+        throw new TypeError(`SSH server ${field} option must be a boolean`)
+    }
+    return value
+}
+
 export interface ServerEvents {
     debug: unknown[]
     close: []
@@ -375,7 +389,16 @@ export default class Server extends EventEmitter<ServerEvents> {
 
     constructor(options: ServerOptions = {}) {
         super()
+        if (!isPlainConfigurationObject(options)) {
+            throw new TypeError("SSH server options must be an object")
+        }
         this.#options = { ...options } as ServerOptionsRequired
+        if (
+            this.#options.algorithms !== undefined &&
+            !isPlainConfigurationObject(this.#options.algorithms)
+        ) {
+            throw new TypeError("SSH server algorithms option must be an object")
+        }
         if (this.#options.debug !== undefined && typeof this.#options.debug !== "function") {
             throw new TypeError("SSH debug option must be a function")
         }
@@ -387,16 +410,30 @@ export default class Server extends EventEmitter<ServerEvents> {
                 "SSH ident and protocolVersionExchange options are mutually exclusive",
             )
         }
+        if (
+            this.#options.protocolVersionExchange !== undefined &&
+            !(this.#options.protocolVersionExchange instanceof ProtocolVersionExchange)
+        ) {
+            throw new TypeError(
+                "SSH server protocolVersionExchange option must be a ProtocolVersionExchange",
+            )
+        }
         this.#options.protocolVersionExchange =
             this.#options.ident === undefined
                 ? copyProtocolVersionExchange(
-                      this.#options.protocolVersionExchange ?? ProtocolVersionExchange.defaultValue,
+                      this.#options.protocolVersionExchange === undefined
+                          ? ProtocolVersionExchange.defaultValue
+                          : this.#options.protocolVersionExchange,
                   )
                 : ProtocolVersionExchange.fromIdent(this.#options.ident)
         this.#options.greeting = normalizeGreeting(
             this.#options.greeting === undefined ? "" : this.#options.greeting,
         )
-        this.#options.hostKeys = (options.hostKeys ?? []).map((input) => {
+        const configuredHostKeys = options.hostKeys === undefined ? [] : options.hostKeys
+        if (!Array.isArray(configuredHostKeys)) {
+            throw new TypeError("SSH server hostKeys option must be an array")
+        }
+        this.#options.hostKeys = configuredHostKeys.map((input) => {
             const wrapped =
                 typeof input === "object" &&
                 input !== null &&
@@ -413,7 +450,12 @@ export default class Server extends EventEmitter<ServerEvents> {
             }
             return key
         })
-        for (const certificateInput of this.#options.hostCertificates ?? []) {
+        const configuredHostCertificates =
+            this.#options.hostCertificates === undefined ? [] : this.#options.hostCertificates
+        if (!Array.isArray(configuredHostCertificates)) {
+            throw new TypeError("SSH server hostCertificates option must be an array")
+        }
+        for (const certificateInput of configuredHostCertificates) {
             const certificate =
                 certificateInput instanceof PublicKey
                     ? certificateInput
@@ -432,7 +474,11 @@ export default class Server extends EventEmitter<ServerEvents> {
             this.#options.hostKeys.push(hostKey.withCertificate(certificate))
         }
         this.#options.hostCertificates = undefined
-        this.#options.sendAllHostKeys ??= true
+        this.#options.sendAllHostKeys = normalizeBooleanOption(
+            this.#options.sendAllHostKeys,
+            true,
+            "sendAllHostKeys",
+        )
         if (
             this.#options.sendAllHostKeys &&
             this.#options.hostKeys.length > MAX_HOST_KEYS_PER_REQUEST
@@ -451,11 +497,13 @@ export default class Server extends EventEmitter<ServerEvents> {
                 advertised.add(identity)
             }
         }
-        this.#options.gssapi = normalizeGSSAPIServerMechanisms(this.#options.gssapi ?? [])
+        this.#options.gssapi = normalizeGSSAPIServerMechanisms(
+            this.#options.gssapi === undefined ? [] : this.#options.gssapi,
+        )
         this.#options.noFlowControl = normalizeNoFlowControlPreference(this.#options.noFlowControl)
         this.#options.delayCompression = normalizeDelayCompression(this.#options.delayCompression)
-        this.#options.banner ??= ""
-        this.#options.bannerLanguageTag ??= ""
+        if (this.#options.banner === undefined) this.#options.banner = ""
+        if (this.#options.bannerLanguageTag === undefined) this.#options.bannerLanguageTag = ""
         if (typeof this.#options.banner !== "string") {
             throw new TypeError("SSH authentication banner must be a string")
         }
@@ -470,16 +518,24 @@ export default class Server extends EventEmitter<ServerEvents> {
             this.#options.bannerLanguageTag,
             "SSH authentication banner language tag",
         )
-        this.#options.handshakeTimeout ??= 20_000
-        this.#options.authenticationTimeout ??= 600_000
-        this.#options.replyTimeout ??= 30_000
-        this.#options.maxPendingChannelOpens ??= 64
-        this.#options.maxChannels ??= 1024
-        this.#options.maxAuthenticationAttempts ??= 20
-        this.#options.keepaliveInterval ??= 0
-        this.#options.keepaliveCountMax ??= 3
-        this.#options.rekeyBytes ??= DEFAULT_REKEY_BYTES
-        this.#options.rekeyInterval ??= DEFAULT_REKEY_INTERVAL
+        if (this.#options.handshakeTimeout === undefined) this.#options.handshakeTimeout = 20_000
+        if (this.#options.authenticationTimeout === undefined) {
+            this.#options.authenticationTimeout = 600_000
+        }
+        if (this.#options.replyTimeout === undefined) this.#options.replyTimeout = 30_000
+        if (this.#options.maxPendingChannelOpens === undefined) {
+            this.#options.maxPendingChannelOpens = 64
+        }
+        if (this.#options.maxChannels === undefined) this.#options.maxChannels = 1024
+        if (this.#options.maxAuthenticationAttempts === undefined) {
+            this.#options.maxAuthenticationAttempts = 20
+        }
+        if (this.#options.keepaliveInterval === undefined) this.#options.keepaliveInterval = 0
+        if (this.#options.keepaliveCountMax === undefined) this.#options.keepaliveCountMax = 3
+        if (this.#options.rekeyBytes === undefined) this.#options.rekeyBytes = DEFAULT_REKEY_BYTES
+        if (this.#options.rekeyInterval === undefined) {
+            this.#options.rekeyInterval = DEFAULT_REKEY_INTERVAL
+        }
         if (
             !Number.isFinite(this.#options.handshakeTimeout) ||
             this.#options.handshakeTimeout < 0
