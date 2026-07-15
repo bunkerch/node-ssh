@@ -426,6 +426,7 @@ describe("package exports", () => {
         expect(client).toContain("packet: [metadata: Readonly<ProtocolPacketMetadata>]")
         expect(client).not.toContain("waitForPacket")
         expect(client).not.toContain("waitEvent<")
+        expect(client).not.toContain("serverClient?: boolean")
         expect(serverClient).not.toContain("message: [message: Buffer]")
         expect(serverClient).not.toContain("packet: [packet: Packet]")
         expect(serverClient).toContain("packet: [metadata: Readonly<ProtocolPacketMetadata>]")
@@ -672,6 +673,7 @@ describe("package exports", () => {
                     try { new Server({ hostKeys: null }); process.exit(72) } catch (error) { if (!String(error).includes("hostKeys option must be an array")) process.exit(73) }
                     try { new Client({ gssapi: null }); process.exit(74) } catch (error) { if (!String(error).includes("client GSS-API mechanisms must be an array")) process.exit(75) }
                     try { new ProtocolVersionExchange("2.0", null); process.exit(76) } catch (error) { if (!String(error).includes("software version must be a string")) process.exit(77) }
+                    try { new Client({ serverClient: true }); process.exit(78) } catch (error) { if (!String(error).includes("serverClient is not a client option")) process.exit(79) }
                     try { new Client({ port: 0 }); process.exit(57) } catch (error) { if (!String(error).includes("between 1 and 65535")) process.exit(58) }
                     try { new Server({ greeting: "invalid\\ud800greeting" }); process.exit(59) } catch (error) { if (!String(error).includes("not valid UTF-8 text")) process.exit(60) }
                     const legacy = generateKeyPairSync("dsa")

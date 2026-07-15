@@ -309,7 +309,6 @@ export interface ClientOptions {
     /** Retain an initial GSS-API key-exchange context for gssapi-keyex authentication. */
     gssapiKeyExchangeAuthentication?: boolean
     protocolVersionExchange?: ProtocolVersionExchange
-    serverClient?: boolean
     authenticationMethodsOrder?: readonly SSHAuthenticationMethods[]
     keepaliveInterval?: number
     keepaliveCountMax?: number
@@ -726,6 +725,11 @@ export default class Client extends EventEmitter<ClientEvents> {
 
         if (!isPlainConfigurationObject(options as unknown)) {
             throw new TypeError("SSH client options must be an object")
+        }
+        if (Object.hasOwn(options, "serverClient")) {
+            throw new TypeError(
+                "SSH serverClient is not a client option; use ServerClient for accepted peers",
+            )
         }
         this.explicitAuthenticationMethodsOrder = options.authenticationMethodsOrder !== undefined
         this.#options = { ...options } as ClientOptionsRequired

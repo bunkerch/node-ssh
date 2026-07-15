@@ -9,6 +9,10 @@ describe("client configuration normalization", () => {
                 "SSH client protocolVersionExchange option must be a ProtocolVersionExchange",
             ],
             [{ ident: null as never }, "SSH identification suffix must be a string or Buffer"],
+            [
+                { serverClient: true } as never,
+                "SSH serverClient is not a client option; use ServerClient for accepted peers",
+            ],
             [{ algorithms: null as never }, "SSH client algorithms option must be an object"],
             [{ gssapi: null as never }, "SSH client GSS-API mechanisms must be an array"],
             [

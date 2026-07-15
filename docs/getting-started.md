@@ -56,6 +56,9 @@ options and `algorithms` and `hostbased` option groups must be objects, while `g
 `ProtocolVersionExchange`, and `sock` must provide the duplex-stream interface. Numeric timeouts,
 keepalive limits, rekey limits, and channel limits must satisfy their documented ranges. These
 checks also apply when JavaScript consumers bypass the generated TypeScript declarations.
+`ServerClient` represents a peer accepted by `Server`; there is no client-construction mode for
+that role. The obsolete, ineffective `serverClient` client option is rejected explicitly instead
+of being silently ignored.
 
 Both `Client` and `Server` accept a `debug(...message)` option for diagnostics that must be
 available from the start of their lifecycle. It receives the same arguments as the corresponding
