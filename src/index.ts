@@ -90,8 +90,10 @@ export {
 } from "./sftp/SFTPClient.js"
 export type {
     SFTPClientOptions,
+    SFTPClientEvents,
     SFTPFastGetOptions,
     SFTPFastPutOptions,
+    SFTPTransferProgress,
     SFTPExtendedRequestOptions,
     SFTPNameEncoding,
     SFTPPath,

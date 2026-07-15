@@ -639,6 +639,8 @@ describe("package exports", () => {
         expect(agentProtocol).not.toContain("callback")
         expect(streams.match(/close\(\): Promise<void>/gu)).toHaveLength(2)
         expect(sftpClient).toContain("export interface SFTPClientOptions")
+        expect(sftpClient).toContain("export interface SFTPClientEvents")
+        expect(sftpClient).toContain("export interface SFTPTransferProgress")
         expect(sftpClient).toContain("export interface SFTPReadDirectoryOptions")
         expect(sftpClient).toContain("requestTimeout?: number")
         expect(sftpClient).toContain("readonly requestTimeout: number")
@@ -648,6 +650,8 @@ describe("package exports", () => {
             "iterateDirectory(path: SFTPPath): AsyncGenerator<SFTPClientNameEntry, void, void>",
         )
         expect(sftpClient).not.toContain("callback")
+        expect(sftpClient).not.toContain("step?:")
+        expect(sftpClient).toContain("extends EventEmitter<SFTPClientEvents>")
         expect(sftpClient).toContain(
             "read(handle: Buffer, buffer: Buffer, bufferOffset: number, length: number, position: SFTPPosition): Promise<SFTPReadResult>",
         )
@@ -656,6 +660,8 @@ describe("package exports", () => {
         )
         expect(index).toContain("SFTPReadResult")
         expect(index).toContain("SFTPWriteResult")
+        expect(index).toContain("SFTPClientEvents")
+        expect(index).toContain("SFTPTransferProgress")
         expect(sftpServer).toContain(
             "status(requestId: number, code: SFTPStatusCode, message?: string, languageTag?: string): Promise<void>",
         )

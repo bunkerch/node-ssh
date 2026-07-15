@@ -1,5 +1,6 @@
 import type ClientSessionChannel from "../channels/ClientSessionChannel.js"
 import { constants as bufferConstants } from "node:buffer"
+import EventEmitter from "node:events"
 import { open as openLocalFile } from "node:fs/promises"
 import type { FileHandle } from "node:fs/promises"
 import { encodeSFTPPacket, SFTPPacketParser, SFTPProtocolError } from "./codec.js"
@@ -187,11 +188,23 @@ export interface SFTPWriteFileOptions {
 export interface SFTPFastGetOptions {
     chunkSize?: number
     concurrency?: number
-    step?: (totalTransferred: number, chunk: number, total: number) => void
 }
 
 export interface SFTPFastPutOptions extends SFTPFastGetOptions {
     mode?: number | string
+}
+
+export interface SFTPTransferProgress {
+    readonly remotePath: Buffer
+    readonly localPath: string
+    readonly transferred: number
+    readonly chunk: number
+    readonly total: number
+}
+
+export interface SFTPClientEvents {
+    downloadProgress: [progress: SFTPTransferProgress]
+    uploadProgress: [progress: SFTPTransferProgress]
 }
 
 export interface SFTPReadResult {
@@ -255,7 +268,7 @@ export function flagsToString(flags: number): string | null {
     return null
 }
 
-export default class SFTPClient {
+export default class SFTPClient extends EventEmitter<SFTPClientEvents> {
     readonly protocolVersion = SFTP_VERSION
     readonly channel: ClientSessionChannel
     readonly isOpenSSH: boolean
@@ -283,6 +296,7 @@ export default class SFTPClient {
         isOpenSSH: boolean,
         options: SFTPClientOptions,
     ) {
+        super()
         this.channel = channel
         this.isOpenSSH = isOpenSSH
         this.requestTimeout = options.requestTimeout!
@@ -514,7 +528,13 @@ export default class SFTPClient {
                 const data = await readRemoteChunk(this, remoteHandle, length, offset, total)
                 await writeLocalChunk(localHandle!, data, offset)
                 transferred += data.length
-                transferOptions.step?.(transferred, data.length, total)
+                this.emit("downloadProgress", {
+                    remotePath: Buffer.from(ownedRemotePath),
+                    localPath,
+                    transferred,
+                    chunk: data.length,
+                    total,
+                })
             })
         } catch (error) {
             operationError = error
@@ -549,7 +569,13 @@ export default class SFTPClient {
                 const data = await readLocalChunk(localHandle, length, offset)
                 await this.write(remoteHandle!, data, BigInt(offset))
                 transferred += data.length
-                transferOptions.step?.(transferred, data.length, total)
+                this.emit("uploadProgress", {
+                    remotePath: Buffer.from(ownedRemotePath),
+                    localPath,
+                    transferred,
+                    chunk: data.length,
+                    total,
+                })
             })
         } catch (error) {
             operationError = error

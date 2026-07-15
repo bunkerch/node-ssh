@@ -102,8 +102,22 @@ remain visible.
 
 `fastGet(remotePath, localPath, options?)` and `fastPut(localPath, remotePath, options?)` transfer
 disjoint chunks concurrently. `concurrency` defaults to 64 and is bounded by the request engine;
-`chunkSize` defaults to 32 KiB and is clamped to negotiated server limits. A `step` handler receives
-the cumulative bytes, completed chunk size, and total size. `fastPut` also accepts a remote `mode`.
+`chunkSize` defaults to 32 KiB and is clamped to negotiated server limits. `fastPut` also accepts a
+remote `mode`. Transfer completion is Promise-only. For observational progress, attach synchronous
+`downloadProgress` or `uploadProgress` listeners to the client:
+
+```ts
+sftp.on("downloadProgress", ({ remotePath, localPath, transferred, chunk, total }) => {
+    console.log({ remotePath, localPath, transferred, chunk, total })
+})
+
+await sftp.fastGet("remote.bin", "local.bin")
+```
+
+Each progress event identifies both paths and reports the cumulative bytes, completed chunk size,
+and total size. The remote path is a fresh Buffer owned by the event, so listener mutation cannot
+alter the transfer or later events. Progress listeners are EventEmitter observers: keep them
+synchronous and do not pass an `async` function to `on()`.
 `fastGet` snapshots a Buffer remote path and its transfer options before its separate `STAT` and
 `OPEN` requests.
 `fastPut` snapshots its remote path and options before opening or inspecting the local file.

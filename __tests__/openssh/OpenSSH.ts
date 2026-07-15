@@ -2901,21 +2901,21 @@ describe("OpenSSH interoperability", () => {
             const downloadPath = join(transferDirectory, "download.bin")
             await writeFile(uploadPath, transferContents)
             let uploaded = 0
+            sftp.on("uploadProgress", (progress) => {
+                uploaded = progress.transferred
+            })
             await sftp.fastPut(uploadPath, transferPath, {
                 chunkSize: 19_999,
                 concurrency: 7,
-                step: (total) => {
-                    uploaded = total
-                },
             })
             expect(uploaded).toBe(transferContents.length)
             let downloaded = 0
+            sftp.on("downloadProgress", (progress) => {
+                downloaded = progress.transferred
+            })
             await sftp.fastGet(transferPath, downloadPath, {
                 chunkSize: 17_777,
                 concurrency: 5,
-                step: (total) => {
-                    downloaded = total
-                },
             })
             expect(downloaded).toBe(transferContents.length)
             expect(await readFile(downloadPath)).toEqual(transferContents)

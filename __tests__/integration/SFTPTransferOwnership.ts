@@ -167,21 +167,19 @@ test("SFTP fastGet owns transfer options before awaiting stat", async () => {
     const options = {
         chunkSize: 3,
         concurrency: 1,
-        step(transferred: number, chunk: number, total: number) {
-            progress.push(`original:${transferred}:${chunk}:${total}`)
-        },
     }
 
     try {
         await client.connect()
         const sftp = await client.sftp()
+        sftp.on("downloadProgress", ({ remotePath, transferred, chunk, total }) => {
+            progress.push(`${remotePath.toString()}:${transferred}:${chunk}:${total}`)
+            remotePath.fill(0)
+        })
         const transfer = sftp.fastGet("remote-file", join(directory, "download"), options)
         await statReceived
         options.chunkSize = 2
         options.concurrency = 2
-        options.step = (transferred, chunk, total) => {
-            progress.push(`mutated:${transferred}:${chunk}:${total}`)
-        }
         releaseStat()
         await transfer
 
@@ -190,7 +188,7 @@ test("SFTP fastGet owns transfer options before awaiting stat", async () => {
                 { offset: 0n, length: 3 },
                 { offset: 3n, length: 3 },
             ],
-            progress: ["original:3:3:6", "original:6:3:6"],
+            progress: ["remote-file:3:3:6", "remote-file:6:3:6"],
         })
         sftp.end()
     } finally {
