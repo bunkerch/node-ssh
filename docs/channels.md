@@ -208,7 +208,9 @@ connected directly to a fresh local agent socket. Incoming agent channels are re
 session request has succeeded, and agents without a stream capability such as `DiskAgent` cannot
 be forwarded. Establishing that local socket may be asynchronous. If the SSH transport closes
 first, a socket that resolves later is destroyed without creating a channel or attempting a reply
-on the closed transport.
+on the closed transport. This remains true when the same `Client` reconnects: an agent lookup is
+bound to the transport that requested it and cannot attach to a channel identifier reused by the
+new connection.
 
 A server can inspect an authorized forwarded agent through the Promise-based protocol client. The
 connection carries no request identifiers, so operations are serialized and each response has a

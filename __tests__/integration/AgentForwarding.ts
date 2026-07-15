@@ -433,4 +433,131 @@ describe("client agent-forwarding defaults", () => {
             await within(server.close(), "the forwarding test server to close")
         }
     }, 15_000)
+
+    test("does not attach an old agent stream to a reused channel after reconnect", async () => {
+        const server = new Server({
+            hostKeys: [await PrivateKey.generate("ssh-ed25519")],
+            sendAllHostKeys: false,
+        })
+        server.hooker.hook("noneAuthentication", (_hook, _context, decision) => {
+            decision.allowLogin = true
+        })
+        server.hooker.hook("channelOpenRequest", (_hook, channel, decision) => {
+            decision.allowOpen = channel instanceof SessionChannel
+        })
+        const connections: ServerClient[] = []
+        server.on("connection", (connection) => {
+            connections.push(connection)
+            connection.on("channel", (channel) => {
+                if (!(channel instanceof SessionChannel)) return
+                channel.hooker.hook("agentForwardRequest", (_hook, decision) => {
+                    decision.success = true
+                })
+            })
+        })
+        server.listen({ host: "127.0.0.1", port: 0 })
+        await once(server, "listening")
+
+        let reportFirstRequest!: () => void
+        let reportSecondRequest!: () => void
+        const firstRequested = new Promise<void>((resolve) => {
+            reportFirstRequest = resolve
+        })
+        const secondRequested = new Promise<void>((resolve) => {
+            reportSecondRequest = resolve
+        })
+        const streamResolvers: ((stream: Duplex) => void)[] = []
+        const agent: Agent<string> = {
+            ...forwardableAgent,
+            getStream() {
+                const requestIndex = streamResolvers.length
+                if (requestIndex === 0) reportFirstRequest()
+                if (requestIndex === 1) reportSecondRequest()
+                return new Promise<Duplex>((resolve) => {
+                    streamResolvers.push(resolve)
+                })
+            },
+        }
+        const client = new Client({
+            hostname: "127.0.0.1",
+            port: (server.address() as AddressInfo).port,
+            username: "reconnected-agent-stream",
+            agent,
+            authenticationMethodsOrder: [SSHAuthenticationMethods.None],
+        })
+        client.hooker.hook("hostKey", (_hook, decision) => {
+            decision.allowHostKey = true
+        })
+        const oldStream = new PassThrough()
+        const newStream = new PassThrough()
+        let oldStreamResolved = false
+        let newStreamResolved = false
+        let newOpeningOutcome: Promise<Awaited<ReturnType<ServerClient["forwardAgent"]>> | Error>
+
+        try {
+            await client.connect()
+            const oldSession = await client.openSession()
+            await oldSession.forwardAgent()
+            const oldConnection = connections[0]
+            const oldOpening = oldConnection.forwardAgent()
+            const oldOpeningOutcome = oldOpening.then(
+                (channel) => channel,
+                (error: unknown) => (error instanceof Error ? error : new Error(String(error))),
+            )
+            const oldSenderId = (oldConnection.localChannelIndex - 1) >>> 0
+            await within(firstRequested, "the old agent stream request")
+
+            const clientClosed = once(client, "close")
+            client.destroy()
+            await within(clientClosed, "the old client transport to close")
+            expect(await within(oldOpeningOutcome, "the old agent channel to fail")).toBeInstanceOf(
+                Error,
+            )
+
+            await client.connect()
+            const newSession = await client.openSession()
+            await newSession.forwardAgent()
+            const newConnection = connections[1]
+            newConnection.localChannelIndex = oldSenderId
+
+            let newOpeningSettled = false
+            const newOpening = newConnection.forwardAgent()
+            newOpeningOutcome = newOpening.then(
+                (channel) => {
+                    newOpeningSettled = true
+                    return channel
+                },
+                (error: unknown) => {
+                    newOpeningSettled = true
+                    return error instanceof Error ? error : new Error(String(error))
+                },
+            )
+            await within(secondRequested, "the new agent stream request")
+
+            const oldStreamClosed = once(oldStream, "close")
+            oldStreamResolved = true
+            streamResolvers[0](oldStream)
+            await within(oldStreamClosed, "the old agent stream to close")
+            await new Promise<void>((resolve) => setImmediate(resolve))
+
+            expect(newOpeningSettled).toBe(false)
+            expect(client.isConnected).toBe(true)
+
+            newStreamResolved = true
+            streamResolvers[1](newStream)
+            const newChannel = await within(newOpeningOutcome, "the new agent channel to open")
+            expect(newChannel).not.toBeInstanceOf(Error)
+            if (newChannel instanceof Error) throw newChannel
+            newChannel.close()
+            newSession.close()
+        } finally {
+            if (!oldStreamResolved) streamResolvers[0]?.(oldStream)
+            if (!newStreamResolved) streamResolvers[1]?.(newStream)
+            client.destroy()
+            for (const connection of server.clients) connection.terminate()
+            oldStream.destroy()
+            newStream.destroy()
+            await within(server.close(), "the reconnecting forwarding test server to close")
+        }
+    }, 15_000)
 })

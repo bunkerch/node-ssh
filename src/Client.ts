@@ -3419,7 +3419,9 @@ export default class Client extends EventEmitter<ClientEvents> {
             packet.data.channel_type === ClientAgentChannel.channelType ||
             packet.data.channel_type === RFC9987_AGENT_CHANNEL
         ) {
-            void this.handleIncomingAgentChannelOpen(packet).catch((error: unknown) => {
+            const generation = this.connectionGeneration
+            void this.handleIncomingAgentChannelOpen(packet, generation).catch((error: unknown) => {
+                if (generation !== this.connectionGeneration) return
                 this.handleMessageError(error instanceof Error ? error : new Error(String(error)))
             })
             return
@@ -3536,7 +3538,10 @@ export default class Client extends EventEmitter<ClientEvents> {
         if (!decided) reject()
     }
 
-    private async handleIncomingAgentChannelOpen(packet: ChannelOpen): Promise<void> {
+    private async handleIncomingAgentChannelOpen(
+        packet: ChannelOpen,
+        generation: number,
+    ): Promise<void> {
         if (packet.data.args.length !== 0) {
             this.rejectIncomingChannel(
                 packet,
@@ -3560,7 +3565,7 @@ export default class Client extends EventEmitter<ClientEvents> {
             stream = await getStream.call(this.#options.agent)
         } catch (error) {
             this.debug("Could not connect an incoming channel to the SSH agent", error)
-            if (!this.canReplyToIncomingChannel(packet)) return
+            if (!this.canReplyToIncomingChannel(packet, generation)) return
             this.rejectIncomingChannel(
                 packet,
                 ChannelOpenFailureReasonCodes.SSH_OPEN_CONNECT_FAILED,
@@ -3569,7 +3574,7 @@ export default class Client extends EventEmitter<ClientEvents> {
             return
         }
 
-        if (!this.canReplyToIncomingChannel(packet)) {
+        if (!this.canReplyToIncomingChannel(packet, generation)) {
             stream.destroy()
             return
         }
@@ -3593,7 +3598,7 @@ export default class Client extends EventEmitter<ClientEvents> {
             }
             stream.destroy()
             this.debug("Could not accept an incoming SSH agent channel", error)
-            if (!this.canReplyToIncomingChannel(packet)) return
+            if (!this.canReplyToIncomingChannel(packet, generation)) return
             this.rejectIncomingChannel(
                 packet,
                 ChannelOpenFailureReasonCodes.SSH_OPEN_CONNECT_FAILED,
@@ -3602,8 +3607,9 @@ export default class Client extends EventEmitter<ClientEvents> {
         }
     }
 
-    private canReplyToIncomingChannel(packet: ChannelOpen): boolean {
+    private canReplyToIncomingChannel(packet: ChannelOpen, generation: number): boolean {
         return (
+            generation === this.connectionGeneration &&
             this.isConnected &&
             this.socket !== undefined &&
             !this.socket.destroyed &&
