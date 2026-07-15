@@ -5,7 +5,7 @@ import { AddressInfo, createConnection, createServer } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
-import Client from "../../src/Client.js"
+import Client, { type ClientOptions } from "../../src/Client.js"
 import ProtocolVersionExchange from "../../src/ProtocolVersionExchange.js"
 import Server from "../../src/Server.js"
 import ServerClient from "../../src/ServerClient.js"
@@ -1044,6 +1044,52 @@ describe("client/server integration", () => {
         expect(() => new Client({ localPort: 65_536 })).toThrow(
             "SSH local port must be an integer between 0 and 65535",
         )
+    })
+
+    test("validates TCP endpoint configuration before connecting", () => {
+        const invalid: readonly [ClientOptions, string][] = [
+            [{ hostname: "" }, "SSH hostname must be a non-empty string"],
+            [{ hostname: "bad\ud800host" }, "SSH hostname is not valid UTF-8 text"],
+            [{ hostname: "bad\0host" }, "SSH hostname must not contain NUL"],
+            [
+                { hostname: 42 } as unknown as ClientOptions,
+                "SSH hostname must be a non-empty string",
+            ],
+            [
+                { hostname: null } as unknown as ClientOptions,
+                "SSH hostname must be a non-empty string",
+            ],
+            [{ port: 0 }, "SSH port must be an integer between 1 and 65535"],
+            [{ port: 65_536 }, "SSH port must be an integer between 1 and 65535"],
+            [{ port: 22.5 }, "SSH port must be an integer between 1 and 65535"],
+            [
+                { port: null } as unknown as ClientOptions,
+                "SSH port must be an integer between 1 and 65535",
+            ],
+            [{ localAddress: "" }, "SSH local address must be a non-empty string"],
+            [{ localAddress: "bad\0address" }, "SSH local address must not contain NUL"],
+            [{ localAddress: "bad\ud800address" }, "SSH local address is not valid UTF-8 text"],
+            [
+                { localAddress: false } as unknown as ClientOptions,
+                "SSH local address must be a non-empty string",
+            ],
+            [
+                { forceIPv4: "yes" } as unknown as ClientOptions,
+                "SSH forceIPv4 option must be a boolean",
+            ],
+            [
+                { forceIPv4: null } as unknown as ClientOptions,
+                "SSH forceIPv4 option must be a boolean",
+            ],
+            [
+                { forceIPv6: 1 } as unknown as ClientOptions,
+                "SSH forceIPv6 option must be a boolean",
+            ],
+        ]
+
+        for (const [options, message] of invalid) {
+            expect(() => new Client(options)).toThrow(message)
+        }
     })
 
     test("rejects a disallowed raw host key and closes the transport", async () => {

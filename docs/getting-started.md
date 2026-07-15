@@ -135,7 +135,10 @@ the value to zero to disable every channel while retaining transport and global-
 For direct TCP connections, `localAddress` and `localPort` select the source binding. Set exactly
 one of `forceIPv4` or `forceIPv6` to restrict hostname resolution to that address family. If both
 flags have the same value, normal system resolution is used. These four options are ignored when
-an already-connected `sock` is supplied.
+an already-connected `sock` is supplied. The remote `hostname` must be non-empty UTF-8 text without
+NUL, and `port` must be an integer from 1 through 65535. A configured local address follows the
+same text rules; `localPort` accepts integers from 0 through 65535. Endpoint configuration is
+validated during construction, before any socket is opened.
 
 `end()` sends `SSH_MSG_DISCONNECT` with the `BY_APPLICATION` reason and gracefully ends the TCP
 connection. Use `disconnect(new DisconnectError(reason, description, languageTag))` to send a

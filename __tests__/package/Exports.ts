@@ -658,6 +658,7 @@ describe("package exports", () => {
                     if (!parseKey(publicKey.toString()).equals(publicKey)) process.exit(4)
                     const configured = new Client({ privateKey: encrypted, passphrase: "packed-secret" })
                     if ("options" in configured) process.exit(5)
+                    try { new Client({ port: 0 }); process.exit(57) } catch (error) { if (!String(error).includes("between 1 and 65535")) process.exit(58) }
                     const legacy = generateKeyPairSync("dsa")
                     const legacySignature = legacy.privateKey.sign(message)
                     if (!legacy.publicKey.verifySignature(message, legacySignature)) process.exit(6)

@@ -609,6 +609,20 @@ function snapshotSessionOptions(options: ClientSessionOptions): ClientSessionOpt
     }
 }
 
+function validateEndpointText(value: unknown, field: "hostname" | "local address"): void {
+    if (typeof value !== "string" || value.length === 0) {
+        throw new TypeError(`SSH ${field} must be a non-empty string`)
+    }
+    encodeSSHUTF8(value, `SSH ${field}`)
+    if (value.includes("\0")) throw new TypeError(`SSH ${field} must not contain NUL`)
+}
+
+function validateAddressFamilyFlag(value: unknown, field: "forceIPv4" | "forceIPv6"): void {
+    if (typeof value !== "boolean") {
+        throw new TypeError(`SSH ${field} option must be a boolean`)
+    }
+}
+
 function clientDiagnosticSummary(
     options: ClientOptionsRequired,
 ): Readonly<Record<string, unknown>> {
@@ -663,13 +677,26 @@ export default class Client extends EventEmitter<ClientEvents> {
 
         this.explicitAuthenticationMethodsOrder = options.authenticationMethodsOrder !== undefined
         this.#options = { ...options } as ClientOptionsRequired
-        this.#options.hostname ??= "localhost"
-        this.#options.port ??= 22
-        this.#options.forceIPv4 ??= false
-        this.#options.forceIPv6 ??= false
+        if (this.#options.hostname === undefined) this.#options.hostname = "localhost"
+        if (this.#options.port === undefined) this.#options.port = 22
+        if (this.#options.forceIPv4 === undefined) this.#options.forceIPv4 = false
+        if (this.#options.forceIPv6 === undefined) this.#options.forceIPv6 = false
         this.#options.strictVendor ??= true
         this.#options.username ??= "root"
         this.#options.password ??= ""
+        validateEndpointText(this.#options.hostname, "hostname")
+        if (
+            !Number.isInteger(this.#options.port) ||
+            this.#options.port < 1 ||
+            this.#options.port > 65_535
+        ) {
+            throw new RangeError("SSH port must be an integer between 1 and 65535")
+        }
+        if (this.#options.localAddress !== undefined) {
+            validateEndpointText(this.#options.localAddress, "local address")
+        }
+        validateAddressFamilyFlag(this.#options.forceIPv4, "forceIPv4")
+        validateAddressFamilyFlag(this.#options.forceIPv6, "forceIPv6")
         if (this.#options.debug !== undefined && typeof this.#options.debug !== "function") {
             throw new TypeError("SSH debug option must be a function")
         }
