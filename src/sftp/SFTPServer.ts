@@ -110,6 +110,7 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
     private readonly queued: SFTPRequestPacket[] = []
     private readonly requestIds = new Set<number>()
     private readonly active = new Set<ActiveSFTPRequest>()
+    private readonly activeRequestIds = new Set<number>()
     private readonly awaitingResponse = new Map<number, ActiveSFTPRequest>()
     private initialized = false
     private closed = false
@@ -314,13 +315,19 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
             this.active.size < this.#maxConcurrentRequests &&
             this.queued.length > 0
         ) {
-            const request = this.queued.shift()!
+            const queuedIndex = this.queued.findIndex(
+                (request) => !this.activeRequestIds.has(request.requestId),
+            )
+            if (queuedIndex === -1) return
+            const [request] = this.queued.splice(queuedIndex, 1)
             const active: ActiveSFTPRequest = { request }
             this.active.add(active)
+            this.activeRequestIds.add(request.requestId)
             this.awaitingResponse.set(request.requestId, active)
             void this.dispatch(active).then(
                 () => {
                     this.active.delete(active)
+                    this.activeRequestIds.delete(request.requestId)
                     this.scheduleDispatch()
                 },
                 (error: unknown) => {
@@ -433,6 +440,7 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
         }
         this.closed = true
         this.active.clear()
+        this.activeRequestIds.clear()
         this.awaitingResponse.clear()
         this.queued.length = 0
         this.requestIds.clear()
@@ -444,6 +452,7 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
         if (this.closed) return
         this.closed = true
         this.active.clear()
+        this.activeRequestIds.clear()
         this.awaitingResponse.clear()
         this.queued.length = 0
         this.requestIds.clear()

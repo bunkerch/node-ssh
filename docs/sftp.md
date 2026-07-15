@@ -326,7 +326,10 @@ the session's `decision.sftp` options to a safe integer from 1 through 1024 when
 requires another bound; setting it to 1 deliberately restores serial dispatch. At most 1024 total
 queued and active requests are accepted. Operations that require ordering on the same application
 resource must use an application-owned per-handle or per-path lock rather than assuming wire arrival
-order.
+order. A peer may reuse a numeric request identifier after receiving its response; if the prior
+Hooker handler is still completing, the reused identifier remains queued until that handler returns.
+This prevents late code in the prior handler from accidentally responding to the newer request,
+without serializing unrelated identifiers.
 
 Advertise extension name/version pairs through `decision.sftp.extensions` only when every advertised
 operation is actually implemented:

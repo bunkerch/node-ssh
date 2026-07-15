@@ -483,7 +483,7 @@ describe("SFTP server request engine", () => {
         fixture.destroy()
     })
 
-    test("allows a request identifier to be reused after its response is written", async () => {
+    test("queues a reused identifier until its previous handler has finished", async () => {
         const fixture = new SFTPClientFixture()
         const server = new SFTPServer(asShell(fixture), { maxConcurrentRequests: 2 })
         let releaseCleanup!: () => void
@@ -494,12 +494,36 @@ describe("SFTP server request engine", () => {
         const firstResponseWritten = new Promise<void>((resolve) => {
             reportFirstResponse = resolve
         })
+        let reportStaleAttempt!: () => void
+        const staleAttempted = new Promise<void>((resolve) => {
+            reportStaleAttempt = resolve
+        })
+        let releaseSecond!: () => void
+        const secondReleased = new Promise<void>((resolve) => {
+            releaseSecond = resolve
+        })
+        let secondStarted = false
+        let thirdStarted = false
+        let staleError: Error | undefined
         server.hooker.hook("STAT", async (_hook, request) => {
             const first = request.path.equals(Buffer.from("first"))
-            await server.attributes(request.requestId, { size: first ? 1n : 2n })
             if (first) {
+                await server.attributes(request.requestId, { size: 1n })
                 reportFirstResponse()
                 await cleanupReleased
+                try {
+                    await server.attributes(request.requestId, { size: 99n })
+                } catch (error) {
+                    staleError = error instanceof Error ? error : new Error(String(error))
+                }
+                reportStaleAttempt()
+            } else if (request.path.equals(Buffer.from("second"))) {
+                secondStarted = true
+                await secondReleased
+                await server.attributes(request.requestId, { size: 2n })
+            } else {
+                thirdStarted = true
+                await server.attributes(request.requestId, { size: 3n })
             }
         })
 
@@ -507,19 +531,34 @@ describe("SFTP server request engine", () => {
         fixture.send({ type: SFTPPacketType.Stat, requestId: 30, path: Buffer.from("first") })
         await firstResponseWritten
         fixture.send({ type: SFTPPacketType.Stat, requestId: 30, path: Buffer.from("second") })
+        fixture.send({ type: SFTPPacketType.Stat, requestId: 31, path: Buffer.from("third") })
         await flush()
 
-        try {
-            expect(
-                fixture.responses
-                    .filter((packet) => packet.type === SFTPPacketType.Attrs)
-                    .map((packet) => packet.attributes.size),
-            ).toEqual([1n, 2n])
-        } finally {
-            releaseCleanup()
-            await flush()
-            fixture.destroy()
-        }
+        const startedBeforeCleanup = secondStarted
+        const unrelatedStartedBeforeCleanup = thirdStarted
+        releaseCleanup()
+        await staleAttempted
+        await flush()
+        const startedAfterCleanup = secondStarted
+        releaseSecond()
+        await flush()
+
+        expect({
+            startedBeforeCleanup,
+            unrelatedStartedBeforeCleanup,
+            startedAfterCleanup,
+            staleError: staleError?.message,
+            sizes: fixture.responses
+                .filter((packet) => packet.type === SFTPPacketType.Attrs)
+                .map((packet) => packet.attributes.size),
+        }).toEqual({
+            startedBeforeCleanup: false,
+            unrelatedStartedBeforeCleanup: true,
+            startedAfterCleanup: true,
+            staleError: "SFTP request 30 is not awaiting a response",
+            sizes: [1n, 3n, 2n],
+        })
+        fixture.destroy()
     })
 
     test("normalizes the published OpenSSH symlink argument reversal", () => {
