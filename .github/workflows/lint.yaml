@@ -9,7 +9,7 @@ permissions:
 
 jobs:
     lint:
-        runs-on: [self-hosted, bunkerch-sysbox, sysbox, docker]
+        runs-on: bunkerch-sysbox
         timeout-minutes: 20
         steps:
             - name: Checkout
