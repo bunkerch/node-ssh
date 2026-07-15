@@ -50,16 +50,23 @@ describe("server Channel", () => {
         )
         expect(sent).toEqual([])
 
-        shell.exit("TERM", true, "terminated")
+        expect(() => shell.exit("TERM", true, "terminated", "en_XX")).toThrow(
+            "SSH exit-signal language tag is not valid RFC 3066",
+        )
+        expect(sent).toEqual([])
+
+        shell.exit("TERM", true, "terminated", "en-US")
         expect(sent).toEqual([
             {
                 type: "exit-signal",
                 args: Buffer.from(
-                    "000000045445524d01" + "0000000a7465726d696e61746564" + "00000000",
+                    "000000045445524d01" + "0000000a7465726d696e61746564" + "00000005656e2d5553",
                     "hex",
                 ),
             },
         ])
+        expect(() => shell.exit(0)).toThrow("SSH session exit result has already been sent")
+        expect(sent).toHaveLength(1)
         shell.destroy()
     })
 

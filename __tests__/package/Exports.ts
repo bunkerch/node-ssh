@@ -690,6 +690,9 @@ describe("package exports", () => {
         )
         expect(shell).toContain("writeStdout(data: Buffer | string")
         expect(shell).toContain("writeStderr(data: Buffer | string")
+        expect(shell).toContain(
+            "exit(signal: string, coreDumped?: boolean, message?: string, languageTag?: string): this",
+        )
         expect(privateKey).toContain(
             "fromPuTTY(data: string | Buffer, passphrase?: string | Buffer): PrivateKey",
         )
@@ -926,7 +929,7 @@ describe("package exports", () => {
                                 void (async () => {
                                     await shell.writeStdout("node-stdout")
                                     await shell.writeStderr("node-stderr")
-                                    shell.exit(7).close()
+                                    shell.exit("TERM", true, "packed termination", "en-US").close()
                                 })().catch(rejectRuntime)
                             })
                         })
@@ -949,7 +952,8 @@ describe("package exports", () => {
                     await Promise.race([once(runtimeCommand, "close"), runtimeFailure])
                     if (Buffer.concat(runtimeStdout).toString() !== "node-stdout") process.exit(43)
                     if (Buffer.concat(runtimeStderr).toString() !== "node-stderr") process.exit(44)
-                    if (runtimeCommand.exitCode !== 7) process.exit(45)
+                    if (runtimeCommand.exitCode !== null || runtimeCommand.exitSignal !== "SIGTERM") process.exit(45)
+                    if (!runtimeCommand.exitCoreDumped || runtimeCommand.exitErrorMessage !== "packed termination" || runtimeCommand.exitLanguageTag !== "en-US") process.exit(104)
                     runtimeClient.hooker.hook("tcpConnection", async (_hook, channel, decision) => {
                         await Promise.resolve()
                         if (channel.details.sourceHost === "192.0.2.30") decision.allowOpen = true

@@ -206,6 +206,9 @@ event.
 Server shell integration verifies RFC 4254 directional half-close semantics: ending stdout sends
 EOF without CLOSE, the client sends additional stdin afterward, and explicit close then completes
 the channel lifecycle.
+An encrypted session also verifies the complete `exit-signal` result, including core-dump flag,
+UTF-8 diagnostic text, and RFC 3066 language tag. The server API prevents a second exit result from
+placing a peer-invalid duplicate on the same channel.
 
 An independently written unknown message is also sent in both directions over an encrypted
 in-process connection; each peer returns the exact rejected sequence in `SSH_MSG_UNIMPLEMENTED` and

@@ -411,10 +411,18 @@ failure discards an earlier success and does not activate or publish a shell or 
 The `Shell` passed to `exec` and `shell` events is a Node.js `Duplex`. It is also available through
 the `stdin` and `stdout` aliases, and has a separate writable `stderr`. Await `writeStdout()` or
 `writeStderr()` when later protocol messages must follow the output; ordinary stream writes remain
-available for piping. Output writes obey the client's shared channel window and maximum packet size. `exit(number)` sends `exit-status`; passing
-a signal name sends `exit-signal`. Its optional diagnostic message must be valid UTF-8 and is
-validated before the one-way result is sent. Ending stdout flushes queued output, sends EOF and CLOSE, and a
-remote EOF only ends stdin so the server can still finish its response.
+available for piping. Output writes obey the client's shared channel window and maximum packet
+size. `exit(number)` sends `exit-status`; passing a signal name sends `exit-signal`:
+
+```ts
+stream.exit("TERM", true, "terminated by policy", "en-US").close()
+```
+
+The optional diagnostic message must be valid UTF-8, and the optional language tag must be a valid
+RFC 3066 tag. Both are validated before the one-way result is sent. A session can send exactly one
+exit result; a second `exit()` call throws locally instead of emitting a peer-invalid duplicate.
+Ending stdout flushes queued output, sends EOF and CLOSE, and a remote EOF only ends stdin so the
+server can still finish its response.
 Destroying the `Shell`, including `destroy(error)` from an application failure, sends channel CLOSE
 when the SSH connection is still available. It never leaves a server-owned session channel open,
 and teardown caused by an existing peer CLOSE or transport failure remains idempotent.

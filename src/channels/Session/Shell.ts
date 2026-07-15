@@ -3,7 +3,7 @@ import { SSHExtendedDataTypes } from "../../constants.js"
 import { serializeBinaryBoolean } from "../../utils/BinaryBoolean.js"
 import { serializeBuffer, serializeUint32 } from "../../utils/Buffer.js"
 import { normalizeSSHSignal } from "../../utils/Signal.js"
-import { encodeSSHUTF8 } from "../../utils/SSHText.js"
+import { encodeSSHLanguageTag, encodeSSHUTF8 } from "../../utils/SSHText.js"
 import SessionChannel from "../SessionChannel.js"
 
 type WriteCallback = (error?: Error | null) => void
@@ -26,6 +26,7 @@ export default class Shell extends Duplex {
     readonly stdin: this
     readonly stdout: this
     readonly stderr: Writable
+    private exitResultSent = false
 
     constructor(channel: SessionChannel) {
         super({ allowHalfOpen: true, emitClose: true })
@@ -103,8 +104,16 @@ export default class Shell extends Duplex {
     }
 
     exit(status: number): this
-    exit(signal: string, coreDumped?: boolean, message?: string): this
-    exit(statusOrSignal: number | string, coreDumped = false, message = ""): this {
+    exit(signal: string, coreDumped?: boolean, message?: string, languageTag?: string): this
+    exit(
+        statusOrSignal: number | string,
+        coreDumped = false,
+        message = "",
+        languageTag = "",
+    ): this {
+        if (this.exitResultSent) {
+            throw new Error("SSH session exit result has already been sent")
+        }
         if (typeof statusOrSignal === "number") {
             if (
                 !Number.isSafeInteger(statusOrSignal) ||
@@ -114,19 +123,23 @@ export default class Shell extends Duplex {
                 throw new RangeError("SSH exit status must be a uint32")
             }
             this.channel.sendRequest("exit-status", serializeUint32(statusOrSignal))
+            this.exitResultSent = true
             return this
         }
 
         const signal = normalizeSSHSignal(statusOrSignal)
+        const encodedMessage = encodeSSHUTF8(message, "SSH exit-signal message")
+        const encodedLanguageTag = encodeSSHLanguageTag(languageTag, "SSH exit-signal language tag")
         this.channel.sendRequest(
             "exit-signal",
             Buffer.concat([
                 serializeBuffer(Buffer.from(signal, "ascii")),
                 serializeBinaryBoolean(coreDumped),
-                serializeBuffer(encodeSSHUTF8(message, "SSH exit-signal message")),
-                serializeBuffer(Buffer.alloc(0)),
+                serializeBuffer(encodedMessage),
+                serializeBuffer(encodedLanguageTag),
             ]),
         )
+        this.exitResultSent = true
         return this
     }
 }
