@@ -125,6 +125,12 @@ const client = new Client({
 already-loaded private keys should be attempted in order. It is non-interactive and signs entirely
 in memory; unlike a socket-backed agent, it cannot be forwarded to the remote host.
 
+Identity lists returned by an application-defined agent are validated and serialized into owned
+public-key snapshots before authentication begins. Each signing operation gives the agent a copy of
+the session-bound authentication preimage, then snapshots and locally verifies the returned
+signature before any credential packet is sent. Agent mutation or an invalid signature therefore
+cannot silently change the advertised identity or reach server authentication policy.
+
 `agent` may also be a Unix-domain socket, Windows named pipe, or legacy Cygwin socket-descriptor
 path for an RFC 9987 agent. The client normalizes a string through `createSocketAgent()` during
 construction; omitting or passing an empty path does not implicitly enable `$SSH_AUTH_SOCK`. On

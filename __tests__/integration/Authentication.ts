@@ -779,6 +779,75 @@ describe("RFC 4252 multi-method authentication", () => {
         }
     }, 15_000)
 
+    test("owns and verifies authentication-agent results before sending", async () => {
+        const serverHostKey = await PrivateKey.generate("ssh-ed25519")
+        const userKey = await PrivateKey.generate("ssh-ed25519")
+        const expectedPublicKey = PublicKey.parse(userKey.data.publicKey.serialize())
+        const replacement = await PrivateKey.generate("ssh-ed25519")
+        const server = new Server({ hostKeys: [serverHostKey], sendAllHostKeys: false })
+        let policyCalls = 0
+        server.hooker.hook("publicKeyAuthentication", (_hook, context, decision) => {
+            policyCalls++
+            decision.allowLogin =
+                context.publicKey.equals(expectedPublicKey) &&
+                context.publicKey.verifySignature(context.signatureMessage, context.signature!)
+        })
+        server.listen({ host: "127.0.0.1", port: 0 })
+        await once(server, "listening")
+        const port = (server.address() as AddressInfo).port
+
+        class MutatingAgent extends PrivateKeyAgent {
+            override async sign(id: string, data: Buffer, algorithm?: string) {
+                const signature = await super.sign(id, data, algorithm)
+                data.fill(0)
+                userKey.data.publicKey.data = { ...replacement.data.publicKey.data }
+                return signature
+            }
+        }
+        const client = new Client({
+            hostname: "127.0.0.1",
+            port,
+            username: "owned-agent-result",
+            agent: new MutatingAgent(userKey),
+            authenticationMethodsOrder: [SSHAuthenticationMethods.PublicKey],
+        })
+        client.hooker.hook("hostKey", (_hook, decision) => {
+            decision.allowHostKey = true
+        })
+
+        const invalidKey = await PrivateKey.generate("ssh-ed25519")
+        class InvalidSignatureAgent extends PrivateKeyAgent {
+            override async sign(id: string, _data: Buffer, algorithm?: string) {
+                return super.sign(id, Buffer.from("wrong authentication preimage"), algorithm)
+            }
+        }
+        const invalidClient = new Client({
+            hostname: "127.0.0.1",
+            port,
+            username: "invalid-agent-result",
+            agent: new InvalidSignatureAgent(invalidKey),
+            authenticationMethodsOrder: [SSHAuthenticationMethods.PublicKey],
+        })
+        invalidClient.hooker.hook("hostKey", (_hook, decision) => {
+            decision.allowHostKey = true
+        })
+
+        try {
+            await client.connect()
+            expect(client.isConnected).toBe(true)
+            expect(policyCalls).toBe(1)
+            await expect(invalidClient.connect()).rejects.toThrow(
+                "All authentication methods failed",
+            )
+            expect(policyCalls).toBe(1)
+        } finally {
+            client.destroy()
+            invalidClient.destroy()
+            for (const connection of server.clients) connection.terminate()
+            await server.close()
+        }
+    }, 15_000)
+
     test("rejects a host-bound request for a different server key before policy", async () => {
         const serverHostKey = await PrivateKey.generate("ssh-ed25519")
         const otherHostKey = await PrivateKey.generate("ssh-ed25519")

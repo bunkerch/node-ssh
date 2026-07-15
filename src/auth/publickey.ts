@@ -6,13 +6,67 @@ import { serializeBinaryBoolean } from "../utils/BinaryBoolean.js"
 import type Client from "../Client.js"
 import { clientConfigurationFor } from "../ConnectionConfiguration.js"
 import PublicKey from "../utils/PublicKey.js"
-import { AgentType } from "../publickey/Agent.js"
+import Agent, { AgentType } from "../publickey/Agent.js"
 import { SSHAuthenticationMethods, SSHServiceNames } from "../constants.js"
 import UserAuthSuccess from "../packets/UserAuthSuccess.js"
 import UserAuthFailure from "../packets/UserAuthFailure.js"
 import UserAuthPKOK from "../packets/UserAuthPKOK.js"
 import EncodedSignature from "../utils/Signature.js"
 import { decodeSSHName, encodeSSHName } from "../utils/SSHName.js"
+
+interface AuthenticationAgentIdentity {
+    readonly id: string
+    readonly publicKey: PublicKey
+}
+
+function snapshotAgentIdentities(value: unknown): readonly AuthenticationAgentIdentity[] {
+    if (!Array.isArray(value)) {
+        throw new TypeError("SSH authentication agent returned an invalid identity list")
+    }
+    return Object.freeze(
+        value.map((entry) => {
+            if (
+                !Array.isArray(entry) ||
+                entry.length !== 2 ||
+                typeof entry[0] !== "string" ||
+                !(entry[1] instanceof PublicKey)
+            ) {
+                throw new TypeError("SSH authentication agent returned an invalid identity")
+            }
+            return Object.freeze({
+                id: entry[0],
+                publicKey: PublicKey.parse(entry[1].serialize()),
+            })
+        }),
+    )
+}
+
+async function signAuthenticationRequest(
+    agent: Agent,
+    id: string,
+    method: PublicKeyAuthMethod,
+    packet: UserAuthRequest,
+    client: Client,
+    algorithm: string,
+): Promise<EncodedSignature> {
+    const signedData = packet.serializeForSignature(client)
+    const agentData = Buffer.from(signedData)
+    try {
+        const suppliedSignature = await agent.sign(id, agentData, algorithm)
+        if (!(suppliedSignature instanceof EncodedSignature)) {
+            throw new TypeError("SSH authentication agent returned an invalid signature")
+        }
+        const signature = EncodedSignature.parse(suppliedSignature.serialize())
+        assert(
+            method.data.publicKey.verifySignature(signedData, signature),
+            "SSH authentication agent returned an invalid signature",
+        )
+        return signature
+    } finally {
+        signedData.fill(0)
+        agentData.fill(0)
+    }
+}
 
 export interface PublicKeyAuthMethodData {
     publicKey: PublicKey
@@ -116,14 +170,15 @@ export default class PublicKeyAuthMethod implements AuthMethod {
         client: Client,
         assertCurrent: AuthenticationGenerationGuard,
     ): Promise<boolean> {
-        const keys = await clientConfigurationFor(client).agent.getPublicKeys()
+        const agent = clientConfigurationFor(client).agent
+        const keys = snapshotAgentIdentities(await agent.getPublicKeys())
         assertCurrent()
         for (const key of keys) {
-            const algorithms = key[1].signatureAlgorithms.filter(
+            const algorithms = key.publicKey.signatureAlgorithms.filter(
                 (algorithm) =>
                     !client.serverSignatureAlgorithms ||
                     client.serverSignatureAlgorithms.includes(
-                        key[1].signatureAlgorithmFor(algorithm),
+                        key.publicKey.signatureAlgorithmFor(algorithm),
                     ),
             )
             for (const algorithm of algorithms) {
@@ -131,16 +186,16 @@ export default class PublicKeyAuthMethod implements AuthMethod {
                     client.debug(
                         `[Authentication]`,
                         `[PublicKey]`,
-                        `Trying publickey authentication with ${key[1].data.alg} key ${key[1].hash("sha256")}`,
+                        `Trying publickey authentication with ${key.publicKey.data.alg} key ${key.publicKey.hash("sha256")}`,
                     )
 
                     const method = client.hostboundPublicKeyAuthentication
                         ? new HostboundPublicKeyAuthMethod({
-                              publicKey: key[1],
+                              publicKey: key.publicKey,
                               algorithm,
                               serverHostKey: Buffer.from(client.serverHostKey!),
                           })
-                        : new PublicKeyAuthMethod({ publicKey: key[1], algorithm })
+                        : new PublicKeyAuthMethod({ publicKey: key.publicKey, algorithm })
                     const packet = new UserAuthRequest({
                         username: clientConfigurationFor(client).username,
                         service_name: SSHServiceNames.Connection,
@@ -152,9 +207,12 @@ export default class PublicKeyAuthMethod implements AuthMethod {
                     // the packet. That will save us one packet if the pk
                     // is correct.
                     if (clientConfigurationFor(client).agent.type === AgentType.NonInteractive) {
-                        method.data.signature = await clientConfigurationFor(client).agent.sign(
-                            key[0],
-                            packet.serializeForSignature(client),
+                        method.data.signature = await signAuthenticationRequest(
+                            agent,
+                            key.id,
+                            method,
+                            packet,
+                            client,
                             algorithm,
                         )
                         assertCurrent()
@@ -179,9 +237,11 @@ export default class PublicKeyAuthMethod implements AuthMethod {
                                 "Server requested a public key signature, but a signature was already provided.",
                             )
 
-                            const keys = await clientConfigurationFor(client).agent.getPublicKeys()
+                            const keys = snapshotAgentIdentities(await agent.getPublicKeys())
                             assertCurrent()
-                            const key = keys.find((key) => key[1].equals(method.data.publicKey))
+                            const key = keys.find((key) =>
+                                key.publicKey.equals(method.data.publicKey),
+                            )
                             assert(
                                 key,
                                 "Server requested a signature from a public key that was not provided by the agent",
@@ -192,9 +252,12 @@ export default class PublicKeyAuthMethod implements AuthMethod {
                                 "Server requested a different public key algorithm",
                             )
 
-                            method.data.signature = await clientConfigurationFor(client).agent.sign(
-                                key[0],
-                                packet.serializeForSignature(client),
+                            method.data.signature = await signAuthenticationRequest(
+                                agent,
+                                key.id,
+                                method,
+                                packet,
+                                client,
                                 algorithm,
                             )
                             assertCurrent()
