@@ -6,8 +6,13 @@ The project implements SSH from its standards and is actively expanding its clie
 feature surface. Transport identification, binary packet framing, key exchange, encryption, MAC
 verification, host keys, and core authentication flows are implemented today.
 
-Until the first registry release, build a local installable archive with `pnpm pack` and add the
-resulting `bunkerch-modernssh-1.0.0.tgz` file to an application with its package manager.
+The current release is available from `npm.manaf.ch`:
+
+```sh
+pnpm add @bunkerch/modernssh --registry https://npm.manaf.ch
+```
+
+The package will also target the public npm registry in a future release.
 
 See [Getting started](docs/getting-started.md) for client and server examples and
 [SSH transport behavior](docs/transport.md) for protocol-level details. The
