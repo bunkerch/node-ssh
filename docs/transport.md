@@ -700,9 +700,11 @@ must be non-empty strings or regular expressions; malformed objects are rejected
 silently ignored. `algorithmOffer` exposes the resulting frozen name lists for inspection; the
 factory registry behind those names remains internal so runtime map mutation cannot bypass
 construction-time validation. Exact arrays can select supported legacy methods. Client `{ append }`
-changes can add them after modern defaults;
-SHA-1 key exchange and host signatures, DSS, CBC/3DES, and MD5/SHA-1 MACs are not offered unless
-configured.
+changes can add them after modern defaults.
+The RFC 9142 legacy methods `diffie-hellman-group14-sha1`,
+`diffie-hellman-group1-sha1`, and `diffie-hellman-group-exchange-sha1` remain available for explicit
+interoperability but are never offered by default. SHA-1 host signatures, DSS, CBC/3DES, and
+MD5/SHA-1 MACs likewise require explicit configuration.
 
 ```ts
 const client = new Client({

@@ -185,11 +185,23 @@ describe("RFC 4253 algorithm negotiation", () => {
         const legacyClient = new Client({
             hostname: "unused.invalid",
             algorithms: {
+                kex: {
+                    append: [
+                        "diffie-hellman-group14-sha1",
+                        "diffie-hellman-group1-sha1",
+                        "diffie-hellman-group-exchange-sha1",
+                    ],
+                },
                 serverHostKey: { append: "ssh-dss" },
                 cipher: { append: ["blowfish-cbc", "cast128-cbc"] },
                 hmac: { append: "hmac-ripemd160" },
             },
         })
+        expect(legacyClient.algorithmOffer.kex.slice(-3)).toEqual([
+            "diffie-hellman-group14-sha1",
+            "diffie-hellman-group1-sha1",
+            "diffie-hellman-group-exchange-sha1",
+        ])
         expect(legacyClient.algorithmOffer.serverHostKey.at(-1)).toBe("ssh-dss")
         expect(legacyClient.algorithmOffer.cipher.slice(-2)).toEqual([
             "blowfish-cbc",

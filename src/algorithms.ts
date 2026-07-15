@@ -298,11 +298,9 @@ export const kex_algorithms = new Map<string, KexAlgorithmFactory>([
     ["diffie-hellman-group15-sha512", DiffieHellmanGroup15SHA512],
     ["diffie-hellman-group14-sha256", DiffieHellmanGroup14SHA256],
     ["rsa2048-sha256", RSA2048SHA256],
-    ["diffie-hellman-group14-sha1", DiffieHellmanGroup14SHA1],
 
-    // OpenSSH supports client method, but does not enable it by default because it
-    // is weak and within theoretical range of the so-called Logjam attack.
-    // TODO: Figure if we should disable it.
+    // RFC 9142 keeps these legacy methods available only for explicit interoperability.
+    ["diffie-hellman-group14-sha1", DiffieHellmanGroup14SHA1],
     ["diffie-hellman-group1-sha1", DiffieHellmanGroup1SHA1],
     ["diffie-hellman-group-exchange-sha1", DiffieHellmanGroupExchangeSHA1],
 ])
