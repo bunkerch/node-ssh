@@ -934,7 +934,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         try {
             this.#serverKexInit = this.createKexInit()
             this.sendPacket(this.#serverKexInit)
-            if (!peerInitiated) await this.waitEvent("clientKexInit")
+            if (!peerInitiated) await this.#waitEvent("clientKexInit")
             const clientKexInitBuffer = this.#clientKexInitPayload
             assert(clientKexInitBuffer, "Missing exact client KEXINIT payload")
             const clientKexInit = KexInit.parse(clientKexInitBuffer)
@@ -988,7 +988,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                     PacketNameToType.SSH_MSG_KEXDH_INIT,
                     PacketNameToType.SSH_MSG_KEX_DH_GEX_REQUEST,
                 )
-                const [request] = await this.waitEvent("clientKexDHGexRequest")
+                const [request] = await this.#waitEvent("clientKexDHGexRequest")
                 if (request instanceof KexDHGexRequestOld) {
                     kexAlgorithm.setOldRequest(request.data.preferred)
                 } else {
@@ -998,7 +998,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 kexAlgorithm.generateKeyPair()
                 this.sendPacket(new KexDHGexGroup(group))
                 this.expectInboundKeyExchange(PacketNameToType.SSH_MSG_KEX_DH_GEX_INIT)
-                const [init] = await this.waitEvent("clientKexDHGexInit")
+                const [init] = await this.#waitEvent("clientKexDHGexInit")
                 kexAlgorithm.computeSharedSecret(init.data.e)
                 clientExchangeValue = init.data.e
                 serverExchangeValue = kexAlgorithm.getPublicKey()
@@ -1012,11 +1012,11 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                         transientKey: kexAlgorithm.getTransientPublicKey(),
                     }),
                 )
-                const [secret] = await this.waitEvent("clientKexRSASecret")
+                const [secret] = await this.#waitEvent("clientKexRSASecret")
                 kexAlgorithm.decryptSecret(secret.data.encryptedSecret)
             } else {
                 this.expectInboundKeyExchange(PacketNameToType.SSH_MSG_KEXDH_INIT)
-                const [clientKexDHInit] = await this.waitEvent("clientKexDHInit")
+                const [clientKexDHInit] = await this.#waitEvent("clientKexDHInit")
                 kexAlgorithm.generateKeyPair("server")
                 kexAlgorithm.computeSharedSecret(clientKexDHInit.data.e)
                 clientExchangeValue = clientKexDHInit.data.e
@@ -1063,7 +1063,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             this.expectInboundKeyExchange(PacketNameToType.SSH_MSG_NEWKEYS)
             this.resumePacketProcessing()
 
-            if (!this.hasReceivedNewKeys) await this.waitEvent("clientNewKeys")
+            if (!this.hasReceivedNewKeys) await this.#waitEvent("clientNewKeys")
             this.sendPacket(new NewKeys({}))
             if (this.strictKeyExchange) this.packetEncoder.resetSequenceNumber()
             this.hasSentNewKeys = true
@@ -1152,7 +1152,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     async connect(): Promise<void> {
         this.startHandshakeTimeout()
         this.state = SocketState.Connecting
-        const clientProtocolVersionPromise = this.waitEvent("clientProtocolVersion")
+        const clientProtocolVersionPromise = this.#waitEvent("clientProtocolVersion")
 
         this.debug(`Socket connected, sending protocol version exchange packet...`)
         this.socket.write(
@@ -2470,7 +2470,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         }
     }
 
-    waitEvent<event extends keyof ServerClientEvents>(
+    #waitEvent<event extends Exclude<keyof ServerClientEvents, "error" | "close">>(
         event: event,
     ): Promise<ServerClientEvents[event]> {
         return new Promise((resolve, reject) => {
@@ -2495,12 +2495,13 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 cleanup()
             }
             const cleanup = () => {
-                // @ts-expect-error the function definition makes sure this is respected
+                // @ts-expect-error the generic event key and tuple keep this listener aligned
                 this.off(event, handler)
                 this.off("error", onError)
                 this.off("close", onClose)
             }
-            // @ts-expect-error the function definition makes sure this is respected
+            // Preserve the same coalesced-packet ordering guarantee as the client helper.
+            // @ts-expect-error the generic event key and tuple keep this listener aligned
             this.once(event, handler)
             this.once("error", onError)
             this.once("close", onClose)

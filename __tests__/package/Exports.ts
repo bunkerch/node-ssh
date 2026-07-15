@@ -325,6 +325,10 @@ describe("package exports", () => {
         expect(entry.ELEVATION_EXTENSION).toBe("elevation")
         expect(entry.DELAY_COMPRESSION_EXTENSION).toBe("delay-compression")
         expect(entry.delayCompressionExtension).toBeFunction()
+        expect("waitEvent" in Client.prototype).toBe(false)
+        expect("waitForPacket" in Client.prototype).toBe(false)
+        expect("waitForPackets" in Client.prototype).toBe(false)
+        expect("waitEvent" in ServerClient.prototype).toBe(false)
     })
 
     test("compiled declarations expose Promise-only completion APIs", async () => {
@@ -355,9 +359,12 @@ describe("package exports", () => {
         expect(client).not.toContain("message: [message: Buffer]")
         expect(client).not.toContain("packet: [packet: Packet]")
         expect(client).toContain("packet: [metadata: Readonly<ProtocolPacketMetadata>]")
+        expect(client).not.toContain("waitForPacket")
+        expect(client).not.toContain("waitEvent<")
         expect(serverClient).not.toContain("message: [message: Buffer]")
         expect(serverClient).not.toContain("packet: [packet: Packet]")
         expect(serverClient).toContain("packet: [metadata: Readonly<ProtocolPacketMetadata>]")
+        expect(serverClient).not.toContain("waitEvent<")
         expect(serverClient).not.toContain("channelOpenRequest: [packet: ChannelOpen]")
         expect(serverClient).not.toContain("channelRequest: [packet: ChannelRequest]")
         expect(serverClient).not.toContain("channelData: [packet: ChannelData]")
@@ -494,7 +501,13 @@ describe("package exports", () => {
             expect(archive).toBeDefined()
             const consumer = join(directory, "consumer")
             await mkdir(consumer)
-            await execFileAsync("pnpm", ["add", "--dir", consumer, join(directory, archive!)])
+            await execFileAsync("pnpm", [
+                "add",
+                "--ignore-scripts",
+                "--dir",
+                consumer,
+                join(directory, archive!),
+            ])
             const { stdout, stderr } = await execFileAsync(
                 "node",
                 [

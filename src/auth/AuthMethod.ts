@@ -1,5 +1,12 @@
 import type Client from "../Client.js"
 import { SSHAuthenticationMethods } from "../constants.js"
+import Packet from "../packet.js"
+import Disconnect from "../packets/Disconnect.js"
+import Unimplemented from "../packets/Unimplemented.js"
+import UserAuthFailure from "../packets/UserAuthFailure.js"
+import UserAuthPKOK from "../packets/UserAuthPKOK.js"
+import UserAuthSuccess from "../packets/UserAuthSuccess.js"
+import { waitForMatchingPacket } from "../utils/PacketEventQueue.js"
 
 export default abstract class AuthMethod {
     static method_name: string
@@ -22,27 +29,19 @@ export default abstract class AuthMethod {
         throw new Error("Not implemented")
     }
 
-    static async waitForAnswer(client: Client, seqno?: number) {
-        return client.waitForPackets(
-            {
-                SSH_MSG_UNIMPLEMENTED: {
-                    predicate: (packet) =>
-                        seqno === undefined || packet.data.sequence_number === seqno,
-                },
-                SSH_MSG_USERAUTH_FAILURE: {
-                    predicate: () => true,
-                },
-                SSH_MSG_USERAUTH_SUCCESS: {
-                    predicate: () => true,
-                },
-                SSH_MSG_USERAUTH_PK_OK: {
-                    predicate: () => true,
-                },
-                SSH_MSG_DISCONNECT: {
-                    predicate: () => true,
-                },
-            },
+    static async waitForAnswer(client: Client, seqno?: number): Promise<Packet> {
+        return waitForMatchingPacket(
+            client,
+            (packet) =>
+                (packet instanceof Unimplemented &&
+                    (seqno === undefined || packet.data.sequence_number === seqno)) ||
+                packet instanceof UserAuthFailure ||
+                packet instanceof UserAuthSuccess ||
+                (packet.constructor as typeof Packet).type === UserAuthPKOK.type ||
+                packet instanceof Disconnect,
             10_000,
+            () => new Error("SSH connection closed during authentication"),
+            () => new Error("Timed out waiting for message"),
         )
     }
 }

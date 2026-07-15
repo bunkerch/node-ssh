@@ -42,6 +42,33 @@ export function waitForPacketEvent(
     return packets.next().finally(() => packets.close())
 }
 
+export async function waitForMatchingPacket(
+    source: PacketEventSource,
+    predicate: (packet: Packet) => boolean,
+    timeout: number,
+    closedError: () => Error,
+    timeoutError: () => Error,
+): Promise<Packet> {
+    const packets = new PacketEventQueue(source, closedError)
+    let timer: NodeJS.Timeout | undefined
+    const deadline = new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(timeoutError()), timeout)
+        timer.unref()
+    })
+    const matchingPacket = async (): Promise<Packet> => {
+        while (true) {
+            const packet = await packets.next()
+            if (predicate(packet)) return packet
+        }
+    }
+    try {
+        return await Promise.race([matchingPacket(), deadline])
+    } finally {
+        if (timer !== undefined) clearTimeout(timer)
+        packets.close()
+    }
+}
+
 /** A scoped Promise-based queue that preserves adjacent packet events. */
 export default class PacketEventQueue {
     readonly #source: PacketEventSource

@@ -164,7 +164,8 @@ The connection-level `packet` event exposes immutable inbound metadata: packet t
 name when known, and sequence number. It never exposes decrypted payload bytes or parsed packet
 objects. Authentication values, channel contents, agent traffic, environment values, and opaque
 application requests therefore cannot leak through generic transport observation. Use the narrow
-typed events and Hooker policies for protocol data an application is meant to consume.
+typed events and Hooker policies for protocol data an application is meant to consume. Parsed-packet
+wait helpers are transport internals and are not part of the public connection API.
 
 `SSH_MSG_NEWKEYS` changes protection independently in each direction, as required by RFC 4253
 section 7.3. A sender protects packets immediately after sending its unprotected `NEWKEYS`; a

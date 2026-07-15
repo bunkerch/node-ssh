@@ -67,8 +67,10 @@ Before committing, run the focused tests for the change, then `pnpm build`, `pnp
   function directly to `on()` or `once()`; EventEmitter ignores returned promises. A synchronous
   listener that starts async work must attach explicit rejection handling and route failure back
   through the owning operation.
-- For one-shot event waiting, use `once()` from `node:events` and await it. Do not hand-roll a
-  Promise around `.once()` in code or documentation.
+- For ordinary one-shot event waiting, use `once()` from `node:events` and await it. Protocol
+  internals may use a direct listener bridge only when synchronous packet ordering or error
+  propagation requires it and focused tests cover that behavior. Do not hand-roll event Promises
+  in documentation.
 - Keep normalized client and server configuration private. Do not add a public options bag that
   exposes credentials, private keys, policy handlers, or mutable transport settings; expose
   legitimate runtime state through narrow, readonly APIs instead.

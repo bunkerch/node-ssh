@@ -49,76 +49,7 @@ async function closePeers(server: Server, client: Client): Promise<void> {
     await server.close()
 }
 
-function within<T>(promise: Promise<T>, label: string): Promise<T> {
-    return new Promise<T>((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error(`Timed out waiting for ${label}`)), 250)
-        timer.unref()
-        promise.then(
-            (value) => {
-                clearTimeout(timer)
-                resolve(value)
-            },
-            (error: unknown) => {
-                clearTimeout(timer)
-                reject(error as Error)
-            },
-        )
-    })
-}
-
 describe("RFC 4253 peer disconnects", () => {
-    test("rejects an event wait started after the connection closes", async () => {
-        const { server, peer, client } = await createConnectedPeers()
-        const closed = once(client, "close")
-
-        try {
-            peer.terminate()
-            await closed
-
-            await expect(within(client.waitEvent("rekey"), "closed event wait")).rejects.toThrow(
-                "SSH connection closed while waiting for rekey",
-            )
-        } finally {
-            await closePeers(server, client)
-        }
-    }, 15_000)
-
-    test("rejects a packet wait started after the connection closes", async () => {
-        const { server, peer, client } = await createConnectedPeers()
-        const closed = once(client, "close")
-
-        try {
-            peer.terminate()
-            await closed
-
-            await expect(
-                within(client.waitForPacket("SSH_MSG_KEXINIT"), "closed packet wait"),
-            ).rejects.toThrow("SSH connection closed while waiting for SSH_MSG_KEXINIT")
-        } finally {
-            await closePeers(server, client)
-        }
-    }, 15_000)
-
-    test("rejects a filtered packet wait started after the connection closes", async () => {
-        const { server, peer, client } = await createConnectedPeers()
-        const closed = once(client, "close")
-
-        try {
-            peer.terminate()
-            await closed
-
-            const waiting = client.waitForPackets(
-                { SSH_MSG_KEXINIT: { predicate: () => true } },
-                5_000,
-            )
-            await expect(within(waiting, "closed filtered packet wait")).rejects.toThrow(
-                "SSH connection closed while waiting for message",
-            )
-        } finally {
-            await closePeers(server, client)
-        }
-    }, 15_000)
-
     test("marks channels closed when their transport terminates", async () => {
         const { server, peer, client } = await createConnectedPeers()
         let serverChannel: SessionChannel | undefined

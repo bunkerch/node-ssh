@@ -12,12 +12,7 @@ import {
 } from "./constants.js"
 import ProtocolVersionExchange from "./ProtocolVersionExchange.js"
 import assert from "node:assert"
-import Packet, {
-    packets,
-    Packets,
-    protocolPacketMetadata,
-    type ProtocolPacketMetadata,
-} from "./packet.js"
+import Packet, { packets, protocolPacketMetadata, type ProtocolPacketMetadata } from "./packet.js"
 import KexInit from "./packets/KexInit.js"
 import {
     EncryptionAlgorithm,
@@ -1356,7 +1351,7 @@ export default class Client extends EventEmitter<ClientEvents> {
             }
         }
         if (publicKeys.length === 0) return
-        if (!this.isConnected) await this.waitEvent("connect")
+        if (!this.isConnected) await this.#waitEvent("connect")
         assert(this.sessionID, "SSH host-key proof requires an established session")
         const response = await this.sendGlobalRequest(
             "hostkeys-prove-00@openssh.com",
@@ -1871,7 +1866,7 @@ export default class Client extends EventEmitter<ClientEvents> {
         try {
             this.#clientKexInit = this.createKexInit()
             this.sendPacket(this.#clientKexInit)
-            if (!peerInitiated) await this.waitEvent("serverKexInit")
+            if (!peerInitiated) await this.#waitEvent("serverKexInit")
             const serverKexInitBuffer = this.#serverKexInitPayload
             assert(serverKexInitBuffer, "Missing exact server KEXINIT payload")
             const serverKexInit = KexInit.parse(serverKexInitBuffer)
@@ -1918,26 +1913,26 @@ export default class Client extends EventEmitter<ClientEvents> {
                 this.expectInboundKeyExchange(PacketNameToType.SSH_MSG_KEXDH_REPLY)
                 kexAlgorithm.setRequest(defaultGroupExchangeRequest)
                 this.sendPacket(new KexDHGexRequest(defaultGroupExchangeRequest))
-                const [group] = await this.waitEvent("serverKexDHGexGroup")
+                const [group] = await this.#waitEvent("serverKexDHGexGroup")
                 kexAlgorithm.acceptServerGroup(group.data.p, group.data.g)
                 kexAlgorithm.generateKeyPair()
                 clientExchangeValue = kexAlgorithm.getPublicKey()
                 this.sendPacket(new KexDHGexInit({ e: clientExchangeValue }))
                 this.expectInboundKeyExchange(PacketNameToType.SSH_MSG_KEX_DH_GEX_REPLY)
-                const reply = (await this.waitEvent("serverKexDHGexReply"))[0]
+                const reply = (await this.#waitEvent("serverKexDHGexReply"))[0]
                 kexAlgorithm.computeSharedSecret(reply.data.f)
                 serverExchangeValue = reply.data.f
                 hostKeyBlob = reply.data.K_S
                 signatureBlob = reply.data.H_sig
             } else if (kexAlgorithm instanceof RSA2048SHA256) {
                 this.expectInboundKeyExchange(PacketNameToType.SSH_MSG_KEXDH_INIT)
-                const [publicKey] = await this.waitEvent("serverKexRSAPublicKey")
+                const [publicKey] = await this.#waitEvent("serverKexRSAPublicKey")
                 kexAlgorithm.setServerKeys(publicKey.data.hostKey, publicKey.data.transientKey)
                 this.sendPacket(
                     new KexRSASecret({ encryptedSecret: kexAlgorithm.generateSecret() }),
                 )
                 this.expectInboundKeyExchange(PacketNameToType.SSH_MSG_KEX_DH_GEX_INIT)
-                const [done] = await this.waitEvent("serverKexRSADone")
+                const [done] = await this.#waitEvent("serverKexRSADone")
                 hostKeyBlob = publicKey.data.hostKey
                 signatureBlob = done.data.signature
             } else {
@@ -1950,7 +1945,7 @@ export default class Client extends EventEmitter<ClientEvents> {
                         encoding: kexAlgorithm.exchangeValueEncoding,
                     }),
                 )
-                const reply = (await this.waitEvent("serverKexDHReply"))[0]
+                const reply = (await this.#waitEvent("serverKexDHReply"))[0]
                 kexAlgorithm.computeSharedSecret(reply.data.f)
                 serverExchangeValue = reply.data.f
                 hostKeyBlob = reply.data.K_S
@@ -2085,7 +2080,7 @@ export default class Client extends EventEmitter<ClientEvents> {
                 this.writePacket(this.packetsQueuedDuringKeyExchange.shift()!)
             }
             this.emit("clientNewKeys")
-            if (!this.hasReceivedNewKeys) await this.waitEvent("serverNewKeys")
+            if (!this.hasReceivedNewKeys) await this.#waitEvent("serverNewKeys")
             while (this.packetsQueuedDuringKeyExchange.length > 0) {
                 this.writePacket(this.packetsQueuedDuringKeyExchange.shift()!)
             }
@@ -2232,7 +2227,7 @@ export default class Client extends EventEmitter<ClientEvents> {
         this.debug(`Socket connected, sending protocol version exchange packet...`)
         this.socket!.write(this.#options.protocolVersionExchange.toString())
 
-        const [serverProtocolVersion] = await this.waitEvent("serverProtocolVersion")
+        const [serverProtocolVersion] = await this.#waitEvent("serverProtocolVersion")
         this.debug("Server protocol version:", serverProtocolVersion)
 
         await this.performKeyExchange()
@@ -2248,7 +2243,7 @@ export default class Client extends EventEmitter<ClientEvents> {
                 }),
             )
 
-            serviceAnswer = await this.waitForPackets(
+            serviceAnswer = await this.#waitForPackets(
                 {
                     SSH_MSG_SERVICE_ACCEPT: {
                         predicate: (packet) => {
@@ -2416,7 +2411,9 @@ export default class Client extends EventEmitter<ClientEvents> {
         return this
     }
 
-    waitEvent<event extends keyof ClientEvents>(event: event): Promise<ClientEvents[event]> {
+    #waitEvent<event extends Exclude<keyof ClientEvents, "error" | "close">>(
+        event: event,
+    ): Promise<ClientEvents[event]> {
         return new Promise((resolve, reject) => {
             if (
                 this.state === SocketState.Closed ||
@@ -2443,69 +2440,31 @@ export default class Client extends EventEmitter<ClientEvents> {
                 cleanup()
             }
             const cleanup = () => {
-                // @ts-expect-error the function definition makes sure this is respected
+                // @ts-expect-error the generic event key and tuple keep this listener aligned
                 this.off(event, handler)
                 this.off("error", onError)
                 this.off("close", onClose)
             }
-            // @ts-expect-error the function definition makes sure this is respected
+            // This direct listener bridge queues the protocol continuation before the packet
+            // decoder schedules the next coalesced packet. node:events once() adds a scheduling
+            // step that can let post-KEX traffic overtake key-exchange completion.
+            // @ts-expect-error the generic event key and tuple keep this listener aligned
             this.once(event, handler)
             this.once("error", onError)
             this.once("close", onClose)
         })
     }
-    waitForPacket<Name extends keyof typeof packets>(name: Name): Promise<(typeof packets)[Name]> {
-        return new Promise((resolve, reject) => {
-            if (
-                this.state === SocketState.Closed ||
-                this.state === SocketState.Disconnected ||
-                this.socket?.destroyed
-            ) {
-                reject(
-                    this.connectionClosedError(`SSH connection closed while waiting for ${name}`),
-                )
-                return
-            }
-            const classType = packets[name]
-            const onError = (error: Error) => {
-                cleanup()
-                reject(error)
-            }
-            const onClose = () => {
-                cleanup()
-                reject(
-                    this.connectionClosedError(`SSH connection closed while waiting for ${name}`),
-                )
-            }
-            const handler = (p: Packet) => {
-                if (p instanceof classType) {
-                    // @ts-expect-error good luck typing that
-                    resolve(p)
-                    cleanup()
-                }
-            }
-            const cleanup = () => {
-                offPacketEvent(this, handler)
-                this.off("error", onError)
-                this.off("close", onClose)
-            }
-            onPacketEvent(this, handler)
-            this.once("error", onError)
-            this.once("close", onClose)
-        })
-    }
 
-    // holy fucking shit what the fuck are those types ?
-    waitForPackets<
+    #waitForPackets<
         Predicates extends {
-            [Name in keyof Packets]?: {
-                predicate: (packet: Packets[Name]) => boolean
+            [Name in keyof typeof packets]?: {
+                predicate: (packet: InstanceType<(typeof packets)[Name]>) => boolean
             }
         },
     >(
         Predicates: Predicates,
         timeout: number,
-    ): Promise<Packets[Extract<keyof Predicates, keyof Packets>]> {
+    ): Promise<InstanceType<(typeof packets)[Extract<keyof Predicates, keyof typeof packets>]>> {
         return new Promise((resolve, reject) => {
             if (
                 this.state === SocketState.Closed ||
@@ -2523,6 +2482,9 @@ export default class Client extends EventEmitter<ClientEvents> {
                 this.off("close", onClose)
                 clearTimeout(timer)
             }
+            // Run protocol predicates in the receive path. A predicate may detect a protocol
+            // violation and throw; that must reach the transport error handler synchronously so
+            // the peer receives the corresponding disconnect message.
             const onPacket = (packet: Packet) => {
                 const packetType = (packet.constructor as typeof Packet).type
                 const packetName = PacketTypeToName[packetType]
@@ -2538,8 +2500,11 @@ export default class Client extends EventEmitter<ClientEvents> {
                 }
                 if (!predicate(packet)) return
 
-                // @ts-expect-error good luck typing that
-                resolve(packet)
+                resolve(
+                    packet as InstanceType<
+                        (typeof packets)[Extract<keyof Predicates, keyof typeof packets>]
+                    >,
+                )
                 cleanup()
             }
             const onError = (error: Error) => {
@@ -2556,6 +2521,7 @@ export default class Client extends EventEmitter<ClientEvents> {
                 cleanup()
                 reject(new Error("Timed out waiting for message"))
             }, timeout)
+            timer.unref()
             onPacketEvent(this, onPacket)
             this.once("error", onError)
             this.once("close", onClose)
