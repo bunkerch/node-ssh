@@ -308,6 +308,13 @@ four-byte packet length unencrypted, encrypt the remaining packet body, and auth
 sequence number followed by that header and ciphertext. Inbound ETM verifies the tag before any
 ciphertext is decrypted.
 
+The historical
+[`draft-dbider-sha2-mac-for-ssh-05`](https://datatracker.ietf.org/doc/draft-dbider-sha2-mac-for-ssh/05/)
+also defined `hmac-sha2-256-96` and `hmac-sha2-512-96`, using the same 32- and 64-byte keys but only
+the first 12 output bytes. The final RFC 6668 and the IANA SSH registry omit these names. They are
+available only through explicit algorithm configuration for compatibility and are never offered by
+default; prefer the full-length RFC names.
+
 RFC 4418 UMAC is available as `umac-64@openssh.com`, `umac-128@openssh.com`, and their
 encrypt-then-MAC variants. SSH encodes the uint32 packet sequence as a big-endian uint64 nonce and
 authenticates the packet itself rather than prepending the sequence number. The 128- and 64-bit ETM

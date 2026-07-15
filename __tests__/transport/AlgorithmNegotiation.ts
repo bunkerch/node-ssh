@@ -1,7 +1,9 @@
 import {
     chooseAlgorithms,
+    default_algorithm_names,
     describeNegotiatedAlgorithms,
     kex_algorithms,
+    mac_algorithms,
 } from "../../src/algorithms.js"
 import Client from "../../src/Client.js"
 import KexInit, { type KexInitData } from "../../src/packets/KexInit.js"
@@ -37,6 +39,13 @@ function select(clientOffer: KexInit, serverOffer: KexInit) {
 }
 
 describe("RFC 4253 algorithm negotiation", () => {
+    test("keeps historical truncated SHA-2 MAC names available only by explicit configuration", () => {
+        expect(mac_algorithms.has("hmac-sha2-256-96")).toBe(true)
+        expect(mac_algorithms.has("hmac-sha2-512-96")).toBe(true)
+        expect(default_algorithm_names.hmac).not.toContain("hmac-sha2-256-96")
+        expect(default_algorithm_names.hmac).not.toContain("hmac-sha2-512-96")
+    })
+
     test("resolves exact and ordered modifier lists without changing defaults", () => {
         const catalog = {
             kex: ["kex-a", "kex-b"],

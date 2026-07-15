@@ -1,5 +1,7 @@
 import HMACSHA2256 from "../../src/algorithms/mac/hmac-sha2-256.js"
 import HMACSHA2512 from "../../src/algorithms/mac/hmac-sha2-512.js"
+import HMACSHA225696 from "../../src/algorithms/mac/hmac-sha2-256-96.js"
+import HMACSHA251296 from "../../src/algorithms/mac/hmac-sha2-512-96.js"
 import HMACSHA196 from "../../src/algorithms/mac/hmac-sha1-96.js"
 import HMACSHA196ETM from "../../src/algorithms/mac/hmac-sha1-96-etm.js"
 import HMACMD5 from "../../src/algorithms/mac/hmac-md5.js"
@@ -85,6 +87,23 @@ describe("SSH MAC algorithms", () => {
         expect(mac.computeMAC(0x4869_2054, Buffer.from("here"))).toEqual(expected)
         expect(HMACSHA2256.key_length).toBe(32)
         expect(HMACSHA2256.digest_length).toBe(32)
+    })
+
+    test("historical SHA-2-96 names truncate the RFC 4231 results to 12 bytes", () => {
+        const key = Buffer.alloc(20, 0x0b)
+        const expected256 = Buffer.from("b0344c61d8db38535ca8afce", "hex")
+        const expected512 = Buffer.from("87aa7cdea5ef619d4ff0b424", "hex")
+        const sha256 = new HMACSHA225696(key)
+        const sha512 = new HMACSHA251296(key)
+        key.fill(0)
+
+        // uint32(sequence_number) || packet forms RFC 4231's fixed message "Hi There".
+        expect(sha256.computeMAC(0x4869_2054, Buffer.from("here"))).toEqual(expected256)
+        expect(sha512.computeMAC(0x4869_2054, Buffer.from("here"))).toEqual(expected512)
+        expect(HMACSHA225696.key_length).toBe(32)
+        expect(HMACSHA251296.key_length).toBe(64)
+        expect(HMACSHA225696.digest_length).toBe(12)
+        expect(HMACSHA251296.digest_length).toBe(12)
     })
 
     test("hmac-sha1-96 owns its key and truncates the RFC 2202 vector", () => {

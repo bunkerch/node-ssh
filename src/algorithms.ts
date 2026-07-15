@@ -46,6 +46,8 @@ import TripleDESCBC from "./algorithms/encryption/triple-des-cbc.js"
 
 import HMACSHA2256 from "./algorithms/mac/hmac-sha2-256.js"
 import HMACSHA2512 from "./algorithms/mac/hmac-sha2-512.js"
+import HMACSHA225696 from "./algorithms/mac/hmac-sha2-256-96.js"
+import HMACSHA251296 from "./algorithms/mac/hmac-sha2-512-96.js"
 import HMACSHA1 from "./algorithms/mac/hmac-sha1.js"
 import HMACSHA2256ETM from "./algorithms/mac/hmac-sha2-256-etm.js"
 import HMACSHA2512ETM from "./algorithms/mac/hmac-sha2-512-etm.js"
@@ -397,6 +399,8 @@ export const mac_algorithms = new Map<string, typeof MACAlgorithm>([
     ["umac-128@openssh.com", UMAC128OpenSSH],
     ["hmac-sha2-256", HMACSHA2256],
     ["hmac-sha2-512", HMACSHA2512],
+    ["hmac-sha2-256-96", HMACSHA225696],
+    ["hmac-sha2-512-96", HMACSHA251296],
     ["hmac-sha1", HMACSHA1],
     ["hmac-sha1-96", HMACSHA196],
     ["hmac-md5-etm@openssh.com", HMACMD5ETM],
