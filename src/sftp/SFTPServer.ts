@@ -102,10 +102,10 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
     readonly hooker = new Hooker<SFTPServerHooker>()
     readonly protocolVersion = SFTP_VERSION
     readonly stream: Shell
-    readonly extensions: readonly SFTPExtension[]
     readonly openSSHSymlinkArguments: boolean
 
     private readonly parser = new SFTPPacketParser()
+    private readonly advertisedExtensions: readonly SFTPExtension[]
     readonly #maxConcurrentRequests: number
     private readonly queued: SFTPRequestPacket[] = []
     private readonly requestIds = new Set<number>()
@@ -118,12 +118,7 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
     constructor(stream: Shell, options: SFTPServerOptions = {}) {
         super()
         this.stream = stream
-        this.extensions = Object.freeze(
-            (options.extensions ?? []).map((extension) => {
-                validateSSHName(extension.name, "SFTP extension name")
-                return Object.freeze({ name: extension.name, data: Buffer.from(extension.data) })
-            }),
-        )
+        this.advertisedExtensions = ownExtensions(options.extensions ?? [])
         this.openSSHSymlinkArguments = options.openSSHSymlinkArguments ?? false
         this.#maxConcurrentRequests =
             options.maxConcurrentRequests ?? DEFAULT_MAX_CONCURRENT_REQUESTS
@@ -147,6 +142,10 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
 
     get maxConcurrentRequests(): number {
         return this.#maxConcurrentRequests
+    }
+
+    get extensions(): readonly SFTPExtension[] {
+        return ownExtensions(this.advertisedExtensions)
     }
 
     status(requestId: number, code: SFTPStatusCode, message = "", languageTag = ""): Promise<void> {
@@ -236,8 +235,14 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
     symlinkPaths(request: SFTPRequestOf<SFTPPacketType.SymLink>): Readonly<SFTPSymlinkPaths> {
         return Object.freeze(
             this.openSSHSymlinkArguments
-                ? { targetPath: request.firstPath, linkPath: request.secondPath }
-                : { linkPath: request.firstPath, targetPath: request.secondPath },
+                ? {
+                      targetPath: Buffer.from(request.firstPath),
+                      linkPath: Buffer.from(request.secondPath),
+                  }
+                : {
+                      linkPath: Buffer.from(request.firstPath),
+                      targetPath: Buffer.from(request.secondPath),
+                  },
         )
     }
 
@@ -268,7 +273,7 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
             void this.writePacket({
                 type: SFTPPacketType.Version,
                 version: SFTP_VERSION,
-                extensions: this.extensions,
+                extensions: this.advertisedExtensions,
             }).catch((error: unknown) => {
                 this.destroy(error instanceof Error ? error : new Error(String(error)))
             })
@@ -449,6 +454,18 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
 
 function isRequest(packet: SFTPPacket): packet is SFTPRequestPacket {
     return REQUEST_HOOK_NAMES.has(packet.type)
+}
+
+function ownExtensions(extensions: readonly SFTPExtension[]): readonly SFTPExtension[] {
+    return Object.freeze(
+        extensions.map((extension) => {
+            validateSSHName(extension.name, "SFTP extension name")
+            if (!Buffer.isBuffer(extension.data)) {
+                throw new TypeError("SFTP extension data must be a buffer")
+            }
+            return Object.freeze({ name: extension.name, data: Buffer.from(extension.data) })
+        }),
+    )
 }
 
 function snapshotAttributes(attributes: SFTPAttributes): Readonly<SFTPAttributes> {

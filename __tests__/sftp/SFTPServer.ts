@@ -62,18 +62,37 @@ describe("SFTP server request engine", () => {
         }
     })
 
+    test("rejects non-buffer advertised extension data during construction", () => {
+        const fixture = new SFTPClientFixture()
+        try {
+            expect(
+                () =>
+                    new SFTPServer(asShell(fixture), {
+                        extensions: [{ name: "x@test", data: "1" as never }],
+                    }),
+            ).toThrow("SFTP extension data must be a buffer")
+        } finally {
+            fixture.destroy()
+        }
+    })
+
     test("owns advertised extension metadata before the version exchange", async () => {
         const fixture = new SFTPClientFixture()
         const data = Buffer.from("1")
         const extensions = [{ name: "x@test", data }]
-        new SFTPServer(asShell(fixture), { extensions })
+        const server = new SFTPServer(asShell(fixture), { extensions })
 
         extensions[0]!.name = "changed@test"
         data[0] = 0x32
         extensions.push({ name: "added@test", data: Buffer.from("3") })
+        const exposed = server.extensions
+        exposed[0]!.data[0] = 0x33
         fixture.send({ type: SFTPPacketType.Init, version: 3, extensions: [] })
         await flush()
 
+        expect(server.extensions).toEqual([{ name: "x@test", data: Buffer.from("1") }])
+        expect(Object.isFrozen(exposed)).toBe(true)
+        expect(Object.isFrozen(exposed[0])).toBe(true)
         expect(fixture.responses).toEqual([
             {
                 type: SFTPPacketType.Version,
@@ -516,13 +535,23 @@ describe("SFTP server request engine", () => {
             firstPath: Buffer.from("first"),
             secondPath: Buffer.from("second"),
         }
-        expect(standard.symlinkPaths(request)).toEqual({
+        const standardPaths = standard.symlinkPaths(request)
+        const opensshPaths = openssh.symlinkPaths(request)
+        expect(standardPaths).toEqual({
             linkPath: Buffer.from("first"),
             targetPath: Buffer.from("second"),
         })
-        expect(openssh.symlinkPaths(request)).toEqual({
+        expect(opensshPaths).toEqual({
             targetPath: Buffer.from("first"),
             linkPath: Buffer.from("second"),
+        })
+        standardPaths.linkPath.fill(0x78)
+        opensshPaths.targetPath.fill(0x78)
+        expect(request).toEqual({
+            type: SFTPPacketType.SymLink,
+            requestId: 1,
+            firstPath: Buffer.from("first"),
+            secondPath: Buffer.from("second"),
         })
         standardFixture.destroy()
         opensshFixture.destroy()

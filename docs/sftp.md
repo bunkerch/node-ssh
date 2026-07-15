@@ -341,12 +341,15 @@ decision.sftp = {
 
 Extension names are validated when the server session is constructed. The configured array,
 entries, and opaque data buffers are snapshotted before use, so later application mutation cannot
-change the version advertisement already assigned to that session.
+change the version advertisement already assigned to that session. The server's public
+`extensions` getter returns a new frozen snapshot, so mutating one of its data buffers cannot change
+the live advertisement either. Extension data must be supplied as a `Buffer`.
 
 For `SYMLINK`, call `sftp.symlinkPaths(request)` to obtain semantic `targetPath` and `linkPath`
 values. Session integration detects OpenSSH and Dropbear identifications and normalizes OpenSSH's
 published argument reversal; `openSSHSymlinkArguments` can be set explicitly for a proxied or
-otherwise unusual peer.
+otherwise unusual peer. The returned paths are owned copies and cannot mutate the request passed to
+the Hooker handler.
 
 Never use a client-supplied path directly with a local filesystem API. Resolve it beneath an
 application-owned root, reject traversal outside that root, validate every opaque handle against
