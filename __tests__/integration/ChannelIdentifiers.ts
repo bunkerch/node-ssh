@@ -1,3 +1,4 @@
+import { once } from "node:events"
 import { AddressInfo } from "node:net"
 import Client from "../../src/Client.js"
 import ClientSessionChannel from "../../src/channels/ClientSessionChannel.js"
@@ -14,13 +15,22 @@ import ChannelWindowAdjust from "../../src/packets/ChannelWindowAdjust.js"
 import { DisconnectReason, type PeerDisconnectInfo } from "../../src/packets/Disconnect.js"
 import PrivateKey from "../../src/utils/PrivateKey.js"
 
-async function createConnectedPeers(): Promise<{
+async function createConnectedPeers(
+    options: {
+        serverMaxPendingChannelOpens?: number
+        clientMaxPendingChannelOpens?: number
+    } = {},
+): Promise<{
     server: Server
     peer: ServerClient
     client: Client
 }> {
     const hostKey = await PrivateKey.generate("ssh-ed25519")
-    const server = new Server({ hostKeys: [hostKey], sendAllHostKeys: false })
+    const server = new Server({
+        hostKeys: [hostKey],
+        sendAllHostKeys: false,
+        maxPendingChannelOpens: options.serverMaxPendingChannelOpens,
+    })
     server.hooker.hook("noneAuthentication", async (_hook, _context, controller) => {
         controller.allowLogin = true
     })
@@ -37,6 +47,7 @@ async function createConnectedPeers(): Promise<{
         port: (server.address() as AddressInfo).port,
         username: "channel-identifier-test",
         authenticationMethodsOrder: [SSHAuthenticationMethods.None],
+        maxPendingChannelOpens: options.clientMaxPendingChannelOpens,
     })
     client.hooker.hook("hostKey", async (_hook, controller) => {
         controller.allowHostKey = true
@@ -98,6 +109,65 @@ describe("RFC 4254 channel identifiers", () => {
             await closePeers(server, client)
         }
     }, 15_000)
+
+    test("bounds server channel-open policy waits without closing the connection", async () => {
+        const { server, peer, client } = await createConnectedPeers({
+            serverMaxPendingChannelOpens: 1,
+        })
+        let releasePolicy!: () => void
+        const policyReleased = new Promise<void>((resolve) => {
+            releasePolicy = resolve
+        })
+        let reportPolicy!: () => void
+        const policyStarted = new Promise<void>((resolve) => {
+            reportPolicy = resolve
+        })
+        let policyCalls = 0
+        server.hooker.hook("channelOpenRequest", async (_hook, _channel, controller) => {
+            policyCalls++
+            reportPolicy()
+            await policyReleased
+            controller.allowOpen = true
+        })
+
+        try {
+            const first = client.openSession()
+            await policyStarted
+            await expect(client.openSession()).rejects.toMatchObject({
+                reason_code: ChannelOpenFailureReasonCodes.SSH_OPEN_RESOURCE_SHORTAGE,
+                message: "Too many SSH channel opens are awaiting decisions",
+            })
+            expect(policyCalls).toBe(1)
+            expect(client.isConnected).toBe(true)
+
+            releasePolicy()
+            const channel = await first
+            const closed = once(channel, "close")
+            channel.close()
+            await closed
+        } finally {
+            releasePolicy()
+            await closePeers(server, client)
+            peer.terminate()
+        }
+    }, 15_000)
+
+    test("validates pending channel-open limits in both roles", () => {
+        for (const maxPendingChannelOpens of [
+            -1,
+            0.5,
+            Number.NaN,
+            Number.POSITIVE_INFINITY,
+            Number.MAX_SAFE_INTEGER + 1,
+        ]) {
+            expect(() => new Client({ maxPendingChannelOpens })).toThrow(
+                "SSH maximum pending channel opens must be a non-negative safe integer",
+            )
+            expect(() => new Server({ maxPendingChannelOpens })).toThrow(
+                "SSH maximum pending channel opens must be a non-negative safe integer",
+            )
+        }
+    })
 
     test("wraps client channel identifiers at the uint32 boundary and skips active ids", async () => {
         const { server, peer, client } = await createConnectedPeers()

@@ -5,7 +5,9 @@ import Client from "../../src/Client.js"
 import { SSHAuthenticationMethods } from "../../src/constants.js"
 import Packet from "../../src/packet.js"
 import ChannelOpenConfirmation from "../../src/packets/ChannelOpenConfirmation.js"
-import ChannelOpenFailure from "../../src/packets/ChannelOpenFailure.js"
+import ChannelOpenFailure, {
+    ChannelOpenFailureReasonCodes,
+} from "../../src/packets/ChannelOpenFailure.js"
 import Server from "../../src/Server.js"
 import type ServerClient from "../../src/ServerClient.js"
 import SessionChannel from "../../src/channels/SessionChannel.js"
@@ -268,6 +270,86 @@ describe("client agent-forwarding defaults", () => {
     test("keeps the connection default disabled", () => {
         expect("options" in new Client({})).toBe(false)
     })
+
+    test("bounds pending client agent-channel setup without closing the connection", async () => {
+        const server = new Server({
+            hostKeys: [await PrivateKey.generate("ssh-ed25519")],
+            sendAllHostKeys: false,
+        })
+        server.hooker.hook("noneAuthentication", (_hook, _context, decision) => {
+            decision.allowLogin = true
+        })
+        server.hooker.hook("channelOpenRequest", (_hook, channel, decision) => {
+            decision.allowOpen = channel instanceof SessionChannel
+        })
+        let connection!: ServerClient
+        server.on("connection", (peer) => {
+            connection = peer
+            peer.on("channel", (channel) => {
+                if (!(channel instanceof SessionChannel)) return
+                channel.hooker.hook("agentForwardRequest", (_hook, decision) => {
+                    decision.success = true
+                })
+            })
+        })
+        server.listen({ host: "127.0.0.1", port: 0 })
+        await once(server, "listening")
+
+        let resolveAgentStream!: (stream: Duplex) => void
+        let reportStreamRequested!: () => void
+        const streamRequested = new Promise<void>((resolve) => {
+            reportStreamRequested = resolve
+        })
+        let streamRequests = 0
+        const agent: Agent<string> = {
+            ...forwardableAgent,
+            getStream() {
+                streamRequests++
+                reportStreamRequested()
+                return new Promise<Duplex>((resolve) => {
+                    resolveAgentStream = resolve
+                })
+            },
+        }
+        const client = new Client({
+            hostname: "127.0.0.1",
+            port: (server.address() as AddressInfo).port,
+            username: "bounded-agent-channels",
+            agent,
+            maxPendingChannelOpens: 1,
+            authenticationMethodsOrder: [SSHAuthenticationMethods.None],
+        })
+        client.hooker.hook("hostKey", (_hook, decision) => {
+            decision.allowHostKey = true
+        })
+        const [agentStream, agentPeer] = streamPair()
+
+        try {
+            await client.connect()
+            const session = await client.openSession()
+            await session.forwardAgent()
+            const first = connection.forwardAgent()
+            await streamRequested
+
+            await expect(connection.forwardAgent()).rejects.toMatchObject({
+                reason_code: ChannelOpenFailureReasonCodes.SSH_OPEN_RESOURCE_SHORTAGE,
+                message: "Too many SSH channel opens are awaiting decisions",
+            })
+            expect(streamRequests).toBe(1)
+            expect(client.isConnected).toBe(true)
+
+            resolveAgentStream(agentStream)
+            const forwarded = await first
+            forwarded.close()
+            session.close()
+        } finally {
+            client.destroy()
+            connection?.terminate()
+            agentStream.destroy()
+            agentPeer.destroy()
+            await server.close()
+        }
+    }, 15_000)
 
     test("discards an agent stream resolved after transport teardown", async () => {
         const server = new Server({

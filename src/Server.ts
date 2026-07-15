@@ -71,6 +71,8 @@ export interface ServerOptions {
     authenticationTimeout?: number
     /** Maximum milliseconds for an ordered peer reply before the connection is closed. */
     replyTimeout?: number
+    /** Maximum peer channel-open decisions allowed to remain pending per connection. */
+    maxPendingChannelOpens?: number
     /** Maximum rejected non-`none` authentication requests per connection. */
     maxAuthenticationAttempts?: number
     /** Milliseconds between authenticated per-connection SSH keepalive probes. Zero disables. */
@@ -420,6 +422,7 @@ export default class Server extends EventEmitter<ServerEvents> {
         this.#options.handshakeTimeout ??= 20_000
         this.#options.authenticationTimeout ??= 600_000
         this.#options.replyTimeout ??= 30_000
+        this.#options.maxPendingChannelOpens ??= 64
         this.#options.maxAuthenticationAttempts ??= 20
         this.#options.keepaliveInterval ??= 0
         this.#options.keepaliveCountMax ??= 3
@@ -439,6 +442,14 @@ export default class Server extends EventEmitter<ServerEvents> {
         }
         if (!Number.isFinite(this.#options.replyTimeout) || this.#options.replyTimeout <= 0) {
             throw new RangeError("SSH reply timeout must be a positive number")
+        }
+        if (
+            !Number.isSafeInteger(this.#options.maxPendingChannelOpens) ||
+            this.#options.maxPendingChannelOpens < 0
+        ) {
+            throw new RangeError(
+                "SSH maximum pending channel opens must be a non-negative safe integer",
+            )
         }
         if (
             !Number.isInteger(this.#options.maxAuthenticationAttempts) ||

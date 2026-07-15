@@ -63,7 +63,9 @@ into asserted fields and serialized back to the exact original bytes.
 Encrypted integration tests allocate channel number `0xffffffff` in each peer role, wrap the next
 allocation to zero, and prove that an identifier which remains active is skipped. Separate negative
 tests reject peer reuse while an open is pending, duplicate remote identifiers, contradictory open
-outcomes, and window overflow.
+outcomes, and window overflow. Held server policy and client agent-provider decisions also prove
+that pending-open capacity rejects excess requests with resource shortage before invoking more
+application work, while retaining the authenticated connection.
 
 Generic global-request integration sends concurrent requests through an awaited server hook and
 proves their opaque replies remain ordered, covers deny-by-default and one-way notification paths,

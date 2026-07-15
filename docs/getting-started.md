@@ -107,6 +107,12 @@ is expected to answer a reply-requesting operation.
 New SFTP and public-key management sessions inherit this value as their `requestTimeout`, which can
 be overridden per session without changing the connection-wide deadline.
 
+`maxPendingChannelOpens` defaults to 64 and bounds server-initiated channel opens awaiting an
+asynchronous client decision, such as connecting an agent-forwarding channel to a local provider.
+The same server option bounds client opens awaiting `channelOpenRequest` policy on each connection.
+Additional opens receive RFC 4254 resource shortage while the SSH connection remains usable. Set
+the value to zero when that role must reject every peer-initiated channel.
+
 For direct TCP connections, `localAddress` and `localPort` select the source binding. Set exactly
 one of `forceIPv4` or `forceIPv6` to restrict hostname resolution to that address family. If both
 flags have the same value, normal system resolution is used. These four options are ignored when

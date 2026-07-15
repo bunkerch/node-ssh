@@ -314,6 +314,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             for (const channel of this.channels.values()) channel.abort(closeError)
             this.channels.clear()
             this.remoteChannelIds.clear()
+            this.pendingRemoteChannelOpens.clear()
             while (this.pendingGlobalRequests.length > 0) {
                 const request = this.pendingGlobalRequests.shift()!
                 request.reject(
@@ -361,6 +362,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     private discardNextGuessedKeyExchangePacket = false
     private readonly packetsQueuedDuringKeyExchange: Packet[] = []
     private readonly remoteChannelIds = new Set<number>()
+    private readonly pendingRemoteChannelOpens = new Set<number>()
     private initialGSSAPIKeyExchangeContext?: GSSAPIKeyExchangeServerContext
     private initialGSSAPIKeyExchangeStep?: Readonly<GSSAPIContextStep>
     private initialGSSAPIKeyExchangeMechanismOID?: Buffer
@@ -1332,6 +1334,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             }
         } finally {
             if (!accepted) this.remoteChannelIds.delete(packet.data.sender_channel_id)
+            this.pendingRemoteChannelOpens.delete(packet.data.sender_channel_id)
             lock.release()
         }
     }
@@ -2968,7 +2971,19 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 break
 
             case PacketNameToType.SSH_MSG_CHANNEL_OPEN:
-                this.reserveRemoteChannelId((p as ChannelOpen).data.sender_channel_id)
+                if (
+                    !this.reserveIncomingRemoteChannelId((p as ChannelOpen).data.sender_channel_id)
+                ) {
+                    this.sendPacket(
+                        new ChannelOpenFailure({
+                            recipient_channel_id: (p as ChannelOpen).data.sender_channel_id,
+                            reason_code: ChannelOpenFailureReasonCodes.SSH_OPEN_RESOURCE_SHORTAGE,
+                            description: "Too many SSH channel opens are awaiting decisions",
+                            language_tag: "",
+                        }),
+                    )
+                    break
+                }
                 this.startPacketOperation(
                     this.handleChannelOpenRequest(p as ChannelOpen),
                     "channel-open request",
@@ -3290,14 +3305,28 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         this.scheduleKeepalive()
     }
 
-    private reserveRemoteChannelId(remoteId: number): void {
+    private assertRemoteChannelIdAvailable(remoteId: number): void {
         if (this.remoteChannelIds.has(remoteId)) {
             throw new DisconnectError(
                 DisconnectReason.SSH_DISCONNECT_PROTOCOL_ERROR,
                 `SSH peer reused active channel identifier ${remoteId}`,
             )
         }
+    }
+
+    private reserveRemoteChannelId(remoteId: number): void {
+        this.assertRemoteChannelIdAvailable(remoteId)
         this.remoteChannelIds.add(remoteId)
+    }
+
+    private reserveIncomingRemoteChannelId(remoteId: number): boolean {
+        this.assertRemoteChannelIdAvailable(remoteId)
+        if (this.pendingRemoteChannelOpens.size >= this.#configuration.maxPendingChannelOpens) {
+            return false
+        }
+        this.remoteChannelIds.add(remoteId)
+        this.pendingRemoteChannelOpens.add(remoteId)
+        return true
     }
 
     private packetForDebug(packet: Packet): unknown {

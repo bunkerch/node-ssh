@@ -273,6 +273,10 @@ The implementation follows RFC 4254 channel rules:
   until both CLOSE messages have been exchanged. Reusing an active identifier is a protocol error;
   reuse after the channel is fully closed is valid. If the connection closes while channel-open
   policy is pending, a late approval is discarded without creating or publishing a channel.
+- `maxPendingChannelOpens` bounds peer opens whose application decision is still pending and
+  defaults to 64 in both roles. Reaching the limit rejects additional opens with RFC 4254 resource
+  shortage without closing the connection or invoking their policy/provider. Zero rejects every
+  peer-initiated open. Established channels do not consume this pending-decision allowance.
 - Outbound data is split to the peer's maximum packet size and paused when its window is empty.
 - Inbound stdout and stderr share the advertised receive window. Window adjustments are sent as
   stream consumers make room. A zero adjustment is a valid no-op; an adjustment that would raise

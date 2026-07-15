@@ -305,6 +305,8 @@ export interface ClientOptions {
     readyTimeout?: number
     /** Maximum milliseconds for an ordered peer reply before the connection is closed. */
     replyTimeout?: number
+    /** Maximum peer channel-open decisions allowed to remain pending. */
+    maxPendingChannelOpens?: number
     /** Already-connected duplex transport, such as an SSH direct-tcpip channel. */
     sock?: Duplex
     /** Receive the same already-redacted diagnostic arguments as the `debug` event. */
@@ -712,6 +714,7 @@ export default class Client extends EventEmitter<ClientEvents> {
         this.#options.rekeyInterval ??= DEFAULT_REKEY_INTERVAL
         this.#options.readyTimeout ??= 20_000
         this.#options.replyTimeout ??= 30_000
+        this.#options.maxPendingChannelOpens ??= 64
         if (
             !Number.isFinite(this.#options.keepaliveInterval) ||
             this.#options.keepaliveInterval < 0
@@ -731,6 +734,14 @@ export default class Client extends EventEmitter<ClientEvents> {
         }
         if (!Number.isFinite(this.#options.replyTimeout) || this.#options.replyTimeout <= 0) {
             throw new RangeError("SSH reply timeout must be a positive number")
+        }
+        if (
+            !Number.isSafeInteger(this.#options.maxPendingChannelOpens) ||
+            this.#options.maxPendingChannelOpens < 0
+        ) {
+            throw new RangeError(
+                "SSH maximum pending channel opens must be a non-negative safe integer",
+            )
         }
         if (
             this.#options.localPort !== undefined &&
@@ -886,6 +897,7 @@ export default class Client extends EventEmitter<ClientEvents> {
     localChannelIndex = 0
     channels = new Map<number, ClientChannel>()
     private readonly remoteChannelIds = new Set<number>()
+    private readonly pendingRemoteChannelOpens = new Set<number>()
     private readonly pendingGlobalRequests: PendingGlobalRequest[] = []
     private readonly pendingPings: PendingPing[] = []
     private transportPingSupported = false
@@ -1034,6 +1046,7 @@ export default class Client extends EventEmitter<ClientEvents> {
         this.localChannelIndex = 0
         this.channels.clear()
         this.remoteChannelIds.clear()
+        this.pendingRemoteChannelOpens.clear()
         this.pendingGlobalRequests.length = 0
         this.pendingPings.length = 0
         this.transportPingSupported = false
@@ -2213,6 +2226,7 @@ export default class Client extends EventEmitter<ClientEvents> {
                 for (const channel of this.channels.values()) channel.abort(closeError)
                 this.channels.clear()
                 this.remoteChannelIds.clear()
+                this.pendingRemoteChannelOpens.clear()
                 while (this.pendingGlobalRequests.length > 0) {
                     const request = this.pendingGlobalRequests.shift()!
                     request.reject(
@@ -3291,14 +3305,28 @@ export default class Client extends EventEmitter<ClientEvents> {
             : new Error(fallback)
     }
 
-    private reserveRemoteChannelId(remoteId: number): void {
+    private assertRemoteChannelIdAvailable(remoteId: number): void {
         if (this.remoteChannelIds.has(remoteId)) {
             throw new DisconnectError(
                 DisconnectReason.SSH_DISCONNECT_PROTOCOL_ERROR,
                 `SSH peer reused active channel identifier ${remoteId}`,
             )
         }
+    }
+
+    private reserveRemoteChannelId(remoteId: number): void {
+        this.assertRemoteChannelIdAvailable(remoteId)
         this.remoteChannelIds.add(remoteId)
+    }
+
+    private reserveIncomingRemoteChannelId(remoteId: number): boolean {
+        this.assertRemoteChannelIdAvailable(remoteId)
+        if (this.pendingRemoteChannelOpens.size >= this.#options.maxPendingChannelOpens) {
+            return false
+        }
+        this.remoteChannelIds.add(remoteId)
+        this.pendingRemoteChannelOpens.add(remoteId)
+        return true
     }
 
     private async verifyConfiguredHostKey(serializedHostKey: Buffer): Promise<void> {
@@ -3348,7 +3376,14 @@ export default class Client extends EventEmitter<ClientEvents> {
     }
 
     private handleIncomingChannelOpen(packet: ChannelOpen): void {
-        this.reserveRemoteChannelId(packet.data.sender_channel_id)
+        if (!this.reserveIncomingRemoteChannelId(packet.data.sender_channel_id)) {
+            this.rejectIncomingChannel(
+                packet,
+                ChannelOpenFailureReasonCodes.SSH_OPEN_RESOURCE_SHORTAGE,
+                "Too many SSH channel opens are awaiting decisions",
+            )
+            return
+        }
         if (
             this.noFlowControlEnabled &&
             (this.channels.size !== 0 || this.remoteChannelIds.size > 1)
@@ -3411,6 +3446,7 @@ export default class Client extends EventEmitter<ClientEvents> {
             const channel = new ClientForwardedTCPIPChannel(this, packet)
             this.channels.set(channel.localId, channel)
             this.sendPacket(channel.getOpenConfirmationPacket())
+            this.pendingRemoteChannelOpens.delete(packet.data.sender_channel_id)
             return channel
         }
         const reject = (): void => {
@@ -3468,6 +3504,7 @@ export default class Client extends EventEmitter<ClientEvents> {
             const channel = new ClientX11Channel(this, packet)
             this.channels.set(channel.localId, channel)
             this.sendPacket(channel.getOpenConfirmationPacket())
+            this.pendingRemoteChannelOpens.delete(packet.data.sender_channel_id)
             return channel
         }
         const reject = (): void => {
@@ -3532,6 +3569,7 @@ export default class Client extends EventEmitter<ClientEvents> {
             channel.on("close", () => stream.destroy())
             stream.pipe(channel).pipe(stream)
             this.sendPacket(channel.getOpenConfirmationPacket())
+            this.pendingRemoteChannelOpens.delete(packet.data.sender_channel_id)
         } catch (error) {
             if (channel !== undefined) {
                 this.channels.delete(channel.localId)
@@ -3585,6 +3623,7 @@ export default class Client extends EventEmitter<ClientEvents> {
             const channel = new ClientForwardedStreamLocalChannel(this, packet)
             this.channels.set(channel.localId, channel)
             this.sendPacket(channel.getOpenConfirmationPacket())
+            this.pendingRemoteChannelOpens.delete(packet.data.sender_channel_id)
             return channel
         }
         const reject = (): void => {
@@ -3606,6 +3645,7 @@ export default class Client extends EventEmitter<ClientEvents> {
         description: string,
     ): void {
         this.remoteChannelIds.delete(packet.data.sender_channel_id)
+        this.pendingRemoteChannelOpens.delete(packet.data.sender_channel_id)
         this.sendPacket(
             new ChannelOpenFailure({
                 recipient_channel_id: packet.data.sender_channel_id,
