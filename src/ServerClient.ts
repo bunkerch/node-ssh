@@ -1333,10 +1333,13 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 )
             }
             if (this.noMoreSessionsRequested && packet.data.channel_type === "session") {
-                throw new ChannelOpenError(
-                    ChannelOpenFailureReasonCodes.SSH_OPEN_ADMINISTRATIVELY_PROHIBITED,
-                    "Additional SSH session channels have been disabled",
+                this.disconnect(
+                    new DisconnectError(
+                        DisconnectReason.SSH_DISCONNECT_BY_APPLICATION,
+                        "Possible attack: attempt to open a session after additional sessions disabled",
+                    ),
                 )
+                return
             }
             const channel = channelFromChannelOpenPacket(packet, this)
             const controller: ServerHookerChannelOpenRequestController = {

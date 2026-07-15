@@ -168,12 +168,13 @@ await client.opensshNoMoreSessions()
 ```
 
 `opensshNoMoreSessions()` and its compatibility alias `openssh_noMoreSessions()` both return a
-Promise. The request is irreversible for the connection. Existing session
-channels and non-session channel types are unaffected, while a `modernssh` server rejects later
-session opens before invoking application channel policy. OpenSSH may enforce the request by
-disconnecting a client that attempts another session, so pending channel operations are rejected
-when that disconnect arrives. A successful reply has no response data; unexpected data is a
-protocol error and closes the connection because the peer has already applied irreversible state.
+Promise. The request is irreversible for the connection. Existing session channels and non-session
+channel types remain usable until a violation. If the client later attempts another session, a
+`modernssh` server follows the extension's attack response: it disconnects with reason
+`SSH_DISCONNECT_BY_APPLICATION` before invoking application channel policy. That disconnect closes
+the existing channels and rejects every pending channel or connection operation on both peers. A
+successful reply has no response data; unexpected data is a protocol error and closes the
+connection because the peer has already applied irreversible state.
 
 OpenSSH-specific client APIs require a compatible OpenSSH server identification by default. Set
 `strictVendor: false` on `Client` only when a non-OpenSSH peer is known to implement these vendor
@@ -332,7 +333,9 @@ The implementation follows RFC 4254 channel rules:
 
 The interoperability suite exercises session opening, `exec`, stdin, stdout, stderr, exit status,
 EOF, CLOSE, end-of-write, and OpenSSH's `no-more-sessions@openssh.com` extension against OpenSSH.
-Fixed RFC and OpenSSH protocol byte vectors cover the exact request encodings.
+Encrypted in-process coverage verifies that the modern server disconnects a violating client and
+settles existing channel work. Fixed RFC and OpenSSH protocol byte vectors cover the exact request
+encodings.
 
 ## Serving exec and shell requests
 

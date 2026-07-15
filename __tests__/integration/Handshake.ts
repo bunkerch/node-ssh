@@ -21,6 +21,7 @@ import { serializeBuffer, serializeUint32 } from "../../src/utils/Buffer.js"
 import { SFTPPacketType } from "../../src/sftp/constants.js"
 import { SSHAuthenticationMethods } from "../../src/constants.js"
 import KexInit from "../../src/packets/KexInit.js"
+import { DisconnectReason, PeerDisconnectError } from "../../src/packets/Disconnect.js"
 
 class UnsupportedPacket {
     static type = 200
@@ -84,7 +85,9 @@ describe("client/server integration", () => {
         server.hooker.hook("streamLocalForward", (_hook, context, controller) => {
             controller.allow = context.socketPath === streamLocalPath
         })
+        let channelOpenPolicyCalls = 0
         server.hooker.hook("channelOpenRequest", (_hook, channel, controller) => {
+            channelOpenPolicyCalls++
             controller.allowOpen = channel instanceof SessionChannel
         })
         let serverPeer: ServerClient | undefined
@@ -746,12 +749,13 @@ describe("client/server integration", () => {
             await client.openssh_noMoreSessions()
             expect(serverPeer?.noMoreSessions).toBe(true)
             expect(existingSession.destroyed).toBe(false)
-            await expect(client.openSession()).rejects.toThrow(
-                "Additional SSH session channels have been disabled",
-            )
             const sessionClosed = new Promise<void>((resolve) =>
                 existingSession.once("close", resolve),
             )
+            const clientClosed = new Promise<void>((resolve) => client.once("close", resolve))
+            const serverClosed = new Promise<void>((resolve) => serverPeer!.once("close", resolve))
+            const clientDisconnect = once(client, "disconnect")
+            const policyCallsBeforeViolation = channelOpenPolicyCalls
             const pendingServerChannelRequest = serverChannel
                 .request("client-never@example.test")
                 .then(
@@ -764,13 +768,20 @@ describe("client/server integration", () => {
                     () => "unexpected success",
                     (error: Error) => error.message,
                 )
-            existingSession.close()
-            await sessionClosed
-            expect(await pendingServerChannelRequest).toBe(
-                `SSH channel ${serverChannel.localId} closed during request`,
-            )
+            await expect(client.openSession()).rejects.toBeInstanceOf(PeerDisconnectError)
+            expect(channelOpenPolicyCalls).toBe(policyCallsBeforeViolation)
+            expect(await clientDisconnect).toEqual([
+                {
+                    reasonCode: DisconnectReason.SSH_DISCONNECT_BY_APPLICATION,
+                    description:
+                        "Possible attack: attempt to open a session after additional sessions disabled",
+                    languageTag: "",
+                },
+            ])
+            await Promise.all([sessionClosed, clientClosed, serverClosed])
+            expect(await pendingServerChannelRequest).toContain("SSH connection closed")
             expect(await pendingClientChannelRequest).toBe(
-                `SSH channel ${existingSession.localId} closed during request`,
+                "Possible attack: attempt to open a session after additional sessions disabled",
             )
             expect(serverErrors).toEqual([])
             expect(clientErrors).toEqual([])
@@ -781,10 +792,12 @@ describe("client/server integration", () => {
                       (error: Error) => error.message,
                   )
                 : undefined
-            const closed = new Promise<void>((resolve) => client.once("close", resolve))
-            expect(client.end()).toBe(client)
-            expect(client.end()).toBe(client)
-            await closed
+            if (client.isConnected) {
+                const closed = new Promise<void>((resolve) => client.once("close", resolve))
+                expect(client.end()).toBe(client)
+                expect(client.end()).toBe(client)
+                await closed
+            }
             if (pendingServerRequest) {
                 expect(await pendingServerRequest).toBe("SSH peer disconnected (reason 11)")
             }
