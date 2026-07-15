@@ -78,15 +78,16 @@ export class Hooker<types extends Record<string, unknown[]>> extends EventEmitte
                 await hook(controller, ...values)
             } catch (err) {
                 successful = false
+                const error = err instanceof Error ? err : new Error(String(err))
                 if (this.listenerCount("uncaughtException") > 0) {
-                    this.emit("uncaughtException", event as string, err as Error)
+                    this.emit("uncaughtException", event as string, error)
                 } else {
                     // in node:events, they throw an uncaughtException
                     // on the process or something, this makes the process
                     // crash if you don't catch it. I'd rather log it
                     console.warn(
                         `[node-ssh] Uncaught exception in hook for event ${event.toString()}:`,
-                        err,
+                        error,
                     )
                 }
             }

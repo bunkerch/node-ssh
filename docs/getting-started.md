@@ -43,6 +43,12 @@ await once(command, "close")
 client.end()
 ```
 
+Policy and credential decisions use `Hooker`, whose handlers may be asynchronous and are awaited
+in registration order. Observe contained handler failures through the Hooker's
+`uncaughtException` event; it always supplies an `Error`, including when JavaScript code rejects
+with a primitive value. Ordinary `Client`, `Server`, and channel EventEmitter listeners are
+synchronous notifications, so do not put authorization work in an async event listener.
+
 Both `Client` and `Server` accept a `debug(...message)` option for diagnostics that must be
 available from the start of their lifecycle. It receives the same arguments as the corresponding
 `debug` event; applications may use either or both. Authentication secrets and key material are
