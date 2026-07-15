@@ -21,6 +21,7 @@ import type {
 
 const MAX_OUTSTANDING_REQUESTS = 1024
 const DEFAULT_MAX_CONCURRENT_REQUESTS = 64
+const DEFAULT_MAX_OPEN_HANDLES = 256
 
 const STATUS_MESSAGES: Readonly<Record<number, string>> = {
     [SFTPStatusCode.Ok]: "No error",
@@ -71,6 +72,8 @@ export interface SFTPServerOptions {
     openSSHSymlinkArguments?: boolean
     /** Maximum request hooks allowed to run concurrently. */
     maxConcurrentRequests?: number
+    /** Maximum active and pending baseline file or directory handles. */
+    maxOpenHandles?: number
 }
 
 export interface SFTPSymlinkPaths {
@@ -81,6 +84,7 @@ export interface SFTPSymlinkPaths {
 interface ActiveSFTPRequest {
     readonly request: SFTPRequestPacket
     readonly ordering: SFTPRequestOrdering
+    reservesHandle?: boolean
     response?: Promise<void>
 }
 
@@ -120,6 +124,7 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
     private readonly parser = new SFTPPacketParser()
     private readonly advertisedExtensions: readonly SFTPExtension[]
     readonly #maxConcurrentRequests: number
+    readonly #maxOpenHandles: number
     private readonly queued: SFTPRequestPacket[] = []
     private readonly requestIds = new Set<number>()
     private readonly active = new Set<ActiveSFTPRequest>()
@@ -127,6 +132,9 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
     private readonly awaitingResponse = new Map<number, ActiveSFTPRequest>()
     private readonly activeResources = new Map<string, number>()
     private readonly handlePathResources = new Map<string, Set<string>>()
+    private readonly activeHandleKeys = new Set<string>()
+    private readonly pendingHandleKeys = new Set<string>()
+    private pendingHandleRequests = 0
     private activeOrderingBarriers = 0
     private initialized = false
     private closed = false
@@ -165,6 +173,11 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
                 `SFTP maximum concurrent requests must be between 1 and ${MAX_OUTSTANDING_REQUESTS}`,
             )
         }
+        this.#maxOpenHandles =
+            options.maxOpenHandles === undefined ? DEFAULT_MAX_OPEN_HANDLES : options.maxOpenHandles
+        if (!Number.isSafeInteger(this.#maxOpenHandles) || this.#maxOpenHandles < 0) {
+            throw new RangeError("SFTP maximum open handles must be a non-negative safe integer")
+        }
         // Request failures are converted to an SFTP failure response. Applications may add
         // another listener when they also need to observe the contained backend error.
         this.hooker.on("uncaughtException", () => undefined)
@@ -176,6 +189,10 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
 
     get maxConcurrentRequests(): number {
         return this.#maxConcurrentRequests
+    }
+
+    get maxOpenHandles(): number {
+        return this.#maxOpenHandles
     }
 
     get extensions(): readonly SFTPExtension[] {
@@ -200,14 +217,17 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
         })
         if (request.type === SFTPPacketType.Close) {
             return response.then(() => {
-                this.handlePathResources.delete(handleResource(request.handle))
+                const handleKey = handleResource(request.handle)
+                this.activeHandleKeys.delete(handleKey)
+                this.handlePathResources.delete(handleKey)
             })
         }
         return response
     }
 
     handle(requestId: number, handle: Buffer): Promise<void> {
-        const request = this.requireActive(requestId)
+        const active = this.requireActiveState(requestId)
+        const { request } = active
         if (
             request.type !== SFTPPacketType.Open &&
             request.type !== SFTPPacketType.OpenDir &&
@@ -221,12 +241,38 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
         }
         if (request.type === SFTPPacketType.Open || request.type === SFTPPacketType.OpenDir) {
             const handleKey = handleResource(ownedHandle)
+            if (this.activeHandleKeys.has(handleKey) || this.pendingHandleKeys.has(handleKey)) {
+                throw new Error("SFTP response handle is already active")
+            }
             const pathKey = pathResource(
                 request.type === SFTPPacketType.Open ? request.filename : request.path,
             )
-            const paths = this.handlePathResources.get(handleKey) ?? new Set<string>()
-            paths.add(pathKey)
-            this.handlePathResources.set(handleKey, paths)
+            this.pendingHandleKeys.add(handleKey)
+            let response: Promise<void>
+            try {
+                response = this.respond({
+                    type: SFTPPacketType.Handle,
+                    requestId,
+                    handle: ownedHandle,
+                })
+            } catch (error) {
+                this.pendingHandleKeys.delete(handleKey)
+                throw error
+            }
+            const tracked = response.then(
+                () => {
+                    this.pendingHandleKeys.delete(handleKey)
+                    this.activeHandleKeys.add(handleKey)
+                    this.handlePathResources.set(handleKey, new Set([pathKey]))
+                    this.releaseHandleReservation(active)
+                },
+                (error: unknown) => {
+                    this.pendingHandleKeys.delete(handleKey)
+                    throw error
+                },
+            )
+            active.response = tracked
+            return tracked
         }
         return this.respond({ type: SFTPPacketType.Handle, requestId, handle: ownedHandle })
     }
@@ -392,12 +438,14 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
             this.awaitingResponse.set(request.requestId, active)
             void this.dispatch(active).then(
                 () => {
+                    this.releaseHandleReservation(active)
                     this.active.delete(active)
                     this.activeRequestIds.delete(request.requestId)
                     this.releaseOrdering(ordering)
                     this.scheduleDispatch()
                 },
                 (error: unknown) => {
+                    this.releaseHandleReservation(active)
                     const failure = error instanceof Error ? error : new Error(String(error))
                     this.destroy(failure)
                 },
@@ -489,6 +537,18 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
 
     private async dispatch(active: ActiveSFTPRequest): Promise<void> {
         const { request } = active
+        if (request.type === SFTPPacketType.Open || request.type === SFTPPacketType.OpenDir) {
+            if (this.activeHandleKeys.size + this.pendingHandleRequests >= this.#maxOpenHandles) {
+                await this.status(
+                    request.requestId,
+                    SFTPStatusCode.Failure,
+                    "SFTP open handle limit reached",
+                )
+                return
+            }
+            this.pendingHandleRequests++
+            active.reservesHandle = true
+        }
         const hookName = REQUEST_HOOK_NAMES.get(request.type)
         if (!hookName) throw new SFTPProtocolError(`Unsupported SFTP request type ${request.type}`)
         let successful = true
@@ -518,6 +578,12 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
             SFTPStatusCode.Failure,
             "SFTP request handler returned without a response",
         )
+    }
+
+    private releaseHandleReservation(active: ActiveSFTPRequest): void {
+        if (!active.reservesHandle) return
+        active.reservesHandle = false
+        this.pendingHandleRequests--
     }
 
     private triggerRequestHook(
@@ -592,6 +658,8 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
         this.activeRequestIds.clear()
         this.activeResources.clear()
         this.handlePathResources.clear()
+        this.activeHandleKeys.clear()
+        this.pendingHandleKeys.clear()
         this.activeOrderingBarriers = 0
         this.awaitingResponse.clear()
         this.queued.length = 0
@@ -607,6 +675,8 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
         this.activeRequestIds.clear()
         this.activeResources.clear()
         this.handlePathResources.clear()
+        this.activeHandleKeys.clear()
+        this.pendingHandleKeys.clear()
         this.activeOrderingBarriers = 0
         this.awaitingResponse.clear()
         this.queued.length = 0

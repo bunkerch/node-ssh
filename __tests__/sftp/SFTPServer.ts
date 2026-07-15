@@ -66,9 +66,167 @@ describe("SFTP server request engine", () => {
             expect(
                 () => new SFTPServer(asShell(fixture), { maxConcurrentRequests: null as never }),
             ).toThrow("SFTP maximum concurrent requests must be between")
+            expect(
+                () => new SFTPServer(asShell(fixture), { maxOpenHandles: null as never }),
+            ).toThrow("SFTP maximum open handles must be a non-negative safe integer")
         } finally {
             fixture.destroy()
         }
+    })
+
+    test("bounds pending and active baseline handles and recovers capacity on close", async () => {
+        const fixture = new SFTPClientFixture()
+        const server = new SFTPServer(asShell(fixture), { maxOpenHandles: 1 })
+        let releaseFirst!: () => void
+        const firstPending = new Promise<void>((resolve) => {
+            releaseFirst = resolve
+        })
+        let opens = 0
+        server.hooker.hook("OPEN", async (_hook, request) => {
+            opens++
+            if (request.filename.equals(Buffer.from("first"))) await firstPending
+            await server.handle(request.requestId, Buffer.from(request.filename))
+        })
+        server.hooker.hook("CLOSE", async (_hook, request) => {
+            await server.status(request.requestId, SFTPStatusCode.Ok)
+        })
+
+        fixture.send({ type: SFTPPacketType.Init, version: 3, extensions: [] })
+        fixture.send({
+            type: SFTPPacketType.Open,
+            requestId: 1,
+            filename: Buffer.from("first"),
+            flags: 1,
+            attributes: {},
+        })
+        fixture.send({
+            type: SFTPPacketType.Open,
+            requestId: 2,
+            filename: Buffer.from("second"),
+            flags: 1,
+            attributes: {},
+        })
+        await flush()
+
+        expect(server.maxOpenHandles).toBe(1)
+        expect(opens).toBe(1)
+        expect(fixture.responses[1]).toMatchObject({
+            type: SFTPPacketType.Status,
+            requestId: 2,
+            code: SFTPStatusCode.Failure,
+            message: "SFTP open handle limit reached",
+        })
+
+        releaseFirst()
+        await flush()
+        expect(fixture.responses[2]).toEqual({
+            type: SFTPPacketType.Handle,
+            requestId: 1,
+            handle: Buffer.from("first"),
+        })
+        fixture.send({ type: SFTPPacketType.Close, requestId: 3, handle: Buffer.from("first") })
+        await flush()
+        fixture.send({
+            type: SFTPPacketType.Open,
+            requestId: 4,
+            filename: Buffer.from("second"),
+            flags: 1,
+            attributes: {},
+        })
+        await flush()
+
+        expect(opens).toBe(2)
+        expect(fixture.responses.at(-1)).toEqual({
+            type: SFTPPacketType.Handle,
+            requestId: 4,
+            handle: Buffer.from("second"),
+        })
+        fixture.destroy()
+    })
+
+    test("rejects reuse of a live baseline handle", async () => {
+        const fixture = new SFTPClientFixture()
+        const server = new SFTPServer(asShell(fixture), { maxOpenHandles: 2 })
+        let opens = 0
+        server.hooker.hook("OPEN", async (_hook, request) => {
+            opens++
+            await server.handle(request.requestId, Buffer.from("shared"))
+        })
+
+        fixture.send({ type: SFTPPacketType.Init, version: 3, extensions: [] })
+        fixture.send({
+            type: SFTPPacketType.Open,
+            requestId: 1,
+            filename: Buffer.from("first"),
+            flags: 1,
+            attributes: {},
+        })
+        await flush()
+        fixture.send({
+            type: SFTPPacketType.Open,
+            requestId: 2,
+            filename: Buffer.from("second"),
+            flags: 1,
+            attributes: {},
+        })
+        await flush()
+
+        expect(opens).toBe(2)
+        expect(fixture.responses[1]).toEqual({
+            type: SFTPPacketType.Handle,
+            requestId: 1,
+            handle: Buffer.from("shared"),
+        })
+        expect(fixture.responses[2]).toMatchObject({
+            type: SFTPPacketType.Status,
+            requestId: 2,
+            code: SFTPStatusCode.Failure,
+            message: "SFTP request handler failed",
+        })
+        fixture.destroy()
+    })
+
+    test("does not count a committed handle as pending while its hook finishes", async () => {
+        const fixture = new SFTPClientFixture()
+        const server = new SFTPServer(asShell(fixture), { maxOpenHandles: 2 })
+        let finishFirst!: () => void
+        const firstFinishing = new Promise<void>((resolve) => {
+            finishFirst = resolve
+        })
+        let opens = 0
+        server.hooker.hook("OPEN", async (_hook, request) => {
+            opens++
+            await server.handle(request.requestId, Buffer.from(request.filename))
+            if (request.filename.equals(Buffer.from("first"))) await firstFinishing
+        })
+
+        fixture.send({ type: SFTPPacketType.Init, version: 3, extensions: [] })
+        fixture.send({
+            type: SFTPPacketType.Open,
+            requestId: 1,
+            filename: Buffer.from("first"),
+            flags: 1,
+            attributes: {},
+        })
+        await flush()
+        fixture.send({
+            type: SFTPPacketType.Open,
+            requestId: 2,
+            filename: Buffer.from("second"),
+            flags: 1,
+            attributes: {},
+        })
+        await flush()
+
+        expect(opens).toBe(2)
+        expect(fixture.responses[2]).toEqual({
+            type: SFTPPacketType.Handle,
+            requestId: 2,
+            handle: Buffer.from("second"),
+        })
+        finishFirst()
+        await flush()
+        fixture.destroy()
     })
 
     test("rejects an invalid advertised extension name during construction", () => {

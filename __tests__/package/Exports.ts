@@ -172,7 +172,10 @@ describe("package exports", () => {
         const publicKeyServerOptions: PublicKeySubsystemServerOptions = {
             attributes: [{ name: "comment" }],
         }
-        const sftpServerOptions: SFTPServerOptions = { maxConcurrentRequests: 32 }
+        const sftpServerOptions: SFTPServerOptions = {
+            maxConcurrentRequests: 32,
+            maxOpenHandles: 16,
+        }
         const sftpReadResult: SFTPReadResult = { bytesRead: 0, buffer: Buffer.alloc(0) }
         const sftpWriteResult: SFTPWriteResult = { bytesWritten: 0, buffer: Buffer.alloc(0) }
         const detachedSignatureOptions: SSHSignatureOptions = { namespace: "package" }
@@ -198,6 +201,7 @@ describe("package exports", () => {
         expect(publicKeyAddOptions.overwrite).toBe(true)
         expect(publicKeyServerOptions.attributes?.[0]?.name).toBe("comment")
         expect(sftpServerOptions.maxConcurrentRequests).toBe(32)
+        expect(sftpServerOptions.maxOpenHandles).toBe(16)
         expect(sftpReadResult.bytesRead).toBe(0)
         expect(sftpWriteResult.bytesWritten).toBe(0)
         expect(detachedSignatureOptions.namespace).toBe("package")
@@ -585,6 +589,8 @@ describe("package exports", () => {
         expect(sftpServer).toContain(
             "status(requestId: number, code: SFTPStatusCode, message?: string, languageTag?: string): Promise<void>",
         )
+        expect(sftpServer).toContain("maxOpenHandles?: number")
+        expect(sftpServer).toContain("get maxOpenHandles(): number")
         for (const response of ["handle", "data", "name", "attributes", "extendedReply"]) {
             expect(sftpServer).toMatch(new RegExp(`${response}\\([^;]+\\): Promise<void>`))
         }

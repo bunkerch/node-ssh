@@ -369,6 +369,13 @@ request is sent. If an application maps distinct path byte strings to the same b
 example through aliases outside the virtual path model—it must additionally serialize those backend
 aliases because the protocol layer cannot discover that identity.
 
+The server allows 256 active or pending baseline `OPEN` and `OPENDIR` handles by default. Set
+`maxOpenHandles` to a non-negative safe integer to match the backend's resource budget. Once the
+limit is reached, another open request receives `SFTPStatusCode.Failure` before its Hooker handler
+runs, so no backend handle should be allocated for it. A successful handle value must remain unique
+within the session until the corresponding `CLOSE` response has been written; that response releases
+the capacity even when it reports failure.
+
 A peer may reuse a numeric request identifier after receiving its response; if the prior Hooker
 handler is still completing, the reused identifier remains queued until that handler returns. This
 prevents late code in the prior handler from accidentally responding to the newer request, without
@@ -382,6 +389,7 @@ decision.success = true
 decision.sftp = {
     extensions: [{ name: "example@example.com", data: Buffer.from("1") }],
     maxConcurrentRequests: 32,
+    maxOpenHandles: 128,
 }
 ```
 
@@ -392,7 +400,7 @@ change the version advertisement already assigned to that session. The server's 
 the live advertisement either. Extension data must be supplied as a `Buffer`.
 The server option bag must be a plain object, `extensions` must be an array, and
 `openSSHSymlinkArguments` must be a boolean. Explicit `null` values are rejected rather than
-selecting defaults, including for `maxConcurrentRequests`.
+selecting defaults, including for `maxConcurrentRequests` and `maxOpenHandles`.
 
 For `SYMLINK`, call `sftp.symlinkPaths(request)` to obtain semantic `targetPath` and `linkPath`
 values. Session integration detects OpenSSH and Dropbear identifications and normalizes OpenSSH's
