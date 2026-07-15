@@ -625,6 +625,14 @@ function validateAddressFamilyFlag(value: unknown, field: "forceIPv4" | "forceIP
     }
 }
 
+function normalizeBooleanOption(value: unknown, fallback: boolean, field: string): boolean {
+    if (value === undefined) return fallback
+    if (typeof value !== "boolean") {
+        throw new TypeError(`SSH ${field} option must be a boolean`)
+    }
+    return value
+}
+
 function clientDiagnosticSummary(
     options: ClientOptionsRequired,
 ): Readonly<Record<string, unknown>> {
@@ -683,8 +691,16 @@ export default class Client extends EventEmitter<ClientEvents> {
         if (this.#options.port === undefined) this.#options.port = 22
         if (this.#options.forceIPv4 === undefined) this.#options.forceIPv4 = false
         if (this.#options.forceIPv6 === undefined) this.#options.forceIPv6 = false
-        this.#options.strictVendor ??= true
-        this.#options.username ??= "root"
+        this.#options.strictVendor = normalizeBooleanOption(
+            this.#options.strictVendor,
+            true,
+            "strictVendor",
+        )
+        if (this.#options.username === undefined) this.#options.username = "root"
+        if (typeof this.#options.username !== "string") {
+            throw new TypeError("SSH username option must be a string")
+        }
+        encodeSSHUTF8(this.#options.username, "SSH username")
         validateEndpointText(this.#options.hostname, "hostname")
         if (
             !Number.isInteger(this.#options.port) ||
@@ -707,13 +723,31 @@ export default class Client extends EventEmitter<ClientEvents> {
         if (this.#options.debug !== undefined && typeof this.#options.debug !== "function") {
             throw new TypeError("SSH debug option must be a function")
         }
-        this.#options.agentForward ??= false
+        if (
+            this.#options.hostVerifier !== undefined &&
+            typeof this.#options.hostVerifier !== "function"
+        ) {
+            throw new TypeError("SSH hostVerifier option must be a function")
+        }
+        this.#options.agentForward = normalizeBooleanOption(
+            this.#options.agentForward,
+            false,
+            "agentForward",
+        )
         this.#options.noFlowControl = normalizeNoFlowControlPreference(this.#options.noFlowControl)
         this.#options.elevation = normalizeElevationPreference(this.#options.elevation)
         this.#options.delayCompression = normalizeDelayCompression(this.#options.delayCompression)
         this.#options.gssapi = normalizeGSSAPIClientMechanisms(this.#options.gssapi ?? [])
-        this.#options.gssapiDelegateCredentials ??= false
-        this.#options.gssapiKeyExchangeAuthentication ??= true
+        this.#options.gssapiDelegateCredentials = normalizeBooleanOption(
+            this.#options.gssapiDelegateCredentials,
+            false,
+            "gssapiDelegateCredentials",
+        )
+        this.#options.gssapiKeyExchangeAuthentication = normalizeBooleanOption(
+            this.#options.gssapiKeyExchangeAuthentication,
+            true,
+            "gssapiKeyExchangeAuthentication",
+        )
         if (this.#options.hostbased !== undefined) {
             this.#options.hostbased = Object.freeze({ ...this.#options.hostbased })
         }

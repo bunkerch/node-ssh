@@ -661,6 +661,8 @@ describe("package exports", () => {
                     const emptyPasswordClient = new Client({ password: "" })
                     const emptyPasswordDecision = { password: undefined }
                     if (!await emptyPasswordClient.hooker.triggerHookChecked("passwordAuth", { username: "root" }, emptyPasswordDecision) || emptyPasswordDecision.password !== "") process.exit(61)
+                    try { new Client({ agentForward: "false" }); process.exit(62) } catch (error) { if (!String(error).includes("agentForward option must be a boolean")) process.exit(63) }
+                    try { new Client({ hostVerifier: true }); process.exit(64) } catch (error) { if (!String(error).includes("hostVerifier option must be a function")) process.exit(65) }
                     try { new Client({ port: 0 }); process.exit(57) } catch (error) { if (!String(error).includes("between 1 and 65535")) process.exit(58) }
                     try { new Server({ greeting: "invalid\\ud800greeting" }); process.exit(59) } catch (error) { if (!String(error).includes("not valid UTF-8 text")) process.exit(60) }
                     const legacy = generateKeyPairSync("dsa")

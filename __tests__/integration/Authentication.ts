@@ -17,6 +17,29 @@ import type { ProtocolPacketMetadata } from "../../src/packet.js"
 import { AgentType, type Agent } from "../../src/publickey/Agent.js"
 
 describe("RFC 4252 multi-method authentication", () => {
+    test("rejects malformed security-sensitive client options during construction", () => {
+        for (const [name, options] of [
+            ["strictVendor", { strictVendor: "false" }],
+            ["agentForward", { agentForward: "false" }],
+            ["gssapiDelegateCredentials", { gssapiDelegateCredentials: 1 }],
+            ["gssapiKeyExchangeAuthentication", { gssapiKeyExchangeAuthentication: null }],
+        ] as const) {
+            expect(() => new Client(options as never)).toThrow(
+                `SSH ${name} option must be a boolean`,
+            )
+        }
+
+        expect(() => new Client({ username: 7 as never })).toThrow(
+            "SSH username option must be a string",
+        )
+        expect(() => new Client({ username: "invalid\ud800username" })).toThrow(
+            "SSH username is not valid UTF-8 text",
+        )
+        expect(() => new Client({ hostVerifier: true as never })).toThrow(
+            "SSH hostVerifier option must be a function",
+        )
+    })
+
     test("rejects malformed authentication method orders during construction", () => {
         expect(() => new Client({ authenticationMethodsOrder: [] })).toThrow(
             "SSH authentication method order must contain at least one method",
