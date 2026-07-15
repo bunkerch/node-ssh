@@ -129,6 +129,44 @@ describe("known hosts", () => {
         }
     })
 
+    test("owns replacement inputs before the serialized update runs", async () => {
+        const original = generateKeyPairSync("ed25519", {
+            comment: "original@example.test",
+        }).publicKey
+        const replacement = generateKeyPairSync("ed25519").publicKey
+        const encoded = Buffer.from(original.toString())
+        const keys: (PublicKey | string | Buffer)[] = [encoded]
+        const options = { port: 2222, hashHostname: false }
+        const knownHosts = KnownHosts.parse("")
+
+        const update = knownHosts.replaceHostKeys("owned.example.test", keys, options)
+        encoded.fill(0)
+        keys[0] = replacement
+        options.port = 2200
+        options.hashHostname = true
+        await update
+
+        expect(knownHosts.check("owned.example.test", original, 2222).status).toBe("trusted")
+        expect(knownHosts.check("owned.example.test", replacement, 2222).status).toBe("changed")
+        expect(knownHosts.check("owned.example.test", original, 2200).status).toBe("unknown")
+        expect(knownHosts.toString()).toContain(" original@example.test\n")
+    })
+
+    test("validates replacement collections and options before queueing", async () => {
+        const knownHosts = KnownHosts.parse("")
+        await expect(
+            knownHosts.replaceHostKeys("host.example.test", null as never),
+        ).rejects.toThrow("keys must be an array")
+        await expect(
+            knownHosts.replaceHostKeys("host.example.test", [], null as never),
+        ).rejects.toThrow("options must be an object")
+        await expect(
+            knownHosts.replaceHostKeys("host.example.test", [], {
+                hashHostname: "yes" as never,
+            }),
+        ).rejects.toThrow("hashHostname option must be a boolean")
+    })
+
     test("validates host certificates against matching authority entries", async () => {
         const directory = await mkdtemp(join(tmpdir(), "modernssh-known-host-ca-"))
         try {

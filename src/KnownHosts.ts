@@ -4,11 +4,12 @@ import { basename, dirname, join } from "node:path"
 
 import type { ClientHostVerifier } from "./Client.js"
 import { parseKey } from "./KeyParsing.js"
-import PublicKey, { SSHCertificatePublicKey } from "./utils/PublicKey.js"
+import PublicKey, { encodeSSHKeyComment, SSHCertificatePublicKey } from "./utils/PublicKey.js"
 import { readNextBuffer } from "./utils/Buffer.js"
 import { decodeSSHName, encodeSSHName } from "./utils/SSHName.js"
 import { decodeSSHUTF8, encodeSSHUTF8 } from "./utils/SSHText.js"
 import { asciiLowercaseBytes, matchesWildcardBytes } from "./utils/Wildcard.js"
+import { isPlainConfigurationObject } from "./utils/Configuration.js"
 
 const MAX_KNOWN_HOSTS_LENGTH = 16 * 1024 * 1024
 const MAX_KNOWN_HOSTS_LINE_LENGTH = 64 * 1024
@@ -43,6 +44,12 @@ interface KnownHostEntry {
 interface SourceLine {
     readonly raw: string
     readonly entry?: KnownHostEntry
+}
+
+interface KnownHostReplacementKey {
+    readonly keyType: string
+    readonly keyBlob: Buffer
+    readonly comment: string | undefined
 }
 
 export class KnownHostsError extends Error {
@@ -150,7 +157,21 @@ export default class KnownHosts {
         keys: readonly (PublicKey | string | Buffer)[],
         options: KnownHostsReplaceOptions = {},
     ): Promise<void> {
-        const operation = this.update.then(() => this.performReplace(hostname, keys, options))
+        if (!Array.isArray(keys)) {
+            throw new TypeError("Known-host replacement keys must be an array")
+        }
+        if (!isPlainConfigurationObject(options)) {
+            throw new TypeError("Known-host replacement options must be an object")
+        }
+        const host = formatKnownHost(hostname, options.port ?? 22)
+        const hashHostname = options.hashHostname ?? false
+        if (typeof hashHostname !== "boolean") {
+            throw new TypeError("Known-host hashHostname option must be a boolean")
+        }
+        const replacementKeys = keys.map(snapshotReplacementKey)
+        const operation = this.update.then(() =>
+            this.performReplace(host, replacementKeys, hashHostname),
+        )
         this.update = operation.catch(() => undefined)
         return operation
     }
@@ -161,13 +182,10 @@ export default class KnownHosts {
     }
 
     private async performReplace(
-        hostname: string,
-        keys: readonly (PublicKey | string | Buffer)[],
-        options: KnownHostsReplaceOptions,
+        host: string,
+        keys: readonly KnownHostReplacementKey[],
+        hashHostname: boolean,
     ): Promise<void> {
-        const port = options.port ?? 22
-        const host = formatKnownHost(hostname, port)
-        const publicKeys = keys.map(normalizePublicKey)
         if (this.path) {
             let latest = ""
             try {
@@ -195,11 +213,11 @@ export default class KnownHosts {
             }
         }
 
-        for (const key of publicKeys) {
-            const storedHost = options.hashHostname ? hashKnownHost(host) : host
+        for (const key of keys) {
+            const storedHost = hashHostname ? hashKnownHost(host) : host
             retained.push(
-                `${storedHost} ${key.data.alg} ${key.serialize().toString("base64")}${
-                    key.data.comment ? ` ${key.data.comment}` : ""
+                `${storedHost} ${key.keyType} ${key.keyBlob.toString("base64")}${
+                    key.comment ? ` ${key.comment}` : ""
                 }`,
             )
         }
@@ -399,6 +417,20 @@ function normalizePublicKey(key: PublicKey | string | Buffer): PublicKey {
     const parsed = parseKey(key)
     if (!(parsed instanceof PublicKey)) throw new TypeError("Known hosts only accepts public keys")
     return parsed
+}
+
+function snapshotReplacementKey(key: PublicKey | string | Buffer): KnownHostReplacementKey {
+    const publicKey = normalizePublicKey(key)
+    const comment = publicKey.data.comment
+    if (comment !== undefined) {
+        if (typeof comment !== "string") {
+            throw new TypeError("Known-host key comment must be a string")
+        }
+        encodeSSHKeyComment(comment, "Known-host key comment")
+    }
+    const keyBlob = Buffer.from(publicKey.serialize())
+    const keyType = PublicKey.parse(keyBlob).data.alg
+    return Object.freeze({ keyType, keyBlob, comment })
 }
 
 async function atomicWrite(path: string, content: string): Promise<void> {

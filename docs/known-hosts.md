@@ -91,7 +91,9 @@ await knownHosts.replaceHostKeys(hostname, replacementKeys, {
 Each key receives an independently salted hashed hostname. Writes use a new file in the same
 directory, flush its contents, preserve the existing file mode, and atomically rename it over the
 target. Calls on the same `KnownHosts` instance are serialized, and each update rereads a
-file-backed database first so unrelated changes made since `load()` are retained.
+file-backed database first so unrelated changes made since `load()` are retained. The hostname,
+port, hashing choice, key array, encoded key buffers, and key comments are validated and copied
+before an update enters that queue; later caller mutation cannot redirect or alter the trust update.
 
 Updating known hosts after the `hostKeys` rotation event is safe only when the current connection
 was authenticated from an already trusted entry. The rotation proof establishes that the current

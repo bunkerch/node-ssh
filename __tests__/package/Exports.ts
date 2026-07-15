@@ -794,6 +794,16 @@ describe("package exports", () => {
                     if (!parseKey(publicKey.toString()).equals(publicKey)) process.exit(4)
                     if (!PublicKey.fromPEM(publicKey.toPEM()).equals(publicKey)) process.exit(96)
                     if (!PrivateKey.fromPEM(privateKey.toPEM()).data.publicKey.equals(publicKey)) process.exit(97)
+                    const packedKnownHosts = KnownHosts.parse("")
+                    const packedKnownHostKey = Buffer.from(publicKey.toString())
+                    const packedKnownHostKeys = [packedKnownHostKey]
+                    const packedKnownHostOptions = { port: 2222 }
+                    const packedKnownHostUpdate = packedKnownHosts.replaceHostKeys("packed.example.test", packedKnownHostKeys, packedKnownHostOptions)
+                    packedKnownHostKey.fill(0)
+                    packedKnownHostKeys.length = 0
+                    packedKnownHostOptions.port = 2200
+                    await packedKnownHostUpdate
+                    if (packedKnownHosts.check("packed.example.test", publicKey, 2222).status !== "trusted") process.exit(101)
                     const configured = new Client({ privateKey: encrypted, passphrase: "packed-secret" })
                     if ("options" in configured) process.exit(5)
                     const emptyPasswordClient = new Client({ password: "" })
