@@ -31,6 +31,9 @@
         "format:check": "prettier --check .",
         "docs:api": "pnpm run build && node scripts/generate-api-reference.mjs",
         "docs:api:check": "node scripts/generate-api-reference.mjs --check",
+        "docs:dev": "pnpm run docs:api && vitepress dev docs",
+        "docs:build": "pnpm run docs:api && vitepress build docs",
+        "docs:preview": "vitepress preview docs",
         "prepare": "husky",
         "prepack": "pnpm run build"
     },
@@ -59,7 +62,8 @@
         "lint-staged": "^16.4.0",
         "prettier": "^3.6.2",
         "typescript": "^5.9.3",
-        "typescript-eslint": "^8.46.2"
+        "typescript-eslint": "^8.46.2",
+        "vitepress": "1.6.4"
     },
     "dependencies": {
         "@noble/curves": "^2.2.0",

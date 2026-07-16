@@ -3,7 +3,7 @@
 These recipes use only the package-root ESM API. Public operations are Promise-based, application
 policy uses awaited `Hooker` handlers, and EventEmitter listeners remain synchronous. See
 [Getting started](getting-started.md) for every connection option and the
-[API reference](api/README.md) for exact declarations.
+[API reference](api/index.md) for exact declarations.
 
 ## Connect with known-hosts verification
 

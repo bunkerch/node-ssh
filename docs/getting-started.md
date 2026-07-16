@@ -592,7 +592,7 @@ socket discovery, transport handshakes, or identity lookup.
 
 ## Public exports
 
-The [generated API reference](api/README.md) lists every export available from the package root and
+The [generated API reference](api/index.md) lists every export available from the package root and
 prints its exact shipped TypeScript declaration. Its area pages include every public class
 constructor, property, accessor and method, all function overloads, and every interface, type,
 enum, and constant. Each entry links back to its implementation.

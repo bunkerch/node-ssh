@@ -56,7 +56,7 @@ asynchronous policy decisions belong in awaited `Hooker` handlers.
 | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
 | Connect a client or create a server                               | [Getting started](docs/getting-started.md)                                                  |
 | Copy practical recipes                                            | [Examples](docs/examples.md)                                                                |
-| Look up every package export and its exact TypeScript declaration | [API reference](docs/api/README.md)                                                         |
+| Look up every package export and its exact TypeScript declaration | [API reference](docs/api/index.md)                                                          |
 | Configure authentication and multi-factor flows                   | [Authentication](docs/authentication.md)                                                    |
 | Run commands, shells, and subsystems                              | [Channels](docs/channels.md)                                                                |
 | Transfer and manage files                                         | [SFTP](docs/sftp.md)                                                                        |
@@ -79,8 +79,11 @@ pnpm test
 pnpm lint
 pnpm format:check
 pnpm docs:api
+pnpm docs:dev
+pnpm docs:build
 ```
 
 `pnpm test` builds the distributable entry point before running unit and integration tests.
 `pnpm docs:api` rebuilds the package and regenerates the complete declaration reference under
-`docs/api/`.
+`docs/api/`. `pnpm docs:dev` starts the local VitePress site, and `pnpm docs:build` verifies the
+production documentation build.
