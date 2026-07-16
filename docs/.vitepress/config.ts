@@ -10,6 +10,14 @@ export default defineConfig({
     base,
     cleanUrls: true,
     lastUpdated: true,
+    vite: {
+        server: {
+            allowedHosts: [".dev.manaf.ch"],
+        },
+        preview: {
+            allowedHosts: [".dev.manaf.ch"],
+        },
+    },
     head: [
         ["meta", { name: "theme-color", content: "#2f6f5e" }],
         ["meta", { property: "og:type", content: "website" }],
