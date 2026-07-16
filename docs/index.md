@@ -13,10 +13,10 @@ handlers so authorization decisions remain ordered and rejected handlers are con
 
 ## Install
 
-The current release is available from `npm.manaf.ch`:
+Install the package from the public npm registry:
 
 ```sh
-pnpm add @bunkerch/modernssh --registry https://npm.manaf.ch
+pnpm add @bunkerch/modernssh
 ```
 
 `modernssh` is an ESM package for Node.js 20 and newer.

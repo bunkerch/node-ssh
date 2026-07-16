@@ -6,13 +6,11 @@ The project implements SSH from its standards and includes typed client, server,
 forwarding, agent, key-management, and SFTP APIs. Public asynchronous operations return Promises;
 awaited application policy is handled through `Hooker`.
 
-The current release is available from `npm.manaf.ch`:
+Install the package from the public npm registry:
 
 ```sh
-pnpm add @bunkerch/modernssh --registry https://npm.manaf.ch
+pnpm add @bunkerch/modernssh
 ```
-
-The package will also target the public npm registry in a future release.
 
 ## Quick start
 

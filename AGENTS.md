@@ -42,8 +42,10 @@ relevant file under `docs/`.
 The Fumadocs toolchain requires Node.js 22 or newer. This does not change the library's Node.js 20
 runtime support; GitHub Actions builds documentation in the Node.js 24 lint job.
 
-GitHub Actions jobs run on the Linux `bunkerch-sysbox` runner. Do not add Windows-hosted jobs or
-Windows test matrices unless the maintainer explicitly requests them.
+Test, lint, and documentation jobs run on the Linux `bunkerch-sysbox` runner. The npm publishing
+job runs on GitHub-hosted Linux because npm trusted publishing does not support self-hosted
+runners. Do not add other GitHub-hosted jobs, Windows-hosted jobs, or Windows test matrices unless
+the maintainer explicitly requests them.
 
 Before committing, run the focused tests for the change, then `pnpm build`, `pnpm lint`,
 `pnpm format:check`, and `pnpm test`. Do not bypass the Husky/pre-commit checks.
@@ -152,6 +154,10 @@ Before committing, run the focused tests for the change, then `pnpm build`, `pnp
 
 - Preserve unrelated user changes in a dirty worktree. Never use destructive reset or checkout
   commands to discard them.
+- Publish the public package to `https://registry.npmjs.org/` only through the GitHub Release
+  workflow. Release tags must exactly match `v<package.json version>`; mark prerelease versions as
+  GitHub prereleases so npm publishes them under the `next` dist-tag. Keep publishing on npm trusted
+  publishing with short-lived OIDC credentials instead of a long-lived registry token.
 - Use focused Conventional Commit subjects such as `feat:`, `fix:`, `test:`, `docs:`, and
   `chore:`. Commit and push complete logical slices frequently.
 - Before committing, run `git diff --check` and the tracked-file terminology gate:
