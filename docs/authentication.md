@@ -1,3 +1,8 @@
+---
+title: Authentication
+description: Client credentials, server policy, prompts, banners, and multi-factor flows.
+---
+
 # User authentication
 
 `modernssh` implements the RFC 4252 `none`, public-key, host-based, and password methods, RFC 4256

@@ -1,3 +1,8 @@
+---
+title: Detached signatures
+description: Namespace-bound SSH signing and verification with keys or agents.
+---
+
 # Detached SSH signatures
 
 `SSHSignature` signs, parses, serializes, and verifies the detached armored signature format used

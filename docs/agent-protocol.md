@@ -1,3 +1,8 @@
+---
+title: SSH agent protocol
+description: Identity management, constraints, locking, extensions, and restricted agent endpoints.
+---
+
 # SSH agent protocol
 
 `SSHAgentProtocolClient` and `SSHAgentProtocolServer` implement the connection-oriented agent

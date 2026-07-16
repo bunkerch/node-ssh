@@ -1,3 +1,8 @@
+---
+title: Known hosts
+description: Persistent host verification, certificates, revocation, and key rotation.
+---
+
 # Known hosts
 
 `KnownHosts` reads and updates the host-key database format used by OpenSSH. Use its verifier with

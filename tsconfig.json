@@ -20,5 +20,6 @@
         "sourceMap": true,
         "declaration": true
     },
+    "include": ["src/**/*.ts"],
     "exclude": ["dist/", "node_modules/", "__tests__/", "eslint.config.ts"]
 }

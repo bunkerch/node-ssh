@@ -1,3 +1,8 @@
+---
+title: Channels
+description: Commands, shells, subsystems, streams, requests, and channel lifecycle.
+---
+
 # Client session channels
 
 After `connect()` authenticates, a client can start a command or an interactive shell. Both APIs

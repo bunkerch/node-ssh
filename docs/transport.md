@@ -1,3 +1,8 @@
+---
+title: SSH transport behavior
+description: Identification, key exchange, encryption, rekeying, and transport lifecycle.
+---
+
 # SSH transport behavior
 
 The transport implementation follows the SSH-2 transport protocol in RFC 4253. This document

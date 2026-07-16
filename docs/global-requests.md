@@ -1,3 +1,8 @@
+---
+title: Global requests
+description: Promise-based connection-wide requests and awaited application handlers.
+---
+
 # Global requests
 
 RFC 4254 global requests apply to the whole SSH connection rather than one channel. The library

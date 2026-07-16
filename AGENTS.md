@@ -34,10 +34,13 @@ relevant file under `docs/`.
 - `pnpm format:check`: verify formatting.
 - `pnpm docs:api`: rebuild the generated package-root API reference from emitted declarations.
 - `pnpm docs:api:check`: verify that the generated API reference matches the shipped declarations.
-- `pnpm docs:dev`: regenerate the API reference and start the VitePress development server.
-- `pnpm docs:build`: regenerate the API reference and build the production documentation site.
+- `pnpm docs:dev`: regenerate the API reference and start the Fumadocs development server.
+- `pnpm docs:build`: regenerate the API reference and build the production Fumadocs site.
 - `pnpm docs:preview`: preview an existing production documentation build.
 - `pnpm pack`: build a consumer-installable archive.
+
+The Fumadocs toolchain requires Node.js 22 or newer. This does not change the library's Node.js 20
+runtime support; GitHub Actions builds documentation in the Node.js 24 lint job.
 
 GitHub Actions jobs run on the Linux `bunkerch-sysbox` runner. Do not add Windows-hosted jobs or
 Windows test matrices unless the maintainer explicitly requests them.
@@ -134,8 +137,8 @@ Before committing, run the focused tests for the change, then `pnpm build`, `pnp
 - Update the relevant Markdown under `docs/` whenever public behavior changes.
 - Regenerate `docs/api/` with `pnpm docs:api` whenever the package-root declaration surface changes;
   never edit generated API-reference files by hand.
-- Keep VitePress navigation in `docs/.vitepress/config.ts` aligned with durable user-facing guides.
-  Generated site output and cache directories are not committed.
+- Keep Fumadocs navigation in `docs/meta.json` and nested `meta.json` files aligned with durable
+  user-facing guides. Generated site output, content indexes, and caches are not committed.
 - Examples use Promise APIs and awaited Hooker handlers. EventEmitter examples keep listeners
   synchronous and handle async failures explicitly.
 - Event-waiting examples import `once` from `node:events`.

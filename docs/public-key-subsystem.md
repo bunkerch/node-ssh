@@ -1,3 +1,8 @@
+---
+title: Public-key management subsystem
+description: Add, remove, and list an authenticated user's authorized keys.
+---
+
 # Public-key management subsystem
 
 RFC 4819 defines the `publickey` SSH subsystem for managing the authenticated user's authorized

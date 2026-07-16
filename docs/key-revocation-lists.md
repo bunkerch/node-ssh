@@ -1,3 +1,8 @@
+---
+title: Key revocation lists
+description: Binary SSH key and certificate revocation policy.
+---
+
 # Key revocation lists
 
 `KeyRevocationList` loads the binary KRL format produced by `ssh-keygen`. It can reject plain

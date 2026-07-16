@@ -85,5 +85,6 @@ pnpm docs:build
 
 `pnpm test` builds the distributable entry point before running unit and integration tests.
 `pnpm docs:api` rebuilds the package and regenerates the complete declaration reference under
-`docs/api/`. `pnpm docs:dev` starts the local VitePress site, and `pnpm docs:build` verifies the
-production documentation build.
+`docs/api/`. `pnpm docs:dev` starts the local Fumadocs site, and `pnpm docs:build` verifies the
+production documentation build. The documentation toolchain requires Node.js 22 or newer; the
+published library continues to support Node.js 20.

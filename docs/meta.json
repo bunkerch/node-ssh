@@ -1,0 +1,27 @@
+{
+    "title": "modernssh",
+    "pages": [
+        "index",
+        "getting-started",
+        "examples",
+        "---Client and server---",
+        "authentication",
+        "channels",
+        "sftp",
+        "forwarding",
+        "tunnels",
+        "global-requests",
+        "---Identity and trust---",
+        "known-hosts",
+        "agent-protocol",
+        "public-key-subsystem",
+        "key-revocation-lists",
+        "signatures",
+        "---Protocol---",
+        "transport",
+        "interoperability",
+        "rfc-coverage",
+        "---Reference---",
+        "api"
+    ]
+}

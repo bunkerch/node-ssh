@@ -1,3 +1,8 @@
+---
+title: Standards coverage
+description: Implemented SSH standards mapped to production code and test evidence.
+---
+
 # Standards coverage
 
 This page maps the SSH standards implemented by `modernssh` to the production code and tests that

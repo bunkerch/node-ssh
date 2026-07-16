@@ -1,3 +1,8 @@
+---
+title: Packet tunnel channels
+description: Layer-3 and layer-2 tunnel channels and their authorization boundaries.
+---
+
 # Packet tunnels
 
 `modernssh` supports the `tun@openssh.com` channel for carrying complete IP datagrams or Ethernet

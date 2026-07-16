@@ -1,3 +1,8 @@
+---
+title: Getting started
+description: Connect clients, run servers, configure trust, and manage SSH lifecycles.
+---
+
 # Getting started
 
 `modernssh` is an ESM package for Node.js 20 and newer. It exports its client, server, key,

@@ -5,7 +5,7 @@ import stylistic from "@stylistic/eslint-plugin"
 
 export default defineConfig(
     {
-        ignores: ["dist/", "docs/.vitepress/cache/", "docs/.vitepress/dist/"],
+        ignores: ["dist/", ".next/", ".source/", "out/"],
     },
     eslint.configs.recommended,
     tseslint.configs.recommended,

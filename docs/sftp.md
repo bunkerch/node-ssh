@@ -1,3 +1,8 @@
+---
+title: SFTP
+description: Promise-based remote file operations, streams, extensions, and server policy.
+---
+
 # SFTP
 
 `modernssh` implements version 3 of the SSH File Transfer Protocol from

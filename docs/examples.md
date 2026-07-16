@@ -1,3 +1,8 @@
+---
+title: Examples
+description: Practical client, server, SFTP, forwarding, and lifecycle recipes.
+---
+
 # Examples
 
 These recipes use only the package-root ESM API. Public operations are Promise-based, application

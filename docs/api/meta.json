@@ -1,0 +1,14 @@
+{
+    "title": "API reference",
+    "defaultOpen": true,
+    "pages": [
+        "index",
+        "connections",
+        "channels",
+        "authentication",
+        "agents",
+        "sftp",
+        "keys",
+        "transport"
+    ]
+}

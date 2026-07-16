@@ -1,3 +1,8 @@
+---
+title: TCP/IP forwarding
+description: Direct, remote, HTTP, HTTPS, and stream-local SSH forwarding.
+---
+
 # TCP/IP forwarding channels
 
 `forwardOut()` opens an RFC 4254 `direct-tcpip` channel. It describes the original connection and

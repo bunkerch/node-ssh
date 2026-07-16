@@ -1,3 +1,8 @@
+---
+title: Interoperability
+description: Tested compatibility and cross-implementation protocol evidence.
+---
+
 # OpenSSH interoperability testing
 
 The end-to-end interoperability suite uses OpenSSH rather than another JavaScript SSH library. It
