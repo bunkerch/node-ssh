@@ -157,7 +157,8 @@ Before committing, run the focused tests for the change, then `pnpm build`, `pnp
 - Publish the public package to `https://registry.npmjs.org/` only through the GitHub Release
   workflow. Release tags must exactly match `v<package.json version>`; mark prerelease versions as
   GitHub prereleases so npm publishes them under the `next` dist-tag. Keep publishing on npm trusted
-  publishing with short-lived OIDC credentials instead of a long-lived registry token.
+  publishing with short-lived OIDC credentials. A granular `NPM_TOKEN` secret may bootstrap a new
+  package's first release, but remove it after configuring the package's trusted publisher.
 - Use focused Conventional Commit subjects such as `feat:`, `fix:`, `test:`, `docs:`, and
   `chore:`. Commit and push complete logical slices frequently.
 - Before committing, run `git diff --check` and the tracked-file terminology gate:

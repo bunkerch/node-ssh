@@ -92,6 +92,8 @@ jobs:
                   echo "archive=$archive_path" >> "$GITHUB_OUTPUT"
 
             - name: Publish package archive
+              env:
+                  NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
               run: >-
                   npm publish "${{ steps.package.outputs.archive }}"
                   --ignore-scripts
