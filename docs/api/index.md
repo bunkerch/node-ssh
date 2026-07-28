@@ -7,7 +7,7 @@ description: Exact public TypeScript declarations shipped by modernssh.
 
 # API reference
 
-This reference is generated from the declarations shipped by the package. It covers all 440 exports available from `@bunkerch/modernssh`. Class sections contain every public constructor, property, accessor, and method declared by that class; inherited Node.js stream and EventEmitter members remain documented by Node.js.
+This reference is generated from the declarations shipped by the package. It covers all 441 exports available from `@bunkerch/modernssh`. Class sections contain every public constructor, property, accessor, and method declared by that class; inherited Node.js stream and EventEmitter members remain documented by Node.js.
 
 Regenerate it with `pnpm docs:api`. CI runs `pnpm docs:api:check` to prevent the reference from drifting from `dist/*.d.ts`.
 
@@ -125,6 +125,7 @@ Regenerate it with `pnpm docs:api`. CI runs `pnpm docs:api:check` to prevent the
 | [`generateKeyPair`](keys.md#generatekeypair) | Function | Keys, trust, and signatures |
 | [`GenerateKeyPairOptions`](keys.md#generatekeypairoptions) | Interface | Keys, trust, and signatures |
 | [`generateKeyPairSync`](keys.md#generatekeypairsync) | Function | Keys, trust, and signatures |
+| [`GLOBAL_REQUESTS_OK_EXTENSION`](transport.md#global_requests_ok_extension) | Constant | Transport and protocol types |
 | [`GlobalRequestError`](connections.md#globalrequesterror) | Class | Connections and servers |
 | [`GSSAPI_KEYEX`](authentication.md#gssapi_keyex) | Constant | Authentication |
 | [`GSSAPI_WITH_MIC`](authentication.md#gssapi_with_mic) | Constant | Authentication |

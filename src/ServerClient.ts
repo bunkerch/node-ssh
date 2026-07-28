@@ -215,6 +215,7 @@ import {
     type DelayCompressionOffers,
     type NegotiatedDelayCompression,
 } from "./DelayCompression.js"
+import { globalRequestsOKExtension, supportsGlobalRequests } from "./GlobalRequests.js"
 import { registerReplyTimeout, waitForReply } from "./ReplyTimeout.js"
 import {
     KexGSSAPIComplete,
@@ -505,6 +506,11 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
 
     get clientExtensions(): readonly Readonly<SSHExtension>[] {
         return copySSHExtensions(this.negotiatedClientExtensions)
+    }
+
+    /** Whether the client advertises correct post-authentication global-request handling. */
+    get clientSupportsGlobalRequests(): boolean {
+        return supportsGlobalRequests(this.negotiatedClientExtensions)
     }
 
     /** Whether the client permits one EXT_INFO update after authentication starts. */
@@ -1199,6 +1205,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                                 : []),
                             ...(noFlowControl ? [noFlowControl] : []),
                             ...(delayCompression ? [delayCompression] : []),
+                            globalRequestsOKExtension(),
                         ],
                     }),
                 )

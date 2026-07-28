@@ -142,6 +142,12 @@ and exercises ordered server-initiated requests through the client's awaited hoo
 peers reject private unknown requests initiated in either direction, proving standards-compatible
 failure handling for both public APIs.
 
+The fixed `global-requests-ok` extension frame has its required empty value. Encrypted in-process
+tests prove that both roles advertise it, accept an opaque future value by name, and clear the
+server capability when a complete replacement set omits it. The pinned independent Python peer
+advertises the extension in both roles; the library observes it while exchanging channel traffic
+and explicitly rekeying.
+
 Agent-forwarding integration also connects the library's client and server directly, verifies the
 literal `agent-forward` version `0` advertisement, and proves that `forwardAgent()` selects
 `agent-req` followed by `agent-connect`. Replacement-extension coverage proves that omitting the

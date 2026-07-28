@@ -1,4 +1,5 @@
 import ExtInfo from "../../src/packets/ExtInfo.js"
+import { GLOBAL_REQUESTS_OK_EXTENSION } from "../../src/GlobalRequests.js"
 
 const serverSignatureAlgorithms = Buffer.from(
     "07000000010000000f7365727665722d7369672d616c6773" +
@@ -8,6 +9,10 @@ const serverSignatureAlgorithms = Buffer.from(
 const agentForwarding = Buffer.from("07000000010000000d6167656e742d666f72776172640000000130", "hex")
 const authenticationExtensionInfo = Buffer.from(
     "07000000010000001c6578742d696e666f2d696e2d61757468406f70656e7373682e636f6d00000000",
+    "hex",
+)
+const globalRequestsOK = Buffer.from(
+    "070000000100000012676c6f62616c2d72657175657374732d6f6b00000000",
     "hex",
 )
 
@@ -52,6 +57,15 @@ describe("RFC 8308 extension information vectors", () => {
             { name: "ext-info-in-auth@openssh.com", value: Buffer.alloc(0) },
         ])
         expect(packet.serialize()).toEqual(authenticationExtensionInfo)
+    })
+
+    test("parses and serializes the fixed global-request handling advertisement", () => {
+        const packet = ExtInfo.parse(globalRequestsOK)
+
+        expect(packet.data.extensions).toEqual([
+            { name: GLOBAL_REQUESTS_OK_EXTENSION, value: Buffer.alloc(0) },
+        ])
+        expect(packet.serialize()).toEqual(globalRequestsOK)
     })
 
     test("copies opaque extension values supplied by the caller", () => {

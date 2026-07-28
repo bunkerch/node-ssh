@@ -47,6 +47,7 @@ import {
     ForwardedX11Channel,
     generateKeyPair,
     generateKeyPairSync,
+    GLOBAL_REQUESTS_OK_EXTENSION,
     GSSAPIError,
     GSSAPI_KEYEX,
     HTTPAgent,
@@ -366,6 +367,7 @@ describe("package exports", () => {
         expect(NO_FLOW_CONTROL_EXTENSION).toBe("no-flow-control")
         expect(ELEVATION_EXTENSION).toBe("elevation")
         expect(DELAY_COMPRESSION_EXTENSION).toBe("delay-compression")
+        expect(GLOBAL_REQUESTS_OK_EXTENSION).toBe("global-requests-ok")
         expect(delayCompressionExtension(delayCompression).name).toBe("delay-compression")
         expect(PublicKeySubsystemClient).toBeFunction()
         expect(PublicKeySubsystemServer).toBeFunction()
@@ -467,6 +469,7 @@ describe("package exports", () => {
         expect(entry.NO_FLOW_CONTROL_EXTENSION).toBe("no-flow-control")
         expect(entry.ELEVATION_EXTENSION).toBe("elevation")
         expect(entry.DELAY_COMPRESSION_EXTENSION).toBe("delay-compression")
+        expect(entry.GLOBAL_REQUESTS_OK_EXTENSION).toBe("global-requests-ok")
         expect(entry.delayCompressionExtension).toBeFunction()
         expect("waitEvent" in Client.prototype).toBe(false)
         expect("waitForPacket" in Client.prototype).toBe(false)
@@ -556,6 +559,8 @@ describe("package exports", () => {
         expect(client).toContain("publicKeySubsystem(options?: PublicKeySubsystemClientOptions)")
         expect(client).toContain("hostbased?: Readonly<ClientHostbasedOptions>")
         expect(client).toContain("get elevated(): boolean | undefined")
+        expect(client).toContain("get serverSupportsGlobalRequests(): boolean")
+        expect(serverClient).toContain("get clientSupportsGlobalRequests(): boolean")
         expect(client).toContain("delayCompression?: DelayCompressionConfiguration")
         expect(client).toContain("exec(command: string, options?: ClientSessionOptions)")
         expect(client).toContain("get exchangeHash(): Buffer | undefined")
@@ -813,7 +818,8 @@ describe("package exports", () => {
                     const { tmpdir } = await import("node:os")
                     const { join } = await import("node:path")
                     const { PassThrough } = await import("node:stream")
-                    const { AllowedSigners, ChannelOpenError, ChannelOpenFailureReasonCodes, Client, ClientForwardedStreamLocalChannel, ClientForwardedTCPIPChannel, ClientSessionChannel, ClientX11Channel, createSocketAgent, CygwinAgent, CygwinAgentError, DELAY_COMPRESSION_EXTENSION, delayCompressionExtension, discoverPageantAgentSocket, DisconnectError, DisconnectReason, ELEVATION_EXTENSION, EncodedSignature, generateKeyPair, generateKeyPairSync, KeyRevocationList, KnownHosts, MAX_OPENSSH_AGENT_SESSION_BINDINGS, MAX_SSH_AGENT_MESSAGE_LENGTH, NO_FLOW_CONTROL_EXTENSION, OnePasswordAgent, OPENSSH_AGENT_SECURITY_KEY_PROVIDER, OPENSSH_AGENT_SESSION_BIND, OPENSSH_INFO_SIGNAL, PageantAgent, PageantAgentError, parseKey, parseRFC4716PublicKeyFile, PrivateKey, PrivateKeyAgent, ProtocolVersionExchange, PublicKey, PublicKeySubsystemClient, PublicKeySubsystemServer, PublicKeySubsystemStatusCode, SecurityKeyAttestation, serializeRFC4716PublicKey, Server, SessionChannel, SSH_ED25519_SECURITY_KEY_ALGORITHM, SSHAgentConstraintType, SSHAgentExtensionFailureError, SSHAgentMessageType, SSHAgentProtocolClient, SSHAgentProtocolError, SSHAgentProtocolServer, SSHED25519SecurityKeyPrivateKey, SSHED25519SecurityKeyPublicKey, SSHFPFingerprintType, SSHFPRecord, SSHSignature, verifySSHFP } = await import("@bunkerch/modernssh")
+                    const { AllowedSigners, ChannelOpenError, ChannelOpenFailureReasonCodes, Client, ClientForwardedStreamLocalChannel, ClientForwardedTCPIPChannel, ClientSessionChannel, ClientX11Channel, createSocketAgent, CygwinAgent, CygwinAgentError, DELAY_COMPRESSION_EXTENSION, delayCompressionExtension, discoverPageantAgentSocket, DisconnectError, DisconnectReason, ELEVATION_EXTENSION, EncodedSignature, generateKeyPair, generateKeyPairSync, GLOBAL_REQUESTS_OK_EXTENSION, KeyRevocationList, KnownHosts, MAX_OPENSSH_AGENT_SESSION_BINDINGS, MAX_SSH_AGENT_MESSAGE_LENGTH, NO_FLOW_CONTROL_EXTENSION, OnePasswordAgent, OPENSSH_AGENT_SECURITY_KEY_PROVIDER, OPENSSH_AGENT_SESSION_BIND, OPENSSH_INFO_SIGNAL, PageantAgent, PageantAgentError, parseKey, parseRFC4716PublicKeyFile, PrivateKey, PrivateKeyAgent, ProtocolVersionExchange, PublicKey, PublicKeySubsystemClient, PublicKeySubsystemServer, PublicKeySubsystemStatusCode, SecurityKeyAttestation, serializeRFC4716PublicKey, Server, SessionChannel, SSH_ED25519_SECURITY_KEY_ALGORITHM, SSHAgentConstraintType, SSHAgentExtensionFailureError, SSHAgentMessageType, SSHAgentProtocolClient, SSHAgentProtocolError, SSHAgentProtocolServer, SSHED25519SecurityKeyPrivateKey, SSHED25519SecurityKeyPublicKey, SSHFPFingerprintType, SSHFPRecord, SSHSignature, verifySSHFP } = await import("@bunkerch/modernssh")
+                    if (GLOBAL_REQUESTS_OK_EXTENSION !== "global-requests-ok") process.exit(111)
                     const { privateKey, publicKey } = await generateKeyPair("ed25519", {
                         comment: "packed@example.test",
                     })

@@ -213,6 +213,7 @@ describe("independent SSH peer interoperability", () => {
             })
             try {
                 await client.connect()
+                expect(client.serverSupportsGlobalRequests).toBe(true)
                 const firstExchangeHash = Buffer.from(client.exchangeHash!)
                 await client.rekey()
                 expect(client.exchangeHash).not.toEqual(firstExchangeHash)
@@ -265,6 +266,7 @@ describe("independent SSH peer interoperability", () => {
             })
             const errors: Error[] = []
             const handshakes: string[] = []
+            const globalRequestSupport: boolean[] = []
             server.hooker.hook("passwordAuthentication", (_hook, context, decision) => {
                 decision.allowLogin =
                     context.username === "interop" && context.password === password
@@ -275,6 +277,9 @@ describe("independent SSH peer interoperability", () => {
             server.on("connection", (connection) => {
                 connection.on("error", (error) => errors.push(error))
                 connection.on("handshake", (algorithms) => handshakes.push(algorithms.kex))
+                connection.on("clientExtensions", () =>
+                    globalRequestSupport.push(connection.clientSupportsGlobalRequests),
+                )
                 connection.on("channel", (channel) => {
                     if (!(channel instanceof SessionChannel)) return
                     channel.hooker.hook("execRequest", (_hook, _context, decision) => {
@@ -310,10 +315,12 @@ describe("independent SSH peer interoperability", () => {
                 const result = decodePeerResult(peerProcess)
                 expect({
                     errors,
+                    globalRequestSupport,
                     handshakes,
                     result,
                 }).toEqual({
                     errors: [],
+                    globalRequestSupport: [true],
                     handshakes: [keyExchange],
                     result: {
                         exitStatus: 23,

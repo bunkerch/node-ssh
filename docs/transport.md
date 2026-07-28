@@ -606,7 +606,8 @@ later message replaces the complete first set, so capabilities omitted from it s
 In particular, a replacement `server-sig-algs` value supersedes the initial value. Messages outside
 these opportunities terminate the connection. A replacement set that omits `hostkeys=0` also
 clears standard host-key-update negotiation, so a later compatibility advertisement uses its
-compatibility proof domain.
+compatibility proof domain. Include `GLOBAL_REQUESTS_OK_EXTENSION` with an empty value when a
+replacement should preserve the library's initial global-request handling advertisement.
 
 `client.serverExtensions` and `serverConnection.clientExtensions` expose deep-copied snapshots that
 preserve unknown binary values. Their corresponding `serverExtensions` and `clientExtensions`

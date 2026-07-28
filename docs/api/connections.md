@@ -45,6 +45,8 @@ export default class Client extends EventEmitter<ClientEvents> {
     get noFlowControl(): boolean;
     createGSSAPIKeyExchangeAuthenticationMIC(username: string, service: string): Promise<Buffer>;
     get serverExtensions(): readonly Readonly<SSHExtension>[];
+    /** Whether the server advertises correct post-authentication global-request handling. */
+    get serverSupportsGlobalRequests(): boolean;
     /** The server's RFC 8308 elevation result, once reported after authentication. */
     get elevated(): boolean | undefined;
     registerX11Forwarding(sessionId: number, single: boolean): void;
@@ -626,6 +628,8 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     agentForwardingEnabled: boolean;
     get noMoreSessions(): boolean;
     get clientExtensions(): readonly Readonly<SSHExtension>[];
+    /** Whether the client advertises correct post-authentication global-request handling. */
+    get clientSupportsGlobalRequests(): boolean;
     /** Whether the client permits one EXT_INFO update after authentication starts. */
     get clientSupportsAuthenticationExtensionInfo(): boolean;
     /** The client's advertised RFC 8308 operating-system elevation preference. */

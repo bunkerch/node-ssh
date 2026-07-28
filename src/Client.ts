@@ -228,6 +228,7 @@ import {
     type NegotiatedDelayCompression,
     type NormalizedDelayCompression,
 } from "./DelayCompression.js"
+import { globalRequestsOKExtension, supportsGlobalRequests } from "./GlobalRequests.js"
 import {
     KexGSSAPIComplete,
     KexGSSAPIContinue,
@@ -1242,6 +1243,11 @@ export default class Client extends EventEmitter<ClientEvents> {
 
     get serverExtensions(): readonly Readonly<SSHExtension>[] {
         return copySSHExtensions(this.negotiatedServerExtensions)
+    }
+
+    /** Whether the server advertises correct post-authentication global-request handling. */
+    get serverSupportsGlobalRequests(): boolean {
+        return supportsGlobalRequests(this.negotiatedServerExtensions)
     }
 
     /** The server's RFC 8308 elevation result, once reported after authentication. */
@@ -2639,6 +2645,7 @@ export default class Client extends EventEmitter<ClientEvents> {
                             ...(noFlowControl ? [noFlowControl] : []),
                             ...(elevation ? [elevation] : []),
                             ...(delayCompression ? [delayCompression] : []),
+                            globalRequestsOKExtension(),
                         ],
                     }),
                 )

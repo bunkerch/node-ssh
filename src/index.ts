@@ -56,6 +56,7 @@ export type { NoFlowControlPreference } from "./NoFlowControl.js"
 export { ELEVATION_EXTENSION } from "./Elevation.js"
 export type { ElevationPreference, ElevationRequest } from "./Elevation.js"
 export { DELAY_COMPRESSION_EXTENSION, delayCompressionExtension } from "./DelayCompression.js"
+export { GLOBAL_REQUESTS_OK_EXTENSION } from "./GlobalRequests.js"
 export type {
     DelayCompressionAlgorithm,
     DelayCompressionConfiguration,

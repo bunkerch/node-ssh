@@ -887,6 +887,10 @@ describe("RFC 4252 multi-method authentication", () => {
                             name: "authenticated@example.test",
                             value: Buffer.from([0x00, 0xff, 0x41]),
                         },
+                        {
+                            name: "global-requests-ok",
+                            value: Buffer.from([0x00, 0xff]),
+                        },
                     ],
                 }),
             )
@@ -911,14 +915,25 @@ describe("RFC 4252 multi-method authentication", () => {
         try {
             await client.connect()
             expect(extensionSets).toEqual([
-                ["server-sig-algs", "ping@openssh.com", "agent-forward", "hostkeys"],
-                ["authenticated@example.test"],
+                [
+                    "server-sig-algs",
+                    "ping@openssh.com",
+                    "agent-forward",
+                    "hostkeys",
+                    "global-requests-ok",
+                ],
+                ["authenticated@example.test", "global-requests-ok"],
             ])
             expect(client.rfc9987AgentForwarding).toBe(false)
+            expect(client.serverSupportsGlobalRequests).toBe(true)
             expect(client.serverExtensions).toEqual([
                 {
                     name: "authenticated@example.test",
                     value: Buffer.from([0x00, 0xff, 0x41]),
+                },
+                {
+                    name: "global-requests-ok",
+                    value: Buffer.from([0x00, 0xff]),
                 },
             ])
             await expect(client.ping()).rejects.toThrow(
@@ -1010,11 +1025,19 @@ describe("RFC 4252 multi-method authentication", () => {
             await client.connect()
             expect(connection!.clientExtensions).toEqual([
                 { name: "ext-info-in-auth@openssh.com", value: Buffer.alloc(0) },
+                { name: "global-requests-ok", value: Buffer.alloc(0) },
             ])
             expect(extensionSets).toEqual([
-                ["server-sig-algs", "ping@openssh.com", "agent-forward", "hostkeys"],
+                [
+                    "server-sig-algs",
+                    "ping@openssh.com",
+                    "agent-forward",
+                    "hostkeys",
+                    "global-requests-ok",
+                ],
                 ["server-sig-algs", "per-user@example.test"],
             ])
+            expect(client.serverSupportsGlobalRequests).toBe(false)
             expect(client.serverSignatureAlgorithms).toEqual(["ssh-ed25519"])
             expect(client.serverExtensions[1]).toEqual({
                 name: "per-user@example.test",

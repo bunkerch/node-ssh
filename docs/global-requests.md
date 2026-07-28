@@ -9,6 +9,23 @@ RFC 4254 global requests apply to the whole SSH connection rather than one chann
 handles forwarding, host-key rotation, keepalives, and session-lockdown requests internally. An
 application can use the generic API for additional standardized or private request names.
 
+Both connection roles include the
+[`global-requests-ok`](https://datatracker.ietf.org/doc/draft-ssh-global-requests-ok/) RFC 8308
+extension in their initial negotiated extension set with its required empty value. It declares that
+the sender correctly handles global requests after authentication and while a rekey is in progress.
+`Client.serverSupportsGlobalRequests` and `ServerClient.clientSupportsGlobalRequests` report whether
+the latest complete peer extension set contains that name. Recognition is intentionally based on
+the name alone: the draft requires receivers to tolerate opaque future values. A later server
+extension set which omits the name clears the client property.
+
+The extension does not authorize requests and does not permit sending them before authentication.
+Public sending APIs remain unavailable until authentication completes, and received private
+requests still pass through the deny-by-default policy described below.
+
+`GLOBAL_REQUESTS_OK_EXTENSION` exports the exact name for applications constructing a complete
+authentication-time replacement with `ServerClient.sendAuthenticationExtensions()`. Include it
+with an empty `Buffer` when the replacement should preserve the advertisement.
+
 Periodic keepalives are reply-requesting `keepalive@openssh.com` messages. Both success and failure
 prove liveness. Client options configure the outbound client timer; matching server options create
 one timer per authenticated connection. Missing replies are bounded, while an ordinary failure is

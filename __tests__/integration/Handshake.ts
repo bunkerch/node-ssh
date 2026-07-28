@@ -290,14 +290,25 @@ describe("client/server integration", () => {
 
             expect(initialClientKexInit?.data.kex_algorithms).toContain("ext-info-c")
             expect(initialServerKexInit?.data.kex_algorithms).toContain("ext-info-s")
-            expect(receivedClientExtensions).toEqual([["ext-info-in-auth@openssh.com"]])
+            expect(receivedClientExtensions).toEqual([
+                ["ext-info-in-auth@openssh.com", "global-requests-ok"],
+            ])
             expect(serverPeer!.clientExtensions).toEqual([
                 { name: "ext-info-in-auth@openssh.com", value: Buffer.alloc(0) },
+                { name: "global-requests-ok", value: Buffer.alloc(0) },
             ])
             expect(serverPeer!.clientSupportsAuthenticationExtensionInfo).toBe(true)
+            expect(serverPeer!.clientSupportsGlobalRequests).toBe(true)
             expect(receivedServerExtensions).toEqual([
-                ["server-sig-algs", "ping@openssh.com", "agent-forward", "hostkeys"],
+                [
+                    "server-sig-algs",
+                    "ping@openssh.com",
+                    "agent-forward",
+                    "hostkeys",
+                    "global-requests-ok",
+                ],
             ])
+            expect(client.serverSupportsGlobalRequests).toBe(true)
             expect(client.rfc9987AgentForwarding).toBe(true)
             const serverExtensionSnapshot = client.serverExtensions
             serverExtensionSnapshot[1]!.value.fill(0)
