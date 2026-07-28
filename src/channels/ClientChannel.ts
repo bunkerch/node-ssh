@@ -538,7 +538,7 @@ export default class ClientChannel extends Duplex {
         })
     }
 
-    private replyToRequest(packet: ChannelRequest, success: boolean): void {
+    protected replyToRequest(packet: ChannelRequest, success: boolean): void {
         if (!packet.data.want_reply || !this.isOpen || this.remoteId === undefined) return
         this.client.sendPacket(
             success

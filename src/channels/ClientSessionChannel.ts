@@ -9,8 +9,27 @@ import ChannelRequest from "../packets/ChannelRequest.js"
 import { encodeSSHName } from "../utils/SSHName.js"
 import type { TerminalModeSettings } from "../TerminalModes.js"
 import { encodeSSHUTF8 } from "../utils/SSHText.js"
-import { agentRequestName, type AgentForwardingProtocol } from "../AgentForwarding.js"
+import {
+    agentRequestName,
+    LEGACY_AGENT_REQUEST,
+    RFC9987_AGENT_REQUEST,
+    type AgentForwardingProtocol,
+} from "../AgentForwarding.js"
 import { isPlainConfigurationObject } from "../utils/Configuration.js"
+
+const CLIENT_TO_SERVER_SESSION_REQUESTS = new Set([
+    "pty-req",
+    "x11-req",
+    "env",
+    "shell",
+    "exec",
+    "subsystem",
+    "window-change",
+    "signal",
+    "break",
+    RFC9987_AGENT_REQUEST,
+    LEGACY_AGENT_REQUEST,
+])
 
 export interface ClientPtyOptions {
     term?: string
@@ -252,6 +271,10 @@ export default class ClientSessionChannel extends ClientChannel {
                 throw new Error("SSH xon-xoff notification has trailing data")
             }
             this.emit("xonXoff", clientCanDo)
+            return
+        }
+        if (CLIENT_TO_SERVER_SESSION_REQUESTS.has(packet.data.request_type)) {
+            this.replyToRequest(packet, false)
             return
         }
         await super.receiveRequest(packet)

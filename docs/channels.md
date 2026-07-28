@@ -136,6 +136,12 @@ Generic request policy fails closed in both directions: every registered handler
 without rejection before `success` or the server's `handled` override is honored. A contained later
 failure discards decisions made by earlier handlers.
 
+On a client-originated session, standardized setup and process-control requests are strictly
+client-to-server. A server cannot route `pty-req`, `x11-req`, `env`, program-start, resize, signal,
+BREAK, or agent-forwarding requests through the client's generic extension hook. Reply-requesting
+forms receive channel failure; one-way forms are ignored. The client still accepts the
+server-to-client `xon-xoff`, exit-result, and negotiated end-of-write notifications.
+
 Request hooks are awaited before their decisions change channel state or produce application
 events. A peer CLOSE remains terminal and is acknowledged immediately even while a hook is pending;
 any decision that finishes after the channel closes is discarded. Pending writes and outbound

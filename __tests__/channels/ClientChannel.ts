@@ -4,6 +4,7 @@ import ClientSessionChannel from "../../src/channels/ClientSessionChannel.js"
 import ChannelClose from "../../src/packets/ChannelClose.js"
 import ChannelData from "../../src/packets/ChannelData.js"
 import ChannelEOF from "../../src/packets/ChannelEOF.js"
+import ChannelFailure from "../../src/packets/ChannelFailure.js"
 import ChannelOpenConfirmation from "../../src/packets/ChannelOpenConfirmation.js"
 import ChannelRequest from "../../src/packets/ChannelRequest.js"
 import ChannelWindowAdjust from "../../src/packets/ChannelWindowAdjust.js"
@@ -457,6 +458,68 @@ describe("ClientChannel", () => {
                 }),
             ),
         ).toThrow("trailing data")
+        channel.destroy()
+    })
+
+    test.each([
+        "pty-req",
+        "x11-req",
+        "env",
+        "shell",
+        "exec",
+        "subsystem",
+        "window-change",
+        "signal",
+        "break",
+        "agent-req",
+        "auth-agent-req@openssh.com",
+    ])("rejects wrong-direction %s session requests before generic policy", async (type) => {
+        const client = new Client({ hostname: "unused", username: "test" })
+        const sent: Packet[] = []
+        client.sendPacket = (packet: Packet) => {
+            sent.push(packet)
+            return sent.length - 1
+        }
+        const channel = new ClientSessionChannel(client)
+        channel.confirmOpen(
+            new ChannelOpenConfirmation({
+                recipient_channel_id: channel.localId,
+                sender_channel_id: 42,
+                initial_window_size: 32,
+                maximum_packet_size: 32,
+                args: Buffer.alloc(0),
+            }),
+        )
+        let policyCalls = 0
+        channel.hooker.hook("request", (_hook, _context, controller) => {
+            policyCalls++
+            controller.success = true
+        })
+
+        await channel.receiveRequest(
+            new ChannelRequest({
+                recipient_channel_id: channel.localId,
+                request_type: type,
+                want_reply: true,
+                args: Buffer.alloc(0),
+            }),
+        )
+        await channel.receiveRequest(
+            new ChannelRequest({
+                recipient_channel_id: channel.localId,
+                request_type: type,
+                want_reply: false,
+                args: Buffer.alloc(0),
+            }),
+        )
+
+        expect(policyCalls).toBe(0)
+        expect(sent).toEqual([
+            expect.objectContaining({
+                data: { recipient_channel_id: 42 },
+            }),
+        ])
+        expect(sent[0]).toBeInstanceOf(ChannelFailure)
         channel.destroy()
     })
 
