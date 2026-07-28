@@ -1423,6 +1423,9 @@ describe("SFTP client request engine", () => {
         )
         expect(() => sftpOpenFlags("sync")).toThrow("Unknown SFTP open flags")
         expect(() => sftpOpenFlags(0x40)).toThrow("unknown bits")
-        expect(() => sftpOpenFlags(SFTPOpenFlags.Truncate)).toThrow("require create")
+        expect(sftpOpenFlags(SFTPOpenFlags.Write | SFTPOpenFlags.Truncate)).toBe(
+            SFTPOpenFlags.Write | SFTPOpenFlags.Truncate,
+        )
+        expect(() => sftpOpenFlags(SFTPOpenFlags.Exclusive)).toThrow("requires create")
     })
 })

@@ -70,11 +70,8 @@ export function validateSFTPOpenFlags(flags: number): void {
     if ((flags & ~SFTP_OPEN_FLAGS_MASK) !== 0) {
         throw new Error("SFTP open flags contain unknown bits")
     }
-    if (
-        (flags & (SFTPOpenFlags.Truncate | SFTPOpenFlags.Exclusive)) !== 0 &&
-        (flags & SFTPOpenFlags.Create) === 0
-    ) {
-        throw new Error("SFTP truncate and exclusive flags require create")
+    if ((flags & SFTPOpenFlags.Exclusive) !== 0 && (flags & SFTPOpenFlags.Create) === 0) {
+        throw new Error("SFTP exclusive flag requires create")
     }
 }
 

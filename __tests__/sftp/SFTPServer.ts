@@ -48,12 +48,13 @@ function asShell(client: SFTPClientFixture): Shell {
 const flush = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
 
 describe("SFTP server request engine", () => {
-    test("rejects invalid v3 OPEN flag combinations before application policy", async () => {
+    test("accepts standalone truncate and rejects invalid OPEN flags before policy", async () => {
         const fixture = new SFTPClientFixture()
         const server = new SFTPServer(asShell(fixture))
         let opens = 0
-        server.hooker.hook("OPEN", () => {
+        server.hooker.hook("OPEN", async (_hook, request) => {
             opens++
+            await server.handle(request.requestId, Buffer.from("truncated"))
         })
 
         const vector = (hex: string): Buffer => Buffer.from(hex.replaceAll(" ", ""), "hex")
@@ -70,20 +71,18 @@ describe("SFTP server request engine", () => {
         )
         await flush()
 
-        expect(opens).toBe(0)
+        expect(opens).toBe(1)
         expect(fixture.responses.slice(1)).toEqual([
             {
-                type: SFTPPacketType.Status,
+                type: SFTPPacketType.Handle,
                 requestId: 1,
-                code: SFTPStatusCode.BadMessage,
-                message: "SFTP truncate and exclusive flags require create",
-                languageTag: "",
+                handle: Buffer.from("truncated"),
             },
             {
                 type: SFTPPacketType.Status,
                 requestId: 2,
                 code: SFTPStatusCode.BadMessage,
-                message: "SFTP truncate and exclusive flags require create",
+                message: "SFTP exclusive flag requires create",
                 languageTag: "",
             },
             {

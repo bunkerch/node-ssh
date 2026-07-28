@@ -447,10 +447,10 @@ runs, so no backend handle should be allocated for it. A successful handle value
 within the session until the corresponding `CLOSE` response has been written; that response releases
 the capacity even when it reports failure.
 
-An `OPEN` request with unknown flag bits, or with `TRUNC` or `EXCL` but no `CREAT`, receives
-`SFTPStatusCode.BadMessage` before the `OPEN` Hooker handler runs. This enforces the mandatory v3
-flag relationships at the wire boundary instead of requiring every filesystem backend to repeat
-them.
+An `OPEN` request with unknown flag bits, or with `EXCL` but no `CREAT`, receives
+`SFTPStatusCode.BadMessage` before the `OPEN` Hooker handler runs. `TRUNC` without `CREAT` remains
+valid for truncating an existing file. This enforces the mandatory v3 flag relationship at the wire
+boundary instead of requiring every filesystem backend to repeat it.
 
 The server's default maximum `READ` length and `WRITE` data length are both 254 KiB. Set
 `maxReadLength` or `maxWriteLength` to a smaller positive safe integer when the backend needs a
