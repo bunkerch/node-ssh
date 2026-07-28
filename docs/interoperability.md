@@ -294,7 +294,9 @@ fixed extension packet, and the one-byte opcode-8 `NEWCOMPRESS` trigger. In-proc
 traffic, and prove that a subsequent rekey overrides the extension. Coverage also includes
 bilateral gating, a server offer delayed until authentication policy, non-mutual negotiation,
 locally blocked premature rekeys, the bounded trigger deadline, and wrong-direction or duplicate
-triggers.
+triggers. The pinned independent peer implements both authentication triggers with separate zlib
+streams; both library roles exchange compressed authenticated command traffic before rekey
+negotiates `none`.
 
 Transport ping coverage uses fixed opcode 192/193 packet vectors and exercises concurrent ordered
 echoes plus a ping queued across rekey against the in-process server. The pinned OpenSSH fixture

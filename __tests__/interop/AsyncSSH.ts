@@ -200,6 +200,25 @@ function decodePeerResult(result: ProcessResult): {
     }
 }
 
+async function exchangeClientCommand(
+    client: Client,
+    command: string,
+    input: string,
+): Promise<{ exitCode: number | null; stdout: string; stderr: string }> {
+    const channel = await client.exec(command)
+    const stdout: Buffer[] = []
+    const stderr: Buffer[] = []
+    channel.on("data", (data: Buffer) => stdout.push(data))
+    channel.stderr.on("data", (data: Buffer) => stderr.push(data))
+    channel.end(input)
+    await once(channel, "close")
+    return {
+        exitCode: channel.exitCode,
+        stdout: Buffer.concat(stdout).toString(),
+        stderr: Buffer.concat(stderr).toString(),
+    }
+}
+
 describe("independent SSH peer interoperability", () => {
     test.each(transportProfiles)(
         "modernssh client exchanges traffic using %s and an Ed448 host key",
@@ -219,6 +238,7 @@ describe("independent SSH peer interoperability", () => {
                 },
                 noFlowControl: "preferred",
                 elevation: "unelevated",
+                delayCompression: true,
             })
             const errors: Error[] = []
             client.on("error", (error) => errors.push(error))
@@ -232,38 +252,52 @@ describe("independent SSH peer interoperability", () => {
                 await client.connect()
                 expect(await elevation).toEqual([false])
                 expect(client.serverSupportsGlobalRequests).toBe(true)
+                expect(client.negotiatedAlgorithms?.cs.compress).toBe("zlib")
+                expect(client.negotiatedAlgorithms?.sc.compress).toBe("zlib")
+                const compressedInput = "compressed-library-input ".repeat(2_048)
+                expect(
+                    await exchangeClientCommand(
+                        client,
+                        "compressed-library-client-command",
+                        compressedInput,
+                    ),
+                ).toEqual({
+                    exitCode: 23,
+                    stderr: "independent-peer-stderr",
+                    stdout: `compressed-library-client-command\0${compressedInput}`,
+                })
+
                 const firstExchangeHash = Buffer.from(client.exchangeHash!)
                 await client.rekey()
                 expect(client.exchangeHash).not.toEqual(firstExchangeHash)
-
-                const channel = await client.exec("library-client-command")
-                const stdout: Buffer[] = []
-                const stderr: Buffer[] = []
-                channel.on("data", (data: Buffer) => stdout.push(data))
-                channel.stderr.on("data", (data: Buffer) => stderr.push(data))
-                channel.end("library-input")
-                await once(channel, "close")
+                expect(client.negotiatedAlgorithms?.cs.compress).toBe("none")
+                expect(client.negotiatedAlgorithms?.sc.compress).toBe("none")
+                const result = await exchangeClientCommand(
+                    client,
+                    "library-client-command",
+                    "library-input",
+                )
 
                 expect({
                     errors,
                     elevated: client.elevated,
-                    exitCode: channel.exitCode,
                     keyExchange: client.negotiatedAlgorithms?.kex,
                     cipher: client.negotiatedAlgorithms?.cs.cipher,
                     mac: client.negotiatedAlgorithms?.cs.mac,
                     noFlowControl: client.noFlowControl,
-                    stderr: Buffer.concat(stderr).toString(),
-                    stdout: Buffer.concat(stdout).toString(),
+                    result,
                 }).toEqual({
                     errors: [],
                     elevated: false,
-                    exitCode: 23,
                     keyExchange,
                     cipher,
                     mac,
                     noFlowControl: true,
-                    stderr: "independent-peer-stderr",
-                    stdout: "library-client-command\0library-input",
+                    result: {
+                        exitCode: 23,
+                        stderr: "independent-peer-stderr",
+                        stdout: "library-client-command\0library-input",
+                    },
                 })
             } finally {
                 client.destroy()
@@ -290,6 +324,7 @@ describe("independent SSH peer interoperability", () => {
                     compress: ["none"],
                 },
                 noFlowControl: "supported",
+                delayCompression: true,
             })
             const errors: Error[] = []
             const handshakes: {
@@ -301,6 +336,7 @@ describe("independent SSH peer interoperability", () => {
             const globalRequestSupport: boolean[] = []
             const noFlowControl: boolean[] = []
             const elevationPreferences: string[] = []
+            const compressionBeforeRekey: { cs: string; sc: string }[] = []
             server.hooker.hook("passwordAuthentication", (_hook, context, decision) => {
                 decision.allowLogin =
                     context.username === "interop" && context.password === password
@@ -335,6 +371,10 @@ describe("independent SSH peer interoperability", () => {
                 connection.on("channel", (channel) => {
                     if (!(channel instanceof SessionChannel)) return
                     channel.hooker.hook("execRequest", async (_hook, _context, decision) => {
+                        compressionBeforeRekey.push({
+                            cs: connection.negotiatedAlgorithms!.cs.compress,
+                            sc: connection.negotiatedAlgorithms!.sc.compress,
+                        })
                         await connection.rekey()
                         decision.success = true
                     })
@@ -374,6 +414,7 @@ describe("independent SSH peer interoperability", () => {
                 const result = decodePeerResult(peerProcess)
                 expect({
                     clientElevationPreferences,
+                    compressionBeforeRekey,
                     errors,
                     elevationPreferences,
                     globalRequestSupport,
@@ -382,6 +423,7 @@ describe("independent SSH peer interoperability", () => {
                     result,
                 }).toEqual({
                     clientElevationPreferences: ["unelevated"],
+                    compressionBeforeRekey: [{ cs: "zlib", sc: "zlib" }],
                     errors: [],
                     elevationPreferences: ["unelevated"],
                     globalRequestSupport: [true],

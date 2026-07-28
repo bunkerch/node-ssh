@@ -14,13 +14,14 @@ from hashlib import sha256, sha384
 from typing import Callable, Mapping
 
 import asyncssh
+from asyncssh.compression import get_compressor, get_decompressor
 from asyncssh.constants import MSG_EXT_INFO
 from asyncssh.encryption import GCMEncryption, register_encryption_alg
 from asyncssh.kex import register_kex_alg
 from asyncssh.kex_dh import _KexDHBase
 from asyncssh.mac import MAC, register_mac_alg
 from asyncssh.misc import ProtocolError
-from asyncssh.packet import Boolean, MPInt, SSHPacket, String
+from asyncssh.packet import Boolean, MPInt, NameList, SSHPacket, String
 from kyber_py.ml_kem import ML_KEM_1024, ML_KEM_512, ML_KEM_768
 
 if os.environ.get("MODERNSSH_PEER_DEBUG"):
@@ -31,6 +32,8 @@ if os.environ.get("MODERNSSH_PEER_DEBUG"):
 USERNAME = "interop"
 PASSWORD = "correct-horse-battery-staple"
 PUBLIC_KEY_SUBSYSTEM_VERSION = 2
+MSG_NEWCOMPRESS = 8
+DELAY_COMPRESSION_VALUE = NameList((b"zlib", b"none")) * 2
 PUBLIC_KEY = bytes.fromhex(
     "0000000b7373682d6564323535313900000020"
     "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
@@ -266,11 +269,13 @@ async def exchange_version(
 
 class ServerPolicy(asyncssh.SSHServer):
     connection: asyncssh.SSHServerConnection
+    client_delay_compression = False
     client_elevation: bytes | None = None
 
     def connection_made(self, connection: asyncssh.SSHServerConnection) -> None:
         self.connection = connection
         connection._extensions_to_send[b"no-flow-control"] = b"s"
+        connection._extensions_to_send[b"delay-compression"] = DELAY_COMPRESSION_VALUE
         handlers = dict(connection._packet_handlers)
         process_ext_info = handlers[MSG_EXT_INFO]
 
@@ -285,12 +290,28 @@ class ServerPolicy(asyncssh.SSHServer):
             for _ in range(extension_count):
                 name = extensions.get_string()
                 value = extensions.get_string()
-                if name == b"elevation":
+                if name == b"delay-compression":
+                    self.client_delay_compression = value == DELAY_COMPRESSION_VALUE
+                elif name == b"elevation":
                     self.client_elevation = value
             extensions.check_end()
             process_ext_info(target, packet_type, packet_id, packet)
 
         handlers[MSG_EXT_INFO] = capture_ext_info
+
+        def process_newcompress(
+            target: asyncssh.SSHServerConnection,
+            _packet_type: int,
+            _packet_id: int,
+            packet: SSHPacket,
+        ) -> None:
+            packet.check_end()
+            if not self.client_delay_compression:
+                raise ProtocolError("Unexpected SSH_MSG_NEWCOMPRESS")
+            target._decompressor = get_decompressor(b"zlib")
+            target._decompress_after_auth = False
+
+        handlers[MSG_NEWCOMPRESS] = process_newcompress
         connection._packet_handlers = handlers
 
     def begin_auth(self, username: str) -> bool:
@@ -303,6 +324,9 @@ class ServerPolicy(asyncssh.SSHServer):
         return username == USERNAME and password == PASSWORD
 
     def auth_completed(self) -> None:
+        if self.client_delay_compression:
+            self.connection._compressor = get_compressor(b"zlib")
+            self.connection._compress_after_auth = False
         if self.client_elevation == b"n":
             self.connection._send_global_request(
                 b"elevation",
@@ -312,11 +336,37 @@ class ServerPolicy(asyncssh.SSHServer):
 
 
 class ClientPolicy(asyncssh.SSHClient):
+    connection: asyncssh.SSHClientConnection
     elevated: bool | None = None
+    server_delay_compression = False
 
     def connection_made(self, connection: asyncssh.SSHClientConnection) -> None:
+        self.connection = connection
         connection._extensions_to_send[b"no-flow-control"] = b"p"
         connection._extensions_to_send[b"elevation"] = b"n"
+        connection._extensions_to_send[b"delay-compression"] = DELAY_COMPRESSION_VALUE
+
+        handlers = dict(connection._packet_handlers)
+        process_ext_info = handlers[MSG_EXT_INFO]
+
+        def capture_ext_info(
+            target: asyncssh.SSHClientConnection,
+            packet_type: int,
+            packet_id: int,
+            packet: SSHPacket,
+        ) -> None:
+            extensions = SSHPacket(packet.get_remaining_payload())
+            extension_count = extensions.get_uint32()
+            for _ in range(extension_count):
+                name = extensions.get_string()
+                value = extensions.get_string()
+                if name == b"delay-compression":
+                    self.server_delay_compression = value == DELAY_COMPRESSION_VALUE
+            extensions.check_end()
+            process_ext_info(target, packet_type, packet_id, packet)
+
+        handlers[MSG_EXT_INFO] = capture_ext_info
+        connection._packet_handlers = handlers
 
         def process_elevation(packet: SSHPacket) -> None:
             self.elevated = packet.get_boolean()
@@ -324,6 +374,14 @@ class ClientPolicy(asyncssh.SSHClient):
             connection._report_global_response(True)
 
         connection._process_elevation_global_request = process_elevation
+
+    def auth_completed(self) -> None:
+        if self.server_delay_compression:
+            self.connection._decompressor = get_decompressor(b"zlib")
+            self.connection._decompress_after_auth = False
+            self.connection.send_packet(MSG_NEWCOMPRESS)
+            self.connection._compressor = get_compressor(b"zlib")
+            self.connection._compress_after_auth = False
 
 
 async def handle_command_process(process: asyncssh.SSHServerProcess[bytes]) -> None:

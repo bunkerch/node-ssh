@@ -506,6 +506,8 @@ stream. The server accepts up to 32 intervening client messages before requiring
 Unexpected, duplicate, or server-originated `NEWCOMPRESS` messages are protocol errors. Activation
 always creates a fresh compression stream, including when the selected algorithm was already
 active. A subsequent rekey replaces both extension selections with its newly negotiated algorithms.
+A pinned independent peer exercises both trigger boundaries, multi-packet bidirectional compressed
+traffic, and the rekey reset with each library role.
 
 A server may delay its offer until account policy is known. Include the exported builder in the
 single authentication-time replacement extension set:
