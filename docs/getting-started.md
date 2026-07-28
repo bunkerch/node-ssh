@@ -174,12 +174,14 @@ The option is not applied to an application-owned `sock`, whose timeout policy r
 owner. Use `readyTimeout` for setup, `replyTimeout` for ordered protocol operations, and
 `keepaliveInterval` when an authenticated peer must actively prove liveness.
 
-`replyTimeout` bounds ordered connection-protocol replies after authentication and defaults to 30
-seconds. It applies to rekey, transport ping, global requests, channel opens, and channel requests
-in both peer roles. These replies have no independent request identifier and must remain ordered,
-so expiry closes the connection: accepting a late reply while continuing would risk matching it to
-later work. The value must be a positive number; choose it above the longest application hook that
-is expected to answer a reply-requesting operation.
+`replyTimeout` bounds ordered connection-protocol replies after authentication and graceful
+connection shutdown, and defaults to 30 seconds. It applies to rekey, transport ping, global
+requests, channel opens, channel requests, and `Client.close()` or `ServerClient.close()`. Ordered
+replies have no independent request identifier and must remain ordered, so expiry closes the
+connection: accepting a late reply while continuing would risk matching it to later work. If a
+transport does not finish after graceful `end()`, close expiry force-destroys it, completes terminal
+cleanup, and rejects the shared close Promise. The value must be a positive number; choose it above
+the longest application hook that is expected to answer a reply-requesting operation.
 New SFTP and public-key management sessions inherit this value as their `requestTimeout`, which can
 be overridden per session without changing the connection-wide deadline.
 

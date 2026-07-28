@@ -132,4 +132,42 @@ describe("client lifecycle", () => {
         expect(client.canConnect).toBe(true)
         expect(await connecting).toBeInstanceOf(Error)
     })
+
+    test("bounds graceful shutdown when an injected transport never finishes", async () => {
+        class StalledCloseTransport extends Duplex {
+            _read(): void {
+                void this.readableLength
+            }
+
+            _write(
+                _chunk: Buffer,
+                _encoding: BufferEncoding,
+                callback: (error?: Error | null) => void,
+            ): void {
+                callback()
+            }
+
+            _final(callback: (error?: Error | null) => void): void {
+                // Deliberately never completes the graceful stream shutdown.
+                void callback
+            }
+        }
+
+        const transport = new StalledCloseTransport()
+        const client = new Client({
+            username: "stalled-lifecycle",
+            sock: transport,
+            readyTimeout: 0,
+            replyTimeout: 20,
+        })
+        const connecting = client.connect().catch((error: unknown) => error as Error)
+        const observations: string[] = []
+        client.on("close", () => observations.push("close"))
+
+        await expect(client.close()).rejects.toThrow("Timed out while closing SSH client")
+        expect(observations).toEqual(["close"])
+        expect(transport.destroyed).toBe(true)
+        expect(client.canConnect).toBe(true)
+        expect(await connecting).toBeInstanceOf(Error)
+    })
 })

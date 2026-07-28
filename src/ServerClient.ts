@@ -710,6 +710,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             transportError ??= error
         }
         const onClose = () => {
+            clearTimeout(timer)
             this.off("error", onError)
             if (this.closeOperation === promise) this.closeOperation = undefined
             if (transportError) reject(transportError)
@@ -717,6 +718,11 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         }
         this.on("error", onError)
         this.once("close", onClose)
+        const timer = setTimeout(() => {
+            transportError ??= new Error("Timed out while closing SSH server connection")
+            this.terminate()
+        }, this.#configuration.replyTimeout)
+        timer.unref()
 
         try {
             this.end()

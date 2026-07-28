@@ -39,4 +39,40 @@ describe("server connection lifecycle", () => {
         expect(transport.writes).toEqual([])
         await connection[Symbol.asyncDispose]()
     })
+
+    test("bounds graceful shutdown when the transport never finishes", async () => {
+        class StalledCloseTransport extends Duplex {
+            _read(): void {
+                void this.readableLength
+            }
+
+            _write(
+                _chunk: Buffer,
+                _encoding: BufferEncoding,
+                callback: (error?: Error | null) => void,
+            ): void {
+                callback()
+            }
+
+            _final(callback: (error?: Error | null) => void): void {
+                // Deliberately never completes the graceful stream shutdown.
+                void callback
+            }
+        }
+
+        const hostKey = await PrivateKey.generate("ssh-ed25519")
+        const server = new Server({ hostKeys: [hostKey], replyTimeout: 20 })
+        const transport = new StalledCloseTransport()
+        const connection = new ServerClient(transport, server)
+        const observations: string[] = []
+        connection.on("close", () => observations.push("close"))
+
+        await expect(connection.close()).rejects.toThrow(
+            "Timed out while closing SSH server connection",
+        )
+        expect(observations).toEqual(["close"])
+        expect(transport.destroyed).toBe(true)
+        expect(connection.isConnected).toBe(false)
+        await connection[Symbol.asyncDispose]()
+    })
 })

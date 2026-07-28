@@ -3097,6 +3097,7 @@ export default class Client extends EventEmitter<ClientEvents> {
             transportError ??= error
         }
         const onClose = () => {
+            clearTimeout(timer)
             this.off("error", onError)
             if (
                 this.closeOperation?.generation === generation &&
@@ -3109,6 +3110,11 @@ export default class Client extends EventEmitter<ClientEvents> {
         }
         this.on("error", onError)
         this.once("close", onClose)
+        const timer = setTimeout(() => {
+            transportError ??= new Error("Timed out while closing SSH client")
+            this.destroy()
+        }, this.#options.replyTimeout)
+        timer.unref()
 
         try {
             this.end()
