@@ -262,6 +262,9 @@ Frames are bounded to 256 KiB before allocation. List operations collect at most
 4 MiB of encoded responses. Key blobs must parse and match their outer algorithm name. Malformed
 framing, invalid text, repeated namespace attributes, unexpected responses, and replies without a
 pending request close the subsystem and reject pending work. EOF in a partial frame is also fatal.
+The stream parser accepts arbitrary fragmentation while allocating each declared frame once, so
+one-byte fragments require work linear in the bounded packet size rather than repeatedly copying
+the accumulated prefix.
 
 Transport rekeying preserves an active subsystem. The root package exports the packet codec for
 applications that already have an authenticated SSH subsystem stream, though the high-level client

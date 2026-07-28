@@ -528,17 +528,29 @@ export function encodeSFTPPacket(packet: SFTPPacket): Buffer {
 }
 
 export class SFTPPacketParser {
-    private buffered: Buffer = Buffer.alloc(0)
-    private expectedLength: number | undefined
+    private buffered = Buffer.allocUnsafe(4)
+    private bufferedLength = 0
+    private expectedLength = 4
 
     push(chunk: Buffer): SFTPPacket[] {
+        if (!Buffer.isBuffer(chunk)) {
+            throw new TypeError("SFTP stream chunk must be a buffer")
+        }
         if (chunk.length === 0) return []
-        const borrowedInput = this.buffered.length === 0
-        this.buffered = this.buffered.length === 0 ? chunk : Buffer.concat([this.buffered, chunk])
         const packets: SFTPPacket[] = []
-        while (true) {
-            if (this.expectedLength === undefined) {
-                if (this.buffered.length < 4) break
+        let offset = 0
+        while (offset < chunk.length) {
+            const copied = chunk.copy(
+                this.buffered,
+                this.bufferedLength,
+                offset,
+                offset + this.expectedLength - this.bufferedLength,
+            )
+            this.bufferedLength += copied
+            offset += copied
+            if (this.bufferedLength < this.expectedLength) break
+
+            if (this.expectedLength === 4) {
                 const packetLength = this.buffered.readUInt32BE(0)
                 if (packetLength < 1) {
                     throw new SFTPProtocolError("SFTP packet length must include a type")
@@ -549,20 +561,21 @@ export class SFTPPacketParser {
                     )
                 }
                 this.expectedLength = packetLength + 4
+                const frame = Buffer.allocUnsafe(this.expectedLength)
+                this.buffered.copy(frame, 0, 0, 4)
+                this.buffered = frame
+                continue
             }
-            if (this.buffered.length < this.expectedLength) break
-            const frame = this.buffered.subarray(0, this.expectedLength)
-            this.buffered = this.buffered.subarray(this.expectedLength)
-            this.expectedLength = undefined
-            packets.push(decodeSFTPPacket(frame))
-        }
-        if (borrowedInput && this.buffered.length !== 0) {
-            this.buffered = Buffer.from(this.buffered)
+
+            packets.push(decodeSFTPPacket(this.buffered))
+            this.buffered = Buffer.allocUnsafe(4)
+            this.bufferedLength = 0
+            this.expectedLength = 4
         }
         return packets
     }
 
     end(): void {
-        if (this.buffered.length !== 0) throw new SFTPProtocolError("Truncated SFTP stream")
+        if (this.bufferedLength !== 0) throw new SFTPProtocolError("Truncated SFTP stream")
     }
 }

@@ -664,20 +664,30 @@ export function encodePublicKeySubsystemPacket(packet: PublicKeySubsystemPacket)
 }
 
 export class PublicKeySubsystemPacketParser {
-    private buffered = Buffer.alloc(0)
-    private expectedLength: number | undefined
+    private buffered = Buffer.allocUnsafe(4)
+    private bufferedLength = 0
+    private expectedLength = 4
+    private readingLength = true
 
     push(chunk: Buffer): PublicKeySubsystemPacket[] {
         if (!Buffer.isBuffer(chunk)) {
             throw new TypeError("Public-key subsystem stream chunk must be a buffer")
         }
         if (chunk.length === 0) return []
-        this.buffered =
-            this.buffered.length === 0 ? Buffer.from(chunk) : Buffer.concat([this.buffered, chunk])
         const packets: PublicKeySubsystemPacket[] = []
-        while (true) {
-            if (this.expectedLength === undefined) {
-                if (this.buffered.length < 4) break
+        let offset = 0
+        while (offset < chunk.length) {
+            const copied = chunk.copy(
+                this.buffered,
+                this.bufferedLength,
+                offset,
+                offset + this.expectedLength - this.bufferedLength,
+            )
+            this.bufferedLength += copied
+            offset += copied
+            if (this.bufferedLength < this.expectedLength) break
+
+            if (this.readingLength) {
                 const packetLength = this.buffered.readUInt32BE(0)
                 if (packetLength > MAX_PUBLIC_KEY_SUBSYSTEM_PACKET_LENGTH) {
                     throw new PublicKeySubsystemProtocolError(
@@ -685,18 +695,24 @@ export class PublicKeySubsystemPacketParser {
                     )
                 }
                 this.expectedLength = packetLength + 4
+                const frame = Buffer.allocUnsafe(this.expectedLength)
+                this.buffered.copy(frame, 0, 0, 4)
+                this.buffered = frame
+                this.readingLength = false
+                if (this.bufferedLength < this.expectedLength) continue
             }
-            if (this.buffered.length < this.expectedLength) break
-            const frame = this.buffered.subarray(0, this.expectedLength)
-            this.buffered = this.buffered.subarray(this.expectedLength)
-            this.expectedLength = undefined
-            packets.push(decodePublicKeySubsystemPacket(frame))
+
+            packets.push(decodePublicKeySubsystemPacket(this.buffered))
+            this.buffered = Buffer.allocUnsafe(4)
+            this.bufferedLength = 0
+            this.expectedLength = 4
+            this.readingLength = true
         }
         return packets
     }
 
     end(): void {
-        if (this.buffered.length !== 0) {
+        if (this.bufferedLength !== 0) {
             throw new PublicKeySubsystemProtocolError("Truncated public-key subsystem stream")
         }
     }

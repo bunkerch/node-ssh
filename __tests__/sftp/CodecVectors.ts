@@ -323,6 +323,12 @@ describe("SFTP v3 fixed packet vectors", () => {
 })
 
 describe("SFTP v3 bounded stream parser", () => {
+    test("rejects non-buffer stream chunks at the public boundary", () => {
+        expect(() => new SFTPPacketParser().push(new Uint8Array([0, 0, 0, 1]) as never)).toThrow(
+            "SFTP stream chunk must be a buffer",
+        )
+    })
+
     test("decodes coalesced packets at every fragmentation boundary", () => {
         const input = Buffer.concat([INIT, STATUS])
         for (let boundary = 0; boundary <= input.length; boundary++) {
@@ -360,6 +366,28 @@ describe("SFTP v3 bounded stream parser", () => {
             },
         ])
     })
+
+    test("decodes a maximum packet fragmented one byte at a time", () => {
+        const input = Buffer.alloc(4 + MAX_SFTP_PACKET_LENGTH)
+        input.writeUInt32BE(MAX_SFTP_PACKET_LENGTH, 0)
+        input[4] = SFTPPacketType.ExtendedReply
+        input.writeUInt32BE(7, 5)
+        const parser = new SFTPPacketParser()
+        let packets = []
+
+        for (let offset = 0; offset < input.length; offset++) {
+            packets = parser.push(input.subarray(offset, offset + 1))
+        }
+        parser.end()
+
+        expect(packets).toEqual([
+            {
+                type: SFTPPacketType.ExtendedReply,
+                requestId: 7,
+                data: Buffer.alloc(MAX_SFTP_PACKET_LENGTH - 5),
+            },
+        ])
+    }, 1_000)
 
     test("rejects zero, oversized, truncated, mismatched, and unknown frames", () => {
         expect(() => new SFTPPacketParser().push(hex(`00000000`))).toThrow("must include a type")

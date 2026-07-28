@@ -246,9 +246,10 @@ conforming server is expected to support. Status messages use fatal UTF-8 valida
 language tags use the RFC 5646 grammar (with the empty protocol value retained for an unspecified
 language), and extension identifiers are validated SSH names. Filenames, long names, paths, handles,
 and extension payloads remain opaque bytes. The wire codec never replacement-decodes them. Decoded
-opaque fields are owned buffers rather than
-views into the input frame, and the streaming parser snapshots any incomplete chunk it must retain
-across calls.
+opaque fields are owned buffers rather than views into the input frame. The streaming parser
+accepts arbitrary fragmentation while allocating each declared frame once, so one-byte fragments
+require work linear in the bounded packet size rather than repeatedly copying the accumulated
+prefix.
 Fatal errors, including EOF in the middle of a frame, close the SFTP channel in both peer roles and
 reject pending client operations. They do not tear down an otherwise healthy SSH connection.
 Initialization and every tagged request reply are bounded by `requestTimeout`. Expiry rejects the

@@ -5,10 +5,12 @@ import {
     MAX_PUBLIC_KEY_SUBSYSTEM_PACKET_LENGTH,
     MAX_PUBLIC_KEY_SUBSYSTEM_NAMESPACE_CHARACTERS,
     PUBLIC_KEY_SUBSYSTEM_VERSION,
-    publicKeySubsystemNamespace,
     PublicKeySubsystemPacketParser,
     PublicKeySubsystemProtocolError,
     PublicKeySubsystemStatusCode,
+} from "../../src/index.js"
+import {
+    publicKeySubsystemNamespace,
     validatePublicKeySubsystemNamespace,
 } from "../../src/publickey/PublicKeySubsystemCodec.js"
 
@@ -366,6 +368,29 @@ describe("RFC 4819 and RFC 7076 public-key subsystem fixed packet vectors", () =
 })
 
 describe("RFC 4819 bounded packet parser", () => {
+    test("decodes a large packet fragmented one byte at a time", () => {
+        const packetLength = 256 * 1024
+        const input = Buffer.alloc(4 + packetLength)
+        input.writeUInt32BE(packetLength, 0)
+        input.writeUInt32BE(3, 4)
+        input.write("x@y", 8, "ascii")
+        const parser = new PublicKeySubsystemPacketParser()
+        let packets = []
+
+        for (let offset = 0; offset < input.length; offset++) {
+            packets = parser.push(input.subarray(offset, offset + 1))
+        }
+        parser.end()
+
+        expect(packets).toEqual([
+            {
+                type: "unknown",
+                name: "x@y",
+                data: Buffer.alloc(packetLength - 7),
+            },
+        ])
+    }, 1_000)
+
     test("handles fragmentation and rejects malformed or unbounded frames", () => {
         const combined = Buffer.concat([VERSION, LIST, STATUS])
         for (let split = 0; split <= combined.length; split++) {
