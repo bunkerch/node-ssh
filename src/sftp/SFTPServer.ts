@@ -10,6 +10,7 @@ import {
     SFTP_VERSION,
     SFTPPacketType,
     SFTPStatusCode,
+    validateSFTPOpenFlags,
 } from "./constants.js"
 import type {
     SFTPAttributes,
@@ -596,6 +597,18 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
 
     private async dispatch(active: ActiveSFTPRequest): Promise<void> {
         const { request } = active
+        if (request.type === SFTPPacketType.Open) {
+            try {
+                validateSFTPOpenFlags(request.flags)
+            } catch (error) {
+                await this.status(
+                    request.requestId,
+                    SFTPStatusCode.BadMessage,
+                    error instanceof Error ? error.message : "Invalid SFTP open flags",
+                )
+                return
+            }
+        }
         if (request.type === SFTPPacketType.Read && request.length > this.#maxReadLength) {
             await this.status(
                 request.requestId,

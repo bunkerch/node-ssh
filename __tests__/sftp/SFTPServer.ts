@@ -48,6 +48,55 @@ function asShell(client: SFTPClientFixture): Shell {
 const flush = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
 
 describe("SFTP server request engine", () => {
+    test("rejects invalid v3 OPEN flag combinations before application policy", async () => {
+        const fixture = new SFTPClientFixture()
+        const server = new SFTPServer(asShell(fixture))
+        let opens = 0
+        server.hooker.hook("OPEN", () => {
+            opens++
+        })
+
+        const vector = (hex: string): Buffer => Buffer.from(hex.replaceAll(" ", ""), "hex")
+        fixture.push(vector("00000005 01 00000003"))
+        await flush()
+        fixture.push(
+            vector(
+                [
+                    "00000014 03 00000001 00000003 626164 00000010 00000000",
+                    "00000014 03 00000002 00000003 626164 00000020 00000000",
+                    "00000014 03 00000003 00000003 626164 00000040 00000000",
+                ].join(" "),
+            ),
+        )
+        await flush()
+
+        expect(opens).toBe(0)
+        expect(fixture.responses.slice(1)).toEqual([
+            {
+                type: SFTPPacketType.Status,
+                requestId: 1,
+                code: SFTPStatusCode.BadMessage,
+                message: "SFTP truncate and exclusive flags require create",
+                languageTag: "",
+            },
+            {
+                type: SFTPPacketType.Status,
+                requestId: 2,
+                code: SFTPStatusCode.BadMessage,
+                message: "SFTP truncate and exclusive flags require create",
+                languageTag: "",
+            },
+            {
+                type: SFTPPacketType.Status,
+                requestId: 3,
+                code: SFTPStatusCode.BadMessage,
+                message: "SFTP open flags contain unknown bits",
+                languageTag: "",
+            },
+        ])
+        fixture.destroy()
+    })
+
     test("rejects malformed server options during construction", () => {
         const fixture = new SFTPClientFixture()
         try {

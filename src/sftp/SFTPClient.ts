@@ -12,6 +12,7 @@ import {
     SFTPOpenFlags,
     SFTPPacketType,
     SFTPStatusCode,
+    validateSFTPOpenFlags,
 } from "./constants.js"
 import {
     decodeSFTPLimits,
@@ -234,23 +235,7 @@ export class SFTPStatusError extends Error {
 
 export function sftpOpenFlags(flags: string | number): number {
     if (typeof flags === "number") {
-        if (!Number.isSafeInteger(flags) || flags < 0 || flags > UINT32_MAX) {
-            throw new RangeError("SFTP open flags must be a uint32")
-        }
-        const knownFlags =
-            SFTPOpenFlags.Read |
-            SFTPOpenFlags.Write |
-            SFTPOpenFlags.Append |
-            SFTPOpenFlags.Create |
-            SFTPOpenFlags.Truncate |
-            SFTPOpenFlags.Exclusive
-        if ((flags & ~knownFlags) !== 0) throw new Error("SFTP open flags contain unknown bits")
-        if (
-            (flags & (SFTPOpenFlags.Truncate | SFTPOpenFlags.Exclusive)) !== 0 &&
-            (flags & SFTPOpenFlags.Create) === 0
-        ) {
-            throw new Error("SFTP truncate and exclusive flags require create")
-        }
+        validateSFTPOpenFlags(flags)
         return flags
     }
     const value = STRING_OPEN_FLAGS[flags]

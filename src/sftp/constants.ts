@@ -55,6 +55,29 @@ export enum SFTPOpenFlags {
     Exclusive = 0x0000_0020,
 }
 
+const SFTP_OPEN_FLAGS_MASK =
+    SFTPOpenFlags.Read |
+    SFTPOpenFlags.Write |
+    SFTPOpenFlags.Append |
+    SFTPOpenFlags.Create |
+    SFTPOpenFlags.Truncate |
+    SFTPOpenFlags.Exclusive
+
+export function validateSFTPOpenFlags(flags: number): void {
+    if (!Number.isSafeInteger(flags) || flags < 0 || flags > 0xffff_ffff) {
+        throw new RangeError("SFTP open flags must be a uint32")
+    }
+    if ((flags & ~SFTP_OPEN_FLAGS_MASK) !== 0) {
+        throw new Error("SFTP open flags contain unknown bits")
+    }
+    if (
+        (flags & (SFTPOpenFlags.Truncate | SFTPOpenFlags.Exclusive)) !== 0 &&
+        (flags & SFTPOpenFlags.Create) === 0
+    ) {
+        throw new Error("SFTP truncate and exclusive flags require create")
+    }
+}
+
 export enum SFTPAttributeFlags {
     Size = 0x0000_0001,
     UIDGID = 0x0000_0002,
