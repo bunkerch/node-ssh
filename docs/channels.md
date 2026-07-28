@@ -372,6 +372,9 @@ Channel admission also requires every registered `channelOpenRequest` handler to
 rejection; a contained failure discards an allow decision made by an earlier handler.
 Aborting or closing the proposed channel during policy denies it even if a later handler sets
 `allowOpen`; the server never confirms or publishes a proposal that is no longer open.
+Generic `Channel` instances snapshot their opaque open and confirmation arguments.
+Mutating a constructor buffer, a buffer assigned to `serverArgs`, or a defensive buffer returned by
+either accessor cannot alter a later channel-open or confirmation packet.
 When policy intentionally denies an open, it may assign a validated `ChannelOpenError` to
 `decision.rejection`. The peer then receives its exact uint32 reason, UTF-8 description, and RFC
 3066 language tag. Named standard reasons are available through `ChannelOpenFailureReasonCodes`;

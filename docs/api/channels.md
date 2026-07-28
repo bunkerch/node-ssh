@@ -33,9 +33,12 @@ export default class Channel {
     remote_maximum_packet_size: number;
     local_window_size: number;
     remote_window_size: number;
-    serverArgs: Buffer | undefined;
-    clientArgs: Buffer;
     constructor(client: Client | ServerClient, channel_type: string, clientArgs?: Buffer);
+    /** Owned channel-open arguments. Each access returns a defensive copy. */
+    get clientArgs(): Buffer;
+    /** Owned channel-open confirmation arguments, once configured. */
+    get serverArgs(): Buffer | undefined;
+    set serverArgs(value: Buffer | undefined);
     get isOpen(): boolean;
     get isFullyClosed(): boolean;
     get hasSentEndOfWrite(): boolean;

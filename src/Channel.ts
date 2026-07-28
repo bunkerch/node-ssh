@@ -56,8 +56,8 @@ export default class Channel {
     local_window_size = 0
     remote_window_size = 0
 
-    serverArgs: Buffer | undefined
-    clientArgs: Buffer
+    #serverArgs: Buffer | undefined
+    readonly #clientArgs: Buffer
 
     private readonly pendingWrites: PendingChannelWrite[] = []
     private readonly pendingRequests: PendingChannelRequest[] = []
@@ -82,14 +82,34 @@ export default class Channel {
         channel_type: string,
         clientArgs: Buffer = Buffer.alloc(0),
     ) {
+        if (!Buffer.isBuffer(clientArgs)) {
+            throw new TypeError("SSH channel open arguments must be a buffer")
+        }
         this.client = client
         this.channel_type = channel_type
         this.localId = allocateChannelIdentifier(client)
-        this.clientArgs = clientArgs
+        this.#clientArgs = Buffer.from(clientArgs)
         this.openPromise = new Promise<void>((resolve, reject) => {
             this.openResolve = resolve
             this.openReject = reject
         })
+    }
+
+    /** Owned channel-open arguments. Each access returns a defensive copy. */
+    get clientArgs(): Buffer {
+        return Buffer.from(this.#clientArgs)
+    }
+
+    /** Owned channel-open confirmation arguments, once configured. */
+    get serverArgs(): Buffer | undefined {
+        return this.#serverArgs === undefined ? undefined : Buffer.from(this.#serverArgs)
+    }
+
+    set serverArgs(value: Buffer | undefined) {
+        if (value !== undefined && !Buffer.isBuffer(value)) {
+            throw new TypeError("SSH channel open confirmation arguments must be a buffer")
+        }
+        this.#serverArgs = value === undefined ? undefined : Buffer.from(value)
     }
 
     get isOpen(): boolean {
@@ -162,7 +182,7 @@ export default class Channel {
             initial_window_size: this.local_initial_window_size,
             maximum_packet_size: this.local_maximum_packet_size,
             sender_channel_id: this.localId,
-            args: this.clientArgs,
+            args: this.#clientArgs,
         })
     }
 
@@ -172,7 +192,7 @@ export default class Channel {
             "ChannelOpenConfirmation packet was demanded, but remoteId was not set.",
         )
         assert(
-            this.serverArgs !== undefined,
+            this.#serverArgs !== undefined,
             "ChannelOpenConfirmation packet was demanded, but serverArgs was not set.",
         )
 
@@ -181,7 +201,7 @@ export default class Channel {
             sender_channel_id: this.localId,
             initial_window_size: this.local_initial_window_size,
             maximum_packet_size: this.local_maximum_packet_size,
-            args: this.serverArgs,
+            args: this.#serverArgs,
         })
     }
 

@@ -364,6 +364,16 @@ describe("package exports", () => {
         expect(ServerClient.prototype.forwardOutStreamLocal).toBeFunction()
         expect(ServerClient.prototype.close).toBeFunction()
         expect(ServerClient.prototype[Symbol.asyncDispose]).toBeFunction()
+        const channelArguments = Buffer.from("owned channel arguments")
+        const genericChannel = new Channel(
+            new Client({ hostname: "unused.invalid", username: "test" }),
+            "test@example.test",
+            channelArguments,
+        )
+        channelArguments.fill(0)
+        const exposedArguments = genericChannel.clientArgs
+        exposedArguments.fill(0)
+        expect(genericChannel.clientArgs.toString()).toBe("owned channel arguments")
         expect(stringToFlags("r")).toBe(OPEN_MODE.READ)
         expect(flagsToString(OPEN_MODE.READ)).toBe("r")
         expect(STATUS_CODE.OK).toBe(0)
@@ -682,6 +692,9 @@ describe("package exports", () => {
         expect(index).toContain('export { OPENSSH_INFO_SIGNAL } from "./utils/Signal.js"')
         expect(channel).toContain("sendData(data: Buffer): Promise<void>")
         expect(channel).toContain("sendExtendedData(dataType: number, data: Buffer): Promise<void>")
+        expect(channel).toContain("get clientArgs(): Buffer")
+        expect(channel).toContain("get serverArgs(): Buffer | undefined")
+        expect(channel).toContain("set serverArgs(value: Buffer | undefined)")
         expect(serverClient).not.toContain("ServerGlobalRequestCallback")
         expect(serverClient).toContain("rekey(): Promise<void>")
         expect(serverClient).toContain("close(): Promise<void>")

@@ -37,6 +37,44 @@ function createChannel(remoteWindow = 5, remotePacketSize = 3) {
 }
 
 describe("server Channel", () => {
+    test("owns open and confirmation arguments across delayed serialization", () => {
+        const client = new Client({ hostname: "unused", username: "test" })
+        const openArguments = Buffer.from("open arguments")
+        const channel = new Channel(client, "test@example.test", openArguments)
+        channel.local_initial_window_size = 8
+        channel.local_maximum_packet_size = 4
+
+        openArguments.fill(0)
+        const exposedOpenArguments = channel.clientArgs
+        exposedOpenArguments.fill(0)
+        expect(channel.getChannelOpenPacket().data.args).toEqual(Buffer.from("open arguments"))
+
+        channel.configureRemote(
+            new ChannelOpen({
+                channel_type: "test@example.test",
+                sender_channel_id: 42,
+                initial_window_size: 5,
+                maximum_packet_size: 3,
+                args: Buffer.alloc(0),
+            }),
+        )
+        const confirmationArguments = Buffer.from("confirmation arguments")
+        channel.serverArgs = confirmationArguments
+        confirmationArguments.fill(0)
+        const exposedConfirmationArguments = channel.serverArgs!
+        exposedConfirmationArguments.fill(0)
+        expect(channel.getChannelOpenConfirmationPacket().data.args).toEqual(
+            Buffer.from("confirmation arguments"),
+        )
+
+        expect(() => new Channel(client, "test", "not a buffer" as never)).toThrow(
+            "SSH channel open arguments must be a buffer",
+        )
+        expect(() => (channel.serverArgs = "not a buffer" as never)).toThrow(
+            "SSH channel open confirmation arguments must be a buffer",
+        )
+    })
+
     test("validates exit-signal text before sending the one-way result", () => {
         const sent: { type: string; args: Buffer }[] = []
         const channel = {
