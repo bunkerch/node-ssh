@@ -313,9 +313,6 @@ describe("independent SSH peer interoperability", () => {
             const server = new Server({
                 hostKeys: [PrivateKey.generateSync("ssh-ed448")],
                 sendAllHostKeys: false,
-                debug: process.env.MODERNSSH_PEER_DEBUG
-                    ? (...message) => console.error(...message)
-                    : undefined,
                 algorithms: {
                     kex: [keyExchange],
                     serverHostKey: ["ssh-ed448"],
@@ -326,6 +323,9 @@ describe("independent SSH peer interoperability", () => {
                 noFlowControl: "supported",
                 delayCompression: true,
             })
+            if (process.env.MODERNSSH_PEER_DEBUG) {
+                server.on("debug", (...message) => console.error(...message))
+            }
             const errors: Error[] = []
             const handshakes: {
                 kex: string

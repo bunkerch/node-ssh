@@ -4,6 +4,7 @@ import type { Duplex } from "node:stream"
 import { connect as connectTLS, type ConnectionOptions as TLSConnectionOptions } from "node:tls"
 import Client, {
     normalizeClientAuthenticationAgent,
+    rejectRemovedClientOptions,
     type ClientHooker,
     type ClientOptions,
 } from "./Client.js"
@@ -83,6 +84,7 @@ function snapshotAlgorithms(
 }
 
 function snapshotClientOptions(options: Readonly<ClientOptions>): Readonly<ClientOptions> {
+    rejectRemovedClientOptions(options)
     if (options.sock !== undefined) {
         throw new TypeError("SSH HTTP agents cannot reuse an already-connected transport")
     }

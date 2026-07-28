@@ -509,8 +509,6 @@ export interface ClientOptions {
     maxChannels?: number;
     /** Already-connected duplex transport, such as an SSH direct-tcpip channel. */
     sock?: Duplex;
-    /** Receive the same already-redacted diagnostic arguments as the `debug` event. */
-    debug?: (...message: unknown[]) => void;
 }
 ```
 
@@ -1287,8 +1285,6 @@ export interface ServerOptions {
     noFlowControl?: NoFlowControlPreference;
     /** RFC 8308 post-authentication compression renegotiation. */
     delayCompression?: DelayCompressionConfiguration;
-    /** Receive the same diagnostic arguments as the `debug` event. */
-    debug?: (...message: unknown[]) => void;
 }
 ```
 

@@ -615,6 +615,8 @@ describe("package exports", () => {
         expect(client).not.toContain("options: ClientOptionsRequired")
         expect(client).not.toContain("hostVerifier")
         expect(client).not.toContain("hostHash")
+        expect(client).not.toContain("debug?: (...message")
+        expect(server).not.toContain("debug?: (...message")
         expect(client).toContain("rejection?: Error")
         expect(
             httpAgents.match(/get hooker\(\): Hooker<Pick<ClientHooker, "hostKey">>/gu),
@@ -1012,6 +1014,8 @@ describe("package exports", () => {
                     if (!await emptyPasswordClient.hooker.triggerHookChecked("passwordAuth", { username: "packed" }, emptyPasswordDecision) || emptyPasswordDecision.password !== "") process.exit(61)
                     try { new Client({ username: "packed", agentForward: "false" }); process.exit(62) } catch (error) { if (!String(error).includes("agentForward option must be a boolean")) process.exit(63) }
                     try { KnownHosts.parse("").assertTrusted("missing.example.test", publicKey); process.exit(64) } catch (error) { if (!String(error).includes("is not present in known hosts")) process.exit(65) }
+                    try { new Client({ username: "packed", hostVerifier: () => true }); process.exit(160) } catch (error) { if (!String(error).includes("hostVerifier and hostHash options were removed")) process.exit(161) }
+                    try { new Client({ username: "packed", debug: () => undefined }); process.exit(162) } catch (error) { if (!String(error).includes("debug option was removed")) process.exit(163) }
                     try { new Client({ username: "packed", timeout: null }); process.exit(105) } catch (error) { if (!String(error).includes("transport inactivity timeout must be an integer")) process.exit(106) }
                     try { new Client({ username: "packed", authenticationSignatureAlgorithms: null }); process.exit(125) } catch (error) { if (!String(error).includes("signature algorithms must be an array")) process.exit(126) }
                     new Client({ username: "packed", authenticationSignatureAlgorithms: ["ssh-ed25519"] })

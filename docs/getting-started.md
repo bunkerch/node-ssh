@@ -85,12 +85,12 @@ checks also apply when JavaScript consumers bypass the generated TypeScript decl
 that role. The obsolete, ineffective `serverClient` client option is rejected explicitly instead
 of being silently ignored.
 
-Both `Client` and `Server` accept a `debug(...message)` option for diagnostics that must be
-available from the start of their lifecycle. It receives the same arguments as the corresponding
-`debug` event; applications may use either or both. Authentication secrets, key material, GSS-API
-tokens, commands, environment values, channel data, and opaque channel/global request and response
-payloads are redacted before this surface is called. Packet diagnostics retain useful structural
-metadata such as packet/request names, channel identifiers, response direction, and byte counts.
+Both `Client` and `Server` emit synchronous `debug` events. Attach the listener immediately after
+construction; the constructor summary is deferred so that listener observes it. Authentication
+secrets, key material, GSS-API tokens, commands, environment values, channel data, and opaque
+channel/global request and response payloads are redacted before this event is emitted. Packet
+diagnostics retain useful structural metadata such as packet/request names, channel identifiers,
+response direction, and byte counts.
 The constructor diagnostic is an allow-listed summary: it never forwards the configuration object,
 private keys, agents, sockets, or policy functions. Configured secret-bearing objects are
 represented only by `"<configured>"`. Treat all remaining values—particularly peer diagnostic text
@@ -106,8 +106,8 @@ typed protocol event.
 const client = new Client({
     hostname: "ssh.example.com",
     username: "deploy",
-    debug: (...message) => logger.debug({ component: "ssh", message }),
 })
+client.on("debug", (...message) => logger.debug({ component: "ssh", message }))
 ```
 
 Configure the awaited `hostKey` hook in production and compare the parsed `PublicKey`, its

@@ -68,8 +68,8 @@ test("the handshake deadline includes an awaited preconnect policy", async () =>
     const server = new Server({
         hostKeys: [await PrivateKey.generate("ssh-ed25519")],
         handshakeTimeout: 35,
-        debug: (...message) => diagnostics.push(message),
     })
+    server.on("debug", (...message) => diagnostics.push(message))
     let resolveClientClose!: () => void
     const clientClosed = new Promise<void>((resolve) => {
         resolveClientClose = resolve

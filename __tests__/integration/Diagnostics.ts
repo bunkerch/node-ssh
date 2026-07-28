@@ -23,7 +23,7 @@ function containsDiagnosticValue(
     return Object.values(value).some((nested) => containsDiagnosticValue(nested, expected, seen))
 }
 
-describe("configured diagnostic sinks", () => {
+describe("diagnostic events", () => {
     test("receives an allow-listed client configuration summary without secret-bearing objects", async () => {
         const authenticationKey = await PrivateKey.generate("ssh-ed25519")
         const hostbasedKey = await PrivateKey.generate("ssh-ed25519")
@@ -32,7 +32,6 @@ describe("configured diagnostic sinks", () => {
         Object.assign(agent, { diagnosticSecret: "agent-private-metadata" })
         const socket = new PassThrough()
         Object.assign(socket, { diagnosticSecret: "transport-private-metadata" })
-        const configured: unknown[][] = []
         const emitted: unknown[][] = []
         const client = new Client({
             username: "diagnostic-user",
@@ -45,22 +44,19 @@ describe("configured diagnostic sinks", () => {
             },
             ident: Buffer.from("identifier_private_metadata"),
             sock: socket,
-            debug: (...message) => configured.push(message),
         })
         client.on("debug", (...message) => emitted.push(message))
 
         await new Promise<void>((resolve) => setImmediate(resolve))
 
-        expect(configured).toEqual(emitted)
-        expect(configured[0]?.[0]).toBe("Client created with options:")
-        const summary = configured[0]?.[1] as Record<string, unknown>
+        expect(emitted[0]?.[0]).toBe("Client created with options:")
+        const summary = emitted[0]?.[1] as Record<string, unknown>
         expect(summary).toMatchObject({
             username: "diagnostic-user",
             password: "<redacted>",
             agent: "<configured>",
             hostbased: "<configured>",
             sock: "<configured>",
-            debug: "<configured>",
         })
         expect(
             Object.values(summary).every(
@@ -71,7 +67,7 @@ describe("configured diagnostic sinks", () => {
                     typeof value === "boolean",
             ),
         ).toBe(true)
-        const output = JSON.stringify(configured)
+        const output = JSON.stringify(emitted)
         expect(output).toContain("<redacted>")
         expect(output).toContain("<configured>")
         expect(output).not.toContain("diagnostic-secret")
@@ -81,20 +77,15 @@ describe("configured diagnostic sinks", () => {
         expect(output).not.toContain("identifier_private_metadata")
     })
 
-    test("receives the same server diagnostic arguments", async () => {
+    test("receives server diagnostic arguments", async () => {
         const hostKey = await PrivateKey.generate("ssh-ed25519")
-        const configured: unknown[][] = []
         const emitted: unknown[][] = []
-        const server = new Server({
-            hostKeys: [hostKey],
-            debug: (...message) => configured.push(message),
-        })
+        const server = new Server({ hostKeys: [hostKey] })
         server.on("debug", (...message) => emitted.push(message))
 
         server.debug("server diagnostic", { ready: true })
 
-        expect(configured).toEqual([["server diagnostic", { ready: true }]])
-        expect(configured).toEqual(emitted)
+        expect(emitted).toEqual([["server diagnostic", { ready: true }]])
     })
 
     test("does not expose session or opaque request payloads", async () => {
@@ -113,8 +104,8 @@ describe("configured diagnostic sinks", () => {
             hostKeys: [hostKey],
             sendAllHostKeys: false,
             algorithms: { kex: ["curve25519-sha256"] },
-            debug: (...message) => serverDiagnostics.push(message),
         })
+        server.on("debug", (...message) => serverDiagnostics.push(message))
         server.hooker.hook("noneAuthentication", (_hook, _context, controller) => {
             controller.allowLogin = true
         })
@@ -152,8 +143,8 @@ describe("configured diagnostic sinks", () => {
             username: "diagnostic-payload-user",
             authenticationMethodsOrder: [SSHAuthenticationMethods.None],
             algorithms: { kex: ["curve25519-sha256"] },
-            debug: (...message) => clientDiagnostics.push(message),
         })
+        client.on("debug", (...message) => clientDiagnostics.push(message))
         client.hooker.hook("hostKey", (_hook, controller) => {
             controller.allowHostKey = true
         })
@@ -238,8 +229,8 @@ describe("configured diagnostic sinks", () => {
             username: "diagnostic-agent-user",
             agent,
             authenticationMethodsOrder: [SSHAuthenticationMethods.PublicKey],
-            debug: (...message) => diagnostics.push(message),
         })
+        client.on("debug", (...message) => diagnostics.push(message))
         client.hooker.hook("hostKey", (_hook, decision) => {
             decision.allowHostKey = true
         })
@@ -271,10 +262,18 @@ describe("configured diagnostic sinks", () => {
         }
     }, 15_000)
 
-    test("rejects non-callable diagnostic options", () => {
-        expect(() => new Client({ username: "test", debug: "invalid" as never })).toThrow(
-            "must be a function",
+    test("rejects removed callback options instead of silently ignoring them", () => {
+        expect(() => new Client({ username: "test", debug: () => undefined } as never)).toThrow(
+            "SSH debug option was removed; listen for the debug event",
         )
-        expect(() => new Server({ debug: "invalid" as never })).toThrow("must be a function")
+        expect(() => new Server({ debug: () => undefined } as never)).toThrow(
+            "SSH debug option was removed; listen for the debug event",
+        )
+        expect(() => new Client({ username: "test", hostVerifier: () => true } as never)).toThrow(
+            "SSH hostVerifier and hostHash options were removed; use the hostKey Hooker",
+        )
+        expect(() => new Client({ username: "test", hostHash: "sha256" } as never)).toThrow(
+            "SSH hostVerifier and hostHash options were removed; use the hostKey Hooker",
+        )
     })
 })

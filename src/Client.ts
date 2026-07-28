@@ -350,8 +350,6 @@ export interface ClientOptions {
     maxChannels?: number
     /** Already-connected duplex transport, such as an SSH direct-tcpip channel. */
     sock?: Duplex
-    /** Receive the same already-redacted diagnostic arguments as the `debug` event. */
-    debug?: (...message: unknown[]) => void
 }
 
 export interface ClientOptionsRequired
@@ -369,7 +367,6 @@ export interface ClientOptionsRequired
             | "certificate"
             | "passphrase"
             | "agent"
-            | "debug"
         >
     > {
     sock?: Duplex
@@ -385,7 +382,6 @@ export interface ClientOptionsRequired
     passphrase?: string | Buffer
     agent: Agent
     delayCompression: NormalizedDelayCompression
-    debug?: (...message: unknown[]) => void
 }
 
 /** Normalize reusable authentication configuration without retaining encoded key containers. */
@@ -724,6 +720,18 @@ function normalizeBooleanOption(value: unknown, fallback: boolean, field: string
     return value
 }
 
+/** Reject removed option names instead of silently weakening configured behavior. */
+export function rejectRemovedClientOptions(options: object): void {
+    if (Object.hasOwn(options, "hostVerifier") || Object.hasOwn(options, "hostHash")) {
+        throw new TypeError(
+            "SSH hostVerifier and hostHash options were removed; use the hostKey Hooker",
+        )
+    }
+    if (Object.hasOwn(options, "debug")) {
+        throw new TypeError("SSH debug option was removed; listen for the debug event")
+    }
+}
+
 function clientDiagnosticSummary(
     options: ClientOptionsRequired,
 ): Readonly<Record<string, unknown>> {
@@ -742,7 +750,6 @@ function clientDiagnosticSummary(
         hostbased: options.hostbased ? "<configured>" : "",
         gssapi: `${options.gssapi.length} configured mechanism(s)`,
         sock: options.sock ? "<configured>" : "",
-        debug: options.debug ? "<configured>" : "",
     })
 }
 
@@ -785,6 +792,7 @@ export default class Client extends EventEmitter<ClientEvents> {
                 "SSH serverClient is not a client option; use ServerClient for accepted peers",
             )
         }
+        rejectRemovedClientOptions(options)
         this.explicitAuthenticationMethodsOrder = options.authenticationMethodsOrder !== undefined
         this.#options = { ...options } as ClientOptionsRequired
         if (
@@ -845,9 +853,6 @@ export default class Client extends EventEmitter<ClientEvents> {
                 throw new TypeError("SSH password option must be a string")
             }
             encodeSSHUTF8(this.#options.password, "SSH password")
-        }
-        if (this.#options.debug !== undefined && typeof this.#options.debug !== "function") {
-            throw new TypeError("SSH debug option must be a function")
         }
         this.#options.agentForward = normalizeBooleanOption(
             this.#options.agentForward,
@@ -1372,7 +1377,6 @@ export default class Client extends EventEmitter<ClientEvents> {
     }
 
     debug(...message: unknown[]): void {
-        this.#options.debug?.(...message)
         this.emit("debug", ...message)
     }
 

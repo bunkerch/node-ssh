@@ -117,8 +117,6 @@ export interface ServerOptions {
     noFlowControl?: NoFlowControlPreference
     /** RFC 8308 post-authentication compression renegotiation. */
     delayCompression?: DelayCompressionConfiguration
-    /** Receive the same diagnostic arguments as the `debug` event. */
-    debug?: (...message: unknown[]) => void
 }
 export interface ServerHostKeyInput {
     key: PrivateKey | string | Buffer
@@ -148,14 +146,13 @@ export interface ServerTransport extends Duplex {
 
 export interface ServerOptionsRequired
     extends Required<
-        Omit<ServerOptions, "ident" | "algorithms" | "hostKeys" | "hostCertificates" | "debug">
+        Omit<ServerOptions, "ident" | "algorithms" | "hostKeys" | "hostCertificates">
     > {
     ident?: string | Buffer
     algorithms?: ServerAlgorithmOptions
     hostKeys: PrivateKey[]
     delayCompression: NormalizedDelayCompression
     hostCertificates?: (PublicKey | string | Buffer)[]
-    debug?: (...message: unknown[]) => void
 }
 
 function normalizeGreeting(greeting: string): string {
@@ -414,6 +411,9 @@ export default class Server extends EventEmitter<ServerEvents> {
         if (!isPlainConfigurationObject(options)) {
             throw new TypeError("SSH server options must be an object")
         }
+        if (Object.hasOwn(options, "debug")) {
+            throw new TypeError("SSH debug option was removed; listen for the debug event")
+        }
         if (connectionListener !== undefined && typeof connectionListener !== "function") {
             throw new TypeError("SSH server connection listener must be a function")
         }
@@ -423,9 +423,6 @@ export default class Server extends EventEmitter<ServerEvents> {
             !isPlainConfigurationObject(this.#options.algorithms)
         ) {
             throw new TypeError("SSH server algorithms option must be an object")
-        }
-        if (this.#options.debug !== undefined && typeof this.#options.debug !== "function") {
-            throw new TypeError("SSH debug option must be a function")
         }
         if (
             this.#options.ident !== undefined &&
@@ -889,7 +886,6 @@ export default class Server extends EventEmitter<ServerEvents> {
     }
 
     debug(...message: unknown[]): void {
-        this.#options.debug?.(...message)
         this.emit("debug", ...message)
     }
 }

@@ -8,7 +8,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { PassThrough, type Duplex } from "node:stream"
 import { promisify } from "node:util"
-import { SSHHTTPAgent } from "../../src/HTTPAgents.js"
+import { SSHHTTPAgent, SSHHTTPSAgent } from "../../src/HTTPAgents.js"
 import DirectTCPIPChannel from "../../src/channels/DirectTCPIPChannel.js"
 import Server from "../../src/Server.js"
 import { SSHAuthenticationMethods } from "../../src/constants.js"
@@ -36,6 +36,20 @@ describe("SSH-backed HTTP agents", () => {
             expect(() => new SSHHTTPAgent({ sock: transport })).toThrow(
                 "SSH HTTP agents cannot reuse an already-connected transport",
             )
+            expect(
+                () =>
+                    new SSHHTTPAgent({
+                        username: "removed-options",
+                        hostVerifier: () => true,
+                    } as never),
+            ).toThrow("hostVerifier and hostHash options were removed")
+            expect(
+                () =>
+                    new SSHHTTPSAgent({
+                        username: "removed-options",
+                        debug: () => undefined,
+                    } as never),
+            ).toThrow("debug option was removed")
         } finally {
             transport.destroy()
         }
