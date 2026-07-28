@@ -522,6 +522,8 @@ files support Argon2d, Argon2i, and Argon2id with AES-256-CBC; version 2's SHA-1
 accepted for existing keys but should not be selected for new storage. The loader authenticates
 the complete public and private envelope before constructing a key, rejects incorrect or missing
 passphrases, and clears passphrase copies, derived material, and temporary plaintext buffers.
+Certificate-bearing PPK files retain the complete certificate identity while validating and using
+the matching underlying private key for signatures.
 
 To keep untrusted key files from causing unbounded work, PPK input is limited to 16 MiB, each
 decoded key blob to 8 MiB, and Argon2 settings to 256 MiB of memory, 100 passes, and 64 lanes.

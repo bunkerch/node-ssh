@@ -136,6 +136,67 @@ describe("PuTTY private keys", () => {
         }
     }, 30_000)
 
+    test("imports certified Ed25519, ECDSA, and RSA keys produced by puttygen", async () => {
+        const directory = await mkdtemp(join(tmpdir(), "modernssh-ppk-certificates-"))
+        const caPath = join(directory, "ca")
+        const fixtures = [
+            ["ed25519", "ed25519", undefined, "ssh-ed25519-cert-v01@openssh.com"],
+            ["ecdsa", "ecdsa", 256, "ecdsa-sha2-nistp256-cert-v01@openssh.com"],
+            ["rsa", "rsa", 2048, "ssh-rsa-cert-v01@openssh.com"],
+        ] as const
+        try {
+            await execFileAsync("ssh-keygen", ["-q", "-t", "ed25519", "-N", "", "-f", caPath])
+            for (const [name, type, bits, certificateAlgorithm] of fixtures) {
+                const fixture = await generatePPK(directory, name, type, bits, "version=3", "")
+                const publicPath = join(directory, `${name}.pub`)
+                await writeFile(publicPath, `${fixture.publicKey.toString()}\n`)
+                await execFileAsync("ssh-keygen", [
+                    "-q",
+                    "-s",
+                    caPath,
+                    "-I",
+                    `${name}-certificate`,
+                    "-n",
+                    "certified-user",
+                    "-V",
+                    "-1m:+1h",
+                    publicPath,
+                ])
+                const certificatePath = join(directory, `${name}-cert.pub`)
+                const certifiedPath = join(directory, `${name}-cert.ppk`)
+                await execFileAsync("puttygen", [
+                    fixture.path,
+                    "--certificate",
+                    certificatePath,
+                    "--old-passphrase",
+                    fixture.passphrasePath,
+                    "--new-passphrase",
+                    fixture.passphrasePath,
+                    "--ppk-param",
+                    "version=3",
+                    "-O",
+                    "private",
+                    "-o",
+                    certifiedPath,
+                ])
+
+                const certified = PrivateKey.fromPuTTY(await readFile(certifiedPath))
+                const message = Buffer.from(`certified PPK ${name}`)
+                expect(certified.data.alg).toBe(certificateAlgorithm)
+                expect(
+                    certified.data.publicKey.equals(
+                        PublicKey.parseString(await readFile(certificatePath, "utf8")),
+                    ),
+                ).toBe(true)
+                expect(
+                    certified.data.publicKey.verifySignature(message, certified.sign(message)),
+                ).toBe(true)
+            }
+        } finally {
+            await rm(directory, { recursive: true, force: true })
+        }
+    }, 30_000)
+
     test("decrypts version 2 and every version 3 Argon2 mode", async () => {
         const directory = await mkdtemp(join(tmpdir(), "modernssh-encrypted-ppk-"))
         const formats = [

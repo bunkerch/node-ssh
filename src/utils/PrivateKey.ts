@@ -514,12 +514,12 @@ function privateKeyFromPuTTY(parsed: ParsedPuTTYPrivateKey): PrivateKey {
         publicKey.data.alg === parsed.algorithmName,
         "PuTTY key algorithm does not match its public key",
     )
-    assert(
-        !(publicKey.data.algorithm instanceof SSHCertificatePublicKey),
-        "PuTTY certificate private keys are not supported",
-    )
 
-    const publicAlgorithm = publicKey.data.algorithm
+    const underlyingPublicKey =
+        publicKey.data.algorithm instanceof SSHCertificatePublicKey
+            ? publicKey.data.algorithm.publicKey
+            : publicKey
+    const publicAlgorithm = underlyingPublicKey.data.algorithm
     let raw = parsed.privateKey
     let algorithm: PrivateKeyAlgorithm
     if (publicAlgorithm instanceof SSHRSAPublicKey) {
@@ -545,8 +545,8 @@ function privateKeyFromPuTTY(parsed: ParsedPuTTYPrivateKey): PrivateKey {
     } else if (publicAlgorithm instanceof SSHECDSAPublicKey) {
         let scalar: Buffer
         ;[scalar, raw] = readPuTTYPrivateMpint(raw)
-        const RegisteredAlgorithm = PrivateKey.algorithms.get(parsed.algorithmName)
-        assert(RegisteredAlgorithm, `Unsupported algorithm: ${parsed.algorithmName}`)
+        const RegisteredAlgorithm = PrivateKey.algorithms.get(underlyingPublicKey.data.alg)
+        assert(RegisteredAlgorithm, `Unsupported algorithm: ${underlyingPublicKey.data.alg}`)
         const Algorithm = RegisteredAlgorithm as unknown as new (
             data: SSHECDSAPrivateKeyData,
         ) => PrivateKeyAlgorithm

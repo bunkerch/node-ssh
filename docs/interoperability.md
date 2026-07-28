@@ -402,7 +402,9 @@ supported ECDSA curve. Encrypted tests cover version 2 plus Argon2d, Argon2i, an
 files, including incorrect passphrases, integrity failures, malformed framing, and resource bounds.
 Every generated key signs through the library and is matched to `puttygen`'s public output; key
 families understood by the system OpenSSH build are also reserialized and checked with
-`ssh-keygen -y`.
+`ssh-keygen -y`. Certificate import is exercised with Ed25519, NIST P-256, and RSA keys: system
+`ssh-keygen` issues each certificate, `puttygen` incorporates it into a version 3 PPK, and the
+library retains the exact certified public identity while signing with its matching private key.
 
 Ed448 coverage uses RFC 8032's empty-message key and signature vector, wrapped in the exact RFC
 8709 SSH public-key and signature encodings. A native Node subprocess independently generates an
