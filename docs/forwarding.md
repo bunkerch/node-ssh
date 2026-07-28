@@ -35,10 +35,11 @@ application or remote forwarding listener can produce them faster than they clos
 ## HTTP and HTTPS agents
 
 `HTTPAgent` and `HTTPSAgent` integrate direct forwarding with Node's `http` and `https` clients.
-The explicit `SSHHTTPAgent` and `SSHHTTPSAgent` names are aliases for the same classes. Each HTTP
-socket establishes an authenticated SSH connection and then opens one `direct-tcpip` channel to the
-request destination. Standard agent pooling can keep that channel and its SSH connection alive for
-later requests.
+The explicit `SSHHTTPAgent` and `SSHHTTPSAgent` names are aliases for the same classes. An agent
+lazily establishes one authenticated SSH connection, and each HTTP socket opens an independent
+`direct-tcpip` channel to its request destination. Concurrent sockets are therefore multiplexed
+over one SSH transport. Standard HTTP agent pooling can also retain and reuse each destination
+channel for later requests.
 
 ```ts
 import { once } from "node:events"
@@ -67,13 +68,16 @@ For HTTPS, TLS is negotiated end-to-end over the SSH channel; the SSH server doe
 inspect TLS. `sourceHost` and `sourcePort` set the originator metadata in the forwarding request and
 default to `127.0.0.1` and zero. Per-request `localAddress` and `localPort` override that metadata;
 they do not bind a local interface on the HTTP caller. Call `agent.destroy()` to close pooled HTTP
-channels and every SSH connection owned by the agent. Apply the same host-key verification and
-destination allowlisting requirements as any other direct-forwarding client. The agent snapshots
-its SSH configuration during construction, including nested algorithm and authentication lists, so
-later caller mutations cannot change credentials or negotiation for a new request. Encoded private
-keys and certificates are parsed once into the configured signing agent; their source containers
-and passphrase are not retained. Do not supply `sock`: one already-connected transport cannot
-safely back the agent's independent per-socket SSH connections and is rejected during construction.
+channels and the current shared SSH connection. The same agent may be used again after `destroy()`;
+its next request establishes a fresh SSH connection. A peer-closed transport is handled the same
+way, so requests created after closure reconnect without retaining the old channel state. Apply the
+same host-key verification and destination allowlisting requirements as any other direct-forwarding
+client. The agent snapshots its SSH configuration during construction, including nested algorithm
+and authentication lists, so later caller mutations cannot change credentials or negotiation for a
+new request. Encoded private keys and certificates are parsed once into the configured signing
+agent; their source containers and passphrase are not retained. Do not supply `sock`: an agent may
+need to replace its shared connection after failure or explicit destruction, while an
+application-provided transport can be consumed only once.
 
 ## Accepting direct connections
 

@@ -136,8 +136,10 @@ function destination(options: ConnectionRequest): { host: string; port: number }
 }
 
 class SSHConnectionFactory {
-    readonly clients = new Set<Client>()
     private readonly clientOptions: Readonly<ClientOptions>
+    private client?: Client
+    private connecting?: Promise<Client>
+    private generation = 0
 
     constructor(
         clientOptions: Readonly<ClientOptions>,
@@ -156,19 +158,14 @@ class SSHConnectionFactory {
             return
         }
 
-        const client = new Client({ ...this.clientOptions })
-        this.clients.add(client)
-        client.once("close", () => this.clients.delete(client))
-        client.on("error", (error) => void error)
         const sourceHost = options.localAddress ?? this.sourceHost
         const sourcePort = options.localPort ?? this.sourcePort
 
         void (async () => {
-            await client.connect()
+            const client = await this.connection()
             const channel = socketCompatible(
                 await client.forwardOut(sourceHost, sourcePort, target.host, target.port),
             )
-            channel.once("close", () => client.end())
             if (!secure) {
                 callback(null, channel)
                 return
@@ -178,14 +175,49 @@ class SSHConnectionFactory {
                 connectTLS({ ...options, host: target.host, port: target.port, socket: channel }),
             )
         })().catch((error: unknown) => {
-            client.destroy()
             callback(error instanceof Error ? error : new Error(String(error)))
         })
     }
 
+    private connection(): Promise<Client> {
+        if (this.client?.isConnected) return Promise.resolve(this.client)
+        if (this.connecting) return this.connecting
+
+        const generation = this.generation
+        const client = new Client({ ...this.clientOptions })
+        this.client = client
+        client.on("error", (error) => void error)
+        client.once("close", () => {
+            if (this.client === client) this.client = undefined
+        })
+
+        const connecting = client.connect().then(
+            () => {
+                if (generation !== this.generation || this.client !== client) {
+                    client.destroy()
+                    throw new Error("SSH HTTP connection was destroyed during setup")
+                }
+                return client
+            },
+            (error: unknown) => {
+                if (this.client === client) this.client = undefined
+                client.destroy()
+                throw error
+            },
+        )
+        this.connecting = connecting
+        const clearConnecting = () => {
+            if (this.connecting === connecting) this.connecting = undefined
+        }
+        void connecting.then(clearConnecting, clearConnecting)
+        return connecting
+    }
+
     destroy(): void {
-        for (const client of this.clients) client.destroy()
-        this.clients.clear()
+        this.generation++
+        this.client?.destroy()
+        this.client = undefined
+        this.connecting = undefined
     }
 }
 

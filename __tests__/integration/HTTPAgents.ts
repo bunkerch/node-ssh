@@ -41,7 +41,7 @@ describe("SSH-backed HTTP agents", () => {
         }
     })
 
-    test("owns SSH credentials before opening an HTTP direct-tcpip channel", async () => {
+    test("owns credentials and multiplexes HTTP channels over a recoverable connection", async () => {
         const destination = createHTTPServer((request, response) => {
             response.setHeader("content-type", "text/plain")
             response.end(`${request.method} ${request.url} via ${request.headers.host}`)
@@ -112,12 +112,19 @@ describe("SSH-backed HTTP agents", () => {
         encodedUserKey.fill(0)
 
         try {
-            const socket = await new Promise<Duplex>((resolve, reject) => {
-                agent.createConnection(
-                    { host: "127.0.0.1", port: destinationPort },
-                    (error, stream) => (error || !stream ? reject(error) : resolve(stream)),
-                )
-            })
+            const createAgentSocket = () =>
+                new Promise<Duplex>((resolve, reject) => {
+                    agent.createConnection(
+                        { host: "127.0.0.1", port: destinationPort },
+                        (error, stream) => (error || !stream ? reject(error) : resolve(stream)),
+                    )
+                })
+            const [socket, secondSocket] = await Promise.all([
+                createAgentSocket(),
+                createAgentSocket(),
+            ])
+            expect(server.clients.size).toBe(1)
+            expect(forwarded).toHaveLength(2)
             const response = new Promise<string>((resolve, reject) => {
                 const chunks: Buffer[] = []
                 socket.on("data", (chunk: Buffer) => chunks.push(chunk))
@@ -131,7 +138,6 @@ describe("SSH-backed HTTP agents", () => {
 
             expect(rawResponse).toContain("HTTP/1.1 200 OK")
             expect(rawResponse).toEndWith(`GET /health?full=1 via 127.0.0.1:${destinationPort}`)
-            expect(forwarded).toHaveLength(1)
             expect(authenticatedUsernames.length).toBeGreaterThan(0)
             expect(new Set(authenticatedUsernames)).toEqual(new Set(["interop"]))
             expect(forwarded[0]?.details).toEqual({
@@ -152,6 +158,25 @@ describe("SSH-backed HTTP agents", () => {
             })
             await new Promise<void>((resolve) => queueMicrotask(resolve))
             expect(callbacks).toBe(1)
+
+            secondSocket.on("error", () => undefined)
+            const secondSocketClosed = new Promise<void>((resolve) =>
+                secondSocket.once("close", resolve),
+            )
+            const activeConnection = [...server.clients][0]
+            expect(activeConnection).toBeDefined()
+            activeConnection!.terminate()
+            await secondSocketClosed
+            const recoveredSocket = await createAgentSocket()
+
+            recoveredSocket.on("error", () => undefined)
+            const recoveredSocketClosed = new Promise<void>((resolve) =>
+                recoveredSocket.once("close", resolve),
+            )
+            agent.destroy()
+            await recoveredSocketClosed
+            const replacementSocket = await createAgentSocket()
+            replacementSocket.destroy()
         } finally {
             agent.destroy()
             for (const client of server.clients) client.terminate()
