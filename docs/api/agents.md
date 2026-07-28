@@ -1261,6 +1261,8 @@ export interface SSHAgentProtocolConnectionContext {
     readonly sessionBindAttempted: boolean;
     /** Accepted bindings in forwarding-path order. */
     readonly sessionBindings: readonly OpenSSHAgentSessionBinding[];
+    /** Aborted when this served stream closes or its request deadline expires. */
+    readonly signal: AbortSignal;
 }
 ```
 
@@ -1310,6 +1312,8 @@ Interface. Declared in [`src/publickey/SSHAgentProtocol.ts`](https://github.com/
 export interface SSHAgentProtocolServerOptions {
     /** Maximum payload length accepted from the peer or returned by policy. */
     maxMessageLength?: number;
+    /** Maximum milliseconds for queueing, awaited policy, and response writes. */
+    requestTimeout?: number;
 }
 ```
 

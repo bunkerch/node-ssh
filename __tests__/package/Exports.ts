@@ -186,6 +186,7 @@ describe("package exports", () => {
         const agentOptions: SSHSocketAgentOptions = { timeout: 250 }
         const agentProtocolServerOptions: SSHAgentProtocolServerOptions = {
             maxMessageLength: 2048,
+            requestTimeout: 500,
         }
         const agentConstraint: SSHAgentConstraint = { type: "confirm" }
         const destinationConstraint: OpenSSHAgentDestinationConstraint = {
@@ -246,6 +247,7 @@ describe("package exports", () => {
         expect(agentOptions.timeout).toBe(250)
         expect(agentProtocolOptions.requestTimeout).toBe(250)
         expect(agentProtocolServerOptions.maxMessageLength).toBe(2048)
+        expect(agentProtocolServerOptions.requestTimeout).toBe(500)
         expect(agentConstraint.type).toBe("confirm")
         expect(destinationConstraint.type).toBe("openssh-restrict-destination")
         expect(sessionBinding).toBeUndefined()
@@ -859,6 +861,8 @@ describe("package exports", () => {
         expect(securityKeyAttestation).toContain("get authenticatorData(): Buffer | undefined")
         expect(agentProtocol).toContain("getPublicKeys(): Promise<[string, PublicKey][]>")
         expect(agentProtocol).toContain("serve(stream: Duplex): Promise<void>")
+        expect(agentProtocol).toContain("readonly signal: AbortSignal")
+        expect(agentProtocol).toContain("requestTimeout?: number")
         expect(agentProtocol).not.toContain("callback")
         expect(cygwinAgent).toContain("getStream(): Promise<Socket>")
         expect(cygwinAgent).not.toContain("callback")

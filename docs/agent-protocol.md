@@ -272,7 +272,9 @@ stream and discards the request if that stream has already closed.
 Every hook receives an `SSHAgentProtocolConnectionContext` as its final argument. Its `stream`
 identifies the served connection, `sessionBindAttempted` records even malformed or refused bind
 attempts, and `sessionBindings` contains defensive snapshots of accepted bindings in forwarding
-order.
+order. Its `signal` is aborted when the served stream closes or its server request deadline
+expires; pass that signal to cancellable key stores, hardware providers, and authorization
+backends.
 
 ```ts
 server.hooker.hook("sessionBind", async (_hook, binding, decision, connection) => {
@@ -280,7 +282,11 @@ server.hooker.hook("sessionBind", async (_hook, binding, decision, connection) =
 })
 
 server.hooker.hook("sign", async (_hook, request, decision, connection) => {
-    decision.signature = await signIfPathAllowed(request, connection.sessionBindings)
+    decision.signature = await signIfPathAllowed(
+        request,
+        connection.sessionBindings,
+        connection.signal,
+    )
 })
 ```
 
@@ -306,13 +312,13 @@ Leaving an extension result undefined reports that the extension is unsupported.
 `queryExtensions` hook sets `decision.extensions` to the complete supported-name list.
 
 PIN and lock-passphrase contexts contain ephemeral buffers that are cleared as soon as the hook
-returns; copy one only when the backing token operation genuinely requires longer ownership. A
-successful lock stores a salted, derived verifier instead of the passphrase. While locked, the
-server refuses signing, identity/token addition, and extensions before invoking their hooks. An
-unlock hook runs only after the supplied passphrase matches, and the derived verifier is cleared
-after approval. The lock state changes only after every corresponding handler completes without
-rejection: a failed lock chain leaves the server unlocked, and a failed unlock chain retains the
-existing verifier. The `locked` getter reports the current state.
+returns or its connection signal aborts; copy one only when the backing token operation genuinely
+requires longer ownership. A successful lock stores a salted, derived verifier instead of the
+passphrase. While locked, the server refuses signing, identity/token addition, and extensions before
+invoking their hooks. An unlock hook runs only after the supplied passphrase matches, and the
+derived verifier is cleared after approval. The lock state changes only after every corresponding
+handler completes without rejection: a failed lock chain leaves the server unlocked, and a failed
+unlock chain retains the existing verifier. The `locked` getter reports the current state.
 
 Extension results, the advertised extension list, and session bindings follow the same complete
 handler-chain rule. A later contained failure suppresses an earlier extension result or list and
@@ -330,9 +336,19 @@ backing removal succeeds. The protocol server cannot delete application-owned ke
 ## Limits and interoperability
 
 Both roles default to a 256 KiB agent-message limit. Configure `maxMessageLength` on either role
-when a tighter bound is appropriate, and configure `requestTimeout` on the client. A zero client
-timeout disables the deadline. Client and server option bags must be plain objects. Only omitted
-values select defaults; explicit `null` limits and timeouts are rejected.
+when a tighter bound is appropriate.
+
+Client and server requests default to a 10-second deadline. The client deadline covers its
+serialized request and reply. The server deadline separately bounds time in the global
+cross-stream queue plus awaited policy, and the resulting response write. If server policy or
+stream flow control times out, only that served stream is aborted and the global queue advances so
+other agent connections remain usable. Late server-owned lock, unlock, and session-binding state
+changes are suppressed. The AbortSignal cannot undo application side effects which already
+completed, so policy should pass it through before committing slow external mutations.
+
+A zero client timeout disables its deadline. Server deadlines must be positive. Client and server
+option bags must be plain objects. Only omitted values select defaults; explicit `null` limits and
+timeouts are rejected.
 
 The fixed-frame tests cover RFC 9987 identity, token, constraint, removal, lock, and extension
 layouts plus the published session-binding, destination-constraint, and security-key provider

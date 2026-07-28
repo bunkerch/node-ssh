@@ -12,6 +12,7 @@ import {
 } from "../utils/Buffer.js"
 import { Hooker } from "../utils/Hooker.js"
 import { isPlainConfigurationObject } from "../utils/Configuration.js"
+import { waitWithTimeout } from "../utils/Timeout.js"
 import PrivateKey, {
     parseCertificatePrivateKey,
     serializeCertificatePrivateKey,
@@ -99,6 +100,8 @@ export interface SSHAgentProtocolOptions {
 export interface SSHAgentProtocolServerOptions {
     /** Maximum payload length accepted from the peer or returned by policy. */
     maxMessageLength?: number
+    /** Maximum milliseconds for queueing, awaited policy, and response writes. */
+    requestTimeout?: number
 }
 
 export interface SSHAgentIdentity {
@@ -207,6 +210,8 @@ export interface SSHAgentProtocolConnectionContext {
     readonly sessionBindAttempted: boolean
     /** Accepted bindings in forwarding-path order. */
     readonly sessionBindings: readonly OpenSSHAgentSessionBinding[]
+    /** Aborted when this served stream closes or its request deadline expires. */
+    readonly signal: AbortSignal
 }
 
 // eslint-disable-next-line @typescript-eslint/consistent-type-definitions
@@ -271,6 +276,7 @@ export type SSHAgentServerHooker = {
 }
 
 interface SSHAgentProtocolConnectionState {
+    readonly abortController: AbortController
     readonly context: SSHAgentProtocolConnectionContext
     sessionBindAttempted: boolean
     sessionBindings: readonly OpenSSHAgentSessionBinding[]
@@ -286,12 +292,15 @@ function copySessionBinding(binding: OpenSSHAgentSessionBinding): OpenSSHAgentSe
 }
 
 function createConnectionState(stream: Duplex): SSHAgentProtocolConnectionState {
+    const abortController = new AbortController()
     const state = {
+        abortController,
         sessionBindAttempted: false,
         sessionBindings: Object.freeze([]) as readonly OpenSSHAgentSessionBinding[],
     }
     const context: SSHAgentProtocolConnectionContext = Object.freeze({
         stream,
+        signal: abortController.signal,
         get sessionBindAttempted(): boolean {
             return state.sessionBindAttempted
         },
@@ -303,6 +312,18 @@ function createConnectionState(stream: Duplex): SSHAgentProtocolConnectionState 
         value: context,
         enumerable: true,
     }) as unknown as SSHAgentProtocolConnectionState
+}
+
+function clearBuffersOnAbort(signal: AbortSignal, buffers: readonly Buffer[]): () => void {
+    const clear = (): void => {
+        for (const buffer of buffers) buffer.fill(0)
+    }
+    if (signal.aborted) clear()
+    else signal.addEventListener("abort", clear, { once: true })
+    return () => {
+        signal.removeEventListener("abort", clear)
+        clear()
+    }
 }
 
 function normalizeMaxMessageLength(value: unknown): number {
@@ -351,7 +372,21 @@ function normalizeServerOptions(
     if (!isPlainConfigurationObject(options)) {
         throw new TypeError("SSH agent protocol server options must be an object")
     }
-    return { maxMessageLength: normalizeMaxMessageLength(options.maxMessageLength) }
+    const requestTimeout = options.requestTimeout === undefined ? 10_000 : options.requestTimeout
+    if (
+        typeof requestTimeout !== "number" ||
+        !Number.isSafeInteger(requestTimeout) ||
+        requestTimeout < 1 ||
+        requestTimeout > 0x7fff_ffff
+    ) {
+        throw new RangeError(
+            "SSH agent server request timeout must be an integer between one and 2147483647",
+        )
+    }
+    return {
+        maxMessageLength: normalizeMaxMessageLength(options.maxMessageLength),
+        requestTimeout,
+    }
 }
 
 function frame(payload: Buffer, maxMessageLength: number): Buffer {
@@ -1219,6 +1254,14 @@ export class SSHAgentProtocolServer {
         }
         this.#activeStreams.add(stream)
         const connection = createConnectionState(stream)
+        const abort = (): void => {
+            if (!connection.context.signal.aborted) {
+                connection.abortController.abort(
+                    new SSHAgentProtocolError("SSH agent stream closed"),
+                )
+            }
+        }
+        stream.once("close", abort)
         let buffered = Buffer.alloc(0)
         try {
             for await (const chunk of stream) {
@@ -1241,7 +1284,11 @@ export class SSHAgentProtocolServer {
                     let response: Buffer | undefined
                     try {
                         response = await this.#orderedRequest(payload, connection)
-                        await writeFrame(stream, response, this.options.maxMessageLength)
+                        await this.#waitForRequest(
+                            writeFrame(stream, response, this.options.maxMessageLength),
+                            connection,
+                            "SSH agent server response write",
+                        )
                     } finally {
                         payload.fill(0)
                         response?.fill(0)
@@ -1262,25 +1309,50 @@ export class SSHAgentProtocolServer {
             throw error
         } finally {
             buffered.fill(0)
+            stream.off("close", abort)
+            abort()
             this.#activeStreams.delete(stream)
         }
     }
 
     #orderedRequest(payload: Buffer, connection: SSHAgentProtocolConnectionState): Promise<Buffer> {
-        const operation = this.#requestQueue.then(() => {
-            const { stream } = connection.context
-            if (stream.destroyed || !stream.writable) {
+        const queued = this.#requestQueue.then(() => {
+            if (!this.#requestIsActive(connection)) {
                 throw new SSHAgentProtocolError(
                     "SSH agent stream closed before handling its queued request",
                 )
             }
             return this.#handleRequest(payload, connection)
         })
+        const operation = this.#waitForRequest(queued, connection, "SSH agent server request")
+        void queued.then(
+            (response) => {
+                if (connection.context.signal.aborted) response.fill(0)
+            },
+            () => undefined,
+        )
         this.#requestQueue = operation.then(
             () => undefined,
             () => undefined,
         )
         return operation
+    }
+
+    #requestIsActive(connection: SSHAgentProtocolConnectionState): boolean {
+        const { stream, signal } = connection.context
+        return !signal.aborted && !stream.destroyed && stream.writable
+    }
+
+    #waitForRequest<T>(
+        operation: PromiseLike<T>,
+        connection: SSHAgentProtocolConnectionState,
+        description: string,
+    ): Promise<T> {
+        return waitWithTimeout(operation, this.options.requestTimeout, description, (error) => {
+            if (!connection.context.signal.aborted) connection.abortController.abort(error)
+            const { stream } = connection.context
+            if (!stream.destroyed) stream.destroy(error)
+        })
     }
 
     async #handleRequest(
@@ -1441,6 +1513,7 @@ export class SSHAgentProtocolServer {
             constraints,
         })
         const controller: SSHAgentServerSuccessController = { success: undefined }
+        const clearPin = clearBuffersOnAbort(connection.context.signal, [pinCopy])
         try {
             const policyCompleted = await this.hooker.triggerHookChecked(
                 "addToken",
@@ -1452,7 +1525,7 @@ export class SSHAgentProtocolServer {
                 ? this.#success()
                 : this.#failure()
         } finally {
-            pinCopy.fill(0)
+            clearPin()
         }
     }
 
@@ -1498,6 +1571,7 @@ export class SSHAgentProtocolServer {
         const pinCopy = Buffer.from(pin)
         const context: SSHAgentServerRemoveTokenContext = Object.freeze({ tokenId, pin: pinCopy })
         const controller: SSHAgentServerSuccessController = { success: undefined }
+        const clearPin = clearBuffersOnAbort(connection.context.signal, [pinCopy])
         try {
             const policyCompleted = await this.hooker.triggerHookChecked(
                 "removeToken",
@@ -1509,7 +1583,7 @@ export class SSHAgentProtocolServer {
                 ? this.#success()
                 : this.#failure()
         } finally {
-            pinCopy.fill(0)
+            clearPin()
         }
     }
 
@@ -1519,6 +1593,10 @@ export class SSHAgentProtocolServer {
     ): Promise<Buffer> {
         const passphrase = Buffer.from(parseExactString(payload.subarray(1)))
         const hookPassphrase = Buffer.from(passphrase)
+        const clearPassphrases = clearBuffersOnAbort(connection.context.signal, [
+            hookPassphrase,
+            passphrase,
+        ])
         try {
             if (this.locked) return this.#failure()
             const context: SSHAgentServerPassphraseContext = Object.freeze({
@@ -1531,7 +1609,13 @@ export class SSHAgentProtocolServer {
                 controller,
                 connection.context,
             )
-            if (!policyCompleted || controller.success !== true) return this.#failure()
+            if (
+                !policyCompleted ||
+                controller.success !== true ||
+                !this.#requestIsActive(connection)
+            ) {
+                return this.#failure()
+            }
             const salt = randomBytes(16)
             let verifier: Buffer
             try {
@@ -1540,11 +1624,15 @@ export class SSHAgentProtocolServer {
                 salt.fill(0)
                 throw error
             }
+            if (!this.#requestIsActive(connection)) {
+                salt.fill(0)
+                verifier.fill(0)
+                return this.#failure()
+            }
             this.#lockState = { salt, verifier }
             return this.#success()
         } finally {
-            hookPassphrase.fill(0)
-            passphrase.fill(0)
+            clearPassphrases()
         }
     }
 
@@ -1554,6 +1642,10 @@ export class SSHAgentProtocolServer {
     ): Promise<Buffer> {
         const passphrase = Buffer.from(parseExactString(payload.subarray(1)))
         const hookPassphrase = Buffer.from(passphrase)
+        const clearPassphrases = clearBuffersOnAbort(connection.context.signal, [
+            hookPassphrase,
+            passphrase,
+        ])
         try {
             const state = this.#lockState
             if (!state) return this.#failure()
@@ -1571,14 +1663,19 @@ export class SSHAgentProtocolServer {
                 controller,
                 connection.context,
             )
-            if (!policyCompleted || controller.success !== true) return this.#failure()
+            if (
+                !policyCompleted ||
+                controller.success !== true ||
+                !this.#requestIsActive(connection)
+            ) {
+                return this.#failure()
+            }
             state.salt.fill(0)
             state.verifier.fill(0)
             this.#lockState = undefined
             return this.#success()
         } finally {
-            hookPassphrase.fill(0)
-            passphrase.fill(0)
+            clearPassphrases()
         }
     }
 
@@ -1696,7 +1793,7 @@ export class SSHAgentProtocolServer {
             controller,
             connection.context,
         )
-        if (!policyCompleted || controller.success !== true) {
+        if (!policyCompleted || controller.success !== true || !this.#requestIsActive(connection)) {
             return Buffer.from([SSHAgentMessageType.ExtensionFailure])
         }
         let retainedBinding: OpenSSHAgentSessionBinding

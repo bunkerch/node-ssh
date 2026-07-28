@@ -89,6 +89,20 @@ class HangingCloseStream extends Duplex {
     }
 }
 
+class BlockedWriteStream extends Duplex {
+    _read(): void {
+        // Tests inject request bytes directly into the readable side.
+    }
+
+    _write(
+        _chunk: Buffer,
+        _encoding: BufferEncoding,
+        callback: (error?: Error | null) => void,
+    ): void {
+        void callback
+    }
+}
+
 async function readFrames(stream: Duplex, count: number): Promise<Buffer[]> {
     const frames: Buffer[] = []
     let buffered = Buffer.alloc(0)
@@ -297,6 +311,12 @@ describe("SSH agent protocol", () => {
         expect(() => new SSHAgentProtocolServer({ maxMessageLength: null as never })).toThrow(
             "positive uint32",
         )
+        expect(() => new SSHAgentProtocolServer({ requestTimeout: null as never })).toThrow(
+            "integer between one and 2147483647",
+        )
+        expect(() => new SSHAgentProtocolServer({ requestTimeout: 0 })).toThrow(
+            "integer between one and 2147483647",
+        )
         const [validationStream, validationPeer] = streamPair()
         expect(() => new SSHAgentProtocolClient(validationStream, { requestTimeout: 0.5 })).toThrow(
             "integer between zero and 2147483647",
@@ -376,6 +396,92 @@ describe("SSH agent protocol", () => {
         expect(await request).toEqual([requestIdentities])
         expect(clientStream.destroyed).toBeTrue()
         fixtureStream.destroy()
+    })
+
+    test("bounds a server response blocked by stream flow control", async () => {
+        const stream = new BlockedWriteStream()
+        const server = new SSHAgentProtocolServer({ requestTimeout: 20 })
+        server.hooker.hook("identities", (_hook, decision) => {
+            decision.identities = []
+        })
+        const serving = server.serve(stream)
+
+        stream.push(requestIdentities)
+
+        await expect(serving).rejects.toThrow(
+            "Timed out waiting for SSH agent server response write",
+        )
+        expect(stream.destroyed).toBe(true)
+    })
+
+    test("aborts timed-out policy, suppresses late lock state, and releases the shared queue", async () => {
+        const [firstClientStream, firstServerStream] = streamPair()
+        const [secondClientStream, secondServerStream] = streamPair()
+        const server = new SSHAgentProtocolServer({ requestTimeout: 50 })
+        let policySignal!: AbortSignal
+        let policyPassphrase!: Buffer
+        let startedResolve!: () => void
+        const started = new Promise<void>((resolve) => {
+            startedResolve = resolve
+        })
+        let abortedResolve!: () => void
+        const aborted = new Promise<void>((resolve) => {
+            abortedResolve = resolve
+        })
+        let releasePolicy!: () => void
+        const policyReleased = new Promise<void>((resolve) => {
+            releasePolicy = resolve
+        })
+        server.hooker.hook("lock", async (_hook, context, decision, connection) => {
+            policySignal = connection.signal
+            policyPassphrase = context.passphrase
+            startedResolve()
+            await once(connection.signal, "abort")
+            abortedResolve()
+            await policyReleased
+            decision.success = true
+        })
+        server.hooker.hook("identities", (_hook, decision) => {
+            decision.identities = []
+        })
+        const firstServing = server.serve(firstServerStream)
+        const secondServing = server.serve(secondServerStream)
+        void firstServing.catch(() => undefined)
+        const firstClient = new SSHAgentProtocolClient(firstClientStream, { requestTimeout: 100 })
+        const secondClient = new SSHAgentProtocolClient(secondClientStream, { requestTimeout: 500 })
+
+        try {
+            const locking = firstClient.lock("secret")
+            await started
+            await new Promise<void>((resolve) => setImmediate(resolve))
+            const identities = secondClient.getPublicKeys()
+
+            await expect(firstServing).rejects.toThrow(
+                "Timed out waiting for SSH agent server request",
+            )
+            await aborted
+            expect(policySignal.aborted).toBe(true)
+            expect((policySignal.reason as Error).message).toBe(
+                "Timed out waiting for SSH agent server request",
+            )
+            expect(policyPassphrase).toEqual(Buffer.alloc("secret".length))
+            expect(server.locked).toBe(false)
+            expect(await identities).toEqual([])
+
+            releasePolicy()
+            await new Promise<void>((resolve) => setImmediate(resolve))
+            expect(server.locked).toBe(false)
+            firstClient.destroy()
+            await expect(locking).rejects.toBeInstanceOf(Error)
+            secondClientStream.end()
+            await secondServing
+        } finally {
+            releasePolicy()
+            firstClient.destroy()
+            secondClient.destroy()
+            firstServerStream.destroy()
+            secondServerStream.destroy()
+        }
     })
 
     test("drains queued work before closing and rejects later requests", async () => {
