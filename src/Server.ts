@@ -706,6 +706,7 @@ export default class Server extends EventEmitter<ServerEvents> {
     private readonly transports = new Set<ServerTransport>()
     private listenRequested = false
     private listenRequestId = 0
+    private closeOperation?: Promise<void>
 
     get maxConnections(): number {
         return this.maximumConnections
@@ -738,6 +739,9 @@ export default class Server extends EventEmitter<ServerEvents> {
     listen(...args: unknown[]): this {
         if (args.some((argument) => typeof argument === "function")) {
             throw new TypeError("Server.listen does not accept callback listeners; use 'listening'")
+        }
+        if (this.closeOperation) {
+            throw new Error("SSH server is closing")
         }
         if (this.listenRequested || this.server.listening) {
             throw new Error("SSH server is already starting or listening")
@@ -792,11 +796,17 @@ export default class Server extends EventEmitter<ServerEvents> {
     }
 
     async [Symbol.asyncDispose](): Promise<void> {
-        if (!this.listenRequested && !this.server.listening) return
         await this.close()
     }
 
+    /**
+     * Stop accepting connections and settle when the TCP listener closes.
+     *
+     * Concurrent calls share the same Promise. Existing TCP connections retain the native
+     * `net.Server.close()` behavior and must finish before it settles.
+     */
     close(): Promise<void> {
+        if (this.closeOperation) return this.closeOperation
         if (this.listenRequested && !this.server.listening) {
             this.listenRequested = false
             this.listenRequestId++
@@ -804,9 +814,21 @@ export default class Server extends EventEmitter<ServerEvents> {
             this.emit("close")
             return Promise.resolve()
         }
-        return new Promise((resolve, reject) => {
-            this.server.close((error) => (error ? reject(error) : resolve()))
+        if (!this.server.listening) return Promise.resolve()
+
+        let resolve!: () => void
+        let reject!: (error: Error) => void
+        const promise = new Promise<void>((resolvePromise, rejectPromise) => {
+            resolve = resolvePromise
+            reject = rejectPromise
         })
+        this.closeOperation = promise
+        this.server.close((error) => {
+            if (this.closeOperation === promise) this.closeOperation = undefined
+            if (error) reject(error)
+            else resolve()
+        })
+        return promise
     }
 
     ref(): this {

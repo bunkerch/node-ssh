@@ -599,6 +599,12 @@ export default class Server extends EventEmitter<ServerEvents> {
     address(): ReturnType<net.Server["address"]>;
     getConnections(): Promise<number>;
     [Symbol.asyncDispose](): Promise<void>;
+    /**
+     * Stop accepting connections and settle when the TCP listener closes.
+     *
+     * Concurrent calls share the same Promise. Existing TCP connections retain the native
+     * `net.Server.close()` behavior and must finish before it settles.
+     */
     close(): Promise<void>;
     ref(): this;
     unref(): this;

@@ -362,7 +362,12 @@ a default or generating a temporary identity.
 `getConnections()` and `close()` return Promises, `listen()` reports readiness through the
 `listening` event, and `address()`, `ref()`, and `unref()` remain synchronous. The readonly
 `server.listening` and `server.connections` properties provide synchronous state snapshots;
-`await server[Symbol.asyncDispose]()` closes an active listener and also permits `await using`.
+`await server.close()` stops accepting connections and settles after the TCP listener and its
+existing TCP connections close. Concurrent calls share one Promise, and calling it after shutdown
+is safe. A new `listen()` call is rejected until that Promise settles; the same `Server` may listen
+again afterward. Injected transports are not owned by the TCP listener and retain their
+application-managed lifecycle. `await server[Symbol.asyncDispose]()` provides the same active
+listener shutdown and also permits `await using`.
 The optional second constructor argument is registered as a synchronous `connection` EventEmitter
 listener and receives the same `ServerClient` and immutable endpoint snapshot as `server.on()`; it
 is not an operation-completion callback.

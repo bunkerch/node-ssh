@@ -2,6 +2,7 @@ import { expect, test } from "bun:test"
 import { once } from "node:events"
 import { createConnection, type AddressInfo } from "node:net"
 import { PassThrough } from "node:stream"
+import { setImmediate } from "node:timers/promises"
 import Server from "../../src/Server.js"
 import PrivateKey from "../../src/utils/PrivateKey.js"
 
@@ -44,6 +45,40 @@ test("the server exposes synchronous lifecycle state and async disposal", async 
     await server[Symbol.asyncDispose]()
     expect(server.listening).toBe(false)
     expect(server.connections).toBe(0)
+    await server[Symbol.asyncDispose]()
+})
+
+test("server close is idempotent while shutdown is in progress", async () => {
+    const server = new Server({
+        hostKeys: [await PrivateKey.generate("ssh-ed25519")],
+        sendAllHostKeys: false,
+    })
+    server.listen({ host: "127.0.0.1", port: 0 })
+    await once(server, "listening")
+
+    const socket = createConnection({
+        host: "127.0.0.1",
+        port: (server.address() as AddressInfo).port,
+    })
+    socket.on("error", () => undefined)
+    await once(socket, "connect")
+
+    const firstClose = server.close()
+    expect(server.close()).toBe(firstClose)
+    expect(() => server.listen({ host: "127.0.0.1", port: 0 })).toThrow("SSH server is closing")
+    let disposed = false
+    const disposal = server[Symbol.asyncDispose]().then(() => {
+        disposed = true
+    })
+    await setImmediate()
+    expect(disposed).toBe(false)
+
+    socket.destroy()
+    await Promise.all([firstClose, disposal])
+    await expect(server.close()).resolves.toBeUndefined()
+
+    server.listen({ host: "127.0.0.1", port: 0 })
+    await once(server, "listening")
     await server[Symbol.asyncDispose]()
 })
 
