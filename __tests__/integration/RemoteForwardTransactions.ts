@@ -94,6 +94,24 @@ async function closePeers(client: Client, server: Server): Promise<void> {
     await server.close()
 }
 
+function failNextServerRequestSuccess(server: Server): void {
+    const failSuccess = (...message: unknown[]) => {
+        const packet = message[2]
+        if (
+            message[1] !== "Sending packet:" ||
+            typeof packet !== "object" ||
+            packet === null ||
+            !("type" in packet) ||
+            packet.type !== "SSH_MSG_REQUEST_SUCCESS"
+        ) {
+            return
+        }
+        server.off("debug", failSuccess)
+        throw new Error("request success observer failed")
+    }
+    server.on("debug", failSuccess)
+}
+
 test("rejects active and pending fixed TCP forwarding duplicates locally", async () => {
     const { client, server, tcpPolicyCalls } = await createPeers()
     let releasePolicy!: () => void
@@ -217,6 +235,37 @@ test("rolls back a stream-local listener when its success response cannot be emi
 
         await client.openssh_forwardInStreamLocal(recoveredPath)
         await client.openssh_unforwardInStreamLocal(recoveredPath)
+    } finally {
+        await closePeers(client, server)
+        await rm(directory, { recursive: true, force: true })
+    }
+}, 15_000)
+
+test("retains a TCP listener when its cancellation success cannot be emitted", async () => {
+    const { client, server } = await createPeers()
+
+    try {
+        const port = await client.forwardIn("127.0.0.1", 0)
+        failNextServerRequestSuccess(server)
+
+        await expect(client.unforwardIn("127.0.0.1", port)).rejects.toThrow("failed")
+        await client.unforwardIn("127.0.0.1", port)
+    } finally {
+        await closePeers(client, server)
+    }
+}, 15_000)
+
+test("retains a stream-local listener when its cancellation success cannot be emitted", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "modernssh-cancel-rollback-"))
+    const socketPath = join(directory, "forwarded.sock")
+    const { client, server } = await createPeers()
+
+    try {
+        await client.openssh_forwardInStreamLocal(socketPath)
+        failNextServerRequestSuccess(server)
+
+        await expect(client.openssh_unforwardInStreamLocal(socketPath)).rejects.toThrow("failed")
+        await client.openssh_unforwardInStreamLocal(socketPath)
     } finally {
         await closePeers(client, server)
         await rm(directory, { recursive: true, force: true })

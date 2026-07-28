@@ -1802,6 +1802,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     }
 
     private async handleCancelTCPIPForward(packet: GlobalRequest): Promise<void> {
+        let replyCommitted = false
         try {
             const context = this.parseTCPIPForwardArgs(packet.data.args)
             const key = this.remoteForwardingKey(context.bindAddress, context.bindPort)
@@ -1811,11 +1812,14 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 return
             }
 
-            forwarding.server.close()
-            this.remoteForwardListeners.delete(key)
-            if (packet.data.want_reply)
+            if (packet.data.want_reply) {
                 this.sendPacket(new RequestSuccess({ args: Buffer.alloc(0) }))
+                replyCommitted = true
+            }
+            this.remoteForwardListeners.delete(key)
+            forwarding.server.close()
         } catch (error) {
+            if (replyCommitted) throw error
             this.debug(`Could not cancel remote forwarding listener:`, error)
             if (packet.data.want_reply) this.sendPacket(new RequestFailure({}))
         }
@@ -1907,6 +1911,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     }
 
     private async handleCancelStreamLocalForward(packet: GlobalRequest): Promise<void> {
+        let replyCommitted = false
         try {
             const context = this.parseStreamLocalForwardArgs(packet.data.args)
             const forwarding = this.remoteStreamLocalListeners.get(context.socketPath)
@@ -1915,12 +1920,14 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 return
             }
 
-            forwarding.server.close()
-            this.remoteStreamLocalListeners.delete(context.socketPath)
             if (packet.data.want_reply) {
                 this.sendPacket(new RequestSuccess({ args: Buffer.alloc(0) }))
+                replyCommitted = true
             }
+            this.remoteStreamLocalListeners.delete(context.socketPath)
+            forwarding.server.close()
         } catch (error) {
+            if (replyCommitted) throw error
             this.debug(`Could not cancel remote stream-local forwarding listener:`, error)
             if (packet.data.want_reply) this.sendPacket(new RequestFailure({}))
         }

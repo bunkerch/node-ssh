@@ -202,7 +202,8 @@ separate channel-open policy.
 Listener setup remains transactional through submission of the success reply. If that reply cannot
 be emitted, the provisional TCP or stream-local listener is removed and closed, and its shared
 capacity slot is released. A failed request therefore cannot leave an unacknowledged listener
-accepting connections.
+accepting connections. Cancellation has the matching guarantee: the listener remains active when
+its success reply cannot be emitted, so the client may safely retry the cancellation.
 
 An application may also represent an incoming connection explicitly after the client has requested
 and the server has accepted the exact bind. `ServerClient.forwardOut()` checks that authorization,
