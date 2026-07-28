@@ -353,6 +353,8 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             this.agentForwardingProtocol = undefined
             for (const channel of this.channels.values()) channel.abort(closeError)
             this.channels.clear()
+            for (const channel of this.pendingIncomingChannels) channel.abort(closeError)
+            this.pendingIncomingChannels.clear()
             this.remoteChannelIds.clear()
             this.pendingRemoteChannelOpens.clear()
             while (this.pendingGlobalRequests.length > 0) {
@@ -498,6 +500,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
 
     localChannelIndex = 0
     channels = new Map<number, Channel>()
+    private readonly pendingIncomingChannels = new Set<Channel>()
     private readonly remoteForwardListeners = new Map<string, RemoteForwardListener>()
     private readonly remoteStreamLocalListeners = new Map<string, RemoteForwardListener>()
     private readonly x11Forwardings = new Map<number, { single: boolean }>()
@@ -1442,6 +1445,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         this.debug("ChannelOpenRequest", packetDiagnostic(packet))
 
         let accepted = false
+        let candidate: Channel | undefined
         try {
             if (!this.isConnected) return
             if (
@@ -1472,6 +1476,8 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 )
             }
             const channel = channelFromChannelOpenPacket(packet, this)
+            candidate = channel
+            this.pendingIncomingChannels.add(channel)
             const controller: ServerHookerChannelOpenRequestController = {
                 allowOpen: false,
             }
@@ -1528,6 +1534,10 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 )
             }
         } finally {
+            if (candidate !== undefined) {
+                this.pendingIncomingChannels.delete(candidate)
+                if (!accepted && candidate.isOpen) candidate.abort()
+            }
             if (!accepted) this.remoteChannelIds.delete(packet.data.sender_channel_id)
             this.pendingRemoteChannelOpens.delete(packet.data.sender_channel_id)
         }

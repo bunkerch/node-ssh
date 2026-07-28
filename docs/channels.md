@@ -380,6 +380,9 @@ Channel admission also requires every registered `channelOpenRequest` handler to
 rejection; a contained failure discards an allow decision made by an earlier handler.
 Aborting or closing the proposed channel during policy denies it even if a later handler sets
 `allowOpen`; the server never confirms or publishes a proposal that is no longer open.
+The server owns each proposal while policy is pending. Denial disposes it, and transport teardown
+aborts it immediately even if an async policy handler has not returned, so retained channel
+references cannot outlive their connection as apparently open resources.
 Generic `Channel` instances snapshot their opaque open and confirmation arguments.
 Mutating a constructor buffer, a buffer assigned to `serverArgs`, or a defensive buffer returned by
 either accessor cannot alter a later channel-open or confirmation packet.

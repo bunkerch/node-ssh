@@ -8,7 +8,7 @@ import SessionChannel from "../../src/channels/SessionChannel.js"
 import { SSHAuthenticationMethods } from "../../src/constants.js"
 import PrivateKey from "../../src/utils/PrivateKey.js"
 
-test("server discards a channel-open decision after connection close", async () => {
+test("server aborts a pending channel candidate when its connection closes", async () => {
     const server = new Server({
         hostKeys: [await PrivateKey.generate("ssh-ed25519")],
         sendAllHostKeys: false,
@@ -29,8 +29,10 @@ test("server discards a channel-open decision after connection close", async () 
     const finished = new Promise<void>((resolve) => {
         finishedResolve = resolve
     })
+    let candidate: SessionChannel | undefined
     server.hooker.hook("channelOpenRequest", async (_hook, channel, controller) => {
         if (!(channel instanceof SessionChannel)) return
+        candidate = channel
         startedResolve()
         await policy
         controller.allowOpen = true
@@ -71,6 +73,7 @@ test("server discards a channel-open decision after connection close", async () 
         client.destroy()
         await Promise.all([clientClosed, peerClosed])
         expect(await openResult).not.toBe("unexpected success")
+        expect(candidate?.isOpen).toBe(false)
 
         release()
         await finished
