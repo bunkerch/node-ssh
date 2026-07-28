@@ -311,6 +311,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         this.delayCompressionRekeyBlocked = this.#configuration.delayCompression !== false
         registerReplyTimeout(this, this.#configuration.replyTimeout, () => this.terminate())
 
+        this.socket.pause()
         this.socket.on("data", (data) => {
             try {
                 this.onMessage(data)
@@ -374,7 +375,6 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         this.startHandshakeTimeout()
     }
 
-    private buffering: Buffer = Buffer.alloc(0)
     private transportClosed = false
     private closeOperation?: Promise<void>
     private serverIdentificationSent = false
@@ -1339,9 +1339,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             this.#configuration.greeting + this.#configuration.protocolVersionExchange.toString(),
         )
         this.serverIdentificationSent = true
-        if (this.buffering.length > 0) {
-            this.onMessage(Buffer.alloc(0))
-        }
+        this.socket.resume()
 
         const [clientProtocolVersion] = await clientProtocolVersionPromise
         this.debug("Client protocol version:", clientProtocolVersion)
@@ -3167,12 +3165,8 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
 
     onMessage(message: Buffer): void {
         if (this.state === SocketState.Closed) {
-            // wait for server to accept connection
-            this.buffering = Buffer.concat([this.buffering, message])
-            return
+            throw new Error("SSH transport delivered data while admission was paused")
         }
-        message = Buffer.concat([this.buffering, message])
-        this.buffering = Buffer.alloc(0)
         if (!this.clientProtocolVersion) {
             const result = this.identificationParser.push(message)
             if (!result.version || !result.identification) return

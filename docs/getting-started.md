@@ -394,11 +394,15 @@ The limit defaults to `Infinity` and accepts `Infinity` or a non-negative intege
 new transport. A connection consumes a slot before the awaited `preconnect` policy runs, so slow
 admission checks cannot bypass the bound. The server's `handshakeTimeout` starts before that policy,
 so a policy that never settles cannot retain the slot indefinitely unless the deadline is explicitly
-disabled. `getConnections()` includes these pending transports as well as admitted SSH clients, and
-a slot is released when its underlying transport closes. `connections` reports the same owned set
-synchronously. A peer rejected because the limit is full is closed before SSH parsing or
-application policy begins, then emits `drop` with an immutable endpoint snapshot. The event also
-covers injected transports, whose unavailable endpoint fields remain `undefined`.
+disabled. While policy is pending, the transport remains paused: peer bytes stay behind its native
+high-water mark instead of being copied into an application queue. Successful admission writes the
+server identification and resumes protocol input, including an optimistic client identification
+already buffered by the stream. `getConnections()` includes these pending transports as well as
+admitted SSH clients, and a slot is released when its underlying transport closes. `connections`
+reports the same owned set synchronously. A peer rejected because the limit is full is closed
+before SSH parsing or application policy begins, then emits `drop` with an immutable endpoint
+snapshot. The event also covers injected transports, whose unavailable endpoint fields remain
+`undefined`.
 
 Call `listen()` only once until the server has closed; a duplicate request made while host-key
 preparation or native listener startup is pending throws synchronously instead of creating an
