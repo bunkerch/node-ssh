@@ -575,6 +575,7 @@ describe("package exports", () => {
         const privateKey = await readFile("dist/utils/PrivateKey.d.ts", "utf8")
         const publicKey = await readFile("dist/utils/PublicKey.d.ts", "utf8")
         const index = await readFile("dist/index.d.ts", "utf8")
+        const httpAgents = await readFile("dist/HTTPAgents.d.ts", "utf8")
         const knownHosts = await readFile("dist/KnownHosts.d.ts", "utf8")
         const keyRevocationList = await readFile("dist/KeyRevocationList.d.ts", "utf8")
         const securityKeyAttestation = await readFile("dist/SecurityKeyAttestation.d.ts", "utf8")
@@ -612,6 +613,12 @@ describe("package exports", () => {
         expect(serverClient).not.toContain("channelData: [packet: ChannelData]")
         expect(index).toContain("export type { ProtocolPacketMetadata }")
         expect(client).not.toContain("options: ClientOptionsRequired")
+        expect(client).not.toContain("hostVerifier")
+        expect(client).not.toContain("hostHash")
+        expect(client).toContain("rejection?: Error")
+        expect(
+            httpAgents.match(/get hooker\(\): Hooker<Pick<ClientHooker, "hostKey">>/gu),
+        ).toHaveLength(2)
         expect(client).toContain("/** Remote SSH account name. */\n    username: string")
         expect(server).not.toContain("options: ServerOptionsRequired")
         expect(client).toContain("globalRequest(name: string, args?: Buffer): Promise<Buffer>")
@@ -841,6 +848,13 @@ describe("package exports", () => {
         expect(publicKey).not.toContain("PublicKeyAlgoritm")
         expect(index).not.toContain("PublicKeyAlgoritm")
         expect(knownHosts).toContain("static load(path: string): Promise<KnownHosts>")
+        expect(knownHosts).toContain(
+            "assertTrusted(hostname: string, key: PublicKey | Buffer, port?: number): void",
+        )
+        expect(knownHosts).toContain(
+            'hostKeyHook(hostname: string, port?: number): Hook<ClientHooker["hostKey"]>',
+        )
+        expect(knownHosts).not.toContain("verifier(")
         expect(knownHosts).toContain("replaceHostKeys(")
         expect(knownHosts).toContain("): Promise<void>")
         expect(keyRevocationList).toContain("static load(path: string): Promise<KeyRevocationList>")
@@ -997,7 +1011,7 @@ describe("package exports", () => {
                     const emptyPasswordDecision = { password: undefined }
                     if (!await emptyPasswordClient.hooker.triggerHookChecked("passwordAuth", { username: "packed" }, emptyPasswordDecision) || emptyPasswordDecision.password !== "") process.exit(61)
                     try { new Client({ username: "packed", agentForward: "false" }); process.exit(62) } catch (error) { if (!String(error).includes("agentForward option must be a boolean")) process.exit(63) }
-                    try { new Client({ username: "packed", hostVerifier: true }); process.exit(64) } catch (error) { if (!String(error).includes("hostVerifier option must be a function")) process.exit(65) }
+                    try { KnownHosts.parse("").assertTrusted("missing.example.test", publicKey); process.exit(64) } catch (error) { if (!String(error).includes("is not present in known hosts")) process.exit(65) }
                     try { new Client({ username: "packed", timeout: null }); process.exit(105) } catch (error) { if (!String(error).includes("transport inactivity timeout must be an integer")) process.exit(106) }
                     try { new Client({ username: "packed", authenticationSignatureAlgorithms: null }); process.exit(125) } catch (error) { if (!String(error).includes("signature algorithms must be an array")) process.exit(126) }
                     new Client({ username: "packed", authenticationSignatureAlgorithms: ["ssh-ed25519"] })

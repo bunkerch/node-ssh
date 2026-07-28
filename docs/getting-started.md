@@ -21,8 +21,6 @@ const client = new Client({
     port: 22,
     username: "deploy",
     password: process.env.SSH_PASSWORD,
-    hostHash: "sha256",
-    hostVerifier: (hash) => hash === process.env.SSH_HOST_KEY_SHA256_HEX,
     readyTimeout: 20_000,
     replyTimeout: 30_000,
     keepaliveInterval: 15_000,
@@ -112,12 +110,13 @@ const client = new Client({
 })
 ```
 
-Configure `hostVerifier` in production and compare the received raw serialized key, or the
-lowercase hexadecimal `hostHash` digest shown above, with a value from a trusted source. The
-verifier may return a boolean or a promise of one. The existing `hostKey`
-hook can perform richer verification with a parsed `PublicKey`; when both mechanisms are present,
-both must allow the key. With neither configured, the client accepts the cryptographically valid
-host key implicitly, which does not authenticate an unknown server.
+Configure the awaited `hostKey` hook in production and compare the parsed `PublicKey`, its
+serialized bytes, or its fingerprint with a value from a trusted source. Every registered handler
+must complete successfully and the final decision must allow the key. With no `hostKey` hook, the
+client accepts the cryptographically valid host key implicitly, which does not authenticate an
+unknown server. For an expected denial, leave `allowHostKey` false and optionally set `rejection`
+to the `Error` which `connect()` should reject with. Throwing is reserved for a policy handler
+failure and is contained through Hooker's `uncaughtException` policy.
 
 After authentication, a server may advertise additional host keys for rotation. The client
 automatically requests an ownership proof bound to the current session and emits `hostKeys` only

@@ -5,9 +5,9 @@ description: Persistent host verification, certificates, revocation, and key rot
 
 # Known hosts
 
-`KnownHosts` reads and updates the host-key database format used by OpenSSH. Use its verifier with
-the client to reject unknown, changed, revoked, expired, or incorrectly scoped server identities
-before authentication begins.
+`KnownHosts` reads and updates the host-key database format used by OpenSSH. Register its
+`hostKeyHook()` with the awaited client policy to reject unknown, changed, revoked, expired, or
+incorrectly scoped server identities before authentication begins.
 
 ```ts
 import { homedir } from "node:os"
@@ -21,14 +21,14 @@ const client = new Client({
     hostname,
     port,
     username: "deploy",
-    hostVerifier: knownHosts.verifier(hostname, port),
 })
+client.hooker.hook("hostKey", knownHosts.hostKeyHook(hostname, port))
 
 await client.connect()
 ```
 
-Do not set `hostHash` when using this verifier. `KnownHosts` needs the raw serialized key to compare
-the complete SSH identity, determine its algorithm, and validate host certificates.
+`KnownHosts` receives the parsed key so it can compare the complete SSH identity, determine its
+algorithm, and validate host certificates.
 
 For revocation policy that applies across hosts and users, combine this database with a binary
 `KeyRevocationList` as shown in [key revocation lists](key-revocation-lists.md).
@@ -46,7 +46,9 @@ state instead of dynamically constructed regular expressions. Files are limited 
 to 64 KiB, and individual unhashed patterns to 1023 bytes; oversized policy is rejected during
 parsing.
 
-The verifier throws `KnownHostsError` on failure. Its `status` is one of:
+`hostKeyHook()` denies the decision and makes `connect()` reject with `KnownHostsError`.
+`assertTrusted()` provides the same throwing check for policy code which needs to combine trust
+sources manually. The error's `status` is one of:
 
 - `unknown`: no entry applies to the requested host.
 - `changed`: an entry applies, but none trusts the presented key or certificate authority.
@@ -73,8 +75,8 @@ No standard critical options exist for host certificates, so a certificate conta
 rejected. A matching revocation of either the certificate itself or its authority takes precedence
 over every trust entry.
 
-These certificate checks also run in the client before a custom `hostVerifier` or `hostKey` hook,
-so custom policy cannot accidentally accept a certificate for another hostname.
+These certificate checks also run in the client before the `hostKey` hook, so custom policy cannot
+accidentally accept a certificate for another hostname.
 
 When several `hostKey` hooks are registered, trust is granted only if every handler completes
 without rejection and the final decision allows the key. Hooker still reports a contained async

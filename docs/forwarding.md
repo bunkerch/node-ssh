@@ -59,16 +59,19 @@ const agent = new HTTPSAgent(
         port: 22,
         username: "deploy",
         agent: signingAgent,
-        hostVerifier: verifyGatewayHostKey,
     },
     { keepAlive: true, sourceHost: "build-runner.example" },
 )
+agent.hooker.hook("hostKey", verifyGatewayHostKey)
 
 const request = https.get("https://service.internal/health", { agent })
 const [response] = await once(request, "response")
 response.pipe(process.stdout)
 await finished(response)
 ```
+
+Configure the agent's `hostKey` Hooker before starting requests. Its awaited handlers apply to the
+initial SSH transport and every replacement transport created after a recoverable disconnect.
 
 For HTTPS, TLS is negotiated end-to-end over the SSH channel; the SSH server does not terminate or
 inspect TLS. `sourceHost` and `sourcePort` set the originator metadata in the forwarding request and

@@ -653,9 +653,6 @@ describe("RFC 4252 multi-method authentication", () => {
         expect(() => new Client({ username: "invalid\ud800username" })).toThrow(
             "SSH username is not valid UTF-8 text",
         )
-        expect(() => new Client({ username: "test", hostVerifier: true as never })).toThrow(
-            "SSH hostVerifier option must be a function",
-        )
     })
 
     test("rejects malformed authentication method orders during construction", () => {

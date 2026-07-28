@@ -215,17 +215,37 @@ describe("known hosts", () => {
         }
     })
 
-    test("provides a raw-key verifier and rejects malformed files", () => {
+    test("asserts trusted raw and parsed keys and rejects malformed files", () => {
         const key = generateKeyPairSync("ed25519").publicKey
         const knownHosts = KnownHosts.parse(`verify.example.test ${key.toString()}`)
-        const verifier = knownHosts.verifier("verify.example.test")
 
-        expect(verifier(key.serialize())).toBe(true)
-        expect(() => verifier("pre-hashed-key")).toThrow("raw serialized host key")
+        expect(knownHosts.assertTrusted("verify.example.test", key)).toBeUndefined()
+        expect(knownHosts.assertTrusted("verify.example.test", key.serialize())).toBeUndefined()
+        expect(() => knownHosts.assertTrusted("verify.example.test", "key" as never)).toThrow(
+            "Known-host key must be a PublicKey or buffer",
+        )
+        const trustedController = { allowHostKey: false }
+        const trustedHook = knownHosts.hostKeyHook("verify.example.test")
+        let trustedStopped = false
+        trustedHook({ stopPropagation: () => (trustedStopped = true) }, trustedController, key)
+        expect(trustedStopped).toBe(false)
+        expect(trustedController.allowHostKey).toBe(true)
+
+        let stopped = false
+        const deniedController: { allowHostKey: boolean; rejection?: Error } = {
+            allowHostKey: true,
+        }
+        const deniedHook = knownHosts.hostKeyHook("missing.example.test")
+        deniedHook({ stopPropagation: () => (stopped = true) }, deniedController, key)
+        expect(stopped).toBe(true)
+        expect(deniedController.allowHostKey).toBe(false)
+        expect(deniedController.rejection).toBeInstanceOf(KnownHostsError)
+        expect((deniedController.rejection as KnownHostsError).status).toBe("unknown")
         try {
-            KnownHosts.parse(`other.example.test ${key.toString()}`).verifier(
+            KnownHosts.parse(`other.example.test ${key.toString()}`).assertTrusted(
                 "verify.example.test",
-            )(key.serialize())
+                key,
+            )
             throw new Error("Expected verification to fail")
         } catch (error) {
             expect(error).toBeInstanceOf(KnownHostsError)

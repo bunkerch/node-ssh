@@ -292,10 +292,6 @@ export interface ClientOptions {
     forceIPv4?: boolean
     /** Resolve `hostname` to IPv6 only. Has no effect when `forceIPv4` is also true. */
     forceIPv6?: boolean
-    /** Node.js hash name used to hex-encode the key passed to `hostVerifier`. */
-    hostHash?: string
-    /** Verify the raw serialized host key, or its `hostHash` digest, before NEWKEYS. */
-    hostVerifier?: ClientHostVerifier
     /** Custom SSH software identifier and optional comments, without the `SSH-2.0-` prefix. */
     ident?: string | Buffer
     /** Reject OpenSSH-specific APIs for peers without a compatible OpenSSH identifier. */
@@ -365,8 +361,6 @@ export interface ClientOptionsRequired
             | "sock"
             | "localAddress"
             | "localPort"
-            | "hostHash"
-            | "hostVerifier"
             | "hostbased"
             | "ident"
             | "algorithms"
@@ -381,8 +375,6 @@ export interface ClientOptionsRequired
     sock?: Duplex
     localAddress?: string
     localPort?: number
-    hostHash?: string
-    hostVerifier?: ClientHostVerifier
     hostbased?: Readonly<ClientHostbasedOptions>
     gssapi: readonly GSSAPIClientMechanism[]
     ident?: string | Buffer
@@ -480,8 +472,6 @@ function normalizeClientHostbasedOptions(
     return Object.freeze({ ...options })
 }
 
-export type ClientHostVerifier = (key: Buffer | string) => boolean | Promise<boolean>
-
 export interface ClientEvents {
     debug: [...message: unknown[]]
     error: [error: Error]
@@ -539,6 +529,8 @@ export interface ClientEvents {
 
 export interface ClientHookerHostKeyController {
     allowHostKey: boolean
+    /** Failure returned by a completed policy denial. */
+    rejection?: Error
 }
 export type ClientHookerPasswordAuthContext = Readonly<{
     username: string
@@ -747,7 +739,6 @@ function clientDiagnosticSummary(
         password: options.password === undefined ? "" : "<redacted>",
         agent: options.agent instanceof NoneAgent ? "" : "<configured>",
         agentForward: options.agentForward,
-        hostVerifier: options.hostVerifier ? "<configured>" : "",
         hostbased: options.hostbased ? "<configured>" : "",
         gssapi: `${options.gssapi.length} configured mechanism(s)`,
         sock: options.sock ? "<configured>" : "",
@@ -857,12 +848,6 @@ export default class Client extends EventEmitter<ClientEvents> {
         }
         if (this.#options.debug !== undefined && typeof this.#options.debug !== "function") {
             throw new TypeError("SSH debug option must be a function")
-        }
-        if (
-            this.#options.hostVerifier !== undefined &&
-            typeof this.#options.hostVerifier !== "function"
-        ) {
-            throw new TypeError("SSH hostVerifier option must be a function")
         }
         this.#options.agentForward = normalizeBooleanOption(
             this.#options.agentForward,
@@ -1026,15 +1011,6 @@ export default class Client extends EventEmitter<ClientEvents> {
                 this.#options.localPort > 65_535)
         ) {
             throw new RangeError("SSH local port must be an integer between 0 and 65535")
-        }
-        if (this.#options.hostHash !== undefined) {
-            try {
-                crypto.createHash(this.#options.hostHash)
-            } catch {
-                throw new RangeError(
-                    `Unsupported SSH host hash algorithm: ${this.#options.hostHash}`,
-                )
-            }
         }
         const gssapiKeyExchangeAlgorithms = createGSSAPIKeyExchangeAlgorithms(this.#options.gssapi)
         this.#kexAlgorithms = registerKeyExchanges(this, [
@@ -2603,8 +2579,6 @@ export default class Client extends EventEmitter<ClientEvents> {
                     )
                 }
 
-                await this.verifyConfiguredHostKey(hostKeyBlob)
-                this.assertConnectionGeneration(generation, "key exchange")
                 this.negotiatedServerHostKey = Buffer.from(hostKeyBlob)
 
                 if (this.hooker.hasHooks("hostKey")) {
@@ -2616,6 +2590,14 @@ export default class Client extends EventEmitter<ClientEvents> {
                     )
                     this.assertConnectionGeneration(generation, "host-key policy")
                     if (!policyCompleted || !controller.allowHostKey) {
+                        if (policyCompleted && controller.rejection !== undefined) {
+                            if (!(controller.rejection instanceof Error)) {
+                                throw new TypeError(
+                                    "SSH host-key policy rejection must be an Error",
+                                )
+                            }
+                            throw controller.rejection
+                        }
                         throw new Error("Host key not allowed by hook")
                     }
                 }
@@ -4064,33 +4046,6 @@ export default class Client extends EventEmitter<ClientEvents> {
         ) {
             throw new Error("RFC 8308 no-flow-control permits only one simultaneous SSH channel")
         }
-    }
-
-    private async verifyConfiguredHostKey(serializedHostKey: Buffer): Promise<void> {
-        const verifier = this.#options.hostVerifier
-        if (!verifier) return
-
-        const presentedKey: Buffer | string = this.#options.hostHash
-            ? crypto.createHash(this.#options.hostHash).update(serializedHostKey).digest("hex")
-            : Buffer.from(serializedHostKey)
-        let rejectClosed!: (error: Error) => void
-        const closed = new Promise<never>((_resolve, reject) => {
-            rejectClosed = reject
-        })
-        const fail = (error: Error) => rejectClosed(error)
-        const close = () =>
-            rejectClosed(new Error("SSH connection closed during host verification"))
-        this.once("error", fail)
-        this.once("close", close)
-        let allowed: boolean
-        try {
-            allowed =
-                (await Promise.race([Promise.resolve(verifier(presentedKey)), closed])) === true
-        } finally {
-            this.off("error", fail)
-            this.off("close", close)
-        }
-        if (!allowed) throw new Error("Host key not allowed by verifier")
     }
 
     private sendKeepalive(): void {

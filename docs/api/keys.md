@@ -205,7 +205,8 @@ export default class KnownHosts {
     static parse(content: string | Buffer): KnownHosts;
     static load(path: string): Promise<KnownHosts>;
     check(hostname: string, key: PublicKey | Buffer, port?: number): KnownHostCheckResult;
-    verifier(hostname: string, port?: number): ClientHostVerifier;
+    assertTrusted(hostname: string, key: PublicKey | Buffer, port?: number): void;
+    hostKeyHook(hostname: string, port?: number): Hook<ClientHooker["hostKey"]>;
     replaceHostKeys(hostname: string, keys: readonly (PublicKey | string | Buffer)[], options?: KnownHostsReplaceOptions): Promise<void>;
     toString(): string;
 }

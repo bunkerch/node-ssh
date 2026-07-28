@@ -121,11 +121,10 @@ that no automatic password credential is configured. Configured password text is
 UTF-8 during construction. Applications should generally prefer a credential provider when a
 password must be acquired or refreshed interactively.
 
-Client construction also validates the username as UTF-8, requires `hostVerifier` to be callable,
-and requires actual boolean values for `agentForward`, `strictVendor`,
-`gssapiDelegateCredentials`, and `gssapiKeyExchangeAuthentication`. JavaScript callers therefore
-cannot accidentally enable agent forwarding or credential delegation with a truthy value such as
-the string `"false"`.
+Client construction also validates the username as UTF-8 and requires actual boolean values for
+`agentForward`, `strictVendor`, `gssapiDelegateCredentials`, and
+`gssapiKeyExchangeAuthentication`. JavaScript callers therefore cannot accidentally enable agent
+forwarding or credential delegation with a truthy value such as the string `"false"`.
 
 RFC 4252 banners are delivered independently of the active method:
 

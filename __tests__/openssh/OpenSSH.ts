@@ -2653,12 +2653,6 @@ describe("OpenSSH interoperability", () => {
                 keepaliveCountMax: 3,
                 rekeyBytes: 28_000,
                 rekeyInterval: 0,
-                hostHash: "sha256",
-                hostVerifier: async (hash) => {
-                    verifiedHostHashes.push(hash)
-                    await new Promise<void>((resolve) => setImmediate(resolve))
-                    return hash === expectedHostHash
-                },
                 algorithms: {
                     kex: ["curve25519-sha256"],
                     serverHostKey: ["rsa-sha2-512"],
@@ -2668,11 +2662,17 @@ describe("OpenSSH interoperability", () => {
                 },
             })
             const errors: Error[] = []
-            const verifiedHostHashes: (string | Buffer)[] = []
+            const verifiedHostHashes: string[] = []
             let keepalives = 0
             let rekeys = 0
             const handshakes: unknown[] = []
             client.on("error", (error) => errors.push(error))
+            client.hooker.hook("hostKey", async (_hook, decision, key) => {
+                const hash = createHash("sha256").update(key.serialize()).digest("hex")
+                verifiedHostHashes.push(hash)
+                await new Promise<void>((resolve) => setImmediate(resolve))
+                decision.allowHostKey = hash === expectedHostHash
+            })
             client.on("debug", (message, packet) => {
                 if (
                     message === "Sending packet:" &&

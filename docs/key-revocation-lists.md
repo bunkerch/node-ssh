@@ -30,23 +30,28 @@ A KRL answers only whether a key is revoked; it does not establish which key bel
 Combine it with `KnownHosts` so both policies must pass:
 
 ```ts
-import { Client, KeyRevocationList, KnownHosts } from "@bunkerch/modernssh"
+import { Client, KeyRevocationList, KnownHosts, KnownHostsError } from "@bunkerch/modernssh"
 
 const hostname = "ssh.example.com"
 const knownHosts = await KnownHosts.load("/etc/ssh/ssh_known_hosts")
 const revocations = await KeyRevocationList.load("/etc/ssh/revoked_keys")
-const verifyKnownHost = knownHosts.verifier(hostname)
 
 const client = new Client({
     hostname,
     username: "deploy",
-    hostVerifier(serializedKey) {
-        if (!Buffer.isBuffer(serializedKey)) {
-            throw new TypeError("Raw host-key verification is required")
-        }
-        if (revocations.isRevoked(serializedKey)) throw new Error("SSH host key is revoked")
-        return verifyKnownHost(serializedKey)
-    },
+})
+client.hooker.hook("hostKey", (hook, decision, key) => {
+    if (revocations.isRevoked(key)) {
+        decision.rejection = new Error("SSH host key is revoked")
+        hook.stopPropagation()
+        return
+    }
+    const trust = knownHosts.check(hostname, key)
+    if (trust.status === "trusted") decision.allowHostKey = true
+    else {
+        decision.rejection = new KnownHostsError(trust, hostname)
+        hook.stopPropagation()
+    }
 })
 
 await client.connect()

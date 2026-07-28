@@ -1272,7 +1272,7 @@ describe("client/server integration", () => {
         }
     })
 
-    test("rejects a disallowed raw host key and closes the transport", async () => {
+    test("rejects a host key denied by awaited policy and closes the transport", async () => {
         const hostKey = await PrivateKey.generate("ssh-ed25519")
         const server = new Server({ hostKeys: [hostKey], sendAllHostKeys: false })
         server.hooker.hook("noneAuthentication", (_hook, _context, controller) => {
@@ -1282,26 +1282,24 @@ describe("client/server integration", () => {
         server.listen({ host: "127.0.0.1", port: 0 })
         await new Promise<void>((resolve) => server.server!.once("listening", resolve))
 
-        let presentedKey: Buffer | string | undefined
+        let presentedKey: Buffer | undefined
         const client = new Client({
             hostname: "127.0.0.1",
             port: (server.address() as AddressInfo).port,
-            username: "host-verifier-test",
-            hostVerifier: (key) => {
-                presentedKey = key
-                return false
-            },
+            username: "host-policy-test",
+        })
+        client.hooker.hook("hostKey", (_hook, decision, key) => {
+            presentedKey = key.serialize()
+            decision.allowHostKey = false
+            decision.rejection = new Error("Host policy denied the presented key")
         })
         client.on("error", () => undefined)
-        await expect(client.connect()).rejects.toThrow("Host key not allowed by verifier")
+        await expect(client.connect()).rejects.toThrow("Host policy denied the presented key")
         if (!client.canConnect) await new Promise<void>((resolve) => client.once("close", resolve))
         expect(presentedKey).toEqual(hostKey.data.publicKey.serialize())
         expect(client.canConnect).toBe(true)
 
         await server.close()
-        expect(() => new Client({ username: "test", hostHash: "not-a-real-hash" })).toThrow(
-            "Unsupported SSH host hash algorithm: not-a-real-hash",
-        )
     })
 
     test("reuses a client with fresh transport state after a clean close", async () => {

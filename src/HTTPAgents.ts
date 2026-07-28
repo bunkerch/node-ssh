@@ -2,7 +2,11 @@ import { Agent as HTTPAgent, type AgentOptions as HTTPAgentOptions } from "node:
 import { Agent as HTTPSAgent, type AgentOptions as HTTPSAgentOptions } from "node:https"
 import type { Duplex } from "node:stream"
 import { connect as connectTLS, type ConnectionOptions as TLSConnectionOptions } from "node:tls"
-import Client, { normalizeClientAuthenticationAgent, type ClientOptions } from "./Client.js"
+import Client, {
+    normalizeClientAuthenticationAgent,
+    type ClientHooker,
+    type ClientOptions,
+} from "./Client.js"
 import type {
     AlgorithmMatcher,
     ClientAlgorithmList,
@@ -12,6 +16,7 @@ import { normalizeDelayCompression } from "./DelayCompression.js"
 import { normalizeGSSAPIClientMechanisms } from "./GSSAPI.js"
 import { copyProtocolVersionExchange } from "./ProtocolVersionExchange.js"
 import type ClientTCPIPChannel from "./channels/ClientTCPIPChannel.js"
+import { Hooker } from "./utils/Hooker.js"
 import { normalizeOptionalTimeout } from "./utils/Timeout.js"
 
 export interface SSHAgentOptions {
@@ -172,6 +177,7 @@ function destination(options: ConnectionRequest): { host: string; port: number }
 
 class SSHConnectionFactory {
     private readonly clientOptions: Readonly<ClientOptions>
+    readonly hooker = new Hooker<Pick<ClientHooker, "hostKey">>()
     private client?: Client
     private connecting?: Promise<Client>
     private generation = 0
@@ -220,6 +226,14 @@ class SSHConnectionFactory {
 
         const generation = this.generation
         const client = new Client({ ...this.clientOptions })
+        client.hooker.hook("hostKey", async (_hook, decision, key) => {
+            if (!this.hooker.hasHooks("hostKey")) {
+                decision.allowHostKey = true
+                return
+            }
+            const policyCompleted = await this.hooker.triggerHookChecked("hostKey", decision, key)
+            if (!policyCompleted) decision.allowHostKey = false
+        })
         this.client = client
         client.on("error", (error) => void error)
         client.once("close", () => {
@@ -259,6 +273,11 @@ class SSHConnectionFactory {
 export class SSHHTTPAgent extends HTTPAgent {
     private readonly factory: SSHConnectionFactory
 
+    /** Persistent host-key policy applied to every underlying SSH connection. */
+    get hooker(): Hooker<Pick<ClientHooker, "hostKey">> {
+        return this.factory.hooker
+    }
+
     constructor(clientOptions: Readonly<ClientOptions>, options: SSHHTTPAgentOptions = {}) {
         super(options)
         this.factory = new SSHConnectionFactory(
@@ -282,6 +301,11 @@ export class SSHHTTPAgent extends HTTPAgent {
 
 export class SSHHTTPSAgent extends HTTPSAgent {
     private readonly factory: SSHConnectionFactory
+
+    /** Persistent host-key policy applied to every underlying SSH connection. */
+    get hooker(): Hooker<Pick<ClientHooker, "hostKey">> {
+        return this.factory.hooker
+    }
 
     constructor(clientOptions: Readonly<ClientOptions>, options: SSHHTTPSAgentOptions = {}) {
         super(options)

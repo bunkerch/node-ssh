@@ -338,6 +338,8 @@ Interface. Declared in [`src/Client.ts`](https://github.com/bunkerch/node-ssh/bl
 ```ts
 export interface ClientHookerHostKeyController {
     allowHostKey: boolean;
+    /** Failure returned by a completed policy denial. */
+    rejection?: Error;
 }
 ```
 
@@ -449,10 +451,6 @@ export interface ClientOptions {
     forceIPv4?: boolean;
     /** Resolve `hostname` to IPv6 only. Has no effect when `forceIPv4` is also true. */
     forceIPv6?: boolean;
-    /** Node.js hash name used to hex-encode the key passed to `hostVerifier`. */
-    hostHash?: string;
-    /** Verify the raw serialized host key, or its `hostHash` digest, before NEWKEYS. */
-    hostVerifier?: ClientHostVerifier;
     /** Custom SSH software identifier and optional comments, without the `SSH-2.0-` prefix. */
     ident?: string | Buffer;
     /** Reject OpenSSH-specific APIs for peers without a compatible OpenSSH identifier. */
@@ -557,6 +555,8 @@ Package export alias of `SSHHTTPAgent`.
 
 ```ts
 export declare class SSHHTTPAgent extends HTTPAgent {
+    /** Persistent host-key policy applied to every underlying SSH connection. */
+    get hooker(): Hooker<Pick<ClientHooker, "hostKey">>;
     constructor(clientOptions: Readonly<ClientOptions>, options?: SSHHTTPAgentOptions);
     createConnection(options: ConnectionRequest, callback: ConnectionCallback): undefined;
     destroy(): void;
@@ -571,6 +571,8 @@ Package export alias of `SSHHTTPSAgent`.
 
 ```ts
 export declare class SSHHTTPSAgent extends HTTPSAgent {
+    /** Persistent host-key policy applied to every underlying SSH connection. */
+    get hooker(): Hooker<Pick<ClientHooker, "hostKey">>;
     constructor(clientOptions: Readonly<ClientOptions>, options?: SSHHTTPSAgentOptions);
     createConnection(options: ConnectionRequest, callback: ConnectionCallback): undefined;
     destroy(): void;
@@ -1326,6 +1328,8 @@ Class. Declared in [`src/HTTPAgents.ts`](https://github.com/bunkerch/node-ssh/bl
 
 ```ts
 export declare class SSHHTTPAgent extends HTTPAgent {
+    /** Persistent host-key policy applied to every underlying SSH connection. */
+    get hooker(): Hooker<Pick<ClientHooker, "hostKey">>;
     constructor(clientOptions: Readonly<ClientOptions>, options?: SSHHTTPAgentOptions);
     createConnection(options: ConnectionRequest, callback: ConnectionCallback): undefined;
     destroy(): void;
@@ -1346,6 +1350,8 @@ Class. Declared in [`src/HTTPAgents.ts`](https://github.com/bunkerch/node-ssh/bl
 
 ```ts
 export declare class SSHHTTPSAgent extends HTTPSAgent {
+    /** Persistent host-key policy applied to every underlying SSH connection. */
+    get hooker(): Hooker<Pick<ClientHooker, "hostKey">>;
     constructor(clientOptions: Readonly<ClientOptions>, options?: SSHHTTPSAgentOptions);
     createConnection(options: ConnectionRequest, callback: ConnectionCallback): undefined;
     destroy(): void;

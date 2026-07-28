@@ -32,9 +32,6 @@ describe("configured diagnostic sinks", () => {
         Object.assign(agent, { diagnosticSecret: "agent-private-metadata" })
         const socket = new PassThrough()
         Object.assign(socket, { diagnosticSecret: "transport-private-metadata" })
-        const hostVerifier = Object.assign(() => true, {
-            diagnosticSecret: "verifier-private-metadata",
-        })
         const configured: unknown[][] = []
         const emitted: unknown[][] = []
         const client = new Client({
@@ -46,7 +43,6 @@ describe("configured diagnostic sinks", () => {
                 localHostname: "client.example.com",
                 localUsername: "local-user",
             },
-            hostVerifier,
             ident: Buffer.from("identifier_private_metadata"),
             sock: socket,
             debug: (...message) => configured.push(message),
@@ -62,7 +58,6 @@ describe("configured diagnostic sinks", () => {
             username: "diagnostic-user",
             password: "<redacted>",
             agent: "<configured>",
-            hostVerifier: "<configured>",
             hostbased: "<configured>",
             sock: "<configured>",
             debug: "<configured>",
@@ -83,7 +78,6 @@ describe("configured diagnostic sinks", () => {
         expect(output).not.toContain("hostbased-private-metadata")
         expect(output).not.toContain("agent-private-metadata")
         expect(output).not.toContain("transport-private-metadata")
-        expect(output).not.toContain("verifier-private-metadata")
         expect(output).not.toContain("identifier_private_metadata")
     })
 

@@ -358,8 +358,8 @@ algorithm may instead be configured explicitly for deployments whose GSS mechani
 the server without an SSH host key. `null` must be the server's only configured host-key algorithm;
 it is never mixed into a normal host-key offer, and at least one configured key-exchange method must
 come from a GSS-API mechanism adapter. In that mode there is no host-key value for
-`hostVerifier` to approve, so applications must treat the configured GSS mechanism and its target
-name as the server-authentication trust boundary.
+the `hostKey` hook to approve, so applications must treat the configured GSS mechanism and its
+target name as the server-authentication trust boundary.
 
 The RFC 6668 `hmac-sha2-256` and `hmac-sha2-512` integrity methods are available for both
 directions. Their full 32- and 64-byte outputs authenticate the RFC 4253 sequence number followed
@@ -761,8 +761,7 @@ the CA signature, host role, and validity interval before host policy runs. The 
 hook receives the certificate as its `PublicKey`; inspect its `SSHCertificatePublicKey` algorithm
 to trust the CA and match the connection hostname or address against `data.principals`. Host
 certificates define no critical options, so a hook should reject any that appear. Exact certificate
-pinning through `hostVerifier` remains supported because it receives the complete serialized
-certificate blob.
+pinning remains available through `PublicKey.serialize()` inside the same awaited hook.
 
 Both `ClientOptions` and `ServerOptions` accept an `algorithms` object with `kex`, `serverHostKey`,
 `cipher`, `hmac`, and `compress` categories. Server values are exact ordered arrays. Client values

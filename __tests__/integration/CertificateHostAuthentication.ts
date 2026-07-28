@@ -131,15 +131,16 @@ describe("certificate host authentication", () => {
 
                 let policyCalls = 0
                 const serverPort = (server.server!.address() as AddressInfo).port
+                const knownHosts = KnownHosts.parse(
+                    `@cert-authority [127.0.0.1]:${serverPort} ${ca.toString()}`,
+                )
                 client = new Client({
                     hostname: "127.0.0.1",
                     port: serverPort,
                     username: "host-certificate-test",
-                    hostVerifier: KnownHosts.parse(
-                        `@cert-authority [127.0.0.1]:${serverPort} ${ca.toString()}`,
-                    ).verifier("127.0.0.1", serverPort),
                     authenticationMethodsOrder: [SSHAuthenticationMethods.None],
                 })
+                client.hooker.hook("hostKey", knownHosts.hostKeyHook("127.0.0.1", serverPort))
                 client.hooker.hook("hostKey", async (_hook, decision, key) => {
                     await Promise.resolve()
                     policyCalls++

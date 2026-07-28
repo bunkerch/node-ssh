@@ -46,8 +46,8 @@ const client = new Client({
     hostname,
     username: "deploy",
     agent: process.env.SSH_AUTH_SOCK,
-    hostVerifier: knownHosts.verifier(hostname),
 })
+client.hooker.hook("hostKey", knownHosts.hostKeyHook(hostname))
 
 client.on("error", (error) => console.error("SSH connection error", error))
 

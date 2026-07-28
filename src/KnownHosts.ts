@@ -2,7 +2,7 @@ import { createHmac, randomBytes, timingSafeEqual } from "node:crypto"
 import { open, readFile, rename, rm, stat } from "node:fs/promises"
 import { basename, dirname, join } from "node:path"
 
-import type { ClientHostVerifier } from "./Client.js"
+import type { ClientHooker } from "./Client.js"
 import { parseKey } from "./KeyParsing.js"
 import PublicKey, { encodeSSHKeyComment, SSHCertificatePublicKey } from "./utils/PublicKey.js"
 import { readNextBuffer } from "./utils/Buffer.js"
@@ -10,6 +10,7 @@ import { decodeSSHName, encodeSSHName } from "./utils/SSHName.js"
 import { decodeSSHUTF8, encodeSSHUTF8 } from "./utils/SSHText.js"
 import { asciiLowercaseBytes, matchesWildcardBytes } from "./utils/Wildcard.js"
 import { isPlainConfigurationObject } from "./utils/Configuration.js"
+import type { Hook } from "./utils/Hooker.js"
 
 const MAX_KNOWN_HOSTS_LENGTH = 16 * 1024 * 1024
 const MAX_KNOWN_HOSTS_LINE_LENGTH = 64 * 1024
@@ -99,6 +100,9 @@ export default class KnownHosts {
 
     check(hostname: string, key: PublicKey | Buffer, port = 22): KnownHostCheckResult {
         const host = formatKnownHost(hostname, port)
+        if (!Buffer.isBuffer(key) && !(key instanceof PublicKey)) {
+            throw new TypeError("Known-host key must be a PublicKey or buffer")
+        }
         const presented = Buffer.isBuffer(key) ? PublicKey.parse(key) : key
         const certificate =
             presented.data.algorithm instanceof SSHCertificatePublicKey
@@ -140,15 +144,23 @@ export default class KnownHosts {
             : { status: "unknown" }
     }
 
-    verifier(hostname: string, port = 22): ClientHostVerifier {
+    assertTrusted(hostname: string, key: PublicKey | Buffer, port = 22): void {
         const host = formatKnownHost(hostname, port)
-        return (serializedKey) => {
-            if (!Buffer.isBuffer(serializedKey)) {
-                throw new TypeError("Known-hosts verification requires the raw serialized host key")
+        const result = this.check(hostname, key, port)
+        if (result.status !== "trusted") throw new KnownHostsError(result, host)
+    }
+
+    hostKeyHook(hostname: string, port = 22): Hook<ClientHooker["hostKey"]> {
+        const host = formatKnownHost(hostname, port)
+        return (hook, controller, key) => {
+            const result = this.check(hostname, key, port)
+            if (result.status === "trusted") {
+                controller.allowHostKey = true
+                return
             }
-            const result = this.check(hostname, serializedKey, port)
-            if (result.status !== "trusted") throw new KnownHostsError(result, host)
-            return true
+            controller.allowHostKey = false
+            controller.rejection = new KnownHostsError(result, host)
+            hook.stopPropagation()
         }
     }
 

@@ -111,6 +111,12 @@ describe("SSH-backed HTTP agents", () => {
             sourceHost: "agent.example",
             sourcePort: 42_424,
         })
+        let hostKeyChecks = 0
+        agent.hooker.hook("hostKey", async (_hook, decision, key) => {
+            await Promise.resolve()
+            hostKeyChecks++
+            decision.allowHostKey = key.equals(hostKey.data.publicKey)
+        })
         clientOptions.username = "mutated"
         authenticationMethodsOrder[0] = SSHAuthenticationMethods.Password
         authenticationSignatureAlgorithms[0] = "ssh-rsa"
@@ -129,6 +135,7 @@ describe("SSH-backed HTTP agents", () => {
                 createAgentSocket(),
             ])
             expect(server.clients.size).toBe(1)
+            expect(hostKeyChecks).toBe(1)
             expect(forwarded).toHaveLength(2)
             const response = new Promise<string>((resolve, reject) => {
                 const chunks: Buffer[] = []
@@ -232,6 +239,7 @@ describe("SSH-backed HTTP agents", () => {
             activeConnection!.terminate()
             await secondSocketClosed
             const recoveredSocket = await createAgentSocket()
+            expect(hostKeyChecks).toBe(2)
 
             recoveredSocket.on("error", () => undefined)
             const recoveredSocketClosed = new Promise<void>((resolve) =>
@@ -240,6 +248,7 @@ describe("SSH-backed HTTP agents", () => {
             agent.destroy()
             await recoveredSocketClosed
             const replacementSocket = await createAgentSocket()
+            expect(hostKeyChecks).toBe(3)
             replacementSocket.destroy()
         } finally {
             agent.destroy()

@@ -23,14 +23,15 @@ const client = new Client({
     hostname,
     username: "deploy",
     agent: process.env.SSH_AUTH_SOCK,
-    hostVerifier: knownHosts.verifier(hostname),
 })
+client.hooker.hook("hostKey", knownHosts.hostKeyHook(hostname))
 
 client.on("error", (error) => console.error("SSH connection error", error))
 await client.connect()
 ```
 
-The verifier rejects unknown, changed, and revoked keys. See [Known hosts](known-hosts.md) for
+The trust assertion rejects unknown, changed, and revoked keys. See
+[Known hosts](known-hosts.md) for
 first-use enrollment, host certificates, hashed hostnames, and safe key rotation.
 
 ## Run a command and capture its result
@@ -140,16 +141,16 @@ port or process-wide connection-sharing mechanism:
 const jump = new Client({
     hostname: "jump.example.com",
     username: "deploy",
-    hostVerifier: verifyJumpHost,
 })
+jump.hooker.hook("hostKey", verifyJumpHost)
 await jump.connect()
 
 const transport = await jump.forwardOut("127.0.0.1", 0, "database.internal", 22)
 const target = new Client({
     sock: transport,
     username: "database-admin",
-    hostVerifier: verifyDatabaseHost,
 })
+target.hooker.hook("hostKey", verifyDatabaseHost)
 await target.connect()
 
 try {
@@ -163,7 +164,7 @@ try {
 }
 ```
 
-Host verification is independent at each hop. The target verifier must authenticate the target,
+Host verification is independent at each hop. The target policy must authenticate the target,
 not the jump host.
 
 ## Forward a local connection
