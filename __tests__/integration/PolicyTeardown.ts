@@ -87,3 +87,107 @@ test("server aborts a pending channel candidate when its connection closes", asy
         await server.close()
     }
 })
+
+test("server rolls back a channel whose confirmation cannot be encoded", async () => {
+    const server = new Server({
+        hostKeys: [await PrivateKey.generate("ssh-ed25519")],
+        sendAllHostKeys: false,
+    })
+    server.hooker.hook("noneAuthentication", (_hook, _context, controller) => {
+        controller.allowLogin = true
+    })
+
+    let candidate: SessionChannel | undefined
+    server.hooker.hook("channelOpenRequest", (_hook, channel, controller) => {
+        if (!(channel instanceof SessionChannel)) return
+        candidate = channel
+        channel.local_initial_window_size = -1
+        controller.allowOpen = true
+    })
+
+    let peer: ServerClient | undefined
+    server.on("connection", (connection) => {
+        peer = connection
+    })
+    server.listen({ host: "127.0.0.1", port: 0 })
+    await once(server, "listening")
+
+    const client = new Client({
+        hostname: "127.0.0.1",
+        port: (server.address() as AddressInfo).port,
+        username: "confirmation-rollback-test",
+        authenticationMethodsOrder: [SSHAuthenticationMethods.None],
+    })
+    client.hooker.hook("hostKey", (_hook, controller) => {
+        controller.allowHostKey = true
+    })
+
+    try {
+        await client.connect()
+        await expect(client.openSession()).rejects.toMatchObject({ reasonCode: 2 })
+        expect(candidate?.isOpen).toBe(false)
+        expect(peer?.channels.size).toBe(0)
+        expect(peer?.isConnected).toBe(true)
+    } finally {
+        client.destroy()
+        peer?.terminate()
+        await server.close()
+    }
+})
+
+test("server never sends channel failure after publishing confirmation", async () => {
+    const server = new Server({
+        hostKeys: [await PrivateKey.generate("ssh-ed25519")],
+        sendAllHostKeys: false,
+    })
+    server.hooker.hook("noneAuthentication", (_hook, _context, controller) => {
+        controller.allowLogin = true
+    })
+    server.hooker.hook("channelOpenRequest", (_hook, channel, controller) => {
+        controller.allowOpen = channel instanceof SessionChannel
+    })
+
+    const peerErrors: Error[] = []
+    let peer: ServerClient | undefined
+    server.on("connection", (connection) => {
+        peer = connection
+        connection.on("error", (error) => peerErrors.push(error))
+        connection.on("channel", () => {
+            throw new Error("channel observer failed")
+        })
+    })
+    server.listen({ host: "127.0.0.1", port: 0 })
+    await once(server, "listening")
+
+    const client = new Client({
+        hostname: "127.0.0.1",
+        port: (server.address() as AddressInfo).port,
+        username: "confirmation-publication-test",
+        authenticationMethodsOrder: [SSHAuthenticationMethods.None],
+    })
+    client.hooker.hook("hostKey", (_hook, controller) => {
+        controller.allowHostKey = true
+    })
+    client.on("error", () => undefined)
+    const receivedPackets: string[] = []
+    client.on("packet", ({ name }) => {
+        if (name !== undefined) receivedPackets.push(name)
+    })
+
+    try {
+        await client.connect()
+        const closed = new Promise<void>((resolve) => client.once("close", resolve))
+        await client.openSession().catch(() => undefined)
+        await closed
+
+        expect(
+            receivedPackets.filter((name) => name === "SSH_MSG_CHANNEL_OPEN_CONFIRMATION"),
+        ).toHaveLength(1)
+        expect(receivedPackets).not.toContain("SSH_MSG_CHANNEL_OPEN_FAILURE")
+        expect(peerErrors.map((error) => error.message)).toEqual(["channel observer failed"])
+    } finally {
+        client.destroy()
+        peer?.terminate()
+        await server.close()
+    }
+})

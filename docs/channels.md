@@ -383,6 +383,11 @@ Aborting or closing the proposed channel during policy denies it even if a later
 The server owns each proposal while policy is pending. Denial disposes it, and transport teardown
 aborts it immediately even if an async policy handler has not returned, so retained channel
 references cannot outlive their connection as apparently open resources.
+Writing `CHANNEL_OPEN_CONFIRMATION` is the admission commit point. A validation or encoding failure
+before that write removes and aborts the proposal before returning `CHANNEL_OPEN_FAILURE`. After
+confirmation is written, an exception from a synchronous `channel` observer terminates the
+connection through its error path; the server never sends a contradictory failure for the same
+proposal.
 Generic `Channel` instances snapshot their opaque open and confirmation arguments.
 Mutating a constructor buffer, a buffer assigned to `serverArgs`, or a defensive buffer returned by
 either accessor cannot alter a later channel-open or confirmation packet.

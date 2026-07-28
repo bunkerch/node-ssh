@@ -1513,11 +1513,12 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             })
             this.pendingRemoteChannelOpens.delete(packet.data.sender_channel_id)
             this.channels.set(channel.localId, channel)
-            accepted = true
             this.sendPacket(channel.getChannelOpenConfirmationPacket())
+            accepted = true
             this.emit("channel", channel)
         } catch (err) {
             this.debug(`ChannelOpenRequest failed:`, err)
+            if (accepted) throw err
             if (!this.isConnected) return
 
             if (err instanceof ChannelOpenError) {
@@ -1536,7 +1537,10 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         } finally {
             if (candidate !== undefined) {
                 this.pendingIncomingChannels.delete(candidate)
-                if (!accepted && candidate.isOpen) candidate.abort()
+                if (!accepted) {
+                    this.channels.delete(candidate.localId)
+                    if (candidate.isOpen) candidate.abort()
+                }
             }
             if (!accepted) this.remoteChannelIds.delete(packet.data.sender_channel_id)
             this.pendingRemoteChannelOpens.delete(packet.data.sender_channel_id)
