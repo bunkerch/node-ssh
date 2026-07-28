@@ -83,6 +83,13 @@ Every exchange also forces an RFC 8709 `ssh-ed448` server host key. The library-
 initiate a rekey before opening the session, proving that the peer accepts a fresh exchange and
 retains working higher-layer state.
 
+The same peer implements RFC 4819 framing independently in Python and exercises the public-key
+management subsystem in both roles. It exchanges version 2, lists ordinary and compulsory
+attributes, adds an Ed25519 key with a comment, lists it, removes it, and verifies that the final
+list is empty. Version packets are fragmented across SSH data writes, while multi-packet capability
+and key-list responses are coalesced into single writes. This proves that both implementations
+handle stream framing rather than relying on channel packet boundaries.
+
 This peer also provides a regression for packet scheduling across implementation boundaries. It
 sends `EXT_INFO` immediately followed by `SERVICE_REQUEST`; the server must retain both packets
 while filtering the transport-level extension message. A focused in-process test sends `IGNORE`

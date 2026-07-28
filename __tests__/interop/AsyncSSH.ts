@@ -7,11 +7,19 @@ import Client from "../../src/Client.js"
 import Server from "../../src/Server.js"
 import SessionChannel from "../../src/channels/SessionChannel.js"
 import PrivateKey from "../../src/utils/PrivateKey.js"
+import PublicKey from "../../src/utils/PublicKey.js"
 
 const fixturePath = "__tests__/interop/AsyncSSHPeer.py"
 const imageName = "modernssh-independent-peer:asyncssh-2.24.0"
 const localPython = process.env.ASYNCSSH_PYTHON
 const password = "correct-horse-battery-staple"
+const publicKey = PublicKey.parse(
+    Buffer.from(
+        "0000000b7373682d6564323535313900000020" +
+            "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "hex",
+    ),
+)
 const keyExchanges = [
     "curve448-sha512",
     "rsa2048-sha256",
@@ -320,4 +328,153 @@ describe("independent SSH peer interoperability", () => {
         },
         30_000,
     )
+
+    test("modernssh client manages keys through the RFC 4819 subsystem", async () => {
+        const peer = await startPeerServer("curve25519-sha256")
+        const client = new Client({
+            hostname: "127.0.0.1",
+            port: peer.port,
+            username: "interop",
+            password,
+            algorithms: {
+                kex: ["curve25519-sha256"],
+                serverHostKey: ["ssh-ed448"],
+                cipher: ["aes128-ctr"],
+                hmac: ["hmac-sha2-256"],
+                compress: ["none"],
+            },
+        })
+        const errors: Error[] = []
+        client.on("error", (error) => errors.push(error))
+        client.hooker.hook("hostKey", (_hook, decision, key) => {
+            decision.allowHostKey = key.data.alg === "ssh-ed448"
+        })
+
+        try {
+            await client.connect()
+            const subsystem = await client.publicKeySubsystem()
+            expect(await subsystem.listAttributes()).toEqual([
+                { name: "comment", compulsory: false },
+                { name: "shell", compulsory: true },
+            ])
+
+            await subsystem.add(publicKey, {
+                overwrite: true,
+                attributes: [{ name: "comment", value: "library-client" }],
+            })
+            const listed = await subsystem.list()
+            expect(listed).toHaveLength(1)
+            expect(listed[0]!.key.equals(publicKey)).toBe(true)
+            expect(listed[0]!.attributes).toEqual([
+                { name: "comment", value: Buffer.from("library-client") },
+            ])
+
+            await subsystem.remove(publicKey)
+            expect(await subsystem.list()).toEqual([])
+            expect(errors).toEqual([])
+            subsystem.end()
+        } finally {
+            client.destroy()
+            await peer.close()
+        }
+    }, 30_000)
+
+    test("modernssh server manages keys for an independent RFC 4819 client", async () => {
+        const server = new Server({
+            hostKeys: [PrivateKey.generateSync("ssh-ed448")],
+            sendAllHostKeys: false,
+            algorithms: {
+                kex: ["curve25519-sha256"],
+                serverHostKey: ["ssh-ed448"],
+                cipher: ["aes128-ctr"],
+                hmac: ["hmac-sha2-256"],
+                compress: ["none"],
+            },
+        })
+        const errors: Error[] = []
+        const operations: string[] = []
+        const keys = new Map<
+            string,
+            { key: PublicKey; attributes: readonly { name: string; value: Buffer }[] }
+        >()
+        server.hooker.hook("passwordAuthentication", (_hook, context, decision) => {
+            decision.allowLogin = context.username === "interop" && context.password === password
+        })
+        server.hooker.hook("channelOpenRequest", (_hook, channel, decision) => {
+            decision.allowOpen = channel instanceof SessionChannel
+        })
+        server.on("connection", (connection) => {
+            connection.on("error", (error) => errors.push(error))
+            connection.on("channel", (channel) => {
+                if (!(channel instanceof SessionChannel)) return
+                channel.hooker.hook("subsystemRequest", (_hook, context, decision) => {
+                    if (context.subsystem !== "publickey") return
+                    decision.success = true
+                    decision.publicKey = {
+                        attributes: [
+                            { name: "comment", compulsory: false },
+                            { name: "shell", compulsory: true },
+                        ],
+                    }
+                })
+                channel.events.on("publicKey", (subsystem) => {
+                    subsystem.hooker.hook("add", (_hook, context, decision) => {
+                        operations.push(`add:${context.overwrite}`)
+                        keys.set(context.key.hash("sha256"), {
+                            key: context.key,
+                            attributes: context.attributes,
+                        })
+                        decision.success = true
+                    })
+                    subsystem.hooker.hook("list", (_hook, decision) => {
+                        operations.push("list")
+                        decision.keys = [...keys.values()]
+                        decision.success = true
+                    })
+                    subsystem.hooker.hook("remove", (_hook, context, decision) => {
+                        operations.push("remove")
+                        decision.success = keys.delete(context.key.hash("sha256"))
+                    })
+                })
+            })
+        })
+        server.listen(0, "127.0.0.1")
+        await once(server, "listening")
+
+        try {
+            const result = await runPeer([
+                "publickey-client",
+                String((server.address() as AddressInfo).port),
+                "curve25519-sha256",
+            ])
+            expect({
+                errors,
+                operations,
+                process: {
+                    code: result.code,
+                    stderr: result.stderr,
+                    stdout: JSON.parse(result.stdout),
+                },
+            }).toEqual({
+                errors: [],
+                operations: ["add:true", "list", "remove", "list"],
+                process: {
+                    code: 0,
+                    stderr: "",
+                    stdout: {
+                        algorithm: "ssh-ed25519",
+                        capabilities: [
+                            ["comment", false],
+                            ["shell", true],
+                        ],
+                        comment: "independent-client",
+                        removed: true,
+                    },
+                },
+            })
+        } finally {
+            for (const connection of server.clients) connection.terminate()
+            await server.close()
+        }
+    }, 30_000)
 })

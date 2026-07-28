@@ -205,3 +205,10 @@ other channels.
 Transport rekeying preserves an active public-key subsystem. Packet codecs are also exported for
 applications that need RFC 4819 framing over another already-authenticated SSH session stream, but
 the high-level client and server APIs should normally be preferred.
+
+The pinned independent-peer fixture exercises both roles over encrypted SSH. It fragments the
+version exchange, coalesces capability and key-list responses, and completes
+`listattributes`/`add`/`list`/`remove`/`list` against both the high-level client and server. This
+provides interoperability evidence for framing, serialized acknowledgement, attributes, key
+algorithm/blob consistency, and final status ordering independently of the in-process integration
+suite.
