@@ -333,8 +333,9 @@ Supply persistent host keys in production. Entries may be loaded `PrivateKey` ob
 strings or buffers, or `{ key, passphrase }` objects for encrypted containers. The constructor
 parses every entry eagerly, rejects public keys and incorrect passphrases, and retains only parsed
 private-key objects in private server configuration; it does not expose encoded containers,
-passphrases, or host private keys through a public options bag. If `hostKeys` is empty, the server
-generates a temporary Ed25519 key, which changes identity after every restart.
+passphrases, or host private keys through a public options bag. `hostKeys` is required and must
+contain at least one persistent identity. An empty array is accepted only for an explicitly
+configured RFC 4462 GSS-API key exchange using the `null` host-key algorithm.
 With the default `sendAllHostKeys: true`, advertised public identities must be unique and no more
 than 64 may be configured. Set `sendAllHostKeys: false` when the server should select among a
 larger key inventory without announcing it after authentication. Advertisements use the deployed

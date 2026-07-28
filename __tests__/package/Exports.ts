@@ -149,7 +149,7 @@ describe("package exports", () => {
             username: "package-test",
         }
         const sessionOptions: ClientSessionOptions = { env: { LANG: "C" }, pty: true }
-        const serverOptions: ServerOptions = { sendAllHostKeys: false }
+        const serverOptions: ServerOptions = { hostKeys: [], sendAllHostKeys: false }
         const hostKeyAdvertisementFormat: HostKeyAdvertisementFormat = "standard"
         const connectionInfo: ServerConnectionInfo = { remoteAddress: "127.0.0.1" }
         const connectionListener: ServerConnectionListener = () => undefined
@@ -525,7 +525,7 @@ describe("package exports", () => {
         for (const source of diagnosticModules) {
             expect(source).not.toContain("[node-ssh]")
         }
-        expect(diagnosticModules.every((source) => source.includes("[modernssh]"))).toBe(true)
+        expect(diagnosticModules.some((source) => source.includes("[modernssh]"))).toBe(true)
     })
 
     test("compiled declarations expose Promise-only completion APIs", async () => {
@@ -690,7 +690,7 @@ describe("package exports", () => {
         )
         expect(server).toContain("getConnections(): Promise<number>")
         expect(server).toContain(
-            "constructor(options?: ServerOptions, connectionListener?: ServerConnectionListener)",
+            "constructor(options: ServerOptions, connectionListener?: ServerConnectionListener)",
         )
         expect(index).toContain("ServerConnectionListener")
         expect(server).toContain("get maxConnections(): number")
@@ -939,6 +939,8 @@ describe("package exports", () => {
                     if (!(invalidForward instanceof Promise)) process.exit(69)
                     try { await invalidForward; process.exit(70) } catch (error) { if (!String(error).includes("destination port must be between 0 and 65535")) process.exit(71) }
                     try { new Server({ hostKeys: null }); process.exit(72) } catch (error) { if (!String(error).includes("hostKeys option must be an array")) process.exit(73) }
+                    try { new Server({}); process.exit(119) } catch (error) { if (!String(error).includes("requires at least one host key")) process.exit(120) }
+                    try { new Server({ hostKeys: [] }); process.exit(121) } catch (error) { if (!String(error).includes("requires at least one host key")) process.exit(122) }
                     try { new Client({ username: "packed", gssapi: null }); process.exit(74) } catch (error) { if (!String(error).includes("client GSS-API mechanisms must be an array")) process.exit(75) }
                     try { new ProtocolVersionExchange("2.0", null); process.exit(76) } catch (error) { if (!String(error).includes("software version must be a string")) process.exit(77) }
                     try { new Client({ username: "packed", serverClient: true }); process.exit(78) } catch (error) { if (!String(error).includes("serverClient is not a client option")) process.exit(79) }

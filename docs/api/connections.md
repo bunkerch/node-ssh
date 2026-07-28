@@ -569,7 +569,7 @@ Class. Declared in [`src/Server.ts`](https://github.com/bunkerch/node-ssh/blob/m
 
 ```ts
 export default class Server extends EventEmitter<ServerEvents> {
-    constructor(options?: ServerOptions, connectionListener?: ServerConnectionListener);
+    constructor(options: ServerOptions, connectionListener?: ServerConnectionListener);
     hooker: Hooker<ServerHooker>;
     server: net.Server;
     clients: Set<ServerClient>;
@@ -1201,7 +1201,8 @@ export interface ServerOptions {
     /** Informational text sent before the SSH identification. */
     greeting?: string;
     algorithms?: ServerAlgorithmOptions;
-    hostKeys?: (PrivateKey | string | Buffer | ServerHostKeyInput)[];
+    /** Persistent server identities. Use an empty array only with RFC 4462 null host-key KEX. */
+    hostKeys: (PrivateKey | string | Buffer | ServerHostKeyInput)[];
     /** Public host certificates paired with matching entries in `hostKeys`. */
     hostCertificates?: (PublicKey | string | Buffer)[];
     /** Send the complete host-key set after authentication. */

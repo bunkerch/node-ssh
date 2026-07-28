@@ -2,6 +2,15 @@ import Server, { type ServerOptions } from "../../src/Server.js"
 import PrivateKey from "../../src/utils/PrivateKey.js"
 
 describe("server configuration normalization", () => {
+    test("requires an explicit persistent server identity", () => {
+        expect(() => new Server({} as ServerOptions)).toThrow(
+            "SSH server requires at least one host key",
+        )
+        expect(() => new Server({ hostKeys: [] })).toThrow(
+            "SSH server requires at least one host key",
+        )
+    })
+
     test("does not treat malformed values as omitted options", async () => {
         const hostKey = await PrivateKey.generate("ssh-ed25519")
         expect(() => new Server(null as never)).toThrow("SSH server options must be an object")

@@ -357,6 +357,7 @@ describe("RFC 8732 GSS-API key exchange", () => {
         }
         const method = methodNames[0]
         const server = new Server({
+            hostKeys: [],
             gssapi: [serverMechanism],
             algorithms: { kex: [method], serverHostKey: ["null"] },
         })
@@ -410,6 +411,7 @@ describe("RFC 8732 GSS-API key exchange", () => {
         expect(
             () =>
                 new Server({
+                    hostKeys: [],
                     algorithms: {
                         kex: ["curve25519-sha256"],
                         serverHostKey: ["null"],

@@ -60,7 +60,8 @@ export interface ServerOptions {
     /** Informational text sent before the SSH identification. */
     greeting?: string
     algorithms?: ServerAlgorithmOptions
-    hostKeys?: (PrivateKey | string | Buffer | ServerHostKeyInput)[]
+    /** Persistent server identities. Use an empty array only with RFC 4462 null host-key KEX. */
+    hostKeys: (PrivateKey | string | Buffer | ServerHostKeyInput)[]
     /** Public host certificates paired with matching entries in `hostKeys`. */
     hostCertificates?: (PublicKey | string | Buffer)[]
     /** Send the complete host-key set after authentication. */
@@ -393,7 +394,7 @@ export type ServerHooker = {
 export default class Server extends EventEmitter<ServerEvents> {
     readonly #options: ServerOptionsRequired
 
-    constructor(options: ServerOptions = {}, connectionListener?: ServerConnectionListener) {
+    constructor(options: ServerOptions, connectionListener?: ServerConnectionListener) {
         super()
         if (!isPlainConfigurationObject(options)) {
             throw new TypeError("SSH server options must be an object")
@@ -667,6 +668,14 @@ export default class Server extends EventEmitter<ServerEvents> {
         ) {
             throw new TypeError("SSH server null host key requires a GSS-API key-exchange method")
         }
+        if (
+            this.#options.hostKeys.length === 0 &&
+            this.algorithmOffer.serverHostKey[0] !== "null"
+        ) {
+            throw new TypeError(
+                "SSH server requires at least one host key unless RFC 4462 null host-key KEX is configured",
+            )
+        }
         this.server = net.createServer((socket) => void this.acceptSocket(socket))
         this.server.on("error", (error) => this.emit("error", error))
         this.server.on("listening", () => this.emit("listening"))
@@ -675,19 +684,6 @@ export default class Server extends EventEmitter<ServerEvents> {
             this.emit("close")
         })
 
-        if (
-            this.#options.hostKeys.length === 0 &&
-            this.algorithmOffer.serverHostKey[0] !== "null"
-        ) {
-            console.warn(
-                "[modernssh] No host key supplied. Generating a temporary Ed25519 host key.",
-            )
-            this.hostKeysReady = PrivateKey.generate("ssh-ed25519").then((key) => {
-                this.#options.hostKeys.push(key)
-            })
-        } else {
-            this.hostKeysReady = Promise.resolve()
-        }
         registerServerConfiguration(this, this.#options)
         if (connectionListener !== undefined) this.on("connection", connectionListener)
     }
@@ -696,7 +692,7 @@ export default class Server extends EventEmitter<ServerEvents> {
     server: net.Server
     clients = new Set<ServerClient>()
     readonly algorithmOffer: ResolvedAlgorithmOptions
-    private readonly hostKeysReady: Promise<void>
+    private readonly startupReady = Promise.resolve()
     private maximumConnections = Infinity
     private readonly transports = new Set<ServerTransport>()
     private listenRequested = false
@@ -739,7 +735,7 @@ export default class Server extends EventEmitter<ServerEvents> {
         }
         this.listenRequested = true
         const requestId = ++this.listenRequestId
-        void this.hostKeysReady
+        void this.startupReady
             .then(() => {
                 if (requestId !== this.listenRequestId) return
                 try {
@@ -762,7 +758,7 @@ export default class Server extends EventEmitter<ServerEvents> {
             throw new TypeError("SSH server transport must be open, readable, and writable")
         }
         if (!this.reserveTransport(socket)) return this
-        void this.hostKeysReady
+        void this.startupReady
             .then(() => {
                 if (!isReadable(socket) || !socket.writable || socket.destroyed) {
                     if (!socket.destroyed) socket.destroy()
