@@ -24,7 +24,132 @@ import PasswordAuthMethod from "../../src/auth/password.js"
 import UserAuthPKOK from "../../src/packets/UserAuthPKOK.js"
 import UserAuthFailure from "../../src/packets/UserAuthFailure.js"
 
+class UnavailableAuthenticationServiceClient extends Client {
+    override sendPacket(packet: Packet): number {
+        return super.sendPacket(
+            packet instanceof UserAuthRequest
+                ? new UserAuthRequest({
+                      ...packet.data,
+                      service_name: "unavailable@example.test",
+                  })
+                : packet,
+        )
+    }
+}
+
+class ChangedPartialIdentityClient extends Client {
+    override sendPacket(packet: Packet): number {
+        return super.sendPacket(
+            packet instanceof UserAuthRequest &&
+                packet.data.method.method_name === SSHAuthenticationMethods.KeyboardInteractive
+                ? new UserAuthRequest({
+                      ...packet.data,
+                      username: "second-user",
+                  })
+                : packet,
+        )
+    }
+}
+
 describe("RFC 4252 multi-method authentication", () => {
+    test("never authenticates an unavailable target service", async () => {
+        const server = new Server({
+            hostKeys: [await PrivateKey.generate("ssh-ed25519")],
+            sendAllHostKeys: false,
+        })
+        let policyCalls = 0
+        server.hooker.hook("noneAuthentication", (_hook, _context, decision) => {
+            policyCalls++
+            decision.allowLogin = true
+        })
+        server.listen({ host: "127.0.0.1", port: 0 })
+        await once(server, "listening")
+
+        const client = new UnavailableAuthenticationServiceClient({
+            hostname: "127.0.0.1",
+            port: (server.address() as AddressInfo).port,
+            username: "service-test",
+            authenticationMethodsOrder: [SSHAuthenticationMethods.None],
+        })
+        client.hooker.hook("hostKey", (_hook, decision) => {
+            decision.allowHostKey = true
+        })
+        const disconnected = new Promise<Readonly<PeerDisconnectInfo>>((resolve) => {
+            client.once("disconnect", resolve)
+        })
+
+        try {
+            await expect(client.connect()).rejects.toThrow()
+            expect(await disconnected).toEqual({
+                reasonCode: DisconnectReason.SSH_DISCONNECT_SERVICE_NOT_AVAILABLE,
+                description: "SSH service is not available: unavailable@example.test",
+                languageTag: "",
+            })
+            expect(policyCalls).toBe(0)
+        } finally {
+            client.destroy()
+            for (const connection of server.clients) connection.terminate()
+            await server.close()
+        }
+    }, 15_000)
+
+    test("disconnects when the username changes after partial authentication", async () => {
+        const server = new Server({
+            hostKeys: [await PrivateKey.generate("ssh-ed25519")],
+            sendAllHostKeys: false,
+        })
+        server.hooker.hook("passwordAuthentication", (_hook, context, decision) => {
+            if (context.username !== "first-user" || context.password !== "first-factor") return
+            decision.partialSuccess = true
+            decision.authenticationMethods = [SSHAuthenticationMethods.KeyboardInteractive]
+        })
+        let keyboardPolicyCalls = 0
+        server.hooker.hook("keyboardInteractiveAuthentication", (_hook, context, decision) => {
+            keyboardPolicyCalls++
+            if (context.round === 0) {
+                decision.prompts = [{ prompt: "Second factor: ", echo: false }]
+            } else {
+                decision.allowLogin = context.responses?.[0] === "654321"
+            }
+        })
+        server.listen({ host: "127.0.0.1", port: 0 })
+        await once(server, "listening")
+
+        const client = new ChangedPartialIdentityClient({
+            hostname: "127.0.0.1",
+            port: (server.address() as AddressInfo).port,
+            username: "first-user",
+            password: "first-factor",
+            authenticationMethodsOrder: [
+                SSHAuthenticationMethods.Password,
+                SSHAuthenticationMethods.KeyboardInteractive,
+            ],
+        })
+        client.hooker.hook("hostKey", (_hook, decision) => {
+            decision.allowHostKey = true
+        })
+        client.hooker.hook("keyboardInteractive", (_hook, context, decision) => {
+            decision.responses = context.prompts.map(() => "654321")
+        })
+        const disconnected = new Promise<Readonly<PeerDisconnectInfo>>((resolve) => {
+            client.once("disconnect", resolve)
+        })
+
+        try {
+            await expect(client.connect()).rejects.toThrow()
+            expect(await disconnected).toEqual({
+                reasonCode: DisconnectReason.SSH_DISCONNECT_PROTOCOL_ERROR,
+                description: "SSH authentication identity changed after partial success",
+                languageTag: "",
+            })
+            expect(keyboardPolicyCalls).toBe(0)
+        } finally {
+            client.destroy()
+            for (const connection of server.clients) connection.terminate()
+            await server.close()
+        }
+    }, 15_000)
+
     test("never sends a public-key probe reply for a signed request", async () => {
         const userKey = await PrivateKey.generate("ssh-ed25519")
         const server = new Server({

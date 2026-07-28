@@ -439,7 +439,9 @@ An in-process integration test proves that a partial password success can change
 method set and cause an earlier failed keyboard-interactive method to be retried as the second
 factor. It also verifies the RFC authentication-limit disconnect packet, proves that `none` and
 partial success do not consume the failure ceiling, and holds an async policy hook past the server
-deadline to ensure its late approval cannot authenticate the connection.
+deadline to ensure its late approval cannot authenticate the connection. Encrypted adversarial
+clients verify that an unavailable target service never reaches credential policy and that a
+username change after partial success disconnects before the next factor.
 Separate encrypted client/server cases prove that contained later failures stop authentication
 method selection and discard earlier password, password-change, and keyboard-interactive values
 before those values cross the wire.

@@ -2005,6 +2005,9 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         let certificateAuthorization: Readonly<UserCertificateAuthorization> | undefined
         let authRequest: UserAuthRequest | undefined
         let pendingAuthRequest: UserAuthRequest | undefined
+        let partialAuthenticationIdentity:
+            | Readonly<{ username: string; serviceName: string }>
+            | undefined
         let failedAttempts = 0
         const authenticationMethods: SSHAuthenticationMethods[] = []
         if (this.server.hooker.hasHooks("publicKeyAuthentication")) {
@@ -2040,6 +2043,13 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             continuation: ServerAuthenticationContinuation = {},
             completedMethod?: SSHAuthenticationMethods,
         ): void => {
+            if (continuation.partialSuccess) {
+                assert(authRequest, "Partial authentication has no request identity")
+                partialAuthenticationIdentity ??= Object.freeze({
+                    username: authRequest.data.username,
+                    serviceName: authRequest.data.service_name,
+                })
+            }
             if (!continuation.partialSuccess) {
                 failedAttempts++
                 if (failedAttempts >= this.#configuration.maxAuthenticationAttempts) {
@@ -2084,6 +2094,22 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 }
 
                 this.debug(`Received authentication request:`, this.packetForDebug(authRequest))
+                if (authRequest.data.service_name !== SSHServiceNames.Connection) {
+                    throw new DisconnectError(
+                        DisconnectReason.SSH_DISCONNECT_SERVICE_NOT_AVAILABLE,
+                        `SSH service is not available: ${authRequest.data.service_name}`,
+                    )
+                }
+                if (
+                    partialAuthenticationIdentity !== undefined &&
+                    (authRequest.data.username !== partialAuthenticationIdentity.username ||
+                        authRequest.data.service_name !== partialAuthenticationIdentity.serviceName)
+                ) {
+                    throw new DisconnectError(
+                        DisconnectReason.SSH_DISCONNECT_PROTOCOL_ERROR,
+                        "SSH authentication identity changed after partial success",
+                    )
+                }
 
                 switch ((authRequest.data.method.constructor as typeof AuthMethod).method_name) {
                     case SSHAuthenticationMethods.None: {

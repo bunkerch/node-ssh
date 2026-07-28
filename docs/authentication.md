@@ -613,6 +613,13 @@ server.hooker.hook("passwordAuthentication", (_hook, context, decision) => {
 })
 ```
 
+The server accepts authentication only for the `ssh-connection` target service. An unavailable
+service is rejected before any credential policy hook runs. Once a hook reports partial success,
+the username and target service are fixed for the rest of that authentication exchange; a peer
+that changes either value is disconnected before another factor policy runs. This prevents factors
+for different accounts or services from being combined even when a custom client bypasses the
+client-side identity guard.
+
 The server advertises only methods with registered policy hooks. Unknown methods are rejected, and
 `none` is omitted from every continuation list as required by RFC 4252.
 
