@@ -1,4 +1,4 @@
-/** RFC 4254 section 8 terminal-mode opcodes. */
+/** RFC 4254 section 8 and RFC 8160 terminal-mode opcodes. */
 export const TerminalMode = Object.freeze({
     TTY_OP_END: 0,
     VINTR: 1,
@@ -31,6 +31,7 @@ export const TerminalMode = Object.freeze({
     IXANY: 39,
     IXOFF: 40,
     IMAXBEL: 41,
+    IUTF8: 42,
     ISIG: 50,
     ICANON: 51,
     XCASE: 52,

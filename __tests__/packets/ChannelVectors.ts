@@ -42,13 +42,13 @@ describe("RFC 4254 channel packet vectors", () => {
         expect(packet.serialize()).toEqual(raw)
     })
 
-    test("parses and serializes a PTY request with terminal modes", () => {
+    test("parses and serializes a PTY request with RFC 8160 IUTF8", () => {
         const raw = vector(`
             62 00000003
             00000007 7074792d726571 01
             00000005 787465726d
             00000050 00000018 00000280 000001e0
-            00000006 01 00000003 00
+            0000000b 01 00000003 2a 00000001 00
         `)
 
         const packet = ChannelRequest.parse(raw)
@@ -59,7 +59,7 @@ describe("RFC 4254 channel packet vectors", () => {
             vector(`
                 00000005 787465726d
                 00000050 00000018 00000280 000001e0
-                00000006 01 00000003 00
+                0000000b 01 00000003 2a 00000001 00
             `),
         )
         expect(packet.serialize()).toEqual(raw)

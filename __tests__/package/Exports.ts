@@ -313,6 +313,7 @@ describe("package exports", () => {
         expect(SSHAuthenticationMethods.KeyboardInteractive).toBe("keyboard-interactive")
         expect(SSHAuthenticationMethods.GSSAPIWithMIC).toBe("gssapi-with-mic")
         expect(SSHAuthenticationMethods.GSSAPIKeyExchange).toBe("gssapi-keyex")
+        expect(TerminalMode.IUTF8).toBe(42)
         expect(GSSAPI_KEYEX).toBe("gssapi-keyex")
         expect(
             buildGSSAPIKeyExchangeUserAuthMIC(Buffer.from("session"), "user", "ssh-connection"),
@@ -453,6 +454,7 @@ describe("package exports", () => {
         expect(entry.encodeSFTPLimits).toBeDefined()
         expect(entry.encodeSFTPStatVFS).toBeFunction()
         expect(entry.encodeSFTPUsersGroups).toBeFunction()
+        expect(entry.TerminalMode.IUTF8).toBe(42)
         expect(entry.TerminalMode.TTY_OP_OSPEED).toBe(129)
         expect(entry.TerminalModes).toBe(entry.TerminalMode)
         expect(entry.SSHAgentProtocolClient).toBeFunction()
@@ -818,8 +820,9 @@ describe("package exports", () => {
                     const { tmpdir } = await import("node:os")
                     const { join } = await import("node:path")
                     const { PassThrough } = await import("node:stream")
-                    const { AllowedSigners, ChannelOpenError, ChannelOpenFailureReasonCodes, Client, ClientForwardedStreamLocalChannel, ClientForwardedTCPIPChannel, ClientSessionChannel, ClientX11Channel, createSocketAgent, CygwinAgent, CygwinAgentError, DELAY_COMPRESSION_EXTENSION, delayCompressionExtension, discoverPageantAgentSocket, DisconnectError, DisconnectReason, ELEVATION_EXTENSION, EncodedSignature, generateKeyPair, generateKeyPairSync, GLOBAL_REQUESTS_OK_EXTENSION, KeyRevocationList, KnownHosts, MAX_OPENSSH_AGENT_SESSION_BINDINGS, MAX_SSH_AGENT_MESSAGE_LENGTH, NO_FLOW_CONTROL_EXTENSION, OnePasswordAgent, OPENSSH_AGENT_SECURITY_KEY_PROVIDER, OPENSSH_AGENT_SESSION_BIND, OPENSSH_INFO_SIGNAL, PageantAgent, PageantAgentError, parseKey, parseRFC4716PublicKeyFile, PrivateKey, PrivateKeyAgent, ProtocolVersionExchange, PublicKey, PublicKeySubsystemClient, PublicKeySubsystemServer, PublicKeySubsystemStatusCode, SecurityKeyAttestation, serializeRFC4716PublicKey, Server, SessionChannel, SSH_ED25519_SECURITY_KEY_ALGORITHM, SSHAgentConstraintType, SSHAgentExtensionFailureError, SSHAgentMessageType, SSHAgentProtocolClient, SSHAgentProtocolError, SSHAgentProtocolServer, SSHED25519SecurityKeyPrivateKey, SSHED25519SecurityKeyPublicKey, SSHFPFingerprintType, SSHFPRecord, SSHSignature, verifySSHFP } = await import("@bunkerch/modernssh")
+                    const { AllowedSigners, ChannelOpenError, ChannelOpenFailureReasonCodes, Client, ClientForwardedStreamLocalChannel, ClientForwardedTCPIPChannel, ClientSessionChannel, ClientX11Channel, createSocketAgent, CygwinAgent, CygwinAgentError, DELAY_COMPRESSION_EXTENSION, delayCompressionExtension, discoverPageantAgentSocket, DisconnectError, DisconnectReason, ELEVATION_EXTENSION, EncodedSignature, generateKeyPair, generateKeyPairSync, GLOBAL_REQUESTS_OK_EXTENSION, KeyRevocationList, KnownHosts, MAX_OPENSSH_AGENT_SESSION_BINDINGS, MAX_SSH_AGENT_MESSAGE_LENGTH, NO_FLOW_CONTROL_EXTENSION, OnePasswordAgent, OPENSSH_AGENT_SECURITY_KEY_PROVIDER, OPENSSH_AGENT_SESSION_BIND, OPENSSH_INFO_SIGNAL, PageantAgent, PageantAgentError, parseKey, parseRFC4716PublicKeyFile, PrivateKey, PrivateKeyAgent, ProtocolVersionExchange, PublicKey, PublicKeySubsystemClient, PublicKeySubsystemServer, PublicKeySubsystemStatusCode, SecurityKeyAttestation, serializeRFC4716PublicKey, Server, SessionChannel, SSH_ED25519_SECURITY_KEY_ALGORITHM, SSHAgentConstraintType, SSHAgentExtensionFailureError, SSHAgentMessageType, SSHAgentProtocolClient, SSHAgentProtocolError, SSHAgentProtocolServer, SSHED25519SecurityKeyPrivateKey, SSHED25519SecurityKeyPublicKey, SSHFPFingerprintType, SSHFPRecord, SSHSignature, TerminalMode, verifySSHFP } = await import("@bunkerch/modernssh")
                     if (GLOBAL_REQUESTS_OK_EXTENSION !== "global-requests-ok") process.exit(111)
+                    if (TerminalMode.IUTF8 !== 42) process.exit(112)
                     const { privateKey, publicKey } = await generateKeyPair("ed25519", {
                         comment: "packed@example.test",
                     })

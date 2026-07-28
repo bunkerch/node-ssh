@@ -22,6 +22,7 @@ import { SFTPPacketType } from "../../src/sftp/constants.js"
 import { SSHAuthenticationMethods } from "../../src/constants.js"
 import KexInit from "../../src/packets/KexInit.js"
 import { DisconnectReason, PeerDisconnectError } from "../../src/packets/Disconnect.js"
+import { TerminalMode } from "../../src/TerminalModes.js"
 
 class UnsupportedPacket {
     static type = 200
@@ -616,7 +617,12 @@ describe("client/server integration", () => {
             const configured = await client.exec("configured-command", {
                 allowHalfOpen: false,
                 env: { LANG: "C.UTF-8", ROLE: "integration" },
-                pty: { term: "xterm-256color", cols: 101, rows: 37 },
+                pty: {
+                    term: "xterm-256color",
+                    cols: 101,
+                    rows: 37,
+                    modes: { [TerminalMode.IUTF8]: 1 },
+                },
             })
             expect(configured.allowHalfOpen).toBe(false)
             expect(configuredSession?.env).toEqual(
@@ -630,6 +636,7 @@ describe("client/server integration", () => {
                 columns: 101,
                 rows: 37,
             })
+            expect(configuredSession?.pty?.modes.get(TerminalMode.IUTF8)).toBe(1)
             await configured.break(750)
             expect(breakDurations).toEqual([750])
             await expect(configured.sendBreak(4_000)).rejects.toThrow("request failed")

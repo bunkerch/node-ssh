@@ -830,7 +830,7 @@ export interface TCPIPConnectionDetails {
 Constant. Declared in [`src/TerminalModes.ts`](https://github.com/bunkerch/node-ssh/blob/master/src/TerminalModes.ts).
 
 ```ts
-/** RFC 4254 section 8 terminal-mode opcodes. */
+/** RFC 4254 section 8 and RFC 8160 terminal-mode opcodes. */
 export declare const TerminalMode: Readonly<{
     readonly TTY_OP_END: 0;
     readonly VINTR: 1;
@@ -863,6 +863,7 @@ export declare const TerminalMode: Readonly<{
     readonly IXANY: 39;
     readonly IXOFF: 40;
     readonly IMAXBEL: 41;
+    readonly IUTF8: 42;
     readonly ISIG: 50;
     readonly ICANON: 51;
     readonly XCASE: 52;
@@ -937,6 +938,7 @@ export declare const TerminalModes: Readonly<{
     readonly IXANY: 39;
     readonly IXOFF: 40;
     readonly IMAXBEL: 41;
+    readonly IUTF8: 42;
     readonly ISIG: 50;
     readonly ICANON: 51;
     readonly XCASE: 52;

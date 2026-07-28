@@ -1,6 +1,6 @@
 import { TerminalMode, TerminalModes } from "../../src/TerminalModes.js"
 
-describe("RFC 4254 terminal mode registry", () => {
+describe("RFC 4254 and RFC 8160 terminal mode registry", () => {
     test("exports every assigned mnemonic at its wire opcode", () => {
         expect(TerminalMode).toEqual({
             TTY_OP_END: 0,
@@ -34,6 +34,7 @@ describe("RFC 4254 terminal mode registry", () => {
             IXANY: 39,
             IXOFF: 40,
             IMAXBEL: 41,
+            IUTF8: 42,
             ISIG: 50,
             ICANON: 51,
             XCASE: 52,

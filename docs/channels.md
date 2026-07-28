@@ -80,6 +80,7 @@ await channel.requestPty({
     rows: 40,
     modes: {
         [TerminalMode.VINTR]: 3,
+        [TerminalMode.IUTF8]: 1,
         [TerminalMode.ECHO]: 1,
         [TerminalMode.TTY_OP_ISPEED]: 115_200,
         [TerminalMode.TTY_OP_OSPEED]: 115_200,
@@ -95,12 +96,12 @@ await channel.signal("SIGTERM")
 ```
 
 `subsystem(name)` starts a named subsystem instead of `exec()` or `shell()`. Only one program-start
-request can succeed on a session. `TerminalMode` contains every RFC 4254 mnemonic and
-`TerminalModes` is an equivalent registry alias. PTY modes accept either an opcode-to-uint32 object
-or a `ReadonlyMap`; numeric opcodes remain accepted for future assignments in the RFC's 1–159
-range. The encoder validates every opcode and value and adds the required `TTY_OP_END` terminator.
-The server exposes received values through `SessionPtyInfo.modes` without discarding modes it does
-not recognize.
+request can succeed on a session. `TerminalMode` contains every RFC 4254 mnemonic plus RFC 8160
+`IUTF8`; value `0` disables UTF-8 terminal processing and value `1` enables it. `TerminalModes` is
+an equivalent registry alias. PTY modes accept either an opcode-to-uint32 object or a `ReadonlyMap`;
+numeric opcodes remain accepted for future assignments in the RFC's 1–159 range. The encoder
+validates every opcode and value and adds the required `TTY_OP_END` terminator. The server exposes
+received values through `SessionPtyInfo.modes` without discarding modes it does not recognize.
 
 Client channels remain ordinary Node.js duplex streams for piping. Use `await channel.sendData()`
 when subsequent protocol actions must follow fully flow-controlled stdin; concurrent calls are
