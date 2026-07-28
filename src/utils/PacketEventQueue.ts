@@ -37,16 +37,11 @@ export function offPacketEvent(source: object, listener: PacketListener): void {
 export async function waitForMatchingPacket(
     source: PacketEventSource,
     predicate: (packet: Packet) => boolean,
-    timeout: number,
     closedError: () => Error,
-    timeoutError: () => Error,
+    deadline?: Readonly<{ milliseconds: number; error: () => Error }>,
 ): Promise<Packet> {
     const packets = new PacketEventQueue(source, closedError)
     let timer: NodeJS.Timeout | undefined
-    const deadline = new Promise<never>((_resolve, reject) => {
-        timer = setTimeout(() => reject(timeoutError()), timeout)
-        timer.unref()
-    })
     const matchingPacket = async (): Promise<Packet> => {
         while (true) {
             const packet = await packets.next()
@@ -54,7 +49,13 @@ export async function waitForMatchingPacket(
         }
     }
     try {
-        return await Promise.race([matchingPacket(), deadline])
+        const matching = matchingPacket()
+        if (deadline === undefined) return await matching
+        const deadlinePromise = new Promise<never>((_resolve, reject) => {
+            timer = setTimeout(() => reject(deadline.error()), deadline.milliseconds)
+            timer.unref()
+        })
+        return await Promise.race([matching, deadlinePromise])
     } finally {
         if (timer !== undefined) clearTimeout(timer)
         packets.close()

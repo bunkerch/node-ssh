@@ -151,7 +151,9 @@ authorities, revocations, and safe file updates.
 supplied), exchanging SSH identification strings, negotiating transport keys, and authenticating.
 It defaults to 20 seconds. Set it to `0` to disable the deadline. If the deadline expires,
 `connect()` rejects with `Timed out while waiting for handshake` and the client destroys the
-underlying transport.
+underlying transport. Authentication methods do not install a second hidden packet deadline:
+slow host-based signing, external policy, and key-exchange-bound authentication remain governed by
+this one setup deadline.
 
 Clients and servers advertise `modernssh_<package version>` as their RFC 4253 software identifier
 by default. Set `ident` to a custom software identifier and optional comment, without the

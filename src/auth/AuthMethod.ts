@@ -35,6 +35,8 @@ export default abstract class AuthMethod {
     }
 
     static async waitForAnswer(client: Client, seqno: number): Promise<Packet> {
+        // Client.readyTimeout owns the complete setup lifecycle. A method-local deadline would
+        // contradict readyTimeout: 0 and shorten larger configured setup windows.
         return waitForMatchingPacket(
             client,
             (packet) =>
@@ -43,9 +45,7 @@ export default abstract class AuthMethod {
                 packet instanceof UserAuthSuccess ||
                 (packet.constructor as typeof Packet).type === UserAuthPKOK.type ||
                 packet instanceof Disconnect,
-            10_000,
             () => new Error("SSH connection closed during authentication"),
-            () => new Error("Timed out waiting for message"),
         )
     }
 }
