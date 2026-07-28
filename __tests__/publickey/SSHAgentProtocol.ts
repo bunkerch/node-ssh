@@ -282,6 +282,53 @@ describe("SSH agent protocol", () => {
         serverStream.destroy()
     })
 
+    test("server decodes a large fixed request fragmented one byte at a time", async () => {
+        const maximum = 128 * 1024
+        const extensionName = Buffer.from("large-request@example.test")
+        const request = Buffer.alloc(maximum + 4, 0xa5)
+        request.writeUInt32BE(maximum, 0)
+        request[4] = 27
+        request.writeUInt32BE(extensionName.length, 5)
+        extensionName.copy(request, 9)
+        const expectedContentsLength = maximum - 5 - extensionName.length
+
+        class OneByteRequestStream extends Duplex {
+            readonly responses: Buffer[] = []
+
+            _read(): void {
+                // The custom iterator below owns the readable side.
+            }
+
+            _write(
+                chunk: Buffer,
+                _encoding: BufferEncoding,
+                callback: (error?: Error | null) => void,
+            ): void {
+                this.responses.push(Buffer.from(chunk))
+                callback()
+            }
+
+            override async *[Symbol.asyncIterator](): AsyncGenerator<Buffer> {
+                for (const byte of request) yield Buffer.from([byte])
+            }
+        }
+
+        const stream = new OneByteRequestStream()
+        const server = new SSHAgentProtocolServer({ maxMessageLength: maximum })
+        let observed = false
+        server.hooker.hook("extension", (_hook, context, decision) => {
+            expect(context.type).toBe("large-request@example.test")
+            expect(context.contents).toEqual(Buffer.alloc(expectedContentsLength, 0xa5))
+            observed = true
+            decision.result = { kind: "success" }
+        })
+
+        await server.serve(stream)
+
+        expect(observed).toBe(true)
+        expect(Buffer.concat(stream.responses)).toEqual(Buffer.from("0000000106", "hex"))
+    }, 300)
+
     test("server does not retain identities after a later policy failure", async () => {
         const [clientStream, serverStream] = streamPair()
         const privateKey = fixedPrivateKey()
