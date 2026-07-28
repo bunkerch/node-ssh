@@ -260,14 +260,7 @@ export default class ClientChannel extends Duplex {
             : Promise.resolve()
 
         try {
-            const sequenceNumber = this.client.sendPacket(
-                new ChannelRequest({
-                    recipient_channel_id: this.remoteId,
-                    request_type: type,
-                    want_reply: wantReply,
-                    args: Buffer.from(args),
-                }),
-            )
+            const sequenceNumber = this.sendRequestPacket(type, args, wantReply)
             if (wantReply) {
                 const pending = this.pendingRequests.at(-1)!
                 pending.unregisterUnimplemented = registerUnimplementedRejection(
@@ -294,6 +287,20 @@ export default class ClientChannel extends Duplex {
         return wantReply
             ? waitForReply(this.client, response, `channel ${this.localId} request ${type} reply`)
             : response
+    }
+
+    private sendRequestPacket(type: string, args: Buffer, wantReply: boolean): number {
+        if (this.remoteId === undefined) {
+            throw new Error(`SSH channel ${this.localId} has no remote channel identifier`)
+        }
+        return this.client.sendPacket(
+            new ChannelRequest({
+                recipient_channel_id: this.remoteId,
+                request_type: type,
+                want_reply: wantReply,
+                args: Buffer.from(args),
+            }),
+        )
     }
 
     receiveRequestSuccess(): void {
@@ -462,8 +469,8 @@ export default class ClientChannel extends Duplex {
         if (this.sentEndOfWrite || !this.isOpen || this.type !== "session") return false
         const software = this.client.serverProtocolVersion?.protocol_software ?? ""
         if (!force && !software.startsWith("OpenSSH_")) return false
+        this.sendRequestPacket("eow@openssh.com", Buffer.alloc(0), false)
         this.sentEndOfWrite = true
-        void this.request("eow@openssh.com", Buffer.alloc(0), false)
         return true
     }
 

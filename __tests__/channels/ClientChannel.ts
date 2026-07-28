@@ -723,4 +723,16 @@ describe("ClientChannel", () => {
         ).rejects.toThrow("Invalid end-of-write")
         channel.destroy()
     })
+
+    test("does not commit end-of-write state when notification emission fails", () => {
+        const { channel } = createChannel()
+        channel.client.sendPacket = () => {
+            throw new Error("transport write failed")
+        }
+
+        expect(() => channel.sendEndOfWrite(true)).toThrow("transport write failed")
+        expect(channel.hasSentEndOfWrite).toBe(false)
+        channel.client.sendPacket = () => 0
+        channel.destroy()
+    })
 })

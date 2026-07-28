@@ -55,7 +55,12 @@ export default class Channel {
     handleChannelRequest(request: ChannelRequest): Promise<void>;
     sendData(data: Buffer): Promise<void>;
     sendExtendedData(dataType: number, data: Buffer): Promise<void>;
-    sendRequest(type: string, args?: Buffer, wantReply?: boolean): void;
+    /**
+     * Send a channel notification which cannot receive a protocol reply.
+     *
+     * Use request() for a request whose success or failure must be awaited.
+     */
+    sendRequest(type: string, args?: Buffer): void;
     request(type: string, args?: Buffer, wantReply?: boolean): Promise<void>;
     receiveRequestSuccess(): void;
     receiveRequestFailure(): void;

@@ -259,8 +259,13 @@ export default class Channel {
         return this.queueData(data, dataType, false)
     }
 
-    sendRequest(type: string, args: Buffer = Buffer.alloc(0), wantReply = false): void {
-        this.sendRequestPacket(type, args, wantReply)
+    /**
+     * Send a channel notification which cannot receive a protocol reply.
+     *
+     * Use request() for a request whose success or failure must be awaited.
+     */
+    sendRequest(type: string, args: Buffer = Buffer.alloc(0)): void {
+        this.sendRequestPacket(type, args, false)
     }
 
     private sendRequestPacket(type: string, args: Buffer, wantReply: boolean): number {
@@ -399,8 +404,8 @@ export default class Channel {
         const peer = this.client as Partial<ServerClient>
         const software = peer.clientProtocolVersion?.protocol_software ?? ""
         if (!force && !software.startsWith("OpenSSH_")) return false
-        this.sentEndOfWrite = true
         this.sendRequest("eow@openssh.com")
+        this.sentEndOfWrite = true
         return true
     }
 

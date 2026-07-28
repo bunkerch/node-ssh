@@ -267,6 +267,36 @@ describe("server Channel", () => {
         expect(sent).toEqual([])
     })
 
+    test("keeps synchronous channel notifications reply-free", () => {
+        const { channel, sent } = createChannel()
+
+        channel.sendRequest("notification@example.test", Buffer.from("opaque"))
+        Reflect.apply(channel.sendRequest, channel, ["legacy@example.test", Buffer.alloc(0), true])
+
+        expect(
+            sent.map((packet) =>
+                packet instanceof ChannelRequest
+                    ? {
+                          requestType: packet.data.request_type,
+                          wantReply: packet.data.want_reply,
+                          args: packet.data.args,
+                      }
+                    : packet,
+            ),
+        ).toEqual([
+            {
+                requestType: "notification@example.test",
+                wantReply: false,
+                args: Buffer.from("opaque"),
+            },
+            {
+                requestType: "legacy@example.test",
+                wantReply: false,
+                args: Buffer.alloc(0),
+            },
+        ])
+    })
+
     test("rejects the exact request named by an unimplemented sequence", async () => {
         const { channel } = createChannel()
         const first = channel.request("first")
@@ -313,5 +343,16 @@ describe("server Channel", () => {
             want_reply: false,
             args: Buffer.alloc(0),
         })
+    })
+
+    test("does not commit end-of-write state when notification emission fails", () => {
+        const { channel } = createChannel()
+        channel.channel_type = "session"
+        channel.client.sendPacket = () => {
+            throw new Error("transport write failed")
+        }
+
+        expect(() => channel.sendEndOfWrite(true)).toThrow("transport write failed")
+        expect(channel.hasSentEndOfWrite).toBe(false)
     })
 })

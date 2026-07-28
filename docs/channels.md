@@ -172,13 +172,21 @@ the channel open in the opposite direction. Use `shell.close()` to send EOF foll
 the program and its input are both finished. A typical terminal path is
 `shell.exit(0).close()` after the final stdout write completes.
 
+For a custom server-side channel notification, `channel.sendRequest(name, data)` always writes
+`want reply` as false and returns synchronously. Use `await channel.request(name, data)` when the
+peer must acknowledge the request. RFC 4254 orders success and failure replies against the requests
+which asked for them, so the Promise-returning form owns that reply and rejects on failure, timeout,
+channel close, or transport close.
+
 OpenSSH's `eow@openssh.com` request is a different half-close: it asks the peer to stop sending
 channel data while leaving the reverse direction and the channel itself open. Call
 `channel.sendEndOfWrite()` on a client session or `shell.sendEndOfWrite()` on a server session. The
 method returns `false` when the peer is not identified as OpenSSH; pass `true` only when the
 application has separately established support. Incoming requests are validated, deduplicated,
 and exposed through the awaited `endOfWrite` hook before the writable half is stopped. Client
-channels also emit `endOfWrite` as a passive notification.
+channels also emit `endOfWrite` as a passive notification. A local packet-emission failure throws
+without marking end-of-write as sent, so the application can handle the transport error or retry
+if the transport remains open.
 
 ## Disabling additional sessions
 
