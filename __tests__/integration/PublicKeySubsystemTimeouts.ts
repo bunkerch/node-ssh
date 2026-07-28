@@ -89,6 +89,11 @@ describe("RFC 4819 request deadlines", () => {
         const timedOut = new Promise<Error>((resolve) => {
             timeoutResolve = resolve
         })
+        let policySignal: AbortSignal | undefined
+        let policyAbortResolve!: () => void
+        const policyAborted = new Promise<void>((resolve) => {
+            policyAbortResolve = resolve
+        })
         server.on("connection", (connection) => {
             connection.on("channel", (channel) => {
                 if (!(channel instanceof SessionChannel)) return
@@ -99,7 +104,16 @@ describe("RFC 4819 request deadlines", () => {
                 })
                 channel.events.on("publicKey", (subsystem) => {
                     subsystem.on("error", timeoutResolve)
-                    subsystem.hooker.hook("list", async () => neverSettles())
+                    subsystem.hooker.hook(
+                        "list",
+                        async (_hook, _controller, _context, operation) => {
+                            policySignal = operation.signal
+                            operation.signal.addEventListener("abort", policyAbortResolve, {
+                                once: true,
+                            })
+                            await neverSettles()
+                        },
+                    )
                 })
             })
         })
@@ -121,6 +135,11 @@ describe("RFC 4819 request deadlines", () => {
             const subsystem = await client.publicKeySubsystem({ requestTimeout: 1_000 })
             await expect(subsystem.list()).rejects.toBeInstanceOf(Error)
             expect((await timedOut).message).toBe(
+                "Timed out waiting for public-key subsystem server list",
+            )
+            await policyAborted
+            expect(policySignal?.aborted).toBe(true)
+            expect((policySignal?.reason as Error).message).toBe(
                 "Timed out waiting for public-key subsystem server list",
             )
 

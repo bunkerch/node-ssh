@@ -885,6 +885,11 @@ describe("package exports", () => {
         )
         expect(publicKeySubsystemClient).toContain("requestTimeout?: number")
         expect(publicKeySubsystemClient).toContain("readonly requestTimeout: number")
+        expect(publicKeySubsystemServer).toContain(
+            "export interface PublicKeySubsystemServerOperationContext",
+        )
+        expect(publicKeySubsystemServer).toContain("readonly signal: AbortSignal")
+        expect(index).toContain("PublicKeySubsystemServerOperationContext")
         expect(publicKeySubsystemClient).toContain("listAttributes(): Promise<")
         expect(publicKeySubsystemClient).toContain("end(): void")
         expect(publicKeySubsystemClient).toContain("close(): Promise<void>")

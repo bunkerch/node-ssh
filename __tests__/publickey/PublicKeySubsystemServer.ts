@@ -780,9 +780,14 @@ describe("RFC 4819 and RFC 7076 public-key subsystem server", () => {
         const fixture = new ClosablePublicKeySubsystemServerShell(() => undefined)
         const server = new PublicKeySubsystemServer(asShell(fixture))
         let closeEvents = 0
-        server.on("close", () => closeEvents++)
+        let reentrantClose: Promise<void> | undefined
+        server.on("close", () => {
+            closeEvents++
+            reentrantClose = server.close()
+        })
 
         const closing = server.close()
+        expect(reentrantClose).toBe(closing)
         expect(server.close()).toBe(closing)
         expect(server[Symbol.asyncDispose]()).toBe(closing)
         expect(fixture.closeCalls).toBe(1)

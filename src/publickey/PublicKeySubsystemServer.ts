@@ -7,6 +7,7 @@ import { encodeSSHName } from "../utils/SSHName.js"
 import { encodeSSHUTF8 } from "../utils/SSHText.js"
 import { closeStream, normalizeStreamCloseTimeout } from "../utils/StreamClose.js"
 import { DEFAULT_OPERATION_TIMEOUT, normalizeTimeout, waitWithTimeout } from "../utils/Timeout.js"
+import { makePromise } from "../utils/promise.js"
 import {
     encodePublicKeySubsystemPacket,
     MAX_PUBLIC_KEY_SUBSYSTEM_RESPONSES,
@@ -36,6 +37,11 @@ export interface PublicKeySubsystemServerOptions {
     readonly closeTimeout?: number
     /** Maximum milliseconds for initialization, policy, and response writes. Defaults to 30 seconds. */
     readonly requestTimeout?: number
+}
+
+export interface PublicKeySubsystemServerOperationContext {
+    /** Aborted when this request expires or its subsystem channel closes. */
+    readonly signal: AbortSignal
 }
 
 export interface PublicKeySubsystemServerAddContext {
@@ -115,25 +121,36 @@ export type PublicKeySubsystemServerHooker = {
     add: [
         context: Readonly<PublicKeySubsystemServerAddContext>,
         controller: PublicKeySubsystemServerResponseController,
+        operation: Readonly<PublicKeySubsystemServerOperationContext>,
     ]
     remove: [
         context: Readonly<PublicKeySubsystemServerRemoveContext>,
         controller: PublicKeySubsystemServerResponseController,
+        operation: Readonly<PublicKeySubsystemServerOperationContext>,
     ]
     list: [
         controller: PublicKeySubsystemServerListController,
         context: Readonly<PublicKeySubsystemServerListContext>,
+        operation: Readonly<PublicKeySubsystemServerOperationContext>,
     ]
     addCertificate: [
         context: Readonly<PublicKeySubsystemServerAddCertificateContext>,
         controller: PublicKeySubsystemServerResponseController,
+        operation: Readonly<PublicKeySubsystemServerOperationContext>,
     ]
     removeCertificate: [
         context: Readonly<PublicKeySubsystemServerRemoveCertificateContext>,
         controller: PublicKeySubsystemServerResponseController,
+        operation: Readonly<PublicKeySubsystemServerOperationContext>,
     ]
-    listCertificates: [controller: PublicKeySubsystemServerListCertificatesController]
-    listNamespaces: [controller: PublicKeySubsystemServerListNamespacesController]
+    listCertificates: [
+        controller: PublicKeySubsystemServerListCertificatesController,
+        operation: Readonly<PublicKeySubsystemServerOperationContext>,
+    ]
+    listNamespaces: [
+        controller: PublicKeySubsystemServerListNamespacesController,
+        operation: Readonly<PublicKeySubsystemServerOperationContext>,
+    ]
 }
 
 // eslint-disable-next-line @typescript-eslint/consistent-type-definitions
@@ -160,6 +177,7 @@ export default class PublicKeySubsystemServer extends EventEmitter<PublicKeySubs
     private dispatchScheduled = false
     private hookError: Error | undefined
     private closePromise: Promise<void> | undefined
+    private requestAbortController: AbortController | undefined
 
     get negotiatedProtocolVersion(): number | undefined {
         return this.#negotiatedProtocolVersion
@@ -237,13 +255,15 @@ export default class PublicKeySubsystemServer extends EventEmitter<PublicKeySubs
     /** Close the subsystem and settle after its SSH channel closes. */
     close(): Promise<void> {
         if (this.closePromise !== undefined) return this.closePromise
+        const [closing, resolve, reject] = makePromise<void>()
+        this.closePromise = closing
         this.finish()
-        this.closePromise = closeStream(
+        void closeStream(
             this.stream,
             this.#closeTimeout,
             "public-key subsystem server channel",
-        )
-        return this.closePromise
+        ).then(resolve, reject)
+        return closing
     }
 
     [Symbol.asyncDispose](): Promise<void> {
@@ -362,17 +382,29 @@ export default class PublicKeySubsystemServer extends EventEmitter<PublicKeySubs
         this.dispatchScheduled = true
         queueMicrotask(() => {
             this.dispatchScheduled = false
+            const abortController = new AbortController()
+            const operation = Object.freeze({ signal: abortController.signal })
+            this.requestAbortController = abortController
             void this.waitForRequest(
-                this.dispatch(),
+                this.dispatch(operation),
                 `public-key subsystem server ${this.active?.type ?? "request"}`,
-            ).catch((error: unknown) => {
-                const failure = error instanceof Error ? error : new Error(String(error))
-                this.destroy(failure)
-            })
+                abortController,
+            )
+                .catch((error: unknown) => {
+                    const failure = error instanceof Error ? error : new Error(String(error))
+                    this.destroy(failure)
+                })
+                .finally(() => {
+                    if (this.requestAbortController === abortController) {
+                        this.requestAbortController = undefined
+                    }
+                })
         })
     }
 
-    private async dispatch(): Promise<void> {
+    private async dispatch(
+        operation: Readonly<PublicKeySubsystemServerOperationContext>,
+    ): Promise<void> {
         const packet = this.active
         if (!packet || this.closed) return
         if (packet.type === "listattributes") {
@@ -410,6 +442,7 @@ export default class PublicKeySubsystemServer extends EventEmitter<PublicKeySubs
                 request,
                 "certificate add",
                 PublicKeySubsystemStatusCode.ActionNotAuthorized,
+                operation,
             )
             return
         }
@@ -443,15 +476,16 @@ export default class PublicKeySubsystemServer extends EventEmitter<PublicKeySubs
                 request,
                 "certificate remove",
                 PublicKeySubsystemStatusCode.ActionNotAuthorized,
+                operation,
             )
             return
         }
         if (packet.type === "list-certificates") {
-            await this.dispatchCertificateList()
+            await this.dispatchCertificateList(operation)
             return
         }
         if (packet.type === "list-namespaces") {
-            await this.dispatchNamespaceList()
+            await this.dispatchNamespaceList(operation)
             return
         }
         if (packet.type === "list") {
@@ -474,7 +508,7 @@ export default class PublicKeySubsystemServer extends EventEmitter<PublicKeySubs
             }
             const controller: PublicKeySubsystemServerListController = { success: false }
             this.hookError = undefined
-            await this.hooker.triggerHook("list", controller, context)
+            await this.hooker.triggerHook("list", controller, context, operation)
             if (this.hookError) {
                 await this.respond(
                     PublicKeySubsystemStatusCode.GeneralFailure,
@@ -573,7 +607,7 @@ export default class PublicKeySubsystemServer extends EventEmitter<PublicKeySubs
             }
             const controller: PublicKeySubsystemServerResponseController = { success: false }
             this.hookError = undefined
-            await this.hooker.triggerHook("remove", context, controller)
+            await this.hooker.triggerHook("remove", context, controller, operation)
             if (this.hookError) {
                 await this.respond(
                     PublicKeySubsystemStatusCode.GeneralFailure,
@@ -611,7 +645,7 @@ export default class PublicKeySubsystemServer extends EventEmitter<PublicKeySubs
         })
         const controller: PublicKeySubsystemServerResponseController = { success: false }
         this.hookError = undefined
-        await this.hooker.triggerHook("add", context, controller)
+        await this.hooker.triggerHook("add", context, controller, operation)
         if (this.hookError) {
             await this.respond(
                 PublicKeySubsystemStatusCode.GeneralFailure,
@@ -648,6 +682,7 @@ export default class PublicKeySubsystemServer extends EventEmitter<PublicKeySubs
         context: PublicKeySubsystemServerHooker[T][0],
         description: string,
         defaultFailureCode: number,
+        operation: Readonly<PublicKeySubsystemServerOperationContext>,
     ): Promise<void> {
         if (!this.hooker.hasHooks(event)) {
             await this.respond(defaultFailureCode, "Action not authorized")
@@ -660,12 +695,14 @@ export default class PublicKeySubsystemServer extends EventEmitter<PublicKeySubs
                 "addCertificate",
                 context as Readonly<PublicKeySubsystemServerAddCertificateContext>,
                 controller,
+                operation,
             )
         } else {
             await this.hooker.triggerHook(
                 "removeCertificate",
                 context as Readonly<PublicKeySubsystemServerRemoveCertificateContext>,
                 controller,
+                operation,
             )
         }
         if (this.hookError) {
@@ -684,7 +721,9 @@ export default class PublicKeySubsystemServer extends EventEmitter<PublicKeySubs
         )
     }
 
-    private async dispatchCertificateList(): Promise<void> {
+    private async dispatchCertificateList(
+        operation: Readonly<PublicKeySubsystemServerOperationContext>,
+    ): Promise<void> {
         if (!this.hooker.hasHooks("listCertificates")) {
             await this.respond(
                 PublicKeySubsystemStatusCode.ActionNotAuthorized,
@@ -694,7 +733,7 @@ export default class PublicKeySubsystemServer extends EventEmitter<PublicKeySubs
         }
         const controller: PublicKeySubsystemServerListCertificatesController = { success: false }
         this.hookError = undefined
-        await this.hooker.triggerHook("listCertificates", controller)
+        await this.hooker.triggerHook("listCertificates", controller, operation)
         if (this.hookError) {
             await this.respond(
                 PublicKeySubsystemStatusCode.GeneralFailure,
@@ -771,7 +810,9 @@ export default class PublicKeySubsystemServer extends EventEmitter<PublicKeySubs
         )
     }
 
-    private async dispatchNamespaceList(): Promise<void> {
+    private async dispatchNamespaceList(
+        operation: Readonly<PublicKeySubsystemServerOperationContext>,
+    ): Promise<void> {
         if (!this.hooker.hasHooks("listNamespaces")) {
             await this.respond(
                 PublicKeySubsystemStatusCode.ActionNotAuthorized,
@@ -781,7 +822,7 @@ export default class PublicKeySubsystemServer extends EventEmitter<PublicKeySubs
         }
         const controller: PublicKeySubsystemServerListNamespacesController = { success: false }
         this.hookError = undefined
-        await this.hooker.triggerHook("listNamespaces", controller)
+        await this.hooker.triggerHook("listNamespaces", controller, operation)
         if (this.hookError) {
             await this.respond(
                 PublicKeySubsystemStatusCode.GeneralFailure,
@@ -868,10 +909,15 @@ export default class PublicKeySubsystemServer extends EventEmitter<PublicKeySubs
         })
     }
 
-    private waitForRequest<T>(operation: PromiseLike<T>, description: string): Promise<T> {
-        return waitWithTimeout(operation, this.#requestTimeout, description, (error) =>
-            this.destroy(error),
-        )
+    private waitForRequest<T>(
+        operation: PromiseLike<T>,
+        description: string,
+        abortController?: AbortController,
+    ): Promise<T> {
+        return waitWithTimeout(operation, this.#requestTimeout, description, (error) => {
+            if (abortController && !abortController.signal.aborted) abortController.abort(error)
+            this.destroy(error)
+        })
     }
 
     private handleEnd(): void {
@@ -882,13 +928,20 @@ export default class PublicKeySubsystemServer extends EventEmitter<PublicKeySubs
             this.destroy(error instanceof Error ? error : new Error(String(error)))
             return
         }
-        this.finish()
+        this.finish(new PublicKeySubsystemProtocolError("Public-key subsystem channel ended"))
         if (!this.stream.destroyed && !this.stream.writableEnded) this.stream.end()
     }
 
-    private finish(): void {
+    private finish(
+        reason: Error = new PublicKeySubsystemProtocolError(
+            "Public-key subsystem server session closed",
+        ),
+    ): void {
         if (this.closed) return
         this.closed = true
+        if (this.requestAbortController && !this.requestAbortController.signal.aborted) {
+            this.requestAbortController.abort(reason)
+        }
         this.active = undefined
         this.emit("close")
     }
@@ -896,6 +949,6 @@ export default class PublicKeySubsystemServer extends EventEmitter<PublicKeySubs
     private fail(error: Error): void {
         if (this.closed) return
         if (this.listenerCount("error") > 0) this.emit("error", error)
-        this.finish()
+        this.finish(error)
     }
 }

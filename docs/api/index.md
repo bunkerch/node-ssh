@@ -7,7 +7,7 @@ description: Exact public TypeScript declarations shipped by modernssh.
 
 # API reference
 
-This reference is generated from the declarations shipped by the package. It covers all 460 exports available from `@bunkerch/modernssh`. Class sections contain every public constructor, property, accessor, and method declared by that class; inherited Node.js stream and EventEmitter members remain documented by Node.js.
+This reference is generated from the declarations shipped by the package. It covers all 461 exports available from `@bunkerch/modernssh`. Class sections contain every public constructor, property, accessor, and method declared by that class; inherited Node.js stream and EventEmitter members remain documented by Node.js.
 
 Regenerate it with `pnpm docs:api`. CI runs `pnpm docs:api:check` to prevent the reference from drifting from `dist/*.d.ts`.
 
@@ -251,6 +251,7 @@ Regenerate it with `pnpm docs:api`. CI runs `pnpm docs:api:check` to prevent the
 | [`PublicKeySubsystemServerListedCertificate`](agents.md#publickeysubsystemserverlistedcertificate) | Interface | Agents and public-key management |
 | [`PublicKeySubsystemServerListedKey`](agents.md#publickeysubsystemserverlistedkey) | Interface | Agents and public-key management |
 | [`PublicKeySubsystemServerListNamespacesController`](agents.md#publickeysubsystemserverlistnamespacescontroller) | Interface | Agents and public-key management |
+| [`PublicKeySubsystemServerOperationContext`](agents.md#publickeysubsystemserveroperationcontext) | Interface | Agents and public-key management |
 | [`PublicKeySubsystemServerOptions`](agents.md#publickeysubsystemserveroptions) | Interface | Agents and public-key management |
 | [`PublicKeySubsystemServerRemoveCertificateContext`](agents.md#publickeysubsystemserverremovecertificatecontext) | Interface | Agents and public-key management |
 | [`PublicKeySubsystemServerRemoveContext`](agents.md#publickeysubsystemserverremovecontext) | Interface | Agents and public-key management |

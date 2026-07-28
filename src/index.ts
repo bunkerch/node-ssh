@@ -359,6 +359,7 @@ export type {
     PublicKeySubsystemServerListedCertificate,
     PublicKeySubsystemServerListedAttribute,
     PublicKeySubsystemServerListedKey,
+    PublicKeySubsystemServerOperationContext,
     PublicKeySubsystemServerOptions,
     PublicKeySubsystemServerRemoveCertificateContext,
     PublicKeySubsystemServerRemoveContext,

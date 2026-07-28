@@ -143,43 +143,70 @@ server.on("connection", (connection) => {
         })
 
         channel.events.on("publicKey", (publicKeys) => {
-            publicKeys.hooker.hook("add", async (_hook, context, controller) => {
-                await storeAuthorizedKey(connection.username, context.namespace, context)
+            publicKeys.hooker.hook("add", async (_hook, context, controller, operation) => {
+                await storeAuthorizedKey(
+                    connection.username,
+                    context.namespace,
+                    context,
+                    operation.signal,
+                )
                 controller.success = true
             })
 
-            publicKeys.hooker.hook("remove", async (_hook, context, controller) => {
+            publicKeys.hooker.hook("remove", async (_hook, context, controller, operation) => {
                 const removed = await removeAuthorizedKey(
                     connection.username,
                     context.namespace,
                     context.key,
+                    operation.signal,
                 )
                 controller.success = removed
                 controller.failureCode = PublicKeySubsystemStatusCode.KeyNotFound
             })
 
-            publicKeys.hooker.hook("list", async (_hook, controller, context) => {
-                controller.keys = await listAuthorizedKeys(connection.username, context.namespace)
+            publicKeys.hooker.hook("list", async (_hook, controller, context, operation) => {
+                controller.keys = await listAuthorizedKeys(
+                    connection.username,
+                    context.namespace,
+                    operation.signal,
+                )
                 controller.success = true
             })
 
-            publicKeys.hooker.hook("addCertificate", async (_hook, context, controller) => {
-                await validateAndStoreCertificate(connection.username, context)
+            publicKeys.hooker.hook(
+                "addCertificate",
+                async (_hook, context, controller, operation) => {
+                    await validateAndStoreCertificate(
+                        connection.username,
+                        context,
+                        operation.signal,
+                    )
+                    controller.success = true
+                },
+            )
+
+            publicKeys.hooker.hook(
+                "removeCertificate",
+                async (_hook, context, controller, operation) => {
+                    controller.success = await removeCertificate(
+                        connection.username,
+                        context,
+                        operation.signal,
+                    )
+                    controller.failureCode = PublicKeySubsystemStatusCode.CertificateNotFound
+                },
+            )
+
+            publicKeys.hooker.hook("listCertificates", async (_hook, controller, operation) => {
+                controller.certificates = await listCertificates(
+                    connection.username,
+                    operation.signal,
+                )
                 controller.success = true
             })
 
-            publicKeys.hooker.hook("removeCertificate", async (_hook, context, controller) => {
-                controller.success = await removeCertificate(connection.username, context)
-                controller.failureCode = PublicKeySubsystemStatusCode.CertificateNotFound
-            })
-
-            publicKeys.hooker.hook("listCertificates", async (_hook, controller) => {
-                controller.certificates = await listCertificates(connection.username)
-                controller.success = true
-            })
-
-            publicKeys.hooker.hook("listNamespaces", async (_hook, controller) => {
-                controller.namespaces = await listNamespaces(connection.username)
+            publicKeys.hooker.hook("listNamespaces", async (_hook, controller, operation) => {
+                controller.namespaces = await listNamespaces(connection.username, operation.signal)
                 controller.success = true
             })
         })
@@ -195,7 +222,12 @@ unhandled EventEmitter rejection.
 `PublicKeySubsystemServerOptions.requestTimeout` bounds the initial version write and each request
 from the start of its awaited Hooker policy through completion of its final response write. It
 defaults to 30 seconds. Expiry aborts only that subsystem channel and clears its pending request;
-the authenticated SSH connection and its other multiplexed channels remain usable.
+the authenticated SSH connection and its other multiplexed channels remain usable. Every policy
+Hooker receives a final `PublicKeySubsystemServerOperationContext`; pass its `signal` to
+cancellable authorization, storage, and hardware operations. The signal aborts with the request
+failure when its deadline expires or the subsystem channel closes. Cancellation cannot undo an
+external mutation that already completed, so backing stores should honor the signal before
+committing state.
 
 Call `await publicKeys.close()` when the application owns the server session lifecycle. It stops
 request dispatch immediately, asks the SSH channel to close, and settles after the channel's
