@@ -124,6 +124,7 @@ import {
     type OpenSSHAgentDestinationConstraint,
     type OpenSSHAgentSessionBinding,
     type SSHAgentProtocolOptions,
+    type SSHSocketAgentOptions,
     type SSHAgentProtocolServerOptions,
     type SSHAgentConstraint,
     type SSHSignatureOptions,
@@ -182,6 +183,7 @@ describe("package exports", () => {
             maxMessageLength: 1024,
             requestTimeout: 250,
         }
+        const agentOptions: SSHSocketAgentOptions = { timeout: 250 }
         const agentProtocolServerOptions: SSHAgentProtocolServerOptions = {
             maxMessageLength: 2048,
         }
@@ -237,6 +239,7 @@ describe("package exports", () => {
         expect(connectionListener).toBeFunction()
         expect(incomingChannelDecision.allowOpen).toBe(false)
         expect(keyExchangeOptions.service).toBe("host")
+        expect(agentOptions.timeout).toBe(250)
         expect(agentProtocolOptions.requestTimeout).toBe(250)
         expect(agentProtocolServerOptions.maxMessageLength).toBe(2048)
         expect(agentConstraint.type).toBe("confirm")

@@ -270,6 +270,7 @@ export { default as Agent, AgentError, AgentType } from "./publickey/Agent.js"
 export { default as DiskAgent, DiskAgentError } from "./publickey/DiskAgent.js"
 export type { DiskAgentOptions, DiskAgentPassphrase } from "./publickey/DiskAgent.js"
 export { default as SSHAgent, SSHAgentError } from "./publickey/SSHAgent.js"
+export type { SSHSocketAgentOptions } from "./publickey/SSHAgent.js"
 export { default as CygwinAgent, CygwinAgentError } from "./publickey/CygwinAgent.js"
 export type { CygwinAgentOptions } from "./publickey/CygwinAgent.js"
 export {

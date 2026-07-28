@@ -6,6 +6,7 @@ import {
     serializeBuffer,
     serializeUint32,
 } from "../utils/Buffer.js"
+import { isPlainConfigurationObject } from "../utils/Configuration.js"
 import EncodedSignature from "../utils/Signature.js"
 import { decodeSSHUTF8 } from "../utils/SSHText.js"
 import Agent, { AgentError, AgentType } from "./Agent.js"
@@ -18,12 +19,31 @@ const SSH_AGENT_SIGN_RESPONSE = 14
 const SSH_AGENT_RSA_SHA2_256 = 2
 const SSH_AGENT_RSA_SHA2_512 = 4
 const MAX_AGENT_MESSAGE_LENGTH = 256 * 1024
+const DEFAULT_TIMEOUT = 10_000
+const MAX_TIMER_DELAY = 0x7fff_ffff
+
+export interface SSHSocketAgentOptions {
+    /** Maximum socket inactivity in milliseconds while connecting or exchanging a request. */
+    timeout?: number
+}
+
+function validateOptions(options: SSHSocketAgentOptions): Required<SSHSocketAgentOptions> {
+    if (!isPlainConfigurationObject(options)) {
+        throw new TypeError("SSH agent options must be an object")
+    }
+    const timeout = options.timeout ?? DEFAULT_TIMEOUT
+    if (!Number.isSafeInteger(timeout) || timeout < 0 || timeout > MAX_TIMER_DELAY) {
+        throw new RangeError("SSH agent timeout must be an integer between zero and 2147483647")
+    }
+    return { timeout }
+}
 
 export default class SSHAgent implements Agent<string> {
     type = AgentType.NonInteractive
     readonly socketPath: string
+    readonly options: Readonly<Required<SSHSocketAgentOptions>>
 
-    constructor(socketPath = process.env.SSH_AUTH_SOCK) {
+    constructor(socketPath = process.env.SSH_AUTH_SOCK, options: SSHSocketAgentOptions = {}) {
         if (socketPath === undefined) {
             throw new SSHAgentError(
                 "Could not find an SSH agent socket in $SSH_AUTH_SOCK; pass its path to new SSHAgent(path)",
@@ -39,6 +59,7 @@ export default class SSHAgent implements Agent<string> {
             )
         }
         this.socketPath = socketPath
+        this.options = Object.freeze(validateOptions(options))
     }
 
     async sign(id: string, data: Buffer, algorithm?: string): Promise<EncodedSignature> {
@@ -137,12 +158,22 @@ export default class SSHAgent implements Agent<string> {
     getStream(): Promise<Socket> {
         return new Promise((resolve, reject) => {
             const socket = createConnection(this.socketPath)
+            const onTimeout = (): void => {
+                socket.destroy()
+                reject(new SSHAgentError("SSH agent connection timed out"))
+            }
             const onError = (error: Error): void => {
                 socket.destroy()
                 reject(new SSHAgentError("Could not connect to the SSH agent", { cause: error }))
             }
+            if (this.options.timeout !== 0) {
+                socket.setTimeout(this.options.timeout)
+                socket.once("timeout", onTimeout)
+            }
             socket.once("error", onError)
             socket.once("connect", () => {
+                socket.setTimeout(0)
+                socket.off("timeout", onTimeout)
                 socket.off("error", onError)
                 resolve(socket)
             })
@@ -185,9 +216,11 @@ export default class SSHAgent implements Agent<string> {
                     if (error) fail(error)
                 })
             })
-            socket.setTimeout(10_000, () =>
-                fail(new SSHAgentError("SSH agent did not reply within 10 seconds")),
-            )
+            if (this.options.timeout !== 0) {
+                socket.setTimeout(this.options.timeout, () =>
+                    fail(new SSHAgentError("SSH agent request timed out")),
+                )
+            }
             socket.on("data", (data: Buffer) => {
                 if (settled) return
                 if (data.length > MAX_AGENT_MESSAGE_LENGTH + 4 - received.length) {

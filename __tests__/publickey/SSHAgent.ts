@@ -47,11 +47,56 @@ describe("SSHAgent", () => {
         }
     })
 
+    test("validates and snapshots socket timeout options", () => {
+        const options = { timeout: 25 }
+        const agent = new SSHAgent("/tmp/modernssh-agent", options)
+        options.timeout = 50
+
+        expect(agent.options).toEqual({ timeout: 25 })
+        expect(Object.isFrozen(agent.options)).toBe(true)
+        expect(new SSHAgent("/tmp/modernssh-agent").options.timeout).toBe(10_000)
+        expect(new SSHAgent("/tmp/modernssh-agent", { timeout: 0 }).options.timeout).toBe(0)
+
+        for (const timeout of [-1, 1.5, Number.NaN, 0x8000_0000]) {
+            expect(() => new SSHAgent("/tmp/modernssh-agent", { timeout })).toThrow(
+                "SSH agent timeout must be an integer between zero and 2147483647",
+            )
+        }
+        expect(() => new SSHAgent("/tmp/modernssh-agent", null as never)).toThrow(
+            "SSH agent options must be an object",
+        )
+    })
+
+    test("bounds an idle agent request and closes its socket", async () => {
+        const directory = await mkdtemp(join(tmpdir(), "modernssh-agent-timeout-"))
+        const socketPath = join(directory, "agent.sock")
+        let reportClosed!: () => void
+        const closed = new Promise<void>((resolve) => {
+            reportClosed = resolve
+        })
+        const server = createServer((socket) => {
+            socket.once("close", reportClosed)
+        })
+        server.listen(socketPath)
+        await once(server, "listening")
+
+        try {
+            const agent = new SSHAgent(socketPath, { timeout: 25 })
+            await expect(agent.getPublicKeys()).rejects.toThrow("SSH agent request timed out")
+            await closed
+        } finally {
+            await new Promise<void>((resolve, reject) => {
+                server.close((error) => (error ? reject(error) : resolve()))
+            })
+            await rm(directory, { recursive: true, force: true })
+        }
+    })
+
     test("defers path availability to connection time and accepts named pipes", async () => {
         const directory = await mkdtemp(join(tmpdir(), "modernssh-late-agent-"))
         const socketPath = join(directory, "agent.sock")
-        const agent = new SSHAgent(socketPath)
-        const server = createServer((socket) => socket.end())
+        const agent = new SSHAgent(socketPath, { timeout: 25 })
+        const server = createServer()
         expect(agent.socketPath).toBe(socketPath)
         expect(createSocketAgent(socketPath)).toBeInstanceOf(SSHAgent)
         expect(new SSHAgent("\\\\.\\pipe\\modernssh-agent").socketPath).toBe(
@@ -62,6 +107,8 @@ describe("SSHAgent", () => {
             server.listen(socketPath)
             await new Promise<void>((resolve) => server.once("listening", resolve))
             const socket = await agent.getStream()
+            await new Promise<void>((resolve) => setTimeout(resolve, 50))
+            expect(socket.destroyed).toBe(false)
             socket.destroy()
         } finally {
             await new Promise<void>((resolve, reject) => {

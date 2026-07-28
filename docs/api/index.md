@@ -7,7 +7,7 @@ description: Exact public TypeScript declarations shipped by modernssh.
 
 # API reference
 
-This reference is generated from the declarations shipped by the package. It covers all 459 exports available from `@bunkerch/modernssh`. Class sections contain every public constructor, property, accessor, and method declared by that class; inherited Node.js stream and EventEmitter members remain documented by Node.js.
+This reference is generated from the declarations shipped by the package. It covers all 460 exports available from `@bunkerch/modernssh`. Class sections contain every public constructor, property, accessor, and method declared by that class; inherited Node.js stream and EventEmitter members remain documented by Node.js.
 
 Regenerate it with `pnpm docs:api`. CI runs `pnpm docs:api:check` to prevent the reference from drifting from `dist/*.d.ts`.
 
@@ -455,6 +455,7 @@ Regenerate it with `pnpm docs:api`. CI runs `pnpm docs:api:check` to prevent the
 | [`SSHSignature`](keys.md#sshsignature) | Class | Keys, trust, and signatures |
 | [`SSHSignatureHashAlgorithm`](keys.md#sshsignaturehashalgorithm) | Type | Keys, trust, and signatures |
 | [`SSHSignatureOptions`](keys.md#sshsignatureoptions) | Interface | Keys, trust, and signatures |
+| [`SSHSocketAgentOptions`](agents.md#sshsocketagentoptions) | Interface | Agents and public-key management |
 | [`Stats`](sftp.md#stats) | Class | SFTP |
 | [`STATUS_CODE`](sftp.md#status_code) | Constant | SFTP |
 | [`StreamLocalConnectionDetails`](channels.md#streamlocalconnectiondetails) | Interface | Channels and forwarding |

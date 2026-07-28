@@ -672,6 +672,19 @@ agent objects are validated during client construction and must provide a valid 
 `getPublicKeys()`, `getPublicKey()`, and `sign()` methods; an optional `getStream()` enables agent
 forwarding.
 
+Direct `SSHAgent` construction accepts a socket inactivity bound:
+
+```ts
+import { SSHAgent } from "@bunkerch/modernssh"
+
+const agent = new SSHAgent(process.env.SSH_AUTH_SOCK, { timeout: 5_000 })
+```
+
+The default 10-second timeout covers connection establishment and each request exchange. A timeout
+closes the owned socket and rejects the pending Promise. Set `timeout: 0` to disable the bound.
+Once `getStream()` resolves, its connection timeout is removed because the caller owns the returned
+stream and may keep it idle for forwarding.
+
 On Windows, the special value `"pageant"` constructs `PageantAgent`. Pageant 0.75 and newer speaks
 the standard agent protocol over a per-user named pipe whose protected name is derived through the
 Windows cryptography API. Discovery happens during construction; importing the package or using a
