@@ -324,7 +324,11 @@ remain unsigned 32-bit numbers.
 Successful `statvfs` and `fstatvfs` hooks can pass `encodeSFTPStatVFS()` to
 `sftp.extendedReply()`. A `users-groups-by-id` hook uses `encodeSFTPUsersGroups()` for its two
 ordered name lists. These response encoders are exact inverses of the client decoders, retain all
-unsigned 64-bit filesystem values, and reject invalid UTF-8 names before writing a response.
+unsigned 64-bit filesystem values, and reject invalid UTF-8 names before writing a response. The
+client requires the reply to contain exactly one username per requested user ID and one group name
+per requested group ID, including empty strings for IDs the server cannot resolve. A cardinality
+mismatch makes the positional mapping ambiguous and therefore aborts the SFTP subsystem channel as
+a peer protocol error; the parent SSH connection and its other channels remain usable.
 
 The published `copy-data` protocol requires `SFTPStatusCode.InvalidParameter` when both handles are
 the same. The server permits this registered status only for `EXTENDED` requests; baseline SFTP v3

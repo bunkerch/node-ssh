@@ -1125,6 +1125,8 @@ export default class SFTPClient extends EventEmitter<SFTPClientEvents> {
         uids: readonly number[],
         gids: readonly number[],
     ): Promise<Readonly<SFTPUserGroupNames>> {
+        const uidCount = uids.length
+        const gidCount = gids.length
         const response = await this.extensionRequest(
             "users-groups-by-id@openssh.com",
             "1",
@@ -1135,7 +1137,18 @@ export default class SFTPClient extends EventEmitter<SFTPClientEvents> {
             if (response.type !== SFTPPacketType.ExtendedReply) {
                 throw new SFTPProtocolError("Expected EXTENDED_REPLY")
             }
-            return decodeSFTPUsersGroups(response.data)
+            const names = decodeSFTPUsersGroups(response.data)
+            if (names.usernames.length !== uidCount) {
+                throw new SFTPProtocolError(
+                    `SFTP users-groups reply returned ${names.usernames.length} username for ${uidCount} user IDs`,
+                )
+            }
+            if (names.groupNames.length !== gidCount) {
+                throw new SFTPProtocolError(
+                    `SFTP users-groups reply returned ${names.groupNames.length} group name for ${gidCount} group IDs`,
+                )
+            }
+            return names
         })
     }
 

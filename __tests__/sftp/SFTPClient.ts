@@ -1614,6 +1614,70 @@ describe("SFTP client request engine", () => {
         )
     })
 
+    test("closes when a user lookup reply omits a requested identifier", async () => {
+        const fixture = new SFTPServerFixture((packet) => {
+            if (packet.type === SFTPPacketType.Init) {
+                fixture.send({
+                    type: SFTPPacketType.Version,
+                    version: 3,
+                    extensions: [
+                        {
+                            name: "users-groups-by-id@openssh.com",
+                            data: Buffer.from("1"),
+                        },
+                    ],
+                })
+            } else if (packet.type === SFTPPacketType.Extended) {
+                // EXTENDED_REPLY 0: usernames ["alice"], group names ["staff"].
+                // The request below has two user IDs, so this fixed reply is incomplete.
+                fixture.push(
+                    Buffer.from(
+                        "0000001fc9000000000000000900000005616c69636500000009000000057374616666",
+                        "hex",
+                    ),
+                )
+            }
+        })
+        const client = await SFTPClient.connect(asClientChannel(fixture))
+
+        await expect(client.usersGroups([1000, 1001], [100])).rejects.toThrow(
+            "SFTP users-groups reply returned 1 username for 2 user IDs",
+        )
+        expect(fixture.destroyed).toBe(true)
+    })
+
+    test("closes when a group lookup reply omits a requested identifier", async () => {
+        const fixture = new SFTPServerFixture((packet) => {
+            if (packet.type === SFTPPacketType.Init) {
+                fixture.send({
+                    type: SFTPPacketType.Version,
+                    version: 3,
+                    extensions: [
+                        {
+                            name: "users-groups-by-id@openssh.com",
+                            data: Buffer.from("1"),
+                        },
+                    ],
+                })
+            } else if (packet.type === SFTPPacketType.Extended) {
+                // EXTENDED_REPLY 0: usernames ["alice"], group names ["staff"].
+                // The request below has two group IDs, so this fixed reply is incomplete.
+                fixture.push(
+                    Buffer.from(
+                        "0000001fc9000000000000000900000005616c69636500000009000000057374616666",
+                        "hex",
+                    ),
+                )
+            }
+        })
+        const client = await SFTPClient.connect(asClientChannel(fixture))
+
+        await expect(client.usersGroups([1000], [100, 101])).rejects.toThrow(
+            "SFTP users-groups reply returned 1 group name for 2 group IDs",
+        )
+        expect(fixture.destroyed).toBe(true)
+    })
+
     test("rejects malformed advertised limits instead of silently downgrading", async () => {
         const fixture = new SFTPServerFixture((packet) => {
             if (packet.type === SFTPPacketType.Init) {
