@@ -33,6 +33,12 @@ establishes real TCP connections in both directions:
   A Node subprocess also uses the packaged `HTTPAgent` with `http.get()` to reach an HTTP endpoint
   through a forced `direct-tcpip` channel on the OpenSSH server.
 
+An inventory gate asks the system `ssh -Q` implementation for every cipher, authenticated cipher,
+compression method, key exchange, MAC, public-key format, and signature algorithm it exposes. Each
+reported name must exist in the library's configurable catalog. This detects practical name gaps
+when the runner's OpenSSH installation advances; it does not replace fixed-vector or negotiated
+traffic tests for the behavior of those algorithms.
+
 The package suite separately builds the publishable archive, installs it into an empty consumer
 directory, and imports only the package root in a native Node.js process. That process starts a
 packaged server and client over TCP, completes key exchange and authentication, executes a command,
