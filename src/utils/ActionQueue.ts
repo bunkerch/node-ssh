@@ -18,6 +18,7 @@ interface QueuedAction {
 
 interface ActionState {
     processing: boolean
+    active?: QueuedAction
     readonly queue: QueuedAction[]
 }
 
@@ -92,6 +93,7 @@ export class ActionQueue<keyType extends string = string> {
         if (this.#closedError) return
         this.#closedError = error
         for (const [key, state] of this.#actionQueues) {
+            state.active?.reject(error)
             for (const action of state.queue.splice(0)) action.reject(error)
             if (!state.processing) this.#actionQueues.delete(key)
         }
@@ -102,7 +104,9 @@ export class ActionQueue<keyType extends string = string> {
         while (state.queue.length > 0) {
             const action = state.queue.shift()!
             if (action.counted) this.#queuedActions--
+            state.active = action
             await action.run()
+            state.active = undefined
         }
         this.#actionQueues.delete(key)
     }

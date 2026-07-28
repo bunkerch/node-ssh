@@ -39,20 +39,22 @@ test("ActionQueue bounds waiting work while allowing independent keys to run", a
     expect(events).toEqual(["active", "independent", "waiting"])
 })
 
-test("ActionQueue close rejects waiting and future work without abandoning Promises", async () => {
+test("ActionQueue close rejects active, waiting, and future work", async () => {
     const queue = new ActionQueue(2)
     const first = deferred()
     const active = queue.queueAction("shared", async () => first.promise)
     const waiting = queue.queueAction("shared", async () => undefined)
     const failure = new Error("connection closed")
+    const activeResult = active.catch((error: unknown) => error)
+    const waitingResult = waiting.catch((error: unknown) => error)
 
     queue.close(failure)
-    await expect(waiting).rejects.toBe(failure)
+    expect(await activeResult).toBe(failure)
+    expect(await waitingResult).toBe(failure)
     await expect(queue.queueAction("other", async () => undefined)).rejects.toBe(failure)
     expect(queue.queuedActions).toBe(0)
 
     first.resolve()
-    await active
 })
 
 test("ActionQueue validates its waiting-operation bound", () => {
