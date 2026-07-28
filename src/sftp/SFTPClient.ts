@@ -159,6 +159,7 @@ export const STATUS_CODE = Object.freeze({
 })
 
 interface PendingRequest {
+    requestType: SFTPPacketType
     expectedTypes: ReadonlySet<SFTPPacketType>
     resolve: (packet: SFTPPacket) => void
     reject: (error: Error) => void
@@ -1356,6 +1357,7 @@ export default class SFTPClient extends EventEmitter<SFTPClientEvents> {
 
         const request = new Promise<SFTPPacket>((resolve, reject) => {
             this.pending.set(packet.requestId, {
+                requestType: packet.type,
                 expectedTypes: new Set(expectedTypes),
                 resolve,
                 reject,
@@ -1440,6 +1442,7 @@ export default class SFTPClient extends EventEmitter<SFTPClientEvents> {
             throw new SFTPProtocolError(`Unexpected SFTP response id ${packet.requestId}`)
         }
         if (packet.type === SFTPPacketType.Status) {
+            validateServerStatus(packet.code, pending.requestType)
             if (packet.code !== SFTPStatusCode.Ok) {
                 this.pending.delete(packet.requestId)
                 pending.reject(new SFTPStatusError(packet))
@@ -1486,6 +1489,27 @@ export default class SFTPClient extends EventEmitter<SFTPClientEvents> {
         this.pending.clear()
         this.activeHandles.clear()
         this.activeHandleCount = 0
+    }
+}
+
+function validateServerStatus(code: number, requestType: SFTPPacketType): void {
+    if (code === SFTPStatusCode.NoConnection || code === SFTPStatusCode.ConnectionLost) {
+        throw new SFTPProtocolError("SFTP server returned a client-only connection status")
+    }
+    if (
+        code === SFTPStatusCode.EOF &&
+        requestType !== SFTPPacketType.Read &&
+        requestType !== SFTPPacketType.ReadDir &&
+        requestType !== SFTPPacketType.Extended
+    ) {
+        throw new SFTPProtocolError(
+            "SFTP EOF status is only valid for READ, READDIR, and EXTENDED requests",
+        )
+    }
+    if (code === SFTPStatusCode.InvalidParameter && requestType !== SFTPPacketType.Extended) {
+        throw new SFTPProtocolError(
+            "SFTP invalid-parameter status is only valid for extension requests",
+        )
     }
 }
 

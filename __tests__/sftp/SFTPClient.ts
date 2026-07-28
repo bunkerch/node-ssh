@@ -1339,6 +1339,73 @@ describe("SFTP client request engine", () => {
         fixture.destroy()
     })
 
+    test("closes on server-only misuse of context-specific status codes", async () => {
+        for (const [code, message] of [
+            [SFTPStatusCode.NoConnection, "client-only connection status"],
+            [SFTPStatusCode.ConnectionLost, "client-only connection status"],
+            [SFTPStatusCode.EOF, "EOF status is only valid"],
+            [SFTPStatusCode.InvalidParameter, "invalid-parameter status is only valid"],
+        ] as const) {
+            const fixture = new SFTPServerFixture((packet) => {
+                if (packet.type === SFTPPacketType.Init) {
+                    fixture.send({ type: SFTPPacketType.Version, version: 3, extensions: [] })
+                } else if (packet.type === SFTPPacketType.Stat) {
+                    fixture.send({
+                        type: SFTPPacketType.Status,
+                        requestId: packet.requestId,
+                        code,
+                        message: "invalid status context",
+                        languageTag: "",
+                    })
+                }
+            })
+            const client = await SFTPClient.connect(asClientChannel(fixture))
+
+            await expect(client.stat("file")).rejects.toThrow(message)
+            expect(fixture.destroyed).toBe(true)
+            await expect(client.stat("after protocol error")).rejects.toThrow(
+                "SFTP session is closed",
+            )
+        }
+
+        const fixture = new SFTPServerFixture((packet) => {
+            if (packet.type === SFTPPacketType.Init) {
+                fixture.send({
+                    type: SFTPPacketType.Version,
+                    version: 3,
+                    extensions: [
+                        { name: "copy-data", data: Buffer.from("1") },
+                        { name: "status-eof@example.test", data: Buffer.from("1") },
+                    ],
+                })
+            } else if (packet.type === SFTPPacketType.Extended) {
+                fixture.send({
+                    type: SFTPPacketType.Status,
+                    requestId: packet.requestId,
+                    code:
+                        packet.request === "copy-data"
+                            ? SFTPStatusCode.InvalidParameter
+                            : SFTPStatusCode.EOF,
+                    message: "extension status",
+                    languageTag: "",
+                })
+            }
+        })
+        const client = await SFTPClient.connect(asClientChannel(fixture))
+
+        for (const extension of ["copy-data", "status-eof@example.test"]) {
+            let error: unknown
+            try {
+                await client.extended(extension)
+            } catch (caught) {
+                error = caught
+            }
+            expect(error).toBeInstanceOf(SFTPStatusError)
+        }
+        expect(fixture.destroyed).toBe(false)
+        fixture.destroy()
+    })
+
     test("truncates paths and handles with exact uint64 sizes", async () => {
         const requests: SFTPPacket[] = []
         const fixture = new SFTPServerFixture((packet) => {

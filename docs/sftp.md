@@ -219,17 +219,20 @@ Remote failure statuses reject with `SFTPStatusError`. Its numeric `code`, `requ
 example `SFTPStatusCode.NoSuchFile` or `SFTPStatusCode.PermissionDenied`.
 
 Malformed frames, unexpected response identifiers, wrong response types, duplicate initialization,
-and unsupported attribute flags are fatal protocol errors. A successful positive-length read must
-return at least one byte; end-of-file is reported with `SFTPStatusCode.EOF`. Baseline directory
-`NAME` responses must contain at least one entry. Rejecting these no-progress responses prevents
-silent file truncation and unbounded directory scans. Messages are bounded to OpenSSH's 256 KiB
-ceiling before allocation, handles to 256 bytes, and outstanding client requests to 1024. The
-initial read and write request size is 32 KiB, which every conforming server is expected to support.
-Status messages use fatal UTF-8 validation, status language tags use the protocol language-tag
-grammar, and extension identifiers are validated SSH names. Filenames, long names, paths, handles,
-and extension payloads remain opaque bytes and are never replacement-decoded by the wire codec.
-Decoded opaque fields are owned buffers rather than views into the input frame, and the streaming
-parser snapshots any incomplete chunk it must retain across calls.
+unsupported attribute flags, and status codes used outside their defined request context are fatal
+protocol errors. A server-sent `NoConnection` or `ConnectionLost` is also fatal because those two
+pseudo-statuses are local to clients and must never appear on the wire. A successful positive-length
+read must return at least one byte; end-of-file is reported with `SFTPStatusCode.EOF` only for
+`READ`, `READDIR`, or an extension that defines it. Baseline directory `NAME` responses must contain
+at least one entry. Rejecting these no-progress responses prevents silent file truncation and
+unbounded directory scans. Messages are bounded to OpenSSH's 256 KiB ceiling before allocation,
+handles to 256 bytes, and outstanding client requests to 1024. The initial read and write request
+size is 32 KiB, which every conforming server is expected to support. Status messages use fatal
+UTF-8 validation, status language tags use the protocol language-tag grammar, and extension
+identifiers are validated SSH names. Filenames, long names, paths, handles, and extension payloads
+remain opaque bytes and are never replacement-decoded by the wire codec. Decoded opaque fields are
+owned buffers rather than views into the input frame, and the streaming parser snapshots any
+incomplete chunk it must retain across calls.
 Fatal errors, including EOF in the middle of a frame, close the SFTP channel in both peer roles and
 reject pending client operations. They do not tear down an otherwise healthy SSH connection.
 Initialization and every tagged request reply are bounded by `requestTimeout`. Expiry rejects the
@@ -405,7 +408,8 @@ delivered to an awaited Hooker handler.
 Complete each request exactly once with the appropriate method:
 
 - `status(requestId, code, message?, languageTag?)` reports success for operations without result
-  data or a failure for any operation.
+  data or a failure for any operation. `EOF` is limited to `READ`, `READDIR`, and extensions;
+  `InvalidParameter` is extension-only; client-local connection statuses are never emitted.
 - `handle`, `data`, `name`, and `attributes` return the corresponding baseline result.
 - `extendedReply` returns extension-specific bytes.
 
@@ -415,12 +419,13 @@ request retains its concurrency slot until both the handler and response write c
 response values are validated as Buffers and snapshotted before encoding; response handles also
 enforce the 256-byte protocol limit.
 
-The implementation rejects duplicate outstanding identifiers, invalid response types, oversized
-read results, empty baseline name responses, server use of client-only connection status codes, and
-a second response. A hook rejection becomes an SFTP failure response and is observable through the
-hooker's `uncaughtException` event; returning without a response also produces a failure instead of
-leaving the client pending. A locally invalid or oversized response throws before claiming the
-request, so the handler may catch that error and send an appropriate failure status instead.
+The implementation rejects duplicate outstanding identifiers, invalid response types,
+out-of-context status codes, oversized read results, empty baseline name responses, server use of
+client-only connection status codes, and a second response. A hook rejection becomes an SFTP
+failure response and is observable through the hooker's `uncaughtException` event; returning
+without a response also produces a failure instead of leaving the client pending. A locally invalid
+or oversized response throws before claiming the request, so the handler may catch that error and
+send an appropriate failure status instead.
 
 SFTP clients pipeline tagged requests and may receive their responses out of order. The server
 therefore runs up to 64 request hooks concurrently by default while keeping each response and

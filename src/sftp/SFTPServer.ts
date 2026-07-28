@@ -264,6 +264,16 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
         }
         if (!(code in STATUS_MESSAGES)) throw new Error(`Unknown SFTP status code ${code}`)
         const request = this.requireActive(requestId)
+        if (
+            code === SFTPStatusCode.EOF &&
+            request.type !== SFTPPacketType.Read &&
+            request.type !== SFTPPacketType.ReadDir &&
+            request.type !== SFTPPacketType.Extended
+        ) {
+            throw new Error(
+                "SFTP EOF status is only valid for READ, READDIR, and EXTENDED requests",
+            )
+        }
         if (code === SFTPStatusCode.InvalidParameter && request.type !== SFTPPacketType.Extended) {
             throw new Error("SFTP invalid-parameter status is only valid for extension requests")
         }

@@ -1316,22 +1316,37 @@ describe("SFTP server request engine", () => {
         fixture.destroy()
     })
 
-    test("sends the registered invalid-parameter status only for extension requests", async () => {
+    test("sends context-specific statuses only for valid request types", async () => {
         const fixture = new SFTPClientFixture()
         const server = new SFTPServer(asShell(fixture), { advertiseLimits: false })
         fixture.send({ type: SFTPPacketType.Init, version: 3, extensions: [] })
         await flush()
         await issueExtensionHandle(server, fixture, Buffer.from("h"))
+        server.hooker.hook("SETSTAT", async (_hook, request) => {
+            expect(() => server.status(request.requestId, SFTPStatusCode.EOF)).toThrow(
+                "EOF status is only valid",
+            )
+            await server.status(request.requestId, SFTPStatusCode.Failure)
+        })
         server.hooker.hook("READ", async (_hook, request) => {
             expect(() => server.status(request.requestId, SFTPStatusCode.InvalidParameter)).toThrow(
                 "only valid for extension requests",
             )
             await server.status(request.requestId, SFTPStatusCode.Failure)
         })
+        server.hooker.hook("READDIR", async (_hook, request) => {
+            await server.status(request.requestId, SFTPStatusCode.EOF)
+        })
         server.hooker.hook("EXTENDED", async (_hook, request) => {
             await server.status(request.requestId, SFTPStatusCode.InvalidParameter)
         })
 
+        fixture.send({
+            type: SFTPPacketType.SetStat,
+            requestId: 19,
+            path: Buffer.from("file"),
+            attributes: {},
+        })
         fixture.send({
             type: SFTPPacketType.Read,
             requestId: 20,
@@ -1345,24 +1360,42 @@ describe("SFTP server request engine", () => {
             request: "copy-data",
             data: Buffer.alloc(0),
         })
+        fixture.send({
+            type: SFTPPacketType.ReadDir,
+            requestId: 22,
+            handle: Buffer.from("h"),
+        })
         await flush()
 
-        expect(fixture.responses).toEqual([
+        expect(fixture.responses).toContainEqual(
             expect.objectContaining({
-                type: SFTPPacketType.Version,
+                type: SFTPPacketType.Status,
+                requestId: 19,
+                code: SFTPStatusCode.Failure,
             }),
+        )
+        expect(fixture.responses).toContainEqual(
             expect.objectContaining({
                 type: SFTPPacketType.Status,
                 requestId: 20,
                 code: SFTPStatusCode.Failure,
             }),
+        )
+        expect(fixture.responses).toContainEqual(
             expect.objectContaining({
                 type: SFTPPacketType.Status,
                 requestId: 21,
                 code: SFTPStatusCode.InvalidParameter,
                 message: "Invalid parameter",
             }),
-        ])
+        )
+        expect(fixture.responses).toContainEqual(
+            expect.objectContaining({
+                type: SFTPPacketType.Status,
+                requestId: 22,
+                code: SFTPStatusCode.EOF,
+            }),
+        )
         fixture.destroy()
     })
 
