@@ -42,13 +42,13 @@ interface PendingChannelRequest {
     unregisterUnimplemented?: () => void
 }
 
-const committedRequestReplies = new WeakMap<Channel, WeakSet<ChannelRequest>>()
+const committedRequestOutcomes = new WeakMap<Channel, WeakSet<ChannelRequest>>()
 
-export function channelRequestReplyWasCommitted(
+export function channelRequestOutcomeWasCommitted(
     channel: Channel,
     request: ChannelRequest,
 ): boolean {
-    return committedRequestReplies.get(channel)?.has(request) ?? false
+    return committedRequestOutcomes.get(channel)?.has(request) ?? false
 }
 
 export default class Channel {
@@ -98,7 +98,7 @@ export default class Channel {
         this.channel_type = channel_type
         this.localId = allocateChannelIdentifier(client)
         this.#clientArgs = Buffer.from(clientArgs)
-        committedRequestReplies.set(this, new WeakSet())
+        committedRequestOutcomes.set(this, new WeakSet())
         this.openPromise = new Promise<void>((resolve, reject) => {
             this.openResolve = resolve
             this.openReject = reject
@@ -250,13 +250,19 @@ export default class Channel {
     }
 
     protected sendRequestReply(request: ChannelRequest, success: boolean): void {
-        if (!request.data.want_reply || !this.isOpen || this.remoteId === undefined) return
-        this.client.sendPacket(
-            success
-                ? new ChannelSuccess({ recipient_channel_id: this.remoteId })
-                : new ChannelFailure({ recipient_channel_id: this.remoteId }),
-        )
-        committedRequestReplies.get(this)!.add(request)
+        if (!this.isOpen || this.remoteId === undefined) return
+        if (request.data.want_reply) {
+            this.client.sendPacket(
+                success
+                    ? new ChannelSuccess({ recipient_channel_id: this.remoteId })
+                    : new ChannelFailure({ recipient_channel_id: this.remoteId }),
+            )
+        }
+        this.commitRequestOutcome(request)
+    }
+
+    protected commitRequestOutcome(request: ChannelRequest): void {
+        committedRequestOutcomes.get(this)!.add(request)
     }
 
     sendData(data: Buffer): Promise<void> {

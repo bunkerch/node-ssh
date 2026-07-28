@@ -199,6 +199,7 @@ export default class SessionChannel extends Channel {
             if (!this.hasReceivedEndOfWrite) {
                 await this.hooker.triggerHook("endOfWrite")
                 if (!this.isOpen) return
+                this.commitRequestOutcome(request)
                 this.events.emit("endOfWrite")
                 this.receiveEndOfWrite()
             }
@@ -409,6 +410,7 @@ export default class SessionChannel extends Channel {
                 const dimensions = Object.freeze(this.parseWindowChange(request.data.args))
                 await this.hooker.triggerHook("windowChange", dimensions)
                 if (!this.isOpen) return
+                this.commitRequestOutcome(request)
                 this.events.emit("windowChange", dimensions)
                 return
             }
@@ -418,6 +420,7 @@ export default class SessionChannel extends Channel {
                 const signal = this.parseSignalRequest(request.data.args)
                 await this.hooker.triggerHook("signal", Object.freeze({ signal }))
                 if (!this.isOpen) return
+                this.commitRequestOutcome(request)
                 this.events.emit("signal", signal)
                 return
             }

@@ -253,3 +253,79 @@ test("server never sends channel failure after publishing request success", asyn
         await server.close()
     }
 })
+
+test("server routes one-way session observer failures to connection errors", async () => {
+    const server = new Server({
+        hostKeys: [await PrivateKey.generate("ssh-ed25519")],
+        sendAllHostKeys: false,
+    })
+    server.hooker.hook("noneAuthentication", (_hook, _context, controller) => {
+        controller.allowLogin = true
+    })
+    server.hooker.hook("channelOpenRequest", (_hook, channel, controller) => {
+        controller.allowOpen = channel instanceof SessionChannel
+    })
+
+    const peerErrors: Error[] = []
+    let observerRanResolve!: () => void
+    const observerRan = new Promise<void>((resolve) => {
+        observerRanResolve = resolve
+    })
+    let peer: ServerClient | undefined
+    server.on("connection", (connection) => {
+        peer = connection
+        connection.on("error", (error) => peerErrors.push(error))
+        connection.on("channel", (channel) => {
+            if (!(channel instanceof SessionChannel)) return
+            channel.hooker.hook("execRequest", (_hook, _context, controller) => {
+                controller.success = true
+            })
+            channel.events.on("windowChange", () => {
+                observerRanResolve()
+                throw new Error("window observer failed")
+            })
+        })
+    })
+    server.listen({ host: "127.0.0.1", port: 0 })
+    await once(server, "listening")
+
+    const client = new Client({
+        hostname: "127.0.0.1",
+        port: (server.address() as AddressInfo).port,
+        username: "one-way-observer-test",
+        authenticationMethodsOrder: [SSHAuthenticationMethods.None],
+    })
+    client.hooker.hook("hostKey", (_hook, controller) => {
+        controller.allowHostKey = true
+    })
+    client.on("error", () => undefined)
+    const receivedPackets: string[] = []
+    client.on("packet", ({ name }) => {
+        if (name !== undefined) receivedPackets.push(name)
+    })
+
+    try {
+        await client.connect()
+        const channel = await client.openSession()
+        await channel.exec("true")
+        const repliesBefore = receivedPackets.filter(
+            (name) => name === "SSH_MSG_CHANNEL_SUCCESS" || name === "SSH_MSG_CHANNEL_FAILURE",
+        ).length
+
+        await channel.setWindow({ columns: 120, rows: 40 })
+        await observerRan
+        await new Promise<void>((resolve) => setImmediate(resolve))
+
+        expect(peerErrors.map((error) => error.message)).toEqual(["window observer failed"])
+        expect(peer?.isConnected).toBe(false)
+        expect(
+            receivedPackets.filter(
+                (name) => name === "SSH_MSG_CHANNEL_SUCCESS" || name === "SSH_MSG_CHANNEL_FAILURE",
+            ),
+        ).toHaveLength(repliesBefore)
+    } finally {
+        client.destroy()
+        peer?.terminate()
+        await server.close()
+    }
+})
