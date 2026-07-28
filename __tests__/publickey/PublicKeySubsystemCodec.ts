@@ -3,9 +3,13 @@ import {
     decodePublicKeySubsystemPacket,
     encodePublicKeySubsystemPacket,
     MAX_PUBLIC_KEY_SUBSYSTEM_PACKET_LENGTH,
+    MAX_PUBLIC_KEY_SUBSYSTEM_NAMESPACE_CHARACTERS,
+    PUBLIC_KEY_SUBSYSTEM_VERSION,
+    publicKeySubsystemNamespace,
     PublicKeySubsystemPacketParser,
     PublicKeySubsystemProtocolError,
     PublicKeySubsystemStatusCode,
+    validatePublicKeySubsystemNamespace,
 } from "../../src/publickey/PublicKeySubsystemCodec.js"
 
 const hex = (value: string): Buffer => Buffer.from(value.replaceAll(/\s/gu, ""), "hex")
@@ -14,6 +18,12 @@ const VERSION = hex(`
     0000000f
     00000007 76657273696f6e
     00000002
+`)
+
+const VERSION_3 = hex(`
+    0000000f
+    00000007 76657273696f6e
+    00000003
 `)
 
 const ADD = hex(`
@@ -51,7 +61,26 @@ const REMOVE = hex(`
     00000003 010203
 `)
 
+const REMOVE_VERSION_3 = hex(`
+    00000039
+    00000006 72656d6f7665
+    0000000b 7373682d65643235353139
+    00000003 010203
+    00000001
+    00000009 6e616d657370616365
+    00000003 737368
+    01
+`)
+
 const LIST = hex(`00000008 00000004 6c697374`)
+const LIST_VERSION_3 = hex(`
+    00000021
+    00000004 6c697374
+    00000001
+    00000009 6e616d657370616365
+    00000003 737368
+    01
+`)
 const LIST_ATTRIBUTES = hex(`00000012 0000000e 6c69737461747472696275746573`)
 
 const PUBLIC_KEY = hex(`
@@ -71,14 +100,81 @@ const ATTRIBUTE = hex(`
     01
 `)
 
+const ADD_CERTIFICATE = hex(`
+    0000003c
+    0000000f 6164642d6365727469666963617465
+    00000004 58353039
+    00000003 010203
+    01
+    00000001
+    00000009 6e616d657370616365
+    00000003 737368
+    01
+`)
+
+const REMOVE_CERTIFICATE = hex(`
+    0000003d
+    00000012 72656d6f76652d6365727469666963617465
+    00000004 58353039
+    00000003 010203
+    00000001
+    00000009 6e616d657370616365
+    00000003 737368
+`)
+
+const LIST_CERTIFICATES = hex(`
+    00000015
+    00000011 6c6973742d636572746966696361746573
+`)
+
+const CERTIFICATE = hex(`
+    00000036
+    0000000b 6365727469666963617465
+    00000004 58353039
+    00000003 010203
+    00000001
+    00000009 6e616d657370616365
+    00000003 737368
+`)
+
+const LIST_NAMESPACES = hex(`
+    00000013
+    0000000f 6c6973742d6e616d65737061636573
+`)
+
+const NAMESPACE = hex(`
+    00000014
+    00000009 6e616d657370616365
+    00000003 737368
+`)
+
 const UNKNOWN = hex(`0000000d 00000007 6d797374657279 dead`)
 
-describe("RFC 4819 public-key subsystem fixed packet vectors", () => {
+describe("RFC 4819 and RFC 7076 public-key subsystem fixed packet vectors", () => {
     test("parses and serializes the version packet magic cookie", () => {
         const packet = decodePublicKeySubsystemPacket(VERSION)
         expect(packet).toEqual({ type: "version", version: 2 })
         expect(encodePublicKeySubsystemPacket(packet)).toEqual(VERSION)
         expect(VERSION.subarray(0, 15)).toEqual(hex(`0000000f 00000007 76657273696f6e`))
+    })
+
+    test("advertises RFC 7076 version 3 and its extended status codes", () => {
+        expect(PUBLIC_KEY_SUBSYSTEM_VERSION).toBe(3)
+        expect(decodePublicKeySubsystemPacket(VERSION_3)).toEqual({
+            type: "version",
+            version: 3,
+        })
+        expect(
+            encodePublicKeySubsystemPacket({
+                type: "version",
+                version: PUBLIC_KEY_SUBSYSTEM_VERSION,
+            }),
+        ).toEqual(VERSION_3)
+        expect(PublicKeySubsystemStatusCode.CertificateNotFound).toBe(192)
+        expect(PublicKeySubsystemStatusCode.CertificateNotSupported).toBe(193)
+        expect(PublicKeySubsystemStatusCode.CertificateAlreadyPresent).toBe(194)
+        expect(PublicKeySubsystemStatusCode.ActionNotAuthorized).toBe(195)
+        expect(PublicKeySubsystemStatusCode.CannotCreateNamespace).toBe(196)
     })
 
     test("parses and serializes add attributes without interpreting opaque values", () => {
@@ -165,6 +261,97 @@ describe("RFC 4819 public-key subsystem fixed packet vectors", () => {
             expect(packet).toEqual(expected)
             expect(encodePublicKeySubsystemPacket(packet)).toEqual(vector)
         }
+    })
+
+    test("parses and serializes RFC 7076 namespace filters on key operations", () => {
+        const namespace = {
+            name: "namespace",
+            value: Buffer.from("ssh"),
+            critical: true,
+        }
+        const remove = decodePublicKeySubsystemPacket(REMOVE_VERSION_3)
+        expect(remove).toEqual({
+            type: "remove",
+            algorithm: "ssh-ed25519",
+            keyBlob: Buffer.from([1, 2, 3]),
+            attributes: [namespace],
+        })
+        expect(encodePublicKeySubsystemPacket(remove)).toEqual(REMOVE_VERSION_3)
+
+        const list = decodePublicKeySubsystemPacket(LIST_VERSION_3)
+        expect(list).toEqual({ type: "list", attributes: [namespace] })
+        expect(encodePublicKeySubsystemPacket(list)).toEqual(LIST_VERSION_3)
+    })
+
+    test("covers every RFC 7076 certificate and namespace packet layout", () => {
+        const cases = [
+            [
+                ADD_CERTIFICATE,
+                {
+                    type: "add-certificate",
+                    format: "X509",
+                    certificateBlob: Buffer.from([1, 2, 3]),
+                    overwrite: true,
+                    attributes: [
+                        {
+                            name: "namespace",
+                            value: Buffer.from("ssh"),
+                            critical: true,
+                        },
+                    ],
+                },
+            ],
+            [
+                REMOVE_CERTIFICATE,
+                {
+                    type: "remove-certificate",
+                    format: "X509",
+                    certificateBlob: Buffer.from([1, 2, 3]),
+                    attributes: [{ name: "namespace", value: Buffer.from("ssh") }],
+                },
+            ],
+            [LIST_CERTIFICATES, { type: "list-certificates" }],
+            [
+                CERTIFICATE,
+                {
+                    type: "certificate",
+                    format: "X509",
+                    certificateBlob: Buffer.from([1, 2, 3]),
+                    attributes: [{ name: "namespace", value: Buffer.from("ssh") }],
+                },
+            ],
+            [LIST_NAMESPACES, { type: "list-namespaces" }],
+            [NAMESPACE, { type: "namespace", name: "ssh" }],
+        ] as const
+
+        for (const [vector, expected] of cases) {
+            const packet = decodePublicKeySubsystemPacket(vector)
+            expect(packet).toEqual(expected)
+            expect(encodePublicKeySubsystemPacket(packet)).toEqual(vector)
+        }
+    })
+
+    test("validates RFC 7076 namespace attributes and their character bound", () => {
+        const boundary = "é".repeat(MAX_PUBLIC_KEY_SUBSYSTEM_NAMESPACE_CHARACTERS)
+        expect(validatePublicKeySubsystemNamespace(boundary)).toBeUndefined()
+        expect(() => validatePublicKeySubsystemNamespace(`${boundary}x`)).toThrow(
+            `exceeds ${MAX_PUBLIC_KEY_SUBSYSTEM_NAMESPACE_CHARACTERS} characters`,
+        )
+        expect(() => validatePublicKeySubsystemNamespace("\ud800")).toThrow("not valid UTF-8")
+
+        expect(
+            publicKeySubsystemNamespace(
+                [{ name: "namespace", value: Buffer.from("ssh"), critical: true }],
+                true,
+            ),
+        ).toBe("ssh")
+        expect(() => publicKeySubsystemNamespace([], true)).toThrow("requires a namespace")
+        expect(() =>
+            publicKeySubsystemNamespace([
+                { name: "namespace", value: Buffer.from("ssh") },
+                { name: "namespace", value: Buffer.from("ssl") },
+            ]),
+        ).toThrow("must not contain more than one namespace")
     })
 
     test("preserves unknown requests so servers can return a status without closing", () => {

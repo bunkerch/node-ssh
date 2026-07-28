@@ -55,6 +55,7 @@ import {
     KERBEROS_V5_GSSAPI_OID,
     KeyRevocationList,
     KnownHosts,
+    MAX_PUBLIC_KEY_SUBSYSTEM_NAMESPACE_CHARACTERS,
     MAX_OPENSSH_AGENT_SESSION_BINDINGS,
     MAX_OPENSSH_AGENT_SESSION_IDENTIFIER_LENGTH,
     MAX_SSH_AGENT_MESSAGE_LENGTH,
@@ -71,6 +72,7 @@ import {
     PrivateKey,
     PrivateKeyAgent,
     ProtocolVersionExchange,
+    PUBLIC_KEY_SUBSYSTEM_VERSION,
     PublicKey,
     PublicKeyAlgorithm,
     PublicKeySubsystemClient,
@@ -132,6 +134,8 @@ import {
     type ServerConnectionListener,
     type ServerOptions,
     type PublicKeySubsystemAddOptions,
+    type PublicKeySubsystemAddCertificateOptions,
+    type PublicKeySubsystemRemoveCertificateOptions,
     type PublicKeySubsystemServerOptions,
 } from "../../src/index.js"
 
@@ -186,6 +190,12 @@ describe("package exports", () => {
             maxSocketFileLength: 512,
         }
         const publicKeyAddOptions: PublicKeySubsystemAddOptions = { overwrite: true }
+        const publicKeyCertificateOptions: PublicKeySubsystemAddCertificateOptions = {
+            namespace: "users",
+        }
+        const publicKeyRemoveCertificateOptions: PublicKeySubsystemRemoveCertificateOptions = {
+            namespace: "users",
+        }
         const publicKeyServerOptions: PublicKeySubsystemServerOptions = {
             attributes: [{ name: "comment" }],
         }
@@ -372,7 +382,17 @@ describe("package exports", () => {
         expect(delayCompressionExtension(delayCompression).name).toBe("delay-compression")
         expect(PublicKeySubsystemClient).toBeFunction()
         expect(PublicKeySubsystemServer).toBeFunction()
+        expect(PUBLIC_KEY_SUBSYSTEM_VERSION).toBe(3)
+        expect(MAX_PUBLIC_KEY_SUBSYSTEM_NAMESPACE_CHARACTERS).toBe(300)
         expect(PublicKeySubsystemStatusCode.Success).toBe(0)
+        expect(PublicKeySubsystemStatusCode.CertificateNotFound).toBe(192)
+        expect(PublicKeySubsystemStatusCode.CannotCreateNamespace).toBe(196)
+        expect(PublicKeySubsystemClient.prototype.addCertificate).toBeFunction()
+        expect(PublicKeySubsystemClient.prototype.removeCertificate).toBeFunction()
+        expect(PublicKeySubsystemClient.prototype.listCertificates).toBeFunction()
+        expect(PublicKeySubsystemClient.prototype.listNamespaces).toBeFunction()
+        expect(publicKeyCertificateOptions.namespace).toBe("users")
+        expect(publicKeyRemoveCertificateOptions.namespace).toBe("users")
         expect(SSHFPRecord).toBeFunction()
         expect(SSHFPAlgorithm.Ed25519).toBe(4)
         expect(SSHFPFingerprintType.SHA256).toBe(2)
@@ -404,7 +424,14 @@ describe("package exports", () => {
         expect(entry.KERBEROS_V5_GSSAPI_OID).toBeInstanceOf(Buffer)
         expect(entry.PublicKeySubsystemClient).toBeFunction()
         expect(entry.PublicKeySubsystemServer).toBeFunction()
+        expect(entry.PUBLIC_KEY_SUBSYSTEM_VERSION).toBe(3)
+        expect(entry.MAX_PUBLIC_KEY_SUBSYSTEM_NAMESPACE_CHARACTERS).toBe(300)
         expect(entry.PublicKeySubsystemStatusCode.Success).toBe(0)
+        expect(entry.PublicKeySubsystemStatusCode.CertificateAlreadyPresent).toBe(194)
+        expect(entry.PublicKeySubsystemClient.prototype.addCertificate).toBeFunction()
+        expect(entry.PublicKeySubsystemClient.prototype.removeCertificate).toBeFunction()
+        expect(entry.PublicKeySubsystemClient.prototype.listCertificates).toBeFunction()
+        expect(entry.PublicKeySubsystemClient.prototype.listNamespaces).toBeFunction()
         expect(entry.KeyRevocationList).toBeFunction()
         expect(entry.SecurityKeyAttestation).toBeFunction()
         expect(entry.SSHSignature).toBeFunction()
@@ -761,8 +788,17 @@ describe("package exports", () => {
         expect(pageantAgent).toContain("constructor(socketPath?: string)")
         expect(pageantAgent).not.toContain("callback")
         expect(publicKeySubsystemClient).toContain("add(key: PublicKey")
-        expect(publicKeySubsystemClient).toContain("remove(key: PublicKey): Promise<void>")
-        expect(publicKeySubsystemClient).toContain("list(): Promise<")
+        expect(publicKeySubsystemClient).toContain("remove(key: PublicKey")
+        expect(publicKeySubsystemClient).toContain(
+            "list(options?: PublicKeySubsystemRequestOptions)",
+        )
+        expect(publicKeySubsystemClient).toContain("addCertificate(")
+        expect(publicKeySubsystemClient).toContain("removeCertificate(")
+        expect(publicKeySubsystemClient).toContain(
+            "listCertificates(): Promise<readonly PublicKeySubsystemCertificate[]>",
+        )
+        expect(publicKeySubsystemClient).toContain("listNamespaces(): Promise<readonly string[]>")
+        expect(publicKeySubsystemClient).toContain("readonly namespace?: string")
         expect(publicKeySubsystemClient).toContain(
             "export interface PublicKeySubsystemClientOptions",
         )
@@ -821,6 +857,10 @@ describe("package exports", () => {
                     const { join } = await import("node:path")
                     const { PassThrough } = await import("node:stream")
                     const { AllowedSigners, ChannelOpenError, ChannelOpenFailureReasonCodes, Client, ClientForwardedStreamLocalChannel, ClientForwardedTCPIPChannel, ClientSessionChannel, ClientX11Channel, createSocketAgent, CygwinAgent, CygwinAgentError, DELAY_COMPRESSION_EXTENSION, delayCompressionExtension, discoverPageantAgentSocket, DisconnectError, DisconnectReason, ELEVATION_EXTENSION, EncodedSignature, generateKeyPair, generateKeyPairSync, GLOBAL_REQUESTS_OK_EXTENSION, KeyRevocationList, KnownHosts, MAX_OPENSSH_AGENT_SESSION_BINDINGS, MAX_SSH_AGENT_MESSAGE_LENGTH, NO_FLOW_CONTROL_EXTENSION, OnePasswordAgent, OPENSSH_AGENT_SECURITY_KEY_PROVIDER, OPENSSH_AGENT_SESSION_BIND, OPENSSH_INFO_SIGNAL, PageantAgent, PageantAgentError, parseKey, parseRFC4716PublicKeyFile, PrivateKey, PrivateKeyAgent, ProtocolVersionExchange, PublicKey, PublicKeySubsystemClient, PublicKeySubsystemServer, PublicKeySubsystemStatusCode, SecurityKeyAttestation, serializeRFC4716PublicKey, Server, SessionChannel, SSH_ED25519_SECURITY_KEY_ALGORITHM, SSHAgentConstraintType, SSHAgentExtensionFailureError, SSHAgentMessageType, SSHAgentProtocolClient, SSHAgentProtocolError, SSHAgentProtocolServer, SSHED25519SecurityKeyPrivateKey, SSHED25519SecurityKeyPublicKey, SSHFPFingerprintType, SSHFPRecord, SSHSignature, TerminalMode, verifySSHFP } = await import("@bunkerch/modernssh")
+                    const publicKeySubsystemEntry = await import("@bunkerch/modernssh")
+                    if (publicKeySubsystemEntry.PUBLIC_KEY_SUBSYSTEM_VERSION !== 3 || publicKeySubsystemEntry.MAX_PUBLIC_KEY_SUBSYSTEM_NAMESPACE_CHARACTERS !== 300) process.exit(113)
+                    if (typeof PublicKeySubsystemClient.prototype.addCertificate !== "function" || typeof PublicKeySubsystemClient.prototype.removeCertificate !== "function" || typeof PublicKeySubsystemClient.prototype.listCertificates !== "function" || typeof PublicKeySubsystemClient.prototype.listNamespaces !== "function") process.exit(114)
+                    if (PublicKeySubsystemStatusCode.CertificateNotFound !== 192 || PublicKeySubsystemStatusCode.CannotCreateNamespace !== 196) process.exit(115)
                     if (GLOBAL_REQUESTS_OK_EXTENSION !== "global-requests-ok") process.exit(111)
                     if (TerminalMode.IUTF8 !== 42) process.exit(112)
                     const { privateKey, publicKey } = await generateKeyPair("ed25519", {

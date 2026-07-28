@@ -7,7 +7,7 @@ description: Exact public TypeScript declarations shipped by modernssh.
 
 # API reference
 
-This reference is generated from the declarations shipped by the package. It covers all 441 exports available from `@bunkerch/modernssh`. Class sections contain every public constructor, property, accessor, and method declared by that class; inherited Node.js stream and EventEmitter members remain documented by Node.js.
+This reference is generated from the declarations shipped by the package. It covers all 458 exports available from `@bunkerch/modernssh`. Class sections contain every public constructor, property, accessor, and method declared by that class; inherited Node.js stream and EventEmitter members remain documented by Node.js.
 
 Regenerate it with `pnpm docs:api`. CI runs `pnpm docs:api:check` to prevent the reference from drifting from `dist/*.d.ts`.
 
@@ -160,6 +160,7 @@ Regenerate it with `pnpm docs:api`. CI runs `pnpm docs:api:check` to prevent the
 | [`MAX_OPENSSH_AGENT_DESTINATION_CONSTRAINTS`](agents.md#max_openssh_agent_destination_constraints) | Constant | Agents and public-key management |
 | [`MAX_OPENSSH_AGENT_SESSION_BINDINGS`](agents.md#max_openssh_agent_session_bindings) | Constant | Agents and public-key management |
 | [`MAX_OPENSSH_AGENT_SESSION_IDENTIFIER_LENGTH`](agents.md#max_openssh_agent_session_identifier_length) | Constant | Agents and public-key management |
+| [`MAX_PUBLIC_KEY_SUBSYSTEM_NAMESPACE_CHARACTERS`](agents.md#max_public_key_subsystem_namespace_characters) | Constant | Agents and public-key management |
 | [`MAX_PUBLIC_KEY_SUBSYSTEM_PACKET_LENGTH`](agents.md#max_public_key_subsystem_packet_length) | Constant | Agents and public-key management |
 | [`MAX_PUBLIC_KEY_SUBSYSTEM_RESPONSE_BYTES`](agents.md#max_public_key_subsystem_response_bytes) | Constant | Agents and public-key management |
 | [`MAX_PUBLIC_KEY_SUBSYSTEM_RESPONSES`](agents.md#max_public_key_subsystem_responses) | Constant | Agents and public-key management |
@@ -212,29 +213,45 @@ Regenerate it with `pnpm docs:api`. CI runs `pnpm docs:api:check` to prevent the
 | [`PublicKeyAlgorithm`](keys.md#publickeyalgorithm) | Class | Keys, trust, and signatures |
 | [`PublicKeyData`](keys.md#publickeydata) | Interface | Keys, trust, and signatures |
 | [`PublicKeySubsystemAddAttribute`](agents.md#publickeysubsystemaddattribute) | Interface | Agents and public-key management |
+| [`PublicKeySubsystemAddCertificateOptions`](agents.md#publickeysubsystemaddcertificateoptions) | Interface | Agents and public-key management |
+| [`PublicKeySubsystemAddCertificatePacket`](agents.md#publickeysubsystemaddcertificatepacket) | Interface | Agents and public-key management |
 | [`PublicKeySubsystemAddOptions`](agents.md#publickeysubsystemaddoptions) | Interface | Agents and public-key management |
 | [`PublicKeySubsystemAddPacket`](agents.md#publickeysubsystemaddpacket) | Interface | Agents and public-key management |
 | [`PublicKeySubsystemAttributeInput`](agents.md#publickeysubsystemattributeinput) | Interface | Agents and public-key management |
 | [`PublicKeySubsystemAttributePacket`](agents.md#publickeysubsystemattributepacket) | Interface | Agents and public-key management |
+| [`PublicKeySubsystemCertificate`](agents.md#publickeysubsystemcertificate) | Interface | Agents and public-key management |
+| [`PublicKeySubsystemCertificatePacket`](agents.md#publickeysubsystemcertificatepacket) | Interface | Agents and public-key management |
 | [`PublicKeySubsystemClient`](agents.md#publickeysubsystemclient) | Class | Agents and public-key management |
 | [`PublicKeySubsystemClientOptions`](agents.md#publickeysubsystemclientoptions) | Interface | Agents and public-key management |
 | [`PublicKeySubsystemKey`](agents.md#publickeysubsystemkey) | Interface | Agents and public-key management |
 | [`PublicKeySubsystemListAttributesPacket`](agents.md#publickeysubsystemlistattributespacket) | Interface | Agents and public-key management |
+| [`PublicKeySubsystemListCertificatesPacket`](agents.md#publickeysubsystemlistcertificatespacket) | Interface | Agents and public-key management |
 | [`PublicKeySubsystemListedAttribute`](agents.md#publickeysubsystemlistedattribute) | Interface | Agents and public-key management |
+| [`PublicKeySubsystemListNamespacesPacket`](agents.md#publickeysubsystemlistnamespacespacket) | Interface | Agents and public-key management |
 | [`PublicKeySubsystemListPacket`](agents.md#publickeysubsystemlistpacket) | Interface | Agents and public-key management |
+| [`PublicKeySubsystemNamespacePacket`](agents.md#publickeysubsystemnamespacepacket) | Interface | Agents and public-key management |
 | [`PublicKeySubsystemPacket`](agents.md#publickeysubsystempacket) | Type | Agents and public-key management |
 | [`PublicKeySubsystemPacketParser`](agents.md#publickeysubsystempacketparser) | Class | Agents and public-key management |
 | [`PublicKeySubsystemProtocolError`](agents.md#publickeysubsystemprotocolerror) | Class | Agents and public-key management |
 | [`PublicKeySubsystemPublicKeyPacket`](agents.md#publickeysubsystempublickeypacket) | Interface | Agents and public-key management |
+| [`PublicKeySubsystemRemoveCertificateOptions`](agents.md#publickeysubsystemremovecertificateoptions) | Interface | Agents and public-key management |
+| [`PublicKeySubsystemRemoveCertificatePacket`](agents.md#publickeysubsystemremovecertificatepacket) | Interface | Agents and public-key management |
 | [`PublicKeySubsystemRemovePacket`](agents.md#publickeysubsystemremovepacket) | Interface | Agents and public-key management |
+| [`PublicKeySubsystemRequestOptions`](agents.md#publickeysubsystemrequestoptions) | Interface | Agents and public-key management |
 | [`PublicKeySubsystemServer`](agents.md#publickeysubsystemserver) | Class | Agents and public-key management |
+| [`PublicKeySubsystemServerAddCertificateContext`](agents.md#publickeysubsystemserveraddcertificatecontext) | Interface | Agents and public-key management |
 | [`PublicKeySubsystemServerAddContext`](agents.md#publickeysubsystemserveraddcontext) | Interface | Agents and public-key management |
 | [`PublicKeySubsystemServerEvents`](agents.md#publickeysubsystemserverevents) | Type | Agents and public-key management |
 | [`PublicKeySubsystemServerHooker`](agents.md#publickeysubsystemserverhooker) | Type | Agents and public-key management |
+| [`PublicKeySubsystemServerListCertificatesController`](agents.md#publickeysubsystemserverlistcertificatescontroller) | Interface | Agents and public-key management |
+| [`PublicKeySubsystemServerListContext`](agents.md#publickeysubsystemserverlistcontext) | Interface | Agents and public-key management |
 | [`PublicKeySubsystemServerListController`](agents.md#publickeysubsystemserverlistcontroller) | Interface | Agents and public-key management |
 | [`PublicKeySubsystemServerListedAttribute`](agents.md#publickeysubsystemserverlistedattribute) | Interface | Agents and public-key management |
+| [`PublicKeySubsystemServerListedCertificate`](agents.md#publickeysubsystemserverlistedcertificate) | Interface | Agents and public-key management |
 | [`PublicKeySubsystemServerListedKey`](agents.md#publickeysubsystemserverlistedkey) | Interface | Agents and public-key management |
+| [`PublicKeySubsystemServerListNamespacesController`](agents.md#publickeysubsystemserverlistnamespacescontroller) | Interface | Agents and public-key management |
 | [`PublicKeySubsystemServerOptions`](agents.md#publickeysubsystemserveroptions) | Interface | Agents and public-key management |
+| [`PublicKeySubsystemServerRemoveCertificateContext`](agents.md#publickeysubsystemserverremovecertificatecontext) | Interface | Agents and public-key management |
 | [`PublicKeySubsystemServerRemoveContext`](agents.md#publickeysubsystemserverremovecontext) | Interface | Agents and public-key management |
 | [`PublicKeySubsystemServerResponseController`](agents.md#publickeysubsystemserverresponsecontroller) | Interface | Agents and public-key management |
 | [`PublicKeySubsystemStatusCode`](agents.md#publickeysubsystemstatuscode) | Enum | Agents and public-key management |

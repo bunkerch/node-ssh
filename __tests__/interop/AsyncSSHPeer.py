@@ -31,7 +31,7 @@ if os.environ.get("MODERNSSH_PEER_DEBUG"):
 
 USERNAME = "interop"
 PASSWORD = "correct-horse-battery-staple"
-PUBLIC_KEY_SUBSYSTEM_VERSION = 2
+PUBLIC_KEY_SUBSYSTEM_VERSION = 3
 MSG_NEWCOMPRESS = 8
 DELAY_COMPRESSION_VALUE = NameList((b"zlib", b"none")) * 2
 PUBLIC_KEY = bytes.fromhex(
@@ -236,14 +236,38 @@ def attribute_packet(name: str, compulsory: bool) -> bytes:
     )
 
 
-def listed_key_packet(key: bytes, comment: bytes) -> bytes:
+def request_attributes(attributes: list[tuple[bytes, bytes, bool]]) -> bytes:
+    return struct.pack(">I", len(attributes)) + b"".join(
+        ssh_string(name) + ssh_string(value) + bytes([int(critical)])
+        for name, value, critical in attributes
+    )
+
+
+def listed_attributes(attributes: list[tuple[bytes, bytes]]) -> bytes:
+    return struct.pack(">I", len(attributes)) + b"".join(
+        ssh_string(name) + ssh_string(value) for name, value in attributes
+    )
+
+
+def listed_key_packet(
+    key: bytes, attributes: list[tuple[bytes, bytes]]
+) -> bytes:
     return public_key_packet(
         "publickey",
         ssh_string(b"ssh-ed25519")
         + ssh_string(key)
-        + struct.pack(">I", 1)
-        + ssh_string(b"comment")
-        + ssh_string(comment),
+        + listed_attributes(attributes),
+    )
+
+
+def listed_certificate_packet(
+    certificate: bytes, namespace: bytes
+) -> bytes:
+    return public_key_packet(
+        "certificate",
+        ssh_string(b"X509")
+        + ssh_string(certificate)
+        + listed_attributes([(b"namespace", namespace)]),
     )
 
 
@@ -262,7 +286,7 @@ async def exchange_version(
 ) -> None:
     await write_fragmented(writer, version_packet())
     name, packet = await read_public_key_packet(reader)
-    if name != "version" or packet.uint32() != PUBLIC_KEY_SUBSYSTEM_VERSION:
+    if name != "version" or packet.uint32() < PUBLIC_KEY_SUBSYSTEM_VERSION:
         raise ValueError("unexpected public-key subsystem version")
     packet.finish()
 
@@ -395,6 +419,7 @@ async def handle_public_key_process(process: asyncssh.SSHServerProcess[bytes]) -
     await exchange_version(process.stdin, process.stdout)
     stored_key: bytes | None = None
     stored_comment = b""
+    stored_certificate: bytes | None = None
 
     while True:
         name, packet = await read_public_key_packet(process.stdin)
@@ -403,6 +428,7 @@ async def handle_public_key_process(process: asyncssh.SSHServerProcess[bytes]) -
             process.stdout.write(
                 attribute_packet("comment", False)
                 + attribute_packet("shell", True)
+                + attribute_packet("namespace", False)
                 + status_packet()
             )
         elif name == "add":
@@ -416,25 +442,93 @@ async def handle_public_key_process(process: asyncssh.SSHServerProcess[bytes]) -
             packet.finish()
             if algorithm != b"ssh-ed25519" or key != PUBLIC_KEY or not overwrite:
                 raise ValueError("unexpected public-key subsystem add request")
-            if attributes != [(b"comment", b"library-client", False)]:
+            if attributes != [
+                (b"namespace", b"ssh", True),
+                (b"comment", b"library-client", False),
+            ]:
                 raise ValueError("unexpected public-key subsystem attributes")
             stored_key = key
-            stored_comment = attributes[0][1]
+            stored_comment = attributes[1][1]
             process.stdout.write(status_packet())
         elif name == "list":
+            attributes = [
+                (packet.string(), packet.string(), packet.boolean())
+                for _ in range(packet.uint32())
+            ]
             packet.finish()
+            if attributes != [(b"namespace", b"ssh", True)]:
+                raise ValueError("unexpected public-key subsystem list namespace")
             response = b""
             if stored_key is not None:
-                response += listed_key_packet(stored_key, stored_comment)
+                response += listed_key_packet(
+                    stored_key,
+                    [(b"namespace", b"ssh"), (b"comment", stored_comment)],
+                )
             process.stdout.write(response + status_packet())
         elif name == "remove":
             algorithm = packet.string()
             key = packet.string()
+            attributes = [
+                (packet.string(), packet.string(), packet.boolean())
+                for _ in range(packet.uint32())
+            ]
             packet.finish()
-            if algorithm != b"ssh-ed25519" or key != stored_key:
+            if (
+                algorithm != b"ssh-ed25519"
+                or key != stored_key
+                or attributes != [(b"namespace", b"ssh", True)]
+            ):
                 raise ValueError("unexpected public-key subsystem remove request")
             stored_key = None
             process.stdout.write(status_packet())
+        elif name == "add-certificate":
+            certificate_format = packet.string()
+            certificate = packet.string()
+            overwrite = packet.boolean()
+            attributes = [
+                (packet.string(), packet.string(), packet.boolean())
+                for _ in range(packet.uint32())
+            ]
+            packet.finish()
+            if (
+                certificate_format != b"X509"
+                or certificate != b"\x01\x02\x03"
+                or overwrite
+                or attributes != [(b"namespace", b"ssh", True)]
+            ):
+                raise ValueError("unexpected public-key subsystem certificate add")
+            stored_certificate = certificate
+            process.stdout.write(status_packet())
+        elif name == "list-certificates":
+            packet.finish()
+            response = (
+                b""
+                if stored_certificate is None
+                else listed_certificate_packet(stored_certificate, b"ssh")
+            )
+            process.stdout.write(response + status_packet())
+        elif name == "remove-certificate":
+            certificate_format = packet.string()
+            certificate = packet.string()
+            attributes = [
+                (packet.string(), packet.string()) for _ in range(packet.uint32())
+            ]
+            packet.finish()
+            if (
+                certificate_format != b"X509"
+                or certificate != stored_certificate
+                or attributes != [(b"namespace", b"ssh")]
+            ):
+                raise ValueError("unexpected public-key subsystem certificate remove")
+            stored_certificate = None
+            process.stdout.write(status_packet())
+        elif name == "list-namespaces":
+            packet.finish()
+            process.stdout.write(
+                public_key_packet("namespace", ssh_string(b"ssh"))
+                + public_key_packet("namespace", ssh_string(b"ssl"))
+                + status_packet()
+            )
         else:
             packet.finish()
             process.stdout.write(status_packet(8, "unsupported request"))
@@ -537,15 +631,18 @@ async def connect_public_key(port: int, key_exchange: str) -> None:
             ssh_string(b"ssh-ed25519")
             + ssh_string(PUBLIC_KEY)
             + b"\x01"
-            + struct.pack(">I", 1)
-            + ssh_string(b"comment")
-            + ssh_string(b"independent-client")
-            + b"\x00"
+            + request_attributes(
+                [
+                    (b"namespace", b"ssh", True),
+                    (b"comment", b"independent-client", False),
+                ]
+            )
         )
         writer.write(public_key_packet("add", add))
         await expect_status(reader)
 
-        writer.write(public_key_packet("list"))
+        namespace_filter = request_attributes([(b"namespace", b"ssh", True)])
+        writer.write(public_key_packet("list", namespace_filter))
         name, packet = await read_public_key_packet(reader)
         if name != "publickey":
             raise ValueError("unexpected public-key subsystem list response")
@@ -558,19 +655,76 @@ async def connect_public_key(port: int, key_exchange: str) -> None:
         if (
             algorithm != "ssh-ed25519"
             or listed_key != PUBLIC_KEY
-            or attributes != [(b"comment", b"independent-client")]
+            or attributes
+            != [(b"namespace", b"ssh"), (b"comment", b"independent-client")]
         ):
             raise ValueError("unexpected listed public key")
 
         writer.write(
             public_key_packet(
                 "remove",
-                ssh_string(b"ssh-ed25519") + ssh_string(PUBLIC_KEY),
+                ssh_string(b"ssh-ed25519")
+                + ssh_string(PUBLIC_KEY)
+                + namespace_filter,
             )
         )
         await expect_status(reader)
-        writer.write(public_key_packet("list"))
+        writer.write(public_key_packet("list", namespace_filter))
         await expect_status(reader)
+
+        certificate = b"\x01\x02\x03"
+        writer.write(
+            public_key_packet(
+                "add-certificate",
+                ssh_string(b"X509")
+                + ssh_string(certificate)
+                + b"\x00"
+                + request_attributes([(b"namespace", b"ssh", True)]),
+            )
+        )
+        await expect_status(reader)
+        writer.write(public_key_packet("list-certificates"))
+        name, packet = await read_public_key_packet(reader)
+        if name != "certificate":
+            raise ValueError("unexpected public-key subsystem certificate response")
+        certificate_format = packet.string()
+        listed_certificate = packet.string()
+        certificate_attributes = [
+            (packet.string(), packet.string()) for _ in range(packet.uint32())
+        ]
+        packet.finish()
+        await expect_status(reader)
+        if (
+            certificate_format != b"X509"
+            or listed_certificate != certificate
+            or certificate_attributes != [(b"namespace", b"ssh")]
+        ):
+            raise ValueError("unexpected listed certificate")
+        writer.write(
+            public_key_packet(
+                "remove-certificate",
+                ssh_string(b"X509")
+                + ssh_string(certificate)
+                + listed_attributes([(b"namespace", b"ssh")]),
+            )
+        )
+        await expect_status(reader)
+
+        writer.write(public_key_packet("list-namespaces"))
+        namespaces: list[str] = []
+        while True:
+            name, packet = await read_public_key_packet(reader)
+            if name == "status":
+                if packet.uint32() != 0:
+                    raise ValueError("public-key subsystem namespace request failed")
+                packet.string()
+                packet.string()
+                packet.finish()
+                break
+            if name != "namespace":
+                raise ValueError("unexpected public-key subsystem namespace response")
+            namespaces.append(packet.string().decode("utf-8"))
+            packet.finish()
         writer.close()
         await writer.wait_closed()
 
@@ -579,7 +733,9 @@ async def connect_public_key(port: int, key_exchange: str) -> None:
                 {
                     "algorithm": algorithm,
                     "capabilities": capabilities,
-                    "comment": attributes[0][1].decode("utf-8"),
+                    "comment": attributes[1][1].decode("utf-8"),
+                    "certificate": listed_certificate.hex(),
+                    "namespaces": namespaces,
                     "removed": True,
                 }
             )

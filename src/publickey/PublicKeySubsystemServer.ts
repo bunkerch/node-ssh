@@ -9,13 +9,17 @@ import {
     encodePublicKeySubsystemPacket,
     MAX_PUBLIC_KEY_SUBSYSTEM_RESPONSES,
     MAX_PUBLIC_KEY_SUBSYSTEM_RESPONSE_BYTES,
+    MIN_PUBLIC_KEY_SUBSYSTEM_VERSION,
     PUBLIC_KEY_SUBSYSTEM_VERSION,
+    publicKeySubsystemNamespace,
     PublicKeySubsystemPacketParser,
     PublicKeySubsystemProtocolError,
     PublicKeySubsystemStatusCode,
     validatePublicKeySubsystemAttributes,
+    validatePublicKeySubsystemNamespace,
     type PublicKeySubsystemAddAttribute,
     type PublicKeySubsystemPacket,
+    type PublicKeySubsystemListedAttribute,
     type PublicKeySubsystemPublicKeyPacket,
 } from "./PublicKeySubsystemCodec.js"
 
@@ -32,6 +36,7 @@ export interface PublicKeySubsystemServerAddContext {
     readonly key: PublicKey
     readonly overwrite: boolean
     readonly attributes: readonly PublicKeySubsystemAddAttribute[]
+    readonly namespace?: string
 }
 
 export interface PublicKeySubsystemServerResponseController {
@@ -43,6 +48,8 @@ export interface PublicKeySubsystemServerResponseController {
 
 export interface PublicKeySubsystemServerRemoveContext {
     readonly key: PublicKey
+    readonly attributes: readonly PublicKeySubsystemAddAttribute[]
+    readonly namespace?: string
 }
 
 export interface PublicKeySubsystemServerListedAttribute {
@@ -60,6 +67,43 @@ export interface PublicKeySubsystemServerListController
     keys?: readonly PublicKeySubsystemServerListedKey[]
 }
 
+export interface PublicKeySubsystemServerListContext {
+    readonly attributes: readonly PublicKeySubsystemAddAttribute[]
+    readonly namespace?: string
+}
+
+export interface PublicKeySubsystemServerAddCertificateContext {
+    readonly format: string
+    readonly certificate: Buffer
+    readonly overwrite: boolean
+    readonly namespace: string
+    readonly attributes: readonly PublicKeySubsystemAddAttribute[]
+}
+
+export interface PublicKeySubsystemServerRemoveCertificateContext {
+    readonly format: string
+    readonly certificate: Buffer
+    readonly namespace: string
+    readonly attributes: readonly PublicKeySubsystemListedAttribute[]
+}
+
+export interface PublicKeySubsystemServerListedCertificate {
+    readonly format: string
+    readonly certificate: Buffer
+    readonly namespace: string
+    readonly attributes?: readonly PublicKeySubsystemServerListedAttribute[]
+}
+
+export interface PublicKeySubsystemServerListCertificatesController
+    extends PublicKeySubsystemServerResponseController {
+    certificates?: readonly PublicKeySubsystemServerListedCertificate[]
+}
+
+export interface PublicKeySubsystemServerListNamespacesController
+    extends PublicKeySubsystemServerResponseController {
+    namespaces?: readonly string[]
+}
+
 // eslint-disable-next-line @typescript-eslint/consistent-type-definitions
 export type PublicKeySubsystemServerHooker = {
     add: [
@@ -70,7 +114,20 @@ export type PublicKeySubsystemServerHooker = {
         context: Readonly<PublicKeySubsystemServerRemoveContext>,
         controller: PublicKeySubsystemServerResponseController,
     ]
-    list: [controller: PublicKeySubsystemServerListController]
+    list: [
+        controller: PublicKeySubsystemServerListController,
+        context: Readonly<PublicKeySubsystemServerListContext>,
+    ]
+    addCertificate: [
+        context: Readonly<PublicKeySubsystemServerAddCertificateContext>,
+        controller: PublicKeySubsystemServerResponseController,
+    ]
+    removeCertificate: [
+        context: Readonly<PublicKeySubsystemServerRemoveCertificateContext>,
+        controller: PublicKeySubsystemServerResponseController,
+    ]
+    listCertificates: [controller: PublicKeySubsystemServerListCertificatesController]
+    listNamespaces: [controller: PublicKeySubsystemServerListNamespacesController]
 }
 
 // eslint-disable-next-line @typescript-eslint/consistent-type-definitions
@@ -87,12 +144,17 @@ export default class PublicKeySubsystemServer extends EventEmitter<PublicKeySubs
     readonly attributes: readonly Readonly<Required<PublicKeySubsystemSupportedAttribute>>[]
 
     private readonly parser = new PublicKeySubsystemPacketParser()
+    #negotiatedProtocolVersion: number | undefined
     private readonly supportedAttributeNames: ReadonlySet<string>
     private initialized = false
     private closed = false
     private active: Exclude<PublicKeySubsystemPacket, { type: "version" }> | undefined
     private dispatchScheduled = false
     private hookError: Error | undefined
+
+    get negotiatedProtocolVersion(): number | undefined {
+        return this.#negotiatedProtocolVersion
+    }
 
     constructor(stream: Shell, options: PublicKeySubsystemServerOptions = {}) {
         super()
@@ -123,6 +185,9 @@ export default class PublicKeySubsystemServer extends EventEmitter<PublicKeySubs
                 compulsory: attribute.compulsory === undefined ? false : attribute.compulsory,
             })
         })
+        if (!normalizedAttributes.some(({ name }) => name === "namespace")) {
+            normalizedAttributes.push(Object.freeze({ name: "namespace", compulsory: false }))
+        }
         this.stream = stream
         this.attributes = Object.freeze(normalizedAttributes)
         this.supportedAttributeNames = new Set(this.attributes.map(({ name }) => name))
@@ -164,7 +229,8 @@ export default class PublicKeySubsystemServer extends EventEmitter<PublicKeySubs
                     "Expected public-key subsystem version packet",
                 )
             }
-            if (Math.min(packet.version, PUBLIC_KEY_SUBSYSTEM_VERSION) !== this.protocolVersion) {
+            const negotiatedVersion = Math.min(packet.version, PUBLIC_KEY_SUBSYSTEM_VERSION)
+            if (negotiatedVersion < MIN_PUBLIC_KEY_SUBSYSTEM_VERSION) {
                 const error = new PublicKeySubsystemProtocolError(
                     `Unsupported public-key subsystem version ${packet.version}`,
                 )
@@ -185,6 +251,7 @@ export default class PublicKeySubsystemServer extends EventEmitter<PublicKeySubs
                 this.fail(error)
                 return
             }
+            this.#negotiatedProtocolVersion = negotiatedVersion
             this.initialized = true
             this.emit("ready", packet.version)
             return
@@ -199,11 +266,38 @@ export default class PublicKeySubsystemServer extends EventEmitter<PublicKeySubs
                 "Public-key subsystem client sent a request before acknowledgement",
             )
         }
+        const version3Request =
+            packet.type === "add-certificate" ||
+            packet.type === "remove-certificate" ||
+            packet.type === "list-certificates" ||
+            packet.type === "list-namespaces"
+        if (version3Request && this.negotiatedProtocolVersion! < 3) {
+            this.active = packet
+            void this.respond(
+                PublicKeySubsystemStatusCode.RequestNotSupported,
+                `Public-key subsystem ${packet.type} requires protocol version 3`,
+            ).catch((error: unknown) => {
+                this.destroy(error instanceof Error ? error : new Error(String(error)))
+            })
+            return
+        }
+        if (
+            (packet.type === "remove" || packet.type === "list") &&
+            (packet.attributes !== undefined) !== this.negotiatedProtocolVersion! >= 3
+        ) {
+            throw new PublicKeySubsystemProtocolError(
+                `Public-key subsystem ${packet.type} layout does not match negotiated version`,
+            )
+        }
         if (
             packet.type !== "add" &&
             packet.type !== "remove" &&
             packet.type !== "list" &&
-            packet.type !== "listattributes"
+            packet.type !== "listattributes" &&
+            packet.type !== "add-certificate" &&
+            packet.type !== "remove-certificate" &&
+            packet.type !== "list-certificates" &&
+            packet.type !== "list-namespaces"
         ) {
             this.active = packet
             const requestName = packet.type === "unknown" ? packet.name : packet.type
@@ -246,7 +340,85 @@ export default class PublicKeySubsystemServer extends EventEmitter<PublicKeySubs
             await this.respond(PublicKeySubsystemStatusCode.Success)
             return
         }
+        if (packet.type === "add-certificate") {
+            let request: Readonly<PublicKeySubsystemServerAddCertificateContext>
+            try {
+                const context = this.requestContext(packet.attributes)
+                const namespace = publicKeySubsystemNamespace(packet.attributes, true)!
+                request = Object.freeze({
+                    format: packet.format,
+                    certificate: Buffer.from(packet.certificateBlob),
+                    overwrite: packet.overwrite,
+                    namespace,
+                    attributes: context.attributes,
+                })
+            } catch (error) {
+                await this.respond(
+                    PublicKeySubsystemStatusCode.AttributeNotSupported,
+                    error instanceof Error ? error.message : "Invalid certificate attribute",
+                )
+                return
+            }
+            await this.dispatchPolicy(
+                "addCertificate",
+                request,
+                "certificate add",
+                PublicKeySubsystemStatusCode.ActionNotAuthorized,
+            )
+            return
+        }
+        if (packet.type === "remove-certificate") {
+            let request: Readonly<PublicKeySubsystemServerRemoveCertificateContext>
+            try {
+                validatePublicKeySubsystemAttributes(packet.attributes)
+                const namespace = publicKeySubsystemNamespace(packet.attributes, true)!
+                request = Object.freeze({
+                    format: packet.format,
+                    certificate: Buffer.from(packet.certificateBlob),
+                    namespace,
+                    attributes: Object.freeze(
+                        packet.attributes.map((attribute) =>
+                            Object.freeze({
+                                name: attribute.name,
+                                value: Buffer.from(attribute.value),
+                            }),
+                        ),
+                    ),
+                })
+            } catch (error) {
+                await this.respond(
+                    PublicKeySubsystemStatusCode.AttributeNotSupported,
+                    error instanceof Error ? error.message : "Invalid certificate attribute",
+                )
+                return
+            }
+            await this.dispatchPolicy(
+                "removeCertificate",
+                request,
+                "certificate remove",
+                PublicKeySubsystemStatusCode.ActionNotAuthorized,
+            )
+            return
+        }
+        if (packet.type === "list-certificates") {
+            await this.dispatchCertificateList()
+            return
+        }
+        if (packet.type === "list-namespaces") {
+            await this.dispatchNamespaceList()
+            return
+        }
         if (packet.type === "list") {
+            let context: Readonly<PublicKeySubsystemServerListContext>
+            try {
+                context = this.requestContext(packet.attributes ?? [])
+            } catch (error) {
+                await this.respond(
+                    PublicKeySubsystemStatusCode.AttributeNotSupported,
+                    error instanceof Error ? error.message : "Invalid public-key attribute",
+                )
+                return
+            }
             if (!this.hooker.hasHooks("list")) {
                 await this.respond(
                     PublicKeySubsystemStatusCode.RequestNotSupported,
@@ -256,7 +428,7 @@ export default class PublicKeySubsystemServer extends EventEmitter<PublicKeySubs
             }
             const controller: PublicKeySubsystemServerListController = { success: false }
             this.hookError = undefined
-            await this.hooker.triggerHook("list", controller)
+            await this.hooker.triggerHook("list", controller, context)
             if (this.hookError) {
                 await this.respond(
                     PublicKeySubsystemStatusCode.GeneralFailure,
@@ -338,13 +510,24 @@ export default class PublicKeySubsystemServer extends EventEmitter<PublicKeySubs
             return
         }
         if (packet.type === "remove") {
+            let context: Readonly<PublicKeySubsystemServerRemoveContext>
+            try {
+                const request = this.requestContext(packet.attributes ?? [])
+                context = Object.freeze({ key, ...request })
+            } catch (error) {
+                await this.respond(
+                    PublicKeySubsystemStatusCode.AttributeNotSupported,
+                    error instanceof Error ? error.message : "Invalid public-key attribute",
+                )
+                return
+            }
             if (!this.hooker.hasHooks("remove")) {
-                await this.respond(PublicKeySubsystemStatusCode.AccessDenied, "Access denied")
+                await this.respond(this.authorizationFailureCode(), "Action not authorized")
                 return
             }
             const controller: PublicKeySubsystemServerResponseController = { success: false }
             this.hookError = undefined
-            await this.hooker.triggerHook("remove", Object.freeze({ key }), controller)
+            await this.hooker.triggerHook("remove", context, controller)
             if (this.hookError) {
                 await this.respond(
                     PublicKeySubsystemStatusCode.GeneralFailure,
@@ -355,24 +538,15 @@ export default class PublicKeySubsystemServer extends EventEmitter<PublicKeySubs
             await this.respond(
                 controller.success
                     ? PublicKeySubsystemStatusCode.Success
-                    : (controller.failureCode ?? PublicKeySubsystemStatusCode.AccessDenied),
-                controller.description ?? (controller.success ? "" : "Access denied"),
+                    : (controller.failureCode ?? this.authorizationFailureCode()),
+                controller.description ?? (controller.success ? "" : "Action not authorized"),
                 controller.languageTag ?? "",
             )
             return
         }
-        const unsupported = packet.attributes.find(
-            (attribute) => attribute.critical && !this.supportedAttributeNames.has(attribute.name),
-        )
-        if (unsupported) {
-            await this.respond(
-                PublicKeySubsystemStatusCode.AttributeNotSupported,
-                `Unsupported critical attribute ${unsupported.name}`,
-            )
-            return
-        }
+        let request: Omit<PublicKeySubsystemServerAddContext, "key" | "overwrite">
         try {
-            validatePublicKeySubsystemAttributes(packet.attributes)
+            request = this.requestContext(packet.attributes)
         } catch (error) {
             await this.respond(
                 PublicKeySubsystemStatusCode.AttributeNotSupported,
@@ -381,21 +555,13 @@ export default class PublicKeySubsystemServer extends EventEmitter<PublicKeySubs
             return
         }
         if (!this.hooker.hasHooks("add")) {
-            await this.respond(PublicKeySubsystemStatusCode.AccessDenied, "Access denied")
+            await this.respond(this.authorizationFailureCode(), "Action not authorized")
             return
         }
         const context = Object.freeze({
             key,
             overwrite: packet.overwrite,
-            attributes: Object.freeze(
-                packet.attributes.map((attribute) =>
-                    Object.freeze({
-                        name: attribute.name,
-                        value: Buffer.from(attribute.value),
-                        critical: attribute.critical,
-                    }),
-                ),
-            ),
+            ...request,
         })
         const controller: PublicKeySubsystemServerResponseController = { success: false }
         this.hookError = undefined
@@ -410,10 +576,16 @@ export default class PublicKeySubsystemServer extends EventEmitter<PublicKeySubs
         await this.respond(
             controller.success
                 ? PublicKeySubsystemStatusCode.Success
-                : (controller.failureCode ?? PublicKeySubsystemStatusCode.AccessDenied),
-            controller.description ?? (controller.success ? "" : "Access denied"),
+                : (controller.failureCode ?? this.authorizationFailureCode()),
+            controller.description ?? (controller.success ? "" : "Action not authorized"),
             controller.languageTag ?? "",
         )
+    }
+
+    private authorizationFailureCode(): number {
+        return this.negotiatedProtocolVersion! >= 3
+            ? PublicKeySubsystemStatusCode.ActionNotAuthorized
+            : PublicKeySubsystemStatusCode.AccessDenied
     }
 
     private async respond(code: number, description = "", languageTag = ""): Promise<void> {
@@ -422,6 +594,219 @@ export default class PublicKeySubsystemServer extends EventEmitter<PublicKeySubs
         }
         this.active = undefined
         await this.writeStatus(code, description, languageTag)
+    }
+
+    private async dispatchPolicy<T extends "addCertificate" | "removeCertificate">(
+        event: T,
+        context: PublicKeySubsystemServerHooker[T][0],
+        description: string,
+        defaultFailureCode: number,
+    ): Promise<void> {
+        if (!this.hooker.hasHooks(event)) {
+            await this.respond(defaultFailureCode, "Action not authorized")
+            return
+        }
+        const controller: PublicKeySubsystemServerResponseController = { success: false }
+        this.hookError = undefined
+        if (event === "addCertificate") {
+            await this.hooker.triggerHook(
+                "addCertificate",
+                context as Readonly<PublicKeySubsystemServerAddCertificateContext>,
+                controller,
+            )
+        } else {
+            await this.hooker.triggerHook(
+                "removeCertificate",
+                context as Readonly<PublicKeySubsystemServerRemoveCertificateContext>,
+                controller,
+            )
+        }
+        if (this.hookError) {
+            await this.respond(
+                PublicKeySubsystemStatusCode.GeneralFailure,
+                `Public-key subsystem ${description} handler failed`,
+            )
+            return
+        }
+        await this.respond(
+            controller.success
+                ? PublicKeySubsystemStatusCode.Success
+                : (controller.failureCode ?? defaultFailureCode),
+            controller.description ?? (controller.success ? "" : "Action not authorized"),
+            controller.languageTag ?? "",
+        )
+    }
+
+    private async dispatchCertificateList(): Promise<void> {
+        if (!this.hooker.hasHooks("listCertificates")) {
+            await this.respond(
+                PublicKeySubsystemStatusCode.ActionNotAuthorized,
+                "Action not authorized",
+            )
+            return
+        }
+        const controller: PublicKeySubsystemServerListCertificatesController = { success: false }
+        this.hookError = undefined
+        await this.hooker.triggerHook("listCertificates", controller)
+        if (this.hookError) {
+            await this.respond(
+                PublicKeySubsystemStatusCode.GeneralFailure,
+                "Public-key subsystem certificate list handler failed",
+            )
+            return
+        }
+        let responses: Extract<PublicKeySubsystemPacket, { type: "certificate" }>[] = []
+        if (controller.success) {
+            try {
+                responses = (controller.certificates ?? []).map((certificate) => {
+                    if (!isPlainConfigurationObject(certificate)) {
+                        throw new TypeError(
+                            "Public-key certificate list response must contain objects",
+                        )
+                    }
+                    encodeSSHName(certificate.format, "Public-key subsystem certificate format")
+                    if (!Buffer.isBuffer(certificate.certificate)) {
+                        throw new TypeError(
+                            "Public-key certificate list response requires certificate buffers",
+                        )
+                    }
+                    validatePublicKeySubsystemNamespace(certificate.namespace)
+                    const attributes = (certificate.attributes ?? []).map((attribute) => ({
+                        name: attribute.name,
+                        value: Buffer.isBuffer(attribute.value)
+                            ? Buffer.from(attribute.value)
+                            : encodeSSHUTF8(
+                                  attribute.value,
+                                  "Public-key subsystem certificate attribute value",
+                              ),
+                    }))
+                    if (attributes.some(({ name }) => name === "namespace")) {
+                        const supplied = publicKeySubsystemNamespace(attributes, true)
+                        if (supplied !== certificate.namespace) {
+                            throw new Error(
+                                "Public-key certificate namespace attribute does not match namespace",
+                            )
+                        }
+                    } else {
+                        attributes.unshift({
+                            name: "namespace",
+                            value: encodeSSHUTF8(
+                                certificate.namespace,
+                                "Public-key subsystem namespace",
+                            ),
+                        })
+                    }
+                    validatePublicKeySubsystemAttributes(attributes)
+                    publicKeySubsystemNamespace(attributes, true)
+                    return {
+                        type: "certificate",
+                        format: certificate.format,
+                        certificateBlob: Buffer.from(certificate.certificate),
+                        attributes,
+                    }
+                })
+                this.validateResponseCollection(responses, "certificate list")
+            } catch {
+                await this.respond(
+                    PublicKeySubsystemStatusCode.GeneralFailure,
+                    "Invalid public-key certificate list response",
+                )
+                return
+            }
+            for (const response of responses) await this.writePacket(response)
+        }
+        await this.respond(
+            controller.success
+                ? PublicKeySubsystemStatusCode.Success
+                : (controller.failureCode ?? PublicKeySubsystemStatusCode.ActionNotAuthorized),
+            controller.description ?? (controller.success ? "" : "Action not authorized"),
+            controller.languageTag ?? "",
+        )
+    }
+
+    private async dispatchNamespaceList(): Promise<void> {
+        if (!this.hooker.hasHooks("listNamespaces")) {
+            await this.respond(
+                PublicKeySubsystemStatusCode.ActionNotAuthorized,
+                "Action not authorized",
+            )
+            return
+        }
+        const controller: PublicKeySubsystemServerListNamespacesController = { success: false }
+        this.hookError = undefined
+        await this.hooker.triggerHook("listNamespaces", controller)
+        if (this.hookError) {
+            await this.respond(
+                PublicKeySubsystemStatusCode.GeneralFailure,
+                "Public-key subsystem namespace list handler failed",
+            )
+            return
+        }
+        let responses: Extract<PublicKeySubsystemPacket, { type: "namespace" }>[] = []
+        if (controller.success) {
+            try {
+                responses = (controller.namespaces ?? []).map((name) => {
+                    validatePublicKeySubsystemNamespace(name)
+                    return { type: "namespace", name }
+                })
+                this.validateResponseCollection(responses, "namespace list")
+            } catch {
+                await this.respond(
+                    PublicKeySubsystemStatusCode.GeneralFailure,
+                    "Invalid public-key namespace list response",
+                )
+                return
+            }
+            for (const response of responses) await this.writePacket(response)
+        }
+        await this.respond(
+            controller.success
+                ? PublicKeySubsystemStatusCode.Success
+                : (controller.failureCode ?? PublicKeySubsystemStatusCode.ActionNotAuthorized),
+            controller.description ?? (controller.success ? "" : "Action not authorized"),
+            controller.languageTag ?? "",
+        )
+    }
+
+    private validateResponseCollection(
+        responses: readonly PublicKeySubsystemPacket[],
+        description: string,
+    ): void {
+        if (responses.length > MAX_PUBLIC_KEY_SUBSYSTEM_RESPONSES) {
+            throw new RangeError(`Public-key ${description} response has too many entries`)
+        }
+        let responseBytes = 0
+        for (const response of responses) {
+            responseBytes += encodePublicKeySubsystemPacket(response).length
+            if (responseBytes > MAX_PUBLIC_KEY_SUBSYSTEM_RESPONSE_BYTES) {
+                throw new RangeError(`Public-key ${description} response is too large`)
+            }
+        }
+    }
+
+    private requestContext(
+        attributes: readonly PublicKeySubsystemAddAttribute[],
+    ): Readonly<PublicKeySubsystemServerListContext> {
+        const unsupported = attributes.find(
+            (attribute) => attribute.critical && !this.supportedAttributeNames.has(attribute.name),
+        )
+        if (unsupported) throw new Error(`Unsupported critical attribute ${unsupported.name}`)
+        validatePublicKeySubsystemAttributes(attributes)
+        const namespace =
+            publicKeySubsystemNamespace(attributes) ??
+            (this.negotiatedProtocolVersion! >= 3 ? "ssh" : undefined)
+        return Object.freeze({
+            attributes: Object.freeze(
+                attributes.map((attribute) =>
+                    Object.freeze({
+                        name: attribute.name,
+                        value: Buffer.from(attribute.value),
+                        critical: attribute.critical,
+                    }),
+                ),
+            ),
+            ...(namespace === undefined ? {} : { namespace }),
+        })
     }
 
     private writeStatus(code: number, description = "", languageTag = ""): Promise<void> {

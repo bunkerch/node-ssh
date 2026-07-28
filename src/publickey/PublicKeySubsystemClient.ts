@@ -3,12 +3,16 @@ import {
     encodePublicKeySubsystemPacket,
     MAX_PUBLIC_KEY_SUBSYSTEM_RESPONSES,
     MAX_PUBLIC_KEY_SUBSYSTEM_RESPONSE_BYTES,
+    MIN_PUBLIC_KEY_SUBSYSTEM_VERSION,
     PUBLIC_KEY_SUBSYSTEM_VERSION,
+    publicKeySubsystemNamespace,
     PublicKeySubsystemPacketParser,
     PublicKeySubsystemProtocolError,
     PublicKeySubsystemStatusCode,
+    validatePublicKeySubsystemNamespace,
     validatePublicKeySubsystemAttributes,
     type PublicKeySubsystemAddAttribute,
+    type PublicKeySubsystemListedAttribute as PublicKeySubsystemCodecListedAttribute,
     type PublicKeySubsystemPacket,
 } from "./PublicKeySubsystemCodec.js"
 import PublicKey from "../utils/PublicKey.js"
@@ -24,7 +28,22 @@ export interface PublicKeySubsystemAttributeInput {
 
 export interface PublicKeySubsystemAddOptions {
     readonly overwrite?: boolean
+    readonly namespace?: string
     readonly attributes?: readonly PublicKeySubsystemAttributeInput[]
+}
+
+export interface PublicKeySubsystemRequestOptions {
+    readonly namespace?: string
+    readonly attributes?: readonly PublicKeySubsystemAttributeInput[]
+}
+
+export interface PublicKeySubsystemAddCertificateOptions extends PublicKeySubsystemAddOptions {
+    readonly namespace: string
+}
+
+export interface PublicKeySubsystemRemoveCertificateOptions
+    extends PublicKeySubsystemRequestOptions {
+    readonly namespace: string
 }
 
 export interface PublicKeySubsystemClientOptions {
@@ -54,6 +73,14 @@ export interface PublicKeySubsystemListedAttribute {
 
 export interface PublicKeySubsystemKey {
     readonly key: PublicKey
+    readonly namespace?: string
+    readonly attributes: readonly PublicKeySubsystemListedAttribute[]
+}
+
+export interface PublicKeySubsystemCertificate {
+    readonly format: string
+    readonly certificate: Buffer
+    readonly namespace: string
     readonly attributes: readonly PublicKeySubsystemListedAttribute[]
 }
 
@@ -82,12 +109,82 @@ interface PendingRequest {
     readonly reject: (error: Error) => void
 }
 
+function normalizeRequestAttributes(
+    options: PublicKeySubsystemRequestOptions,
+    operation: string,
+): readonly PublicKeySubsystemAddAttribute[] {
+    if (!isPlainConfigurationObject(options)) {
+        throw new TypeError(`Public-key subsystem ${operation} options must be an object`)
+    }
+    if (options.namespace !== undefined && typeof options.namespace !== "string") {
+        throw new TypeError("Public-key subsystem namespace must be a string")
+    }
+    if (options.attributes !== undefined && !Array.isArray(options.attributes)) {
+        throw new TypeError("Public-key subsystem attributes must be an array")
+    }
+    const configuredAttributes = options.attributes === undefined ? [] : options.attributes
+    const attributes: PublicKeySubsystemAddAttribute[] = configuredAttributes.map((attribute) => {
+        if (!isPlainConfigurationObject(attribute)) {
+            throw new TypeError("Public-key subsystem attribute must be an object")
+        }
+        if (typeof attribute.name !== "string") {
+            throw new TypeError("Public-key subsystem attribute name must be a string")
+        }
+        encodeSSHName(attribute.name, "Public-key subsystem attribute name")
+        if (typeof attribute.value !== "string" && !Buffer.isBuffer(attribute.value)) {
+            throw new TypeError("Public-key subsystem attribute value must be text or a buffer")
+        }
+        if (attribute.critical !== undefined && typeof attribute.critical !== "boolean") {
+            throw new TypeError("Public-key subsystem critical attribute flag must be a boolean")
+        }
+        return {
+            name: attribute.name,
+            value: Buffer.isBuffer(attribute.value)
+                ? Buffer.from(attribute.value)
+                : encodeSSHUTF8(attribute.value, "Public-key subsystem attribute value"),
+            critical: attribute.critical === undefined ? false : attribute.critical,
+        }
+    })
+    if (options.namespace !== undefined) {
+        validatePublicKeySubsystemNamespace(options.namespace)
+        attributes.unshift({
+            name: "namespace",
+            value: encodeSSHUTF8(options.namespace, "Public-key subsystem namespace"),
+            critical: true,
+        })
+    }
+    validatePublicKeySubsystemAttributes(attributes)
+    publicKeySubsystemNamespace(attributes)
+    return attributes
+}
+
+function normalizeListedRequestAttributes(
+    options: PublicKeySubsystemRemoveCertificateOptions,
+    operation: string,
+): readonly PublicKeySubsystemCodecListedAttribute[] {
+    if (
+        Array.isArray(options?.attributes) &&
+        options.attributes.some(
+            (attribute) =>
+                isPlainConfigurationObject(attribute) && attribute.critical !== undefined,
+        )
+    ) {
+        throw new TypeError(
+            `Public-key subsystem ${operation} attributes do not carry critical flags`,
+        )
+    }
+    const attributes = normalizeRequestAttributes(options, operation)
+    publicKeySubsystemNamespace(attributes, true)
+    return attributes.map(({ name, value }) => ({ name, value }))
+}
+
 export default class PublicKeySubsystemClient {
     readonly protocolVersion = PUBLIC_KEY_SUBSYSTEM_VERSION
     readonly channel: ClientSessionChannel
     readonly requestTimeout: number
 
     private readonly parser = new PublicKeySubsystemPacketParser()
+    #negotiatedProtocolVersion: number | undefined
     private initialized = false
     private closed = false
     private readyResolve!: () => void
@@ -95,6 +192,10 @@ export default class PublicKeySubsystemClient {
     private readonly ready: Promise<void>
     private pending: PendingRequest | undefined
     private operationTail: Promise<void> = Promise.resolve()
+
+    get negotiatedProtocolVersion(): number | undefined {
+        return this.#negotiatedProtocolVersion
+    }
 
     private constructor(channel: ClientSessionChannel, options: PublicKeySubsystemClientOptions) {
         this.channel = channel
@@ -143,51 +244,16 @@ export default class PublicKeySubsystemClient {
         }
         let packet: Extract<PublicKeySubsystemPacket, { type: "add" }>
         try {
-            if (!isPlainConfigurationObject(options)) {
-                throw new TypeError("Public-key subsystem add options must be an object")
-            }
+            const attributes = normalizeRequestAttributes(options, "add")
             if (options.overwrite !== undefined && typeof options.overwrite !== "boolean") {
                 throw new TypeError("Public-key subsystem overwrite must be a boolean")
             }
-            if (options.attributes !== undefined && !Array.isArray(options.attributes)) {
-                throw new TypeError("Public-key subsystem attributes must be an array")
+            if (
+                publicKeySubsystemNamespace(attributes) !== undefined &&
+                this.negotiatedProtocolVersion! < 3
+            ) {
+                throw new Error("Public-key subsystem namespaces require protocol version 3")
             }
-            const configuredAttributes = options.attributes === undefined ? [] : options.attributes
-            const attributes: PublicKeySubsystemAddAttribute[] = configuredAttributes.map(
-                (attribute) => {
-                    if (!isPlainConfigurationObject(attribute)) {
-                        throw new TypeError("Public-key subsystem attribute must be an object")
-                    }
-                    if (typeof attribute.name !== "string") {
-                        throw new TypeError("Public-key subsystem attribute name must be a string")
-                    }
-                    encodeSSHName(attribute.name, "Public-key subsystem attribute name")
-                    if (typeof attribute.value !== "string" && !Buffer.isBuffer(attribute.value)) {
-                        throw new TypeError(
-                            "Public-key subsystem attribute value must be text or a buffer",
-                        )
-                    }
-                    if (
-                        attribute.critical !== undefined &&
-                        typeof attribute.critical !== "boolean"
-                    ) {
-                        throw new TypeError(
-                            "Public-key subsystem critical attribute flag must be a boolean",
-                        )
-                    }
-                    return {
-                        name: attribute.name,
-                        value: Buffer.isBuffer(attribute.value)
-                            ? Buffer.from(attribute.value)
-                            : encodeSSHUTF8(
-                                  attribute.value,
-                                  "Public-key subsystem attribute value",
-                              ),
-                        critical: attribute.critical === undefined ? false : attribute.critical,
-                    }
-                },
-            )
-            validatePublicKeySubsystemAttributes(attributes)
             packet = {
                 type: "add",
                 algorithm: key.data.alg,
@@ -203,25 +269,60 @@ export default class PublicKeySubsystemClient {
         })
     }
 
-    remove(key: PublicKey): Promise<void> {
+    remove(key: PublicKey, options: PublicKeySubsystemRequestOptions = {}): Promise<void> {
         if (!(key instanceof PublicKey)) {
             return Promise.reject(
                 new TypeError("Public-key subsystem remove requires a public key"),
             )
         }
+        let attributes: readonly PublicKeySubsystemAddAttribute[]
+        try {
+            attributes = normalizeRequestAttributes(options, "remove")
+            if (attributes.length > 0 && this.negotiatedProtocolVersion! < 3) {
+                throw new Error(
+                    publicKeySubsystemNamespace(attributes) === undefined
+                        ? "Public-key subsystem remove attributes require protocol version 3"
+                        : "Public-key subsystem namespaces require protocol version 3",
+                )
+            }
+        } catch (error) {
+            return Promise.reject(error as Error)
+        }
         const packet = {
             type: "remove" as const,
             algorithm: key.data.alg,
             keyBlob: key.serialize(),
+            ...(this.negotiatedProtocolVersion! >= 3 ? { attributes } : {}),
         }
         return this.enqueue(async () => {
             await this.request(packet)
         })
     }
 
-    list(): Promise<readonly PublicKeySubsystemKey[]> {
+    list(
+        options: PublicKeySubsystemRequestOptions = {},
+    ): Promise<readonly PublicKeySubsystemKey[]> {
+        let attributes: readonly PublicKeySubsystemAddAttribute[]
+        try {
+            attributes = normalizeRequestAttributes(options, "list")
+            if (attributes.length > 0 && this.negotiatedProtocolVersion! < 3) {
+                throw new Error(
+                    publicKeySubsystemNamespace(attributes) === undefined
+                        ? "Public-key subsystem list attributes require protocol version 3"
+                        : "Public-key subsystem namespaces require protocol version 3",
+                )
+            }
+        } catch (error) {
+            return Promise.reject(error as Error)
+        }
         return this.enqueue(async () => {
-            const responses = await this.request({ type: "list" }, "publickey")
+            const responses = await this.request(
+                {
+                    type: "list",
+                    ...(this.negotiatedProtocolVersion! >= 3 ? { attributes } : {}),
+                },
+                "publickey",
+            )
             try {
                 return responses.map((response) => {
                     if (response.type !== "publickey") {
@@ -236,8 +337,13 @@ export default class PublicKeySubsystemClient {
                         )
                     }
                     validatePublicKeySubsystemAttributes(response.attributes)
+                    const namespace =
+                        this.negotiatedProtocolVersion! >= 3
+                            ? (publicKeySubsystemNamespace(response.attributes) ?? "ssh")
+                            : undefined
                     return Object.freeze({
                         key,
+                        ...(namespace === undefined ? {} : { namespace }),
                         attributes: Object.freeze(
                             response.attributes.map((attribute) =>
                                 Object.freeze({
@@ -247,6 +353,143 @@ export default class PublicKeySubsystemClient {
                             ),
                         ),
                     })
+                })
+            } catch (error) {
+                const failure = error instanceof Error ? error : new Error(String(error))
+                this.destroy(failure)
+                throw failure
+            }
+        })
+    }
+
+    addCertificate(
+        format: string,
+        certificate: Buffer,
+        options: PublicKeySubsystemAddCertificateOptions,
+    ): Promise<void> {
+        let packet: Extract<PublicKeySubsystemPacket, { type: "add-certificate" }>
+        try {
+            this.requireVersion3(
+                "Public-key subsystem certificate operations require protocol version 3",
+            )
+            if (typeof format !== "string") {
+                throw new TypeError("Public-key subsystem certificate format must be a string")
+            }
+            encodeSSHName(format, "Public-key subsystem certificate format")
+            if (!Buffer.isBuffer(certificate)) {
+                throw new TypeError("Public-key subsystem certificate must be a buffer")
+            }
+            const attributes = normalizeRequestAttributes(options, "add-certificate")
+            publicKeySubsystemNamespace(attributes, true)
+            if (options.overwrite !== undefined && typeof options.overwrite !== "boolean") {
+                throw new TypeError("Public-key subsystem overwrite must be a boolean")
+            }
+            packet = {
+                type: "add-certificate",
+                format,
+                certificateBlob: Buffer.from(certificate),
+                overwrite: options.overwrite === undefined ? false : options.overwrite,
+                attributes,
+            }
+        } catch (error) {
+            return Promise.reject(error as Error)
+        }
+        return this.enqueue(async () => {
+            await this.request(packet)
+        })
+    }
+
+    removeCertificate(
+        format: string,
+        certificate: Buffer,
+        options: PublicKeySubsystemRemoveCertificateOptions,
+    ): Promise<void> {
+        let packet: Extract<PublicKeySubsystemPacket, { type: "remove-certificate" }>
+        try {
+            this.requireVersion3(
+                "Public-key subsystem certificate operations require protocol version 3",
+            )
+            if (typeof format !== "string") {
+                throw new TypeError("Public-key subsystem certificate format must be a string")
+            }
+            encodeSSHName(format, "Public-key subsystem certificate format")
+            if (!Buffer.isBuffer(certificate)) {
+                throw new TypeError("Public-key subsystem certificate must be a buffer")
+            }
+            packet = {
+                type: "remove-certificate",
+                format,
+                certificateBlob: Buffer.from(certificate),
+                attributes: normalizeListedRequestAttributes(options, "remove-certificate"),
+            }
+        } catch (error) {
+            return Promise.reject(error as Error)
+        }
+        return this.enqueue(async () => {
+            await this.request(packet)
+        })
+    }
+
+    listCertificates(): Promise<readonly PublicKeySubsystemCertificate[]> {
+        try {
+            this.requireVersion3(
+                "Public-key subsystem certificate operations require protocol version 3",
+            )
+        } catch (error) {
+            return Promise.reject(error as Error)
+        }
+        return this.enqueue(async () => {
+            const responses = await this.request({ type: "list-certificates" }, "certificate")
+            try {
+                return responses.map((response) => {
+                    if (response.type !== "certificate") {
+                        throw new PublicKeySubsystemProtocolError(
+                            `Unexpected public-key subsystem ${response.type} response`,
+                        )
+                    }
+                    validatePublicKeySubsystemAttributes(response.attributes)
+                    const namespace = publicKeySubsystemNamespace(response.attributes, true)!
+                    return Object.freeze({
+                        format: response.format,
+                        certificate: Buffer.from(response.certificateBlob),
+                        namespace,
+                        attributes: Object.freeze(
+                            response.attributes.map((attribute) =>
+                                Object.freeze({
+                                    name: attribute.name,
+                                    value: Buffer.from(attribute.value),
+                                }),
+                            ),
+                        ),
+                    })
+                })
+            } catch (error) {
+                const failure = error instanceof Error ? error : new Error(String(error))
+                this.destroy(failure)
+                throw failure
+            }
+        })
+    }
+
+    listNamespaces(): Promise<readonly string[]> {
+        try {
+            this.requireVersion3(
+                "Public-key subsystem namespace listing requires protocol version 3",
+            )
+        } catch (error) {
+            return Promise.reject(error as Error)
+        }
+        return this.enqueue(async () => {
+            const responses = await this.request({ type: "list-namespaces" }, "namespace")
+            try {
+                return responses.map((response) => {
+                    if (response.type !== "namespace") {
+                        throw new PublicKeySubsystemProtocolError(
+                            `Unexpected public-key subsystem ${response.type} response`,
+                        )
+                    }
+                    validatePublicKeySubsystemNamespace(response.name)
+                    return response.name
                 })
             } catch (error) {
                 const failure = error instanceof Error ? error : new Error(String(error))
@@ -287,6 +530,12 @@ export default class PublicKeySubsystemClient {
         return new Promise<void>((resolve, reject) => {
             this.channel.write(frame, (error) => (error ? reject(error) : resolve()))
         })
+    }
+
+    private requireVersion3(message: string): void {
+        if (this.negotiatedProtocolVersion! < 3) {
+            throw new Error(message)
+        }
     }
 
     private enqueue<T>(operation: () => Promise<T>): Promise<T> {
@@ -365,7 +614,8 @@ export default class PublicKeySubsystemClient {
                     "Expected public-key subsystem version packet",
                 )
             }
-            if (Math.min(packet.version, PUBLIC_KEY_SUBSYSTEM_VERSION) !== this.protocolVersion) {
+            const negotiatedVersion = Math.min(packet.version, PUBLIC_KEY_SUBSYSTEM_VERSION)
+            if (negotiatedVersion < MIN_PUBLIC_KEY_SUBSYSTEM_VERSION) {
                 const error = new PublicKeySubsystemProtocolError(
                     `Unsupported public-key subsystem version ${packet.version}`,
                 )
@@ -386,6 +636,7 @@ export default class PublicKeySubsystemClient {
                 )
                 return
             }
+            this.#negotiatedProtocolVersion = negotiatedVersion
             this.initialized = true
             this.readyResolve()
             return

@@ -455,7 +455,7 @@ describe("independent SSH peer interoperability", () => {
         30_000,
     )
 
-    test("modernssh client manages keys through the RFC 4819 subsystem", async () => {
+    test("modernssh client manages RFC 7076 namespaces and certificates", async () => {
         const peer = await startPeerServer("curve25519-sha256")
         const client = new Client({
             hostname: "127.0.0.1",
@@ -482,21 +482,39 @@ describe("independent SSH peer interoperability", () => {
             expect(await subsystem.listAttributes()).toEqual([
                 { name: "comment", compulsory: false },
                 { name: "shell", compulsory: true },
+                { name: "namespace", compulsory: false },
             ])
 
             await subsystem.add(publicKey, {
                 overwrite: true,
+                namespace: "ssh",
                 attributes: [{ name: "comment", value: "library-client" }],
             })
-            const listed = await subsystem.list()
+            const listed = await subsystem.list({ namespace: "ssh" })
             expect(listed).toHaveLength(1)
             expect(listed[0]!.key.equals(publicKey)).toBe(true)
             expect(listed[0]!.attributes).toEqual([
+                { name: "namespace", value: Buffer.from("ssh") },
                 { name: "comment", value: Buffer.from("library-client") },
             ])
 
-            await subsystem.remove(publicKey)
-            expect(await subsystem.list()).toEqual([])
+            await subsystem.remove(publicKey, { namespace: "ssh" })
+            expect(await subsystem.list({ namespace: "ssh" })).toEqual([])
+            await subsystem.addCertificate("X509", Buffer.from([1, 2, 3]), {
+                namespace: "ssh",
+            })
+            expect(await subsystem.listCertificates()).toEqual([
+                {
+                    format: "X509",
+                    certificate: Buffer.from([1, 2, 3]),
+                    namespace: "ssh",
+                    attributes: [{ name: "namespace", value: Buffer.from("ssh") }],
+                },
+            ])
+            await subsystem.removeCertificate("X509", Buffer.from([1, 2, 3]), {
+                namespace: "ssh",
+            })
+            expect(await subsystem.listNamespaces()).toEqual(["ssh", "ssl"])
             expect(errors).toEqual([])
             subsystem.end()
         } finally {
@@ -505,7 +523,7 @@ describe("independent SSH peer interoperability", () => {
         }
     }, 30_000)
 
-    test("modernssh server manages keys for an independent RFC 4819 client", async () => {
+    test("modernssh server manages RFC 7076 data for an independent client", async () => {
         const server = new Server({
             hostKeys: [PrivateKey.generateSync("ssh-ed448")],
             sendAllHostKeys: false,
@@ -522,6 +540,10 @@ describe("independent SSH peer interoperability", () => {
         const keys = new Map<
             string,
             { key: PublicKey; attributes: readonly { name: string; value: Buffer }[] }
+        >()
+        const certificates = new Map<
+            string,
+            { format: string; certificate: Buffer; namespace: string }
         >()
         server.hooker.hook("passwordAuthentication", (_hook, context, decision) => {
             decision.allowLogin = context.username === "interop" && context.password === password
@@ -545,6 +567,7 @@ describe("independent SSH peer interoperability", () => {
                 })
                 channel.events.on("publicKey", (subsystem) => {
                     subsystem.hooker.hook("add", (_hook, context, decision) => {
+                        expect(context.namespace).toBe("ssh")
                         operations.push(`add:${context.overwrite}`)
                         keys.set(context.key.hash("sha256"), {
                             key: context.key,
@@ -552,14 +575,39 @@ describe("independent SSH peer interoperability", () => {
                         })
                         decision.success = true
                     })
-                    subsystem.hooker.hook("list", (_hook, decision) => {
+                    subsystem.hooker.hook("list", (_hook, decision, context) => {
+                        expect(context.namespace).toBe("ssh")
                         operations.push("list")
                         decision.keys = [...keys.values()]
                         decision.success = true
                     })
                     subsystem.hooker.hook("remove", (_hook, context, decision) => {
+                        expect(context.namespace).toBe("ssh")
                         operations.push("remove")
                         decision.success = keys.delete(context.key.hash("sha256"))
+                    })
+                    subsystem.hooker.hook("addCertificate", (_hook, context, decision) => {
+                        operations.push("add-certificate")
+                        certificates.set(context.certificate.toString("hex"), {
+                            format: context.format,
+                            certificate: Buffer.from(context.certificate),
+                            namespace: context.namespace,
+                        })
+                        decision.success = true
+                    })
+                    subsystem.hooker.hook("listCertificates", (_hook, decision) => {
+                        operations.push("list-certificates")
+                        decision.certificates = [...certificates.values()]
+                        decision.success = true
+                    })
+                    subsystem.hooker.hook("removeCertificate", (_hook, context, decision) => {
+                        operations.push("remove-certificate")
+                        decision.success = certificates.delete(context.certificate.toString("hex"))
+                    })
+                    subsystem.hooker.hook("listNamespaces", (_hook, decision) => {
+                        operations.push("list-namespaces")
+                        decision.namespaces = ["ssh", "ssl"]
+                        decision.success = true
                     })
                 })
             })
@@ -583,7 +631,16 @@ describe("independent SSH peer interoperability", () => {
                 },
             }).toEqual({
                 errors: [],
-                operations: ["add:true", "list", "remove", "list"],
+                operations: [
+                    "add:true",
+                    "list",
+                    "remove",
+                    "list",
+                    "add-certificate",
+                    "list-certificates",
+                    "remove-certificate",
+                    "list-namespaces",
+                ],
                 process: {
                     code: 0,
                     stderr: "",
@@ -592,8 +649,11 @@ describe("independent SSH peer interoperability", () => {
                         capabilities: [
                             ["comment", false],
                             ["shell", true],
+                            ["namespace", false],
                         ],
+                        certificate: "010203",
                         comment: "independent-client",
+                        namespaces: ["ssh", "ssl"],
                         removed: true,
                     },
                 },

@@ -1,17 +1,17 @@
 ---
 title: Public-key management subsystem
-description: Add, remove, and list an authenticated user's authorized keys.
+description: Manage namespaced authorized keys and certificates over RFC 4819 and RFC 7076.
 ---
 
 # Public-key management subsystem
 
-RFC 4819 defines the `publickey` SSH subsystem for managing the authenticated user's authorized
-public keys. It is separate from public-key authentication and from SSH agent forwarding: the
-subsystem changes server-side authorization data after the SSH connection has already
-authenticated.
+RFC 4819 defines the `publickey` SSH subsystem for managing an authenticated user's authorized
+keys. RFC 7076 extends it with namespaces and certificates. This is separate from public-key
+authentication and agent forwarding: it changes server-side authorization data after the SSH
+connection has authenticated.
 
-Support must be enabled by the server. A standards-compliant client API does not imply that a
-particular SSH daemon provides this subsystem.
+Support must be enabled by the server. A client API does not imply that a particular SSH daemon
+provides this subsystem.
 
 ## Client
 
@@ -28,38 +28,62 @@ await client.connect()
 const publicKeys = await client.publicKeySubsystem({ requestTimeout: 30_000 })
 const key = PublicKey.parseString(await readFile("./id_ed25519.pub", "utf8"))
 
-const capabilities = await publicKeys.listAttributes()
-console.log(capabilities)
+console.log(await publicKeys.listAttributes())
+console.log(await publicKeys.listNamespaces())
 
 await publicKeys.add(key, {
+    namespace: "users",
     overwrite: false,
     attributes: [{ name: "comment", value: "alice's workstation" }],
 })
 
-for (const entry of await publicKeys.list()) {
+for (const entry of await publicKeys.list({ namespace: "users" })) {
     console.log(entry.key.toString(), entry.attributes)
 }
 
-await publicKeys.remove(key)
+await publicKeys.remove(key, { namespace: "users" })
 publicKeys.end()
 ```
 
-`add()` copies key attributes before it queues the request. String values are encoded as strict
-UTF-8; pass a `Buffer` for an opaque extension attribute. `overwrite: false` is the default. A
-server should report `KeyAlreadyPresent` when that key already exists and overwrite was not
-requested. The add option bag and each attribute must be plain objects; `attributes` must be an
-array, and explicit `null` is rejected for the overwrite and critical boolean flags.
+`add()`, `remove()`, and `list()` use the optional `namespace` and `attributes` request options.
+The client copies keys, certificates, and attributes before queueing them. String values are strict
+UTF-8; use a `Buffer` for an opaque extension value. `overwrite` defaults to `false`.
+When version 3 is negotiated and no namespace is supplied, RFC 7076 defines `"ssh"` as the default;
+listed key entries expose that effective namespace through `entry.namespace`.
+
+RFC 7076 certificate blobs are intentionally opaque. The format name identifies how the
+application should parse and validate the bytes:
+
+```ts
+const certificate = await readFile("./alice-certificate.bin")
+
+await publicKeys.addCertificate("x509v3-ssh-rsa", certificate, {
+    namespace: "users",
+    overwrite: false,
+})
+
+for (const entry of await publicKeys.listCertificates()) {
+    console.log(entry.format, entry.namespace, entry.certificate)
+}
+
+await publicKeys.removeCertificate("x509v3-ssh-rsa", certificate, {
+    namespace: "users",
+})
+```
+
+Certificate operations and `listNamespaces()` require negotiated version 3. The client reports a
+clear error after a version-2 downgrade instead of sending an unsupported request. Namespace is
+required for certificate add/remove, must be valid UTF-8, and is limited to 300 Unicode
+characters.
 
 Every unsuccessful status rejects with `PublicKeySubsystemStatusError`. Its `code` can be compared
-with `PublicKeySubsystemStatusCode`, while `message` and `languageTag` preserve the server's status
-text. RFC 4819 encodes the code as a full `uint32`; unrecognized or private values are preserved in
-the error instead of being treated as malformed protocol data:
+with `PublicKeySubsystemStatusCode`; `message` and `languageTag` preserve the server response:
 
 ```ts
 import { PublicKeySubsystemStatusCode, PublicKeySubsystemStatusError } from "@bunkerch/modernssh"
 
 try {
-    await publicKeys.remove(key)
+    await publicKeys.remove(key, { namespace: "users" })
 } catch (error) {
     if (
         error instanceof PublicKeySubsystemStatusError &&
@@ -72,28 +96,28 @@ try {
 }
 ```
 
-RFC 4819 permits only one unacknowledged client request. Concurrent API calls are therefore queued
-and retain call order. `end()` gracefully ends the subsystem channel. `destroy(error?)` aborts it;
-pending and queued operations reject when the channel or SSH connection closes.
-`requestTimeout` bounds version negotiation and each serialized request reply. It defaults to the
-connection's `replyTimeout`; direct `PublicKeySubsystemClient.connect()` calls default to 30
-seconds. Expiry rejects the operation and closes only the subsystem channel, preventing a late
-untagged reply from being mistaken for a later operation while leaving the SSH connection usable.
-The value must be a positive finite number.
-The client option bag must be a plain object. Only an omitted `requestTimeout` selects the
-connection-level or 30-second direct-call default; explicit `null` is rejected before a subsystem
-channel is allocated or version negotiation begins.
+Unknown and private status values are preserved as unsigned 32-bit codes. The RFC 7076-specific
+codes are `CertificateNotFound` (192), `CertificateNotSupported` (193),
+`CertificateAlreadyPresent` (194), `ActionNotAuthorized` (195), and
+`CannotCreateNamespace` (196).
+
+Only one request may be unacknowledged, so concurrent calls are queued in call order. `end()`
+gracefully ends the subsystem channel. `destroy(error?)` aborts it. Pending and queued operations
+reject on a timeout, channel close, SSH disconnect, or transport failure.
+
+`requestTimeout` bounds negotiation and every serialized request. It defaults to the connection's
+`replyTimeout`, or 30 seconds when using `PublicKeySubsystemClient.connect()` directly. A timeout
+closes only the subsystem channel so an untagged late response cannot satisfy a later operation.
 
 ## Server
 
-Access is denied until the ordinary session-channel and subsystem Hooker policies approve it. The
-library does not select a database, mutate `authorized_keys`, or infer authorization rules. The
-application must scope storage to the connection's authenticated user and make each change durable
-before setting `controller.success`.
+The library does not choose a database, edit `authorized_keys`, parse certificate formats, or infer
+authorization rules. The application must scope storage and policy to the authenticated user and
+namespace, validate certificate contents, and make each mutation durable before approving it.
 
-The `publicKey` EventEmitter notification is observational and its listener stays synchronous. It
-installs awaited Hooker handlers for operations that may perform asynchronous storage or policy
-work:
+Access remains denied until ordinary session-channel and subsystem Hooker policies approve it.
+The `publicKey` event is observational and its listener remains synchronous; policy and storage
+work belongs in awaited Hooker handlers:
 
 ```ts
 import { PublicKeySubsystemStatusCode, SessionChannel } from "@bunkerch/modernssh"
@@ -103,8 +127,6 @@ server.hooker.hook("channelOpenRequest", (_hook, channel, decision) => {
 })
 
 server.on("connection", (connection) => {
-    const keys = new Map()
-
     connection.on("channel", (channel) => {
         if (!(channel instanceof SessionChannel)) return
 
@@ -118,33 +140,42 @@ server.on("connection", (connection) => {
 
         channel.events.on("publicKey", (publicKeys) => {
             publicKeys.hooker.hook("add", async (_hook, context, controller) => {
-                const id = context.key.hash("sha256")
-                if (keys.has(id) && !context.overwrite) {
-                    controller.failureCode = PublicKeySubsystemStatusCode.KeyAlreadyPresent
-                    controller.description = "Key already present"
-                    return
-                }
-
-                await storeAuthorizedKey(connection, context)
-                keys.set(id, context)
+                await storeAuthorizedKey(connection.username, context.namespace, context)
                 controller.success = true
             })
 
             publicKeys.hooker.hook("remove", async (_hook, context, controller) => {
-                const id = context.key.hash("sha256")
-                if (!keys.has(id)) {
-                    controller.failureCode = PublicKeySubsystemStatusCode.KeyNotFound
-                    controller.description = "Key not found"
-                    return
-                }
+                const removed = await removeAuthorizedKey(
+                    connection.username,
+                    context.namespace,
+                    context.key,
+                )
+                controller.success = removed
+                controller.failureCode = PublicKeySubsystemStatusCode.KeyNotFound
+            })
 
-                await removeAuthorizedKey(connection, context.key)
-                keys.delete(id)
+            publicKeys.hooker.hook("list", async (_hook, controller, context) => {
+                controller.keys = await listAuthorizedKeys(connection.username, context.namespace)
                 controller.success = true
             })
 
-            publicKeys.hooker.hook("list", async (_hook, controller) => {
-                controller.keys = await listAuthorizedKeys(connection)
+            publicKeys.hooker.hook("addCertificate", async (_hook, context, controller) => {
+                await validateAndStoreCertificate(connection.username, context)
+                controller.success = true
+            })
+
+            publicKeys.hooker.hook("removeCertificate", async (_hook, context, controller) => {
+                controller.success = await removeCertificate(connection.username, context)
+                controller.failureCode = PublicKeySubsystemStatusCode.CertificateNotFound
+            })
+
+            publicKeys.hooker.hook("listCertificates", async (_hook, controller) => {
+                controller.certificates = await listCertificates(connection.username)
+                controller.success = true
+            })
+
+            publicKeys.hooker.hook("listNamespaces", async (_hook, controller) => {
+                controller.namespaces = await listNamespaces(connection.username)
                 controller.success = true
             })
         })
@@ -152,63 +183,41 @@ server.on("connection", (connection) => {
 })
 ```
 
-The example's map only illustrates overwrite decisions; production storage must be associated with
-the authenticated account and survive connection closure. If no `add` or `remove` hook is present,
-the server denies that operation. If no `list` hook is present, listing is reported as unsupported.
-An async hook rejection is contained by `Hooker` and becomes a general-failure status instead of an
+If a mutation Hooker has no handler, the server returns `ActionNotAuthorized` for version 3 and an
+appropriate version-2 failure for a downgraded peer. Missing list handlers report the request as
+unsupported. Hook rejections are contained by `Hooker` and become `GeneralFailure`, never an
 unhandled EventEmitter rejection.
 
-The server option bag and every advertised capability must be plain objects, `attributes` must be
-an array, and `compulsory` must be a boolean when present. Configuration is validated before the
-server installs stream listeners or begins version exchange, and explicit `null` never selects a
-default.
-
-## Attributes and authorization
-
-`decision.publicKey.attributes` is the capability list returned by `listAttributes()`. A critical
-attribute that is absent from that list is rejected before application policy runs. Advertising an
-attribute means the application understands and implements its intent; merely retaining its bytes
-is not enough for a critical attribute.
+The server automatically advertises the standard `namespace` capability. Additional advertised
+attributes are configured through `decision.publicKey.attributes`. A critical attribute absent
+from that list is rejected before application policy runs. Advertising an attribute means the
+application understands and enforces its meaning; retaining unknown bytes is not sufficient.
 
 The standard `comment` value is strict UTF-8. `comment-language` must immediately follow its
-corresponding comment and contain a valid language tag. Other standard attributes can restrict
-commands, shells, subsystems, X11, agents, environment requests, source hosts, and forwarding.
-Those restrictions are application policy: this subsystem does not automatically connect stored
-attributes to later authentication or channel authorization.
+comment and contain a valid language tag. Other attributes may restrict commands, shells,
+subsystems, X11, agents, environment requests, source hosts, and forwarding. Those restrictions
+remain application policy. A compulsory capability promises that administration applies it to
+every key, and an overwrite must not remove administrator-owned restrictions.
 
-Marking a capability `compulsory: true` promises that server administration applies that attribute
-to every added key whether or not the client supplied it. The application must actually add and
-enforce that restriction. A user-controlled overwrite must never remove compulsory or
-administrator-owned restrictions.
+## Negotiation, limits, and interoperability
 
-## Protocol behavior and limits
+Both sides advertise version 3 and negotiate the lower version. Version 2 retains the exact RFC
+4819 key request layouts; version 3 uses RFC 7076 layouts and enables namespaces and certificates.
+A peer below version 2 receives `VersionNotSupported` before the channel closes. Unknown requests
+receive `RequestNotSupported`; duplicate versions, contradictory layouts, and pipelined requests
+are fatal protocol errors.
 
-Both sides exchange RFC 4819 version 2 before requests begin. A lower unsupported version receives
-`VersionNotSupported` before the channel closes. Unknown requests receive `RequestNotSupported`
-without closing the subsystem. Duplicate version packets and pipelined requests are fatal protocol
-errors.
+Frames are bounded to 256 KiB before allocation. List operations collect at most 1024 packets and
+4 MiB of encoded responses. Key blobs must parse and match their outer algorithm name. Malformed
+framing, invalid text, repeated namespace attributes, unexpected responses, and replies without a
+pending request close the subsystem and reject pending work. EOF in a partial frame is also fatal.
 
-Frames are bounded to 256 KiB before allocation. `list()` and `listAttributes()` collect at most
-1024 response packets and 4 MiB of encoded response data. Key blobs are parsed and their embedded
-algorithm must match the outer algorithm name. Malformed framing, invalid text, contradictory key
-metadata, unexpected response types, and responses without a pending request close the subsystem
-and reject pending work. Status codes must fit the RFC's unsigned 32-bit field; the nine assigned
-failure constants do not narrow that wire field or prevent future assignments.
+Transport rekeying preserves an active subsystem. The root package exports the packet codec for
+applications that already have an authenticated SSH subsystem stream, though the high-level client
+and server APIs are normally preferable.
 
-RFC 4251 boolean decoding applies to overwrite, critical, and compulsory flags: zero is false and
-every non-zero byte is true. Outbound packets always use the canonical bytes zero and one.
-
-EOF in the middle of a frame is also fatal. Both client and server close the public-key subsystem
-channel, reject pending client operations, and leave the authenticated SSH connection available for
-other channels.
-
-Transport rekeying preserves an active public-key subsystem. Packet codecs are also exported for
-applications that need RFC 4819 framing over another already-authenticated SSH session stream, but
-the high-level client and server APIs should normally be preferred.
-
-The pinned independent-peer fixture exercises both roles over encrypted SSH. It fragments the
-version exchange, coalesces capability and key-list responses, and completes
-`listattributes`/`add`/`list`/`remove`/`list` against both the high-level client and server. This
-provides interoperability evidence for framing, serialized acknowledgement, attributes, key
-algorithm/blob consistency, and final status ordering independently of the in-process integration
-suite.
+Literal byte vectors independently cover all version-2 and version-3 packet layouts. The encrypted
+integration suite covers awaited policy, namespaced keys, certificates, namespace listing,
+downgrade behavior, bounds, failures, and rekey. A pinned independent Python peer exercises both
+roles at version 3, including fragmented version exchange, coalesced multi-packet responses, key
+and certificate state transitions, and namespace listing.

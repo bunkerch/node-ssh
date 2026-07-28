@@ -68,7 +68,7 @@ function asClientChannel(channel: Duplex): ClientSessionChannel {
     return channel as unknown as ClientSessionChannel
 }
 
-describe("RFC 4819 public-key subsystem client", () => {
+describe("RFC 4819 and RFC 7076 public-key subsystem client", () => {
     test("validates a finite positive request timeout before initialization", async () => {
         for (const requestTimeout of [null, 0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
             const fixture = new PublicKeySubsystemServerFixture(() => undefined)
@@ -118,7 +118,7 @@ describe("RFC 4819 public-key subsystem client", () => {
         expect(fixture.destroyed).toBe(true)
     })
 
-    test("exchanges version 2 before exposing the client", async () => {
+    test("advertises RFC 7076 version 3 and negotiates an RFC 4819 version-2 peer", async () => {
         const received: PublicKeySubsystemPacket[] = []
         const fixture = new PublicKeySubsystemServerFixture((packet) => {
             received.push(packet)
@@ -126,8 +126,9 @@ describe("RFC 4819 public-key subsystem client", () => {
         })
 
         const client = await PublicKeySubsystemClient.connect(asClientChannel(fixture))
-        expect(client.protocolVersion).toBe(2)
-        expect(received).toEqual([{ type: "version", version: 2 }])
+        expect(client.protocolVersion).toBe(3)
+        expect(client.negotiatedProtocolVersion).toBe(2)
+        expect(received).toEqual([{ type: "version", version: 3 }])
         fixture.destroy()
     })
 
@@ -165,6 +166,189 @@ describe("RFC 4819 public-key subsystem client", () => {
             attributes: [{ name: "comment", value: Buffer.from("laptop"), critical: false }],
         })
         fixture.destroy()
+    })
+
+    test("sends RFC 7076 namespace attributes on version-3 key operations", async () => {
+        const requests: PublicKeySubsystemPacket[] = []
+        const fixture = new PublicKeySubsystemServerFixture((packet) => {
+            if (packet.type === "version") {
+                fixture.send({ type: "version", version: 3 })
+                return
+            }
+            requests.push(packet)
+            queueMicrotask(() =>
+                fixture.send({
+                    type: "status",
+                    code: PublicKeySubsystemStatusCode.Success,
+                    description: "",
+                    languageTag: "",
+                }),
+            )
+        })
+        const client = await PublicKeySubsystemClient.connect(asClientChannel(fixture))
+        const key = PublicKey.parse(RFC_8709_KEY)
+
+        await client.add(key, { namespace: "ssh" })
+        await client.remove(key, { namespace: "ssh" })
+        expect(await client.list({ namespace: "ssh" })).toEqual([])
+
+        const namespaceAttribute = {
+            name: "namespace",
+            value: Buffer.from("ssh"),
+            critical: true,
+        }
+        expect(requests).toEqual([
+            {
+                type: "add",
+                algorithm: "ssh-ed25519",
+                keyBlob: RFC_8709_KEY,
+                overwrite: false,
+                attributes: [namespaceAttribute],
+            },
+            {
+                type: "remove",
+                algorithm: "ssh-ed25519",
+                keyBlob: RFC_8709_KEY,
+                attributes: [namespaceAttribute],
+            },
+            { type: "list", attributes: [namespaceAttribute] },
+        ])
+        fixture.destroy()
+    })
+
+    test("rejects namespace operations after negotiating version 2", async () => {
+        let requests = 0
+        const fixture = new PublicKeySubsystemServerFixture((packet) => {
+            if (packet.type === "version") {
+                fixture.send({ type: "version", version: 2 })
+            } else {
+                requests++
+            }
+        })
+        const client = await PublicKeySubsystemClient.connect(asClientChannel(fixture))
+
+        await expect(client.list({ namespace: "ssh" })).rejects.toThrow(
+            "Public-key subsystem namespaces require protocol version 3",
+        )
+        expect(requests).toBe(0)
+        fixture.destroy()
+    })
+
+    test("manages RFC 7076 certificates and lists visible namespaces", async () => {
+        const requests: PublicKeySubsystemPacket[] = []
+        const fixture = new PublicKeySubsystemServerFixture((packet) => {
+            if (packet.type === "version") {
+                fixture.send({ type: "version", version: 3 })
+                return
+            }
+            requests.push(packet)
+            if (packet.type === "list-certificates") {
+                fixture.send({
+                    type: "certificate",
+                    format: "X509",
+                    certificateBlob: Buffer.from([4, 5, 6]),
+                    attributes: [{ name: "namespace", value: Buffer.from("ssh") }],
+                })
+            } else if (packet.type === "list-namespaces") {
+                fixture.send({ type: "namespace", name: "ssh" })
+                fixture.send({ type: "namespace", name: "ssl" })
+            }
+            queueMicrotask(() =>
+                fixture.send({
+                    type: "status",
+                    code: PublicKeySubsystemStatusCode.Success,
+                    description: "",
+                    languageTag: "",
+                }),
+            )
+        })
+        const client = await PublicKeySubsystemClient.connect(asClientChannel(fixture))
+        const certificate = Buffer.from([1, 2, 3])
+
+        const added = client.addCertificate("X509", certificate, {
+            namespace: "ssh",
+            overwrite: true,
+        })
+        certificate.fill(0)
+        await added
+        await client.removeCertificate("X509", Buffer.from([1, 2, 3]), {
+            namespace: "ssh",
+        })
+        expect(await client.listCertificates()).toEqual([
+            {
+                format: "X509",
+                certificate: Buffer.from([4, 5, 6]),
+                namespace: "ssh",
+                attributes: [{ name: "namespace", value: Buffer.from("ssh") }],
+            },
+        ])
+        expect(await client.listNamespaces()).toEqual(["ssh", "ssl"])
+
+        expect(requests).toEqual([
+            {
+                type: "add-certificate",
+                format: "X509",
+                certificateBlob: Buffer.from([1, 2, 3]),
+                overwrite: true,
+                attributes: [
+                    {
+                        name: "namespace",
+                        value: Buffer.from("ssh"),
+                        critical: true,
+                    },
+                ],
+            },
+            {
+                type: "remove-certificate",
+                format: "X509",
+                certificateBlob: Buffer.from([1, 2, 3]),
+                attributes: [{ name: "namespace", value: Buffer.from("ssh") }],
+            },
+            { type: "list-certificates" },
+            { type: "list-namespaces" },
+        ])
+        fixture.destroy()
+    })
+
+    test("rejects RFC 7076 certificate operations after negotiating version 2", async () => {
+        let requests = 0
+        const fixture = new PublicKeySubsystemServerFixture((packet) => {
+            if (packet.type === "version") {
+                fixture.send({ type: "version", version: 2 })
+            } else {
+                requests++
+            }
+        })
+        const client = await PublicKeySubsystemClient.connect(asClientChannel(fixture))
+
+        await expect(client.listCertificates()).rejects.toThrow(
+            "Public-key subsystem certificate operations require protocol version 3",
+        )
+        await expect(client.listNamespaces()).rejects.toThrow(
+            "Public-key subsystem namespace listing requires protocol version 3",
+        )
+        expect(requests).toBe(0)
+        fixture.destroy()
+    })
+
+    test("closes after a peer returns an invalid RFC 7076 namespace", async () => {
+        const fixture = new PublicKeySubsystemServerFixture((packet) => {
+            if (packet.type === "version") {
+                fixture.send({ type: "version", version: 3 })
+            } else if (packet.type === "list-namespaces") {
+                fixture.send({ type: "namespace", name: "x".repeat(301) })
+                fixture.send({
+                    type: "status",
+                    code: PublicKeySubsystemStatusCode.Success,
+                    description: "",
+                    languageTag: "",
+                })
+            }
+        })
+        const client = await PublicKeySubsystemClient.connect(asClientChannel(fixture))
+
+        await expect(client.listNamespaces()).rejects.toThrow("exceeds 300 characters")
+        expect(fixture.destroyed).toBe(true)
     })
 
     test("rejects malformed add options before sending a request", async () => {
@@ -284,6 +468,31 @@ describe("RFC 4819 public-key subsystem client", () => {
         expect(keys[0]!.attributes).toEqual([
             { name: "comment", value: Buffer.from("workstation") },
         ])
+        fixture.destroy()
+    })
+
+    test("exposes the RFC 7076 default namespace on listed keys", async () => {
+        const fixture = new PublicKeySubsystemServerFixture((packet) => {
+            if (packet.type === "version") {
+                fixture.send({ type: "version", version: 3 })
+            } else if (packet.type === "list") {
+                fixture.send({
+                    type: "publickey",
+                    algorithm: "ssh-ed25519",
+                    keyBlob: RFC_8709_KEY,
+                    attributes: [],
+                })
+                fixture.send({
+                    type: "status",
+                    code: PublicKeySubsystemStatusCode.Success,
+                    description: "",
+                    languageTag: "",
+                })
+            }
+        })
+        const client = await PublicKeySubsystemClient.connect(asClientChannel(fixture))
+
+        expect(await client.list()).toMatchObject([{ namespace: "ssh" }])
         fixture.destroy()
     })
 

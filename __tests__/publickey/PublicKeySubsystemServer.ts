@@ -48,7 +48,24 @@ function asShell(stream: PublicKeySubsystemClientFixture): Shell {
     return stream as unknown as Shell
 }
 
-describe("RFC 4819 public-key subsystem server", () => {
+describe("RFC 4819 and RFC 7076 public-key subsystem server", () => {
+    test("advertises RFC 7076 version 3 and negotiates an RFC 4819 version-2 peer", async () => {
+        const packets: PublicKeySubsystemPacket[] = []
+        const fixture = new PublicKeySubsystemClientFixture((packet) => {
+            packets.push(packet)
+            if (packet.type === "version") {
+                queueMicrotask(() => fixture.send({ type: "version", version: 2 }))
+            }
+        })
+        const server = new PublicKeySubsystemServer(asShell(fixture))
+
+        expect(await once(server, "ready")).toEqual([2])
+        expect(server.protocolVersion).toBe(3)
+        expect(server.negotiatedProtocolVersion).toBe(2)
+        expect(packets).toEqual([{ type: "version", version: 3 }])
+        server.destroy()
+    })
+
     test("rejects malformed capability configuration before version exchange", () => {
         const packets: PublicKeySubsystemPacket[] = []
         const fixture = new PublicKeySubsystemClientFixture((packet) => packets.push(packet))
@@ -129,6 +146,250 @@ describe("RFC 4819 public-key subsystem server", () => {
             type: "status",
             code: PublicKeySubsystemStatusCode.Success,
         })
+        server.destroy()
+    })
+
+    test("delivers RFC 7076 namespace key operations to awaited policy", async () => {
+        let resolveStatus: ((packet: PublicKeySubsystemPacket) => void) | undefined
+        const nextStatus = () =>
+            new Promise<PublicKeySubsystemPacket>((resolve) => {
+                resolveStatus = resolve
+            })
+        const fixture = new PublicKeySubsystemClientFixture((packet) => {
+            if (packet.type === "version") {
+                queueMicrotask(() => fixture.send({ type: "version", version: 3 }))
+            } else if (packet.type === "status") {
+                resolveStatus?.(packet)
+                resolveStatus = undefined
+            }
+        })
+        const server = new PublicKeySubsystemServer(asShell(fixture))
+        const operations: string[] = []
+        server.hooker.hook("add", async (_hook, context, controller) => {
+            await Promise.resolve()
+            expect(context.namespace).toBe("ssh")
+            operations.push("add")
+            controller.success = true
+        })
+        server.hooker.hook("remove", async (_hook, context, controller) => {
+            await Promise.resolve()
+            expect(context.namespace).toBe("ssh")
+            operations.push("remove")
+            controller.success = true
+        })
+        server.hooker.hook("list", async (_hook, controller, context) => {
+            await Promise.resolve()
+            expect(context.namespace).toBe("ssh")
+            operations.push("list")
+            controller.success = true
+        })
+
+        await once(server, "ready")
+        const namespace = [
+            {
+                name: "namespace",
+                value: Buffer.from("ssh"),
+                critical: true,
+            },
+        ]
+        let status = nextStatus()
+        fixture.send({
+            type: "add",
+            algorithm: "ssh-ed25519",
+            keyBlob: RFC_8709_KEY,
+            overwrite: false,
+            attributes: namespace,
+        })
+        expect(await status).toMatchObject({ code: PublicKeySubsystemStatusCode.Success })
+
+        status = nextStatus()
+        fixture.send({
+            type: "remove",
+            algorithm: "ssh-ed25519",
+            keyBlob: RFC_8709_KEY,
+            attributes: namespace,
+        })
+        expect(await status).toMatchObject({ code: PublicKeySubsystemStatusCode.Success })
+
+        status = nextStatus()
+        fixture.send({ type: "list", attributes: namespace })
+        expect(await status).toMatchObject({ code: PublicKeySubsystemStatusCode.Success })
+        expect(operations).toEqual(["add", "remove", "list"])
+        server.destroy()
+    })
+
+    test("uses the RFC 7076 default namespace and authorization failure", async () => {
+        let statusResolve!: (packet: PublicKeySubsystemPacket) => void
+        const status = new Promise<PublicKeySubsystemPacket>((resolve) => {
+            statusResolve = resolve
+        })
+        const fixture = new PublicKeySubsystemClientFixture((packet) => {
+            if (packet.type === "version") {
+                queueMicrotask(() => fixture.send({ type: "version", version: 3 }))
+            } else if (packet.type === "status") {
+                statusResolve(packet)
+            }
+        })
+        const server = new PublicKeySubsystemServer(asShell(fixture))
+        server.hooker.hook("add", (_hook, context, controller) => {
+            expect(context.namespace).toBe("ssh")
+            controller.success = false
+        })
+        await once(server, "ready")
+
+        fixture.send({
+            type: "add",
+            algorithm: "ssh-ed25519",
+            keyBlob: RFC_8709_KEY,
+            overwrite: false,
+            attributes: [],
+        })
+
+        expect(await status).toMatchObject({
+            code: PublicKeySubsystemStatusCode.ActionNotAuthorized,
+        })
+        server.destroy()
+    })
+
+    test("awaits RFC 7076 certificate and namespace policy", async () => {
+        let resolveExchange: ((packets: readonly PublicKeySubsystemPacket[]) => void) | undefined
+        let exchangePackets: PublicKeySubsystemPacket[] = []
+        const fixture = new PublicKeySubsystemClientFixture((packet) => {
+            if (packet.type === "version") {
+                queueMicrotask(() => fixture.send({ type: "version", version: 3 }))
+                return
+            }
+            exchangePackets.push(packet)
+            if (packet.type === "status") {
+                const packets = exchangePackets
+                exchangePackets = []
+                resolveExchange?.(packets)
+                resolveExchange = undefined
+            }
+        })
+        const server = new PublicKeySubsystemServer(asShell(fixture))
+        const release = Promise.withResolvers<void>()
+        let addStartedResolve!: () => void
+        const addStarted = new Promise<void>((resolve) => {
+            addStartedResolve = resolve
+        })
+        const operations: string[] = []
+        server.hooker.hook("addCertificate", async (_hook, context, controller) => {
+            expect(context).toEqual({
+                format: "X509",
+                certificate: Buffer.from([1, 2, 3]),
+                overwrite: true,
+                namespace: "ssh",
+                attributes: [
+                    {
+                        name: "namespace",
+                        value: Buffer.from("ssh"),
+                        critical: true,
+                    },
+                ],
+            })
+            addStartedResolve()
+            await release.promise
+            operations.push("add")
+            controller.success = true
+        })
+        server.hooker.hook("removeCertificate", async (_hook, context, controller) => {
+            await Promise.resolve()
+            expect(context.namespace).toBe("ssh")
+            operations.push("remove")
+            controller.success = true
+        })
+        server.hooker.hook("listCertificates", async (_hook, controller) => {
+            await Promise.resolve()
+            operations.push("list-certificates")
+            controller.certificates = [
+                {
+                    format: "X509",
+                    certificate: Buffer.from([4, 5, 6]),
+                    namespace: "ssh",
+                },
+            ]
+            controller.success = true
+        })
+        server.hooker.hook("listNamespaces", async (_hook, controller) => {
+            await Promise.resolve()
+            operations.push("list-namespaces")
+            controller.namespaces = ["ssh", "ssl"]
+            controller.success = true
+        })
+
+        const exchange = (packet: PublicKeySubsystemPacket) => {
+            const response = new Promise<readonly PublicKeySubsystemPacket[]>((resolve) => {
+                resolveExchange = resolve
+            })
+            fixture.send(packet)
+            return response
+        }
+
+        await once(server, "ready")
+        let response = exchange({
+            type: "add-certificate",
+            format: "X509",
+            certificateBlob: Buffer.from([1, 2, 3]),
+            overwrite: true,
+            attributes: [
+                {
+                    name: "namespace",
+                    value: Buffer.from("ssh"),
+                    critical: true,
+                },
+            ],
+        })
+        await addStarted
+        expect(exchangePackets).toEqual([])
+        release.resolve()
+        expect(await response).toEqual([
+            {
+                type: "status",
+                code: PublicKeySubsystemStatusCode.Success,
+                description: "",
+                languageTag: "",
+            },
+        ])
+
+        response = exchange({
+            type: "remove-certificate",
+            format: "X509",
+            certificateBlob: Buffer.from([1, 2, 3]),
+            attributes: [{ name: "namespace", value: Buffer.from("ssh") }],
+        })
+        expect((await response).at(-1)).toMatchObject({
+            code: PublicKeySubsystemStatusCode.Success,
+        })
+
+        response = exchange({ type: "list-certificates" })
+        expect(await response).toEqual([
+            {
+                type: "certificate",
+                format: "X509",
+                certificateBlob: Buffer.from([4, 5, 6]),
+                attributes: [{ name: "namespace", value: Buffer.from("ssh") }],
+            },
+            {
+                type: "status",
+                code: PublicKeySubsystemStatusCode.Success,
+                description: "",
+                languageTag: "",
+            },
+        ])
+
+        response = exchange({ type: "list-namespaces" })
+        expect(await response).toEqual([
+            { type: "namespace", name: "ssh" },
+            { type: "namespace", name: "ssl" },
+            {
+                type: "status",
+                code: PublicKeySubsystemStatusCode.Success,
+                description: "",
+                languageTag: "",
+            },
+        ])
+        expect(operations).toEqual(["add", "remove", "list-certificates", "list-namespaces"])
         server.destroy()
     })
 
@@ -271,6 +532,7 @@ describe("RFC 4819 public-key subsystem server", () => {
         expect(responses).toEqual([
             { type: "attribute", name: "comment", compulsory: false },
             { type: "attribute", name: "shell", compulsory: true },
+            { type: "attribute", name: "namespace", compulsory: false },
             {
                 type: "status",
                 code: PublicKeySubsystemStatusCode.Success,
@@ -294,7 +556,10 @@ describe("RFC 4819 public-key subsystem server", () => {
                 responses.push(packet)
                 if (responses.length === 1) {
                     queueMicrotask(() => fixture.send({ type: "listattributes" }))
-                } else if (responses.length === 2) {
+                } else if (
+                    packet.type === "status" &&
+                    packet.code === PublicKeySubsystemStatusCode.Success
+                ) {
                     completeResolve()
                 }
             }
@@ -311,6 +576,11 @@ describe("RFC 4819 public-key subsystem server", () => {
                 code: PublicKeySubsystemStatusCode.RequestNotSupported,
                 description: "Unsupported public-key subsystem request query@example.test",
                 languageTag: "",
+            },
+            {
+                type: "attribute",
+                name: "namespace",
+                compulsory: false,
             },
             {
                 type: "status",
@@ -432,6 +702,24 @@ describe("RFC 4819 public-key subsystem server", () => {
         })
         expect(fixture.destroyed).toBe(false)
         server.destroy()
+    })
+
+    test("closes when a request layout contradicts negotiated version 3", async () => {
+        const fixture = new PublicKeySubsystemClientFixture((packet) => {
+            if (packet.type === "version") {
+                queueMicrotask(() => fixture.send({ type: "version", version: 3 }))
+            }
+        })
+        fixture.on("error", () => undefined)
+        const server = new PublicKeySubsystemServer(asShell(fixture))
+
+        await once(server, "ready")
+        const failed = once(server, "error")
+        fixture.send({ type: "list" })
+        const [error] = await failed
+
+        expect(error.message).toContain("layout does not match negotiated version")
+        expect(fixture.destroyed).toBe(true)
     })
 
     test("closes when a client pipelines requests before acknowledgement", async () => {

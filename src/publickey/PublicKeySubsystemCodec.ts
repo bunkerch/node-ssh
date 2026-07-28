@@ -6,10 +6,12 @@ import {
     encodeSSHUTF8,
 } from "../utils/SSHText.js"
 
-export const PUBLIC_KEY_SUBSYSTEM_VERSION = 2
+export const PUBLIC_KEY_SUBSYSTEM_VERSION = 3
+export const MIN_PUBLIC_KEY_SUBSYSTEM_VERSION = 2
 export const MAX_PUBLIC_KEY_SUBSYSTEM_PACKET_LENGTH = 256 * 1024
 export const MAX_PUBLIC_KEY_SUBSYSTEM_RESPONSES = 1024
 export const MAX_PUBLIC_KEY_SUBSYSTEM_RESPONSE_BYTES = 4 * 1024 * 1024
+export const MAX_PUBLIC_KEY_SUBSYSTEM_NAMESPACE_CHARACTERS = 300
 
 const UINT32_MAX = 0xffff_ffff
 
@@ -31,6 +33,11 @@ export enum PublicKeySubsystemStatusCode {
     GeneralFailure = 7,
     RequestNotSupported = 8,
     AttributeNotSupported = 9,
+    CertificateNotFound = 192,
+    CertificateNotSupported = 193,
+    CertificateAlreadyPresent = 194,
+    ActionNotAuthorized = 195,
+    CannotCreateNamespace = 196,
 }
 
 export interface PublicKeySubsystemVersionPacket {
@@ -63,10 +70,14 @@ export interface PublicKeySubsystemRemovePacket {
     readonly type: "remove"
     readonly algorithm: string
     readonly keyBlob: Buffer
+    /** Present on RFC 7076 version-3 requests and absent on RFC 4819 version-2 requests. */
+    readonly attributes?: readonly PublicKeySubsystemAddAttribute[]
 }
 
 export interface PublicKeySubsystemListPacket {
     readonly type: "list"
+    /** Present on RFC 7076 version-3 requests and absent on RFC 4819 version-2 requests. */
+    readonly attributes?: readonly PublicKeySubsystemAddAttribute[]
 }
 
 export interface PublicKeySubsystemListAttributesPacket {
@@ -91,6 +102,41 @@ export interface PublicKeySubsystemAttributePacket {
     readonly compulsory: boolean
 }
 
+export interface PublicKeySubsystemAddCertificatePacket {
+    readonly type: "add-certificate"
+    readonly format: string
+    readonly certificateBlob: Buffer
+    readonly overwrite: boolean
+    readonly attributes: readonly PublicKeySubsystemAddAttribute[]
+}
+
+export interface PublicKeySubsystemRemoveCertificatePacket {
+    readonly type: "remove-certificate"
+    readonly format: string
+    readonly certificateBlob: Buffer
+    readonly attributes: readonly PublicKeySubsystemListedAttribute[]
+}
+
+export interface PublicKeySubsystemListCertificatesPacket {
+    readonly type: "list-certificates"
+}
+
+export interface PublicKeySubsystemCertificatePacket {
+    readonly type: "certificate"
+    readonly format: string
+    readonly certificateBlob: Buffer
+    readonly attributes: readonly PublicKeySubsystemListedAttribute[]
+}
+
+export interface PublicKeySubsystemListNamespacesPacket {
+    readonly type: "list-namespaces"
+}
+
+export interface PublicKeySubsystemNamespacePacket {
+    readonly type: "namespace"
+    readonly name: string
+}
+
 export interface PublicKeySubsystemUnknownPacket {
     readonly type: "unknown"
     readonly name: string
@@ -106,6 +152,12 @@ export type PublicKeySubsystemPacket =
     | PublicKeySubsystemListAttributesPacket
     | PublicKeySubsystemPublicKeyPacket
     | PublicKeySubsystemAttributePacket
+    | PublicKeySubsystemAddCertificatePacket
+    | PublicKeySubsystemRemoveCertificatePacket
+    | PublicKeySubsystemListCertificatesPacket
+    | PublicKeySubsystemCertificatePacket
+    | PublicKeySubsystemListNamespacesPacket
+    | PublicKeySubsystemNamespacePacket
     | PublicKeySubsystemUnknownPacket
 
 export function validatePublicKeySubsystemAttributes(
@@ -126,8 +178,39 @@ export function validatePublicKeySubsystemAttributes(
                 )
             }
             decodeSSHLanguageTag(attribute.value, "Public-key subsystem comment-language attribute")
+        } else if (attribute.name === "namespace") {
+            validatePublicKeySubsystemNamespace(
+                decodeSSHUTF8(attribute.value, "Public-key subsystem namespace"),
+            )
         }
     }
+}
+
+export function validatePublicKeySubsystemNamespace(namespace: string): void {
+    encodeSSHUTF8(namespace, "Public-key subsystem namespace")
+    if ([...namespace].length > MAX_PUBLIC_KEY_SUBSYSTEM_NAMESPACE_CHARACTERS) {
+        throw new RangeError(
+            `Public-key subsystem namespace exceeds ${MAX_PUBLIC_KEY_SUBSYSTEM_NAMESPACE_CHARACTERS} characters`,
+        )
+    }
+}
+
+export function publicKeySubsystemNamespace(
+    attributes: readonly { readonly name: string; readonly value: Buffer }[],
+    required = false,
+): string | undefined {
+    const namespaces = attributes.filter(({ name }) => name === "namespace")
+    if (namespaces.length > 1) {
+        throw new Error("Public-key subsystem request must not contain more than one namespace")
+    }
+    const attribute = namespaces[0]
+    if (!attribute) {
+        if (required) throw new Error("Public-key subsystem request requires a namespace")
+        return undefined
+    }
+    const namespace = decodeSSHUTF8(attribute.value, "Public-key subsystem namespace")
+    validatePublicKeySubsystemNamespace(namespace)
+    return namespace
 }
 
 class Reader {
@@ -179,6 +262,78 @@ class Reader {
             throw new PublicKeySubsystemProtocolError(`Truncated public-key subsystem ${field}`)
         }
     }
+}
+
+function readRequestAttributes(reader: Reader): readonly PublicKeySubsystemAddAttribute[] {
+    const count = reader.uint32("attribute count")
+    if (count > Math.floor(reader.remaining / 10)) {
+        throw new PublicKeySubsystemProtocolError(
+            "Public-key subsystem attribute count exceeds packet data",
+        )
+    }
+    const attributes: PublicKeySubsystemAddAttribute[] = []
+    for (let index = 0; index < count; index++) {
+        attributes.push({
+            name: decodeSSHName(
+                reader.string("attribute name"),
+                "Public-key subsystem attribute name",
+            ),
+            value: reader.string("attribute value"),
+            critical: reader.boolean("critical attribute flag"),
+        })
+    }
+    return attributes
+}
+
+function encodeRequestAttributes(
+    attributes: readonly PublicKeySubsystemAddAttribute[],
+): readonly Buffer[] {
+    return [
+        uint32(attributes.length, "attribute count"),
+        ...attributes.flatMap((attribute) => [
+            string(
+                encodeSSHName(attribute.name, "Public-key subsystem attribute name"),
+                "attribute name",
+            ),
+            string(attribute.value, "attribute value"),
+            boolean(attribute.critical),
+        ]),
+    ]
+}
+
+function readListedAttributes(reader: Reader): readonly PublicKeySubsystemListedAttribute[] {
+    const count = reader.uint32("attribute count")
+    if (count > Math.floor(reader.remaining / 9)) {
+        throw new PublicKeySubsystemProtocolError(
+            "Public-key subsystem attribute count exceeds packet data",
+        )
+    }
+    const attributes: PublicKeySubsystemListedAttribute[] = []
+    for (let index = 0; index < count; index++) {
+        attributes.push({
+            name: decodeSSHName(
+                reader.string("attribute name"),
+                "Public-key subsystem attribute name",
+            ),
+            value: reader.string("attribute value"),
+        })
+    }
+    return attributes
+}
+
+function encodeListedAttributes(
+    attributes: readonly PublicKeySubsystemListedAttribute[],
+): readonly Buffer[] {
+    return [
+        uint32(attributes.length, "attribute count"),
+        ...attributes.flatMap((attribute) => [
+            string(
+                encodeSSHName(attribute.name, "Public-key subsystem attribute name"),
+                "attribute name",
+            ),
+            string(attribute.value, "attribute value"),
+        ]),
+    ]
 }
 
 export function decodePublicKeySubsystemPacket(frame: Buffer): PublicKeySubsystemPacket {
@@ -244,17 +399,26 @@ export function decodePublicKeySubsystemPacket(frame: Buffer): PublicKeySubsyste
             }
             break
         }
-        case "remove":
+        case "remove": {
+            const algorithm = decodeSSHName(
+                reader.string("key algorithm"),
+                "Public-key subsystem key algorithm",
+            )
+            const keyBlob = reader.string("key blob")
             packet = {
                 type,
-                algorithm: decodeSSHName(
-                    reader.string("key algorithm"),
-                    "Public-key subsystem key algorithm",
-                ),
-                keyBlob: reader.string("key blob"),
+                algorithm,
+                keyBlob,
+                ...(reader.remaining === 0 ? {} : { attributes: readRequestAttributes(reader) }),
             }
             break
+        }
         case "list":
+            packet = {
+                type,
+                ...(reader.remaining === 0 ? {} : { attributes: readRequestAttributes(reader) }),
+            }
+            break
         case "listattributes":
             packet = { type }
             break
@@ -291,6 +455,53 @@ export function decodePublicKeySubsystemPacket(frame: Buffer): PublicKeySubsyste
                     "Public-key subsystem attribute name",
                 ),
                 compulsory: reader.boolean("compulsory attribute flag"),
+            }
+            break
+        case "add-certificate":
+            packet = {
+                type,
+                format: decodeSSHName(
+                    reader.string("certificate format"),
+                    "Public-key subsystem certificate format",
+                ),
+                certificateBlob: reader.string("certificate blob"),
+                overwrite: reader.boolean("overwrite flag"),
+                attributes: readRequestAttributes(reader),
+            }
+            break
+        case "remove-certificate":
+            packet = {
+                type,
+                format: decodeSSHName(
+                    reader.string("certificate format"),
+                    "Public-key subsystem certificate format",
+                ),
+                certificateBlob: reader.string("certificate blob"),
+                attributes: readListedAttributes(reader),
+            }
+            break
+        case "list-certificates":
+        case "list-namespaces":
+            packet = { type }
+            break
+        case "certificate":
+            packet = {
+                type,
+                format: decodeSSHName(
+                    reader.string("certificate format"),
+                    "Public-key subsystem certificate format",
+                ),
+                certificateBlob: reader.string("certificate blob"),
+                attributes: readListedAttributes(reader),
+            }
+            break
+        case "namespace":
+            packet = {
+                type,
+                name: decodeSSHUTF8(
+                    reader.string("namespace name"),
+                    "Public-key subsystem namespace",
+                ),
             }
             break
         default:
@@ -356,9 +567,16 @@ export function encodePublicKeySubsystemPacket(packet: PublicKeySubsystemPacket)
                     "key algorithm",
                 ),
                 string(packet.keyBlob, "key blob"),
+                ...(packet.attributes === undefined
+                    ? []
+                    : encodeRequestAttributes(packet.attributes)),
             )
             break
         case "list":
+            if (packet.attributes !== undefined) {
+                parts.push(...encodeRequestAttributes(packet.attributes))
+            }
+            break
         case "listattributes":
             break
         case "publickey":
@@ -385,6 +603,48 @@ export function encodePublicKeySubsystemPacket(packet: PublicKeySubsystemPacket)
                     "attribute name",
                 ),
                 boolean(packet.compulsory),
+            )
+            break
+        case "add-certificate":
+            parts.push(
+                string(
+                    encodeSSHName(packet.format, "Public-key subsystem certificate format"),
+                    "certificate format",
+                ),
+                string(packet.certificateBlob, "certificate blob"),
+                boolean(packet.overwrite),
+                ...encodeRequestAttributes(packet.attributes),
+            )
+            break
+        case "remove-certificate":
+            parts.push(
+                string(
+                    encodeSSHName(packet.format, "Public-key subsystem certificate format"),
+                    "certificate format",
+                ),
+                string(packet.certificateBlob, "certificate blob"),
+                ...encodeListedAttributes(packet.attributes),
+            )
+            break
+        case "list-certificates":
+        case "list-namespaces":
+            break
+        case "certificate":
+            parts.push(
+                string(
+                    encodeSSHName(packet.format, "Public-key subsystem certificate format"),
+                    "certificate format",
+                ),
+                string(packet.certificateBlob, "certificate blob"),
+                ...encodeListedAttributes(packet.attributes),
+            )
+            break
+        case "namespace":
+            parts.push(
+                string(
+                    encodeSSHUTF8(packet.name, "Public-key subsystem namespace"),
+                    "namespace name",
+                ),
             )
             break
         case "unknown":
