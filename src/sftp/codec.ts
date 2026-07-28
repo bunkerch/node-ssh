@@ -14,9 +14,9 @@ import type {
 } from "./types.js"
 import { decodeSSHName, encodeSSHName } from "../utils/SSHName.js"
 import {
-    decodeSSHLanguageTag,
+    decodeRFC5646LanguageTag,
     decodeSSHUTF8,
-    encodeSSHLanguageTag,
+    encodeRFC5646LanguageTag,
     encodeSSHUTF8,
 } from "../utils/SSHText.js"
 
@@ -339,7 +339,7 @@ export function decodeSFTPPacket(frame: Buffer): SFTPPacket {
                 requestId: requestId(reader),
                 code: reader.uint32("status code"),
                 message: decodeSSHUTF8(reader.string("status message"), "SFTP status message"),
-                languageTag: decodeSSHLanguageTag(
+                languageTag: decodeRFC5646LanguageTag(
                     reader.string("status language tag"),
                     "SFTP status language tag",
                 ),
@@ -470,7 +470,7 @@ export function encodeSFTPPacket(packet: SFTPPacket): Buffer {
                 uint32(packet.code, "status code"),
                 utf8(packet.message, "status message"),
                 string(
-                    encodeSSHLanguageTag(packet.languageTag, "SFTP status language tag"),
+                    encodeRFC5646LanguageTag(packet.languageTag, "SFTP status language tag"),
                     "status language tag",
                 ),
             )

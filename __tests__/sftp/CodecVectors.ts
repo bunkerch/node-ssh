@@ -197,6 +197,17 @@ describe("SFTP v3 fixed packet vectors", () => {
             languageTag: "en",
         })
         expect(encodeSFTPPacket(decodeSFTPPacket(STATUS))).toEqual(STATUS)
+        const rfc5646Status = hex(
+            `00000028 65 00000009 00000004 00000000 00000017 64652d43482d313930312d752d636f2d70686f6e65626b`,
+        )
+        expect(decodeSFTPPacket(rfc5646Status)).toEqual({
+            type: SFTPPacketType.Status,
+            requestId: 9,
+            code: SFTPStatusCode.Failure,
+            message: "",
+            languageTag: "de-CH-1901-u-co-phonebk",
+        })
+        expect(encodeSFTPPacket(decodeSFTPPacket(rfc5646Status))).toEqual(rfc5646Status)
 
         const handle = hex(`0000000a 66 00000009 00000001 68`)
         const data = hex(`0000000c 67 00000009 00000003 616263`)
@@ -241,7 +252,10 @@ describe("SFTP v3 fixed packet vectors", () => {
         ).toThrow("SFTP status message is not valid UTF-8 text")
         expect(() =>
             decodeSFTPPacket(hex(`00000012 65 00000001 00000004 00000000 00000001 ff`)),
-        ).toThrow("SFTP status language tag is not valid RFC 3066")
+        ).toThrow("SFTP status language tag is not valid RFC 5646")
+        expect(() =>
+            decodeSFTPPacket(hex(`00000015 65 00000001 00000004 00000000 00000004 656e2d61`)),
+        ).toThrow("SFTP status language tag is not valid RFC 5646")
         expect(() => decodeSFTPPacket(hex(`0000000e 01 00000003 00000001 ff 00000000`))).toThrow(
             "SFTP extension name must be US-ASCII",
         )
@@ -258,15 +272,45 @@ describe("SFTP v3 fixed packet vectors", () => {
                 languageTag: "",
             }),
         ).toThrow("SFTP status message is not valid UTF-8 text")
-        expect(() =>
-            encodeSFTPPacket({
-                type: SFTPPacketType.Status,
-                requestId: 1,
-                code: SFTPStatusCode.Failure,
-                message: "failure",
-                languageTag: "not_a_tag",
-            }),
-        ).toThrow("SFTP status language tag is not valid RFC 3066")
+        for (const languageTag of [
+            "not_a_tag",
+            "en-1",
+            "en-a",
+            "en-x",
+            "en-a-foo-a-bar",
+            "sl-rozaj-ROZAJ",
+            "i-not-registered",
+        ]) {
+            expect(() =>
+                encodeSFTPPacket({
+                    type: SFTPPacketType.Status,
+                    requestId: 1,
+                    code: SFTPStatusCode.Failure,
+                    message: "failure",
+                    languageTag,
+                }),
+            ).toThrow("SFTP status language tag is not valid RFC 5646")
+        }
+        for (const languageTag of [
+            "",
+            "en",
+            "zh-cmn-Hans-CN",
+            "sl-rozaj-biske-1994",
+            "en-a-foo-x-a",
+            "x-company",
+            "en-GB-oed",
+            "zh-min-nan",
+        ]) {
+            expect(() =>
+                encodeSFTPPacket({
+                    type: SFTPPacketType.Status,
+                    requestId: 1,
+                    code: SFTPStatusCode.Failure,
+                    message: "failure",
+                    languageTag,
+                }),
+            ).not.toThrow()
+        }
 
         const opaqueName = hex(`00000017 68 00000001 00000001 00000001 ff 00000001 ff 00000000`)
         const decodedName = decodeSFTPPacket(opaqueName)

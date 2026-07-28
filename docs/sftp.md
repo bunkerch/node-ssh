@@ -235,9 +235,10 @@ Rejecting no-progress responses prevents silent file truncation and unbounded di
 Messages are bounded to OpenSSH's 256 KiB ceiling before allocation, handles to 256 bytes, and
 outstanding client requests to 1024. The initial read and write request size is 32 KiB, which every
 conforming server is expected to support. Status messages use fatal UTF-8 validation, status
-language tags use the protocol language-tag grammar, and extension identifiers are validated SSH
-names. Filenames, long names, paths, handles, and extension payloads remain opaque bytes and are
-never replacement-decoded by the wire codec. Decoded opaque fields are owned buffers rather than
+language tags use the RFC 5646 grammar (with the empty protocol value retained for an unspecified
+language), and extension identifiers are validated SSH names. Filenames, long names, paths, handles,
+and extension payloads remain opaque bytes. The wire codec never replacement-decodes them. Decoded
+opaque fields are owned buffers rather than
 views into the input frame, and the streaming parser snapshots any incomplete chunk it must retain
 across calls.
 Fatal errors, including EOF in the middle of a frame, close the SFTP channel in both peer roles and
