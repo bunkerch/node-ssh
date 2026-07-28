@@ -1190,6 +1190,7 @@ export default class Client extends EventEmitter<ClientEvents> {
     private rekeyTimer?: ReturnType<typeof setTimeout>
     private automaticRekeyScheduled = false
     private keyExchangeInProgress = false
+    private readonly keyExchangeUnimplementedRegistrations: (() => void)[] = []
     private peerKexInitReceived = false
     private inboundNewKeysReady = false
     private readonly expectedInboundKeyExchangePackets = new Set<PacketType>()
@@ -1348,6 +1349,7 @@ export default class Client extends EventEmitter<ClientEvents> {
         this.clearRekeyTimer()
         this.automaticRekeyScheduled = false
         this.keyExchangeInProgress = false
+        this.clearKeyExchangeUnimplementedRegistrations()
         discardApplicationTrafficPause(this)
         this.inboundNewKeysReady = false
         this.expectedInboundKeyExchangePackets.clear()
@@ -2400,6 +2402,7 @@ export default class Client extends EventEmitter<ClientEvents> {
         this.strictInitialExchange = !isRekey
         if (!isRekey) this.strictInitialPackets.clear()
         this.keyExchangeInProgress = true
+        this.clearKeyExchangeUnimplementedRegistrations()
         pauseApplicationTraffic(this)
         this.clearRekeyTimer()
         this.peerKexInitReceived = peerInitiated
@@ -2642,6 +2645,7 @@ export default class Client extends EventEmitter<ClientEvents> {
                 this.advertisedAuthenticationExtInfo = true
                 if (delayCompression) this.delayCompressionRekeyBlocked = true
             }
+            if (this.strictKeyExchange) this.clearKeyExchangeUnimplementedRegistrations()
             resumeApplicationTraffic(this, () => {
                 this.outboundRekeyQueue.drain((packet, payload) =>
                     this.writePacket(packet, payload),
@@ -2676,6 +2680,7 @@ export default class Client extends EventEmitter<ClientEvents> {
         } finally {
             negotiatedKeyExchange?.dispose()
             if (generation === this.connectionGeneration) {
+                this.clearKeyExchangeUnimplementedRegistrations()
                 discardApplicationTrafficPause(this)
                 this.outboundRekeyQueue.clear()
                 this.keyExchangeInProgress = false
@@ -3193,9 +3198,29 @@ export default class Client extends EventEmitter<ClientEvents> {
         if (packet === this.#clientKexInit) this.#clientKexInitPayload = Buffer.from(payload)
         const encoded = this.packetEncoder.encode(payload)
         this.socket!.write(encoded.data)
+        const packetType = (packet.constructor as typeof Packet).type as PacketType
+        if (this.keyExchangeInProgress && isStrictKeyExchangePacket(packetType)) {
+            const sequenceNumber = encoded.sequenceNumber
+            this.keyExchangeUnimplementedRegistrations.push(
+                registerUnimplementedRejection(this, sequenceNumber, () =>
+                    this.socket?.destroy(
+                        new KeyExchangeError(
+                            unimplementedPacketError(
+                                sequenceNumber,
+                                `key-exchange packet ${packetType}`,
+                            ).message,
+                        ),
+                    ),
+                ),
+            )
+        }
         if (packet instanceof UserAuthRequest) this.sentAuthenticationRequest = true
         this.checkRekeyByteLimit()
         return encoded.sequenceNumber
+    }
+
+    private clearKeyExchangeUnimplementedRegistrations(): void {
+        for (const unregister of this.keyExchangeUnimplementedRegistrations.splice(0)) unregister()
     }
 
     onMessage(message: Buffer): void {

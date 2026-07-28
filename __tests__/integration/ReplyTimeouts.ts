@@ -394,4 +394,74 @@ describe("ordered SSH reply deadlines", () => {
             await closePeers(peers)
         }
     })
+
+    test("fails a non-strict client rekey immediately when its KEXINIT is unimplemented", async () => {
+        const peers = await connectedPeers({
+            clientReplyTimeout: 1_000,
+            serverReplyTimeout: 1_000,
+        })
+        ;(peers.client as unknown as { strictKeyExchange: boolean }).strictKeyExchange = false
+        ;(peers.peer as unknown as { strictKeyExchange: boolean }).strictKeyExchange = false
+        peers.client.on("error", () => undefined)
+        let kexInitSequence: number | undefined
+        let rejected = false
+        peers.peer.on("packet", (metadata) => {
+            if (metadata.name === "SSH_MSG_KEXINIT") {
+                kexInitSequence = metadata.sequenceNumber
+            }
+        })
+        const sendPacket = peers.peer.sendPacket.bind(peers.peer)
+        peers.peer.sendPacket = (packet: Packet) => {
+            if (packet instanceof KexInit && kexInitSequence !== undefined) {
+                rejected = true
+                return sendPacket(new Unimplemented({ sequence_number: kexInitSequence }))
+            }
+            const type = (packet.constructor as typeof Packet).type
+            return rejected && type >= 20 && type < 50 ? -1 : sendPacket(packet)
+        }
+
+        try {
+            const closed = new Promise<void>((resolve) => peers.client.once("close", resolve))
+            const result = await peers.client.rekey().catch((error: Error) => error)
+            expect(String(result)).toContain("SSH peer did not implement key-exchange packet 20")
+            await closed
+        } finally {
+            await closePeers(peers)
+        }
+    })
+
+    test("fails a non-strict server rekey immediately when its KEXINIT is unimplemented", async () => {
+        const peers = await connectedPeers({
+            clientReplyTimeout: 1_000,
+            serverReplyTimeout: 1_000,
+        })
+        ;(peers.client as unknown as { strictKeyExchange: boolean }).strictKeyExchange = false
+        ;(peers.peer as unknown as { strictKeyExchange: boolean }).strictKeyExchange = false
+        peers.peer.on("error", () => undefined)
+        let kexInitSequence: number | undefined
+        let rejected = false
+        peers.client.on("packet", (metadata) => {
+            if (metadata.name === "SSH_MSG_KEXINIT") {
+                kexInitSequence = metadata.sequenceNumber
+            }
+        })
+        const sendPacket = peers.client.sendPacket.bind(peers.client)
+        peers.client.sendPacket = (packet: Packet) => {
+            if (packet instanceof KexInit && kexInitSequence !== undefined) {
+                rejected = true
+                return sendPacket(new Unimplemented({ sequence_number: kexInitSequence }))
+            }
+            const type = (packet.constructor as typeof Packet).type
+            return rejected && type >= 20 && type < 50 ? -1 : sendPacket(packet)
+        }
+
+        try {
+            const closed = new Promise<void>((resolve) => peers.peer.once("close", resolve))
+            const result = await peers.peer.rekey().catch((error: Error) => error)
+            expect(String(result)).toContain("SSH peer did not implement key-exchange packet 20")
+            await closed
+        } finally {
+            await closePeers(peers)
+        }
+    })
 })

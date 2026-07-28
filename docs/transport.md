@@ -198,7 +198,10 @@ a key-exchange violation and terminates the connection instead of receiving this
 The `unimplemented` event reports only the rejected outbound sequence number. When that sequence
 identifies a pending channel open, reply-requesting channel or global request, or transport ping,
 the matching Promise rejects immediately and is removed from its ordered reply queue. The
-connection remains usable; unrelated pending operations keep their original ordering.
+connection remains usable; unrelated pending operations keep their original ordering. A rejection
+of an outbound key-exchange packet fails that exchange immediately and closes the unusable
+transport. Key-exchange sequence registrations are scoped to one exchange and cleared before
+strict sequence numbers reset or, without strict mode, when the exchange completes.
 
 The connection-level `packet` event exposes immutable inbound metadata: packet type, registered
 name when known, and sequence number. It never exposes decrypted payload bytes or parsed packet
@@ -846,7 +849,9 @@ its eventual failure by closing the replacement transport.
 RFC 4253 permits either peer to initiate rekeying as soon as the initial key exchange has
 completed, including during service negotiation or user authentication. `rekey()` follows that
 rule and resolves after the replacement keys are active; a concurrent exchange is rejected rather
-than starting a second state machine.
+than starting a second state machine. Outside strict mode, `SSH_MSG_UNIMPLEMENTED` for an exact
+outbound KEX packet fails the exchange immediately rather than waiting for `replyTimeout`. Strict
+mode already rejects that non-KEX reply as forbidden traffic during an exchange.
 
 Packets already in flight before the peer's `KEXINIT` remain processable as RFC 4253 requires.
 After that `KEXINIT` arrives, service, authentication, connection, and vendor transport messages

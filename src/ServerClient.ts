@@ -385,6 +385,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     private authenticationRequestReceived = false
     private authenticationExtInfoSent = false
     private keyExchangeInProgress = false
+    private readonly keyExchangeUnimplementedRegistrations: (() => void)[] = []
     private peerKexInitReceived = false
     private inboundNewKeysReady = false
     private readonly expectedInboundKeyExchangePackets = new Set<PacketType>()
@@ -991,6 +992,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         this.strictInitialExchange = !isRekey
         if (!isRekey) this.strictInitialPackets.clear()
         this.keyExchangeInProgress = true
+        this.clearKeyExchangeUnimplementedRegistrations()
         pauseApplicationTraffic(this)
         this.clearRekeyTimer()
         this.peerKexInitReceived = peerInitiated
@@ -1202,6 +1204,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 )
                 if (delayCompression) this.delayCompressionRekeyBlocked = true
             }
+            if (this.strictKeyExchange) this.clearKeyExchangeUnimplementedRegistrations()
             resumeApplicationTraffic(this, () => {
                 this.outboundRekeyQueue.drain((packet, payload) =>
                     this.writePacket(packet, payload),
@@ -1228,6 +1231,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             throw error
         } finally {
             this.#kexAlgorithm?.dispose()
+            this.clearKeyExchangeUnimplementedRegistrations()
             discardApplicationTrafficPause(this)
             this.outboundRekeyQueue.clear()
             this.keyExchangeInProgress = false
@@ -2715,8 +2719,28 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         if (packet === this.#serverKexInit) this.#serverKexInitPayload = Buffer.from(payload)
         const encoded = this.packetEncoder.encode(payload)
         this.socket!.write(encoded.data)
+        const packetType = (packet.constructor as typeof Packet).type as PacketType
+        if (this.keyExchangeInProgress && isStrictKeyExchangePacket(packetType)) {
+            const sequenceNumber = encoded.sequenceNumber
+            this.keyExchangeUnimplementedRegistrations.push(
+                registerUnimplementedRejection(this, sequenceNumber, () =>
+                    this.socket.destroy(
+                        new KeyExchangeError(
+                            unimplementedPacketError(
+                                sequenceNumber,
+                                `key-exchange packet ${packetType}`,
+                            ).message,
+                        ),
+                    ),
+                ),
+            )
+        }
         this.checkRekeyByteLimit()
         return encoded.sequenceNumber
+    }
+
+    private clearKeyExchangeUnimplementedRegistrations(): void {
+        for (const unregister of this.keyExchangeUnimplementedRegistrations.splice(0)) unregister()
     }
 
     debug(...message: unknown[]): void {
