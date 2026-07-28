@@ -255,9 +255,7 @@ already a Promise; event-based channel completion uses `once()` from `node:event
 try {
     await useClient(client)
 } finally {
-    const closed = once(client, "close")
-    client.end()
-    await closed
+    await client.close()
 }
 
 await server.close()

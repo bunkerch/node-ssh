@@ -1220,6 +1220,10 @@ export default class Client extends EventEmitter<ClientEvents> {
     private actionQueue = new ActionQueue()
     private connectionGeneration = 0
     private initialGSSAPIKeyExchangeContext?: GSSAPIKeyExchangeClientContext
+    private closeOperation?: {
+        readonly generation: number
+        readonly promise: Promise<void>
+    }
 
     get serverHostKey(): Buffer | undefined {
         return this.negotiatedServerHostKey ? Buffer.from(this.negotiatedServerHostKey) : undefined
@@ -2767,9 +2771,7 @@ export default class Client extends EventEmitter<ClientEvents> {
             if (suppliedSocket === undefined) this.socket!.once("connect", connectListener)
             const errorListener = (error: Error) => {
                 this.clearReadyTimeout()
-                this.state = SocketState.Closed
                 this.debug("Socket error:", error)
-                this.socket = undefined
 
                 if (connected) {
                     this.emit("error", error)
@@ -3070,6 +3072,61 @@ export default class Client extends EventEmitter<ClientEvents> {
         return this.disconnect(
             new DisconnectError(DisconnectReason.SSH_DISCONNECT_BY_APPLICATION, ""),
         )
+    }
+
+    /**
+     * Gracefully disconnect and settle after terminal transport cleanup.
+     *
+     * Concurrent calls for one connection share the same Promise. The client remains reusable
+     * after the Promise resolves.
+     */
+    close(): Promise<void> {
+        if (this.state === SocketState.Closed) return Promise.resolve()
+        const generation = this.connectionGeneration
+        if (this.closeOperation?.generation === generation) {
+            return this.closeOperation.promise
+        }
+
+        let resolve!: () => void
+        let reject!: (error: Error) => void
+        const promise = new Promise<void>((resolvePromise, rejectPromise) => {
+            resolve = resolvePromise
+            reject = rejectPromise
+        })
+        this.closeOperation = { generation, promise }
+
+        let transportError: Error | undefined
+        const onError = (error: Error) => {
+            transportError ??= error
+        }
+        const onClose = () => {
+            this.off("error", onError)
+            if (
+                this.closeOperation?.generation === generation &&
+                this.closeOperation.promise === promise
+            ) {
+                this.closeOperation = undefined
+            }
+            if (transportError) reject(transportError)
+            else resolve()
+        }
+        this.on("error", onError)
+        this.once("close", onClose)
+
+        try {
+            this.end()
+        } catch (error) {
+            transportError =
+                error instanceof Error
+                    ? error
+                    : new Error(`SSH client close failed: ${String(error)}`)
+            this.destroy()
+        }
+        return promise
+    }
+
+    [Symbol.asyncDispose](): Promise<void> {
+        return this.close()
     }
 
     disconnect(error?: DisconnectError): this {

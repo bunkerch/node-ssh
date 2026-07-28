@@ -46,7 +46,7 @@ command.pipe(process.stdout)
 command.stderr.pipe(process.stderr)
 await once(command, "close")
 
-client.end()
+await client.close()
 ```
 
 `username` is required and identifies the remote SSH account. The client never substitutes
@@ -58,6 +58,15 @@ emits synchronous `connect` and `ready` observation events once at that same tra
 server role, each accepted `ServerClient` emits the same pair after user authentication succeeds.
 `ready` preserves the conventional event spelling for event-driven consumers; neither event is a
 completion callback, and listeners must not be `async` functions.
+
+`await client.close()` sends a graceful application disconnect and resolves only after terminal
+transport cleanup and the synchronous `close` observation event. Concurrent calls while the same
+connection is closing share one Promise. The client can connect again after it resolves.
+`await client[Symbol.asyncDispose]()` provides the same lifecycle for `await using`. Calling either
+method on an already closed client resolves immediately. Use `end()` only when teardown is observed
+separately, or `destroy()` when the transport must be aborted instead of closed gracefully. If the
+transport emits an error during graceful shutdown, `close()` waits for terminal cleanup and then
+rejects with that error.
 
 Policy and credential decisions use `Hooker`, whose handlers may be asynchronous and are awaited
 in registration order. Observe contained handler failures through the Hooker's

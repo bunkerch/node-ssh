@@ -58,7 +58,7 @@ try {
     command.stderr.pipe(process.stderr)
     await once(command, "close")
 } finally {
-    client.end()
+    await client.close()
 }
 ```
 

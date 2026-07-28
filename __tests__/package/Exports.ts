@@ -673,6 +673,8 @@ describe("package exports", () => {
         }
         expect(clientChannel).toContain("sendData(data: Buffer | string")
         expect(client).toContain("authenticationSignatureAlgorithms?: readonly string[]")
+        expect(client).toContain("close(): Promise<void>")
+        expect(client).toContain("[Symbol.asyncDispose](): Promise<void>")
         expect(clientSession).toContain("forwardAgent(): Promise<void>")
         expect(clientSession).toContain("sendInfoSignal(): Promise<void>")
         expect(index).toContain('export { OPENSSH_INFO_SIGNAL } from "./utils/Signal.js"')
@@ -936,6 +938,9 @@ describe("package exports", () => {
                     try { new Client({ username: "packed", timeout: null }); process.exit(105) } catch (error) { if (!String(error).includes("transport inactivity timeout must be an integer")) process.exit(106) }
                     try { new Client({ username: "packed", authenticationSignatureAlgorithms: null }); process.exit(125) } catch (error) { if (!String(error).includes("signature algorithms must be an array")) process.exit(126) }
                     new Client({ username: "packed", authenticationSignatureAlgorithms: ["ssh-ed25519"] })
+                    const disposableClient = new Client({ username: "packed" })
+                    if (!(disposableClient.close() instanceof Promise)) process.exit(127)
+                    await disposableClient[Symbol.asyncDispose]()
                     try { new Client({}); process.exit(117) } catch (error) { if (!String(error).includes("username option is required")) process.exit(118) }
                     const invalidSession = new Client({ username: "packed" }).exec("true", { agentForward: "false" })
                     if (!(invalidSession instanceof Promise)) process.exit(66)

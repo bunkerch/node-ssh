@@ -84,6 +84,14 @@ export default class Client extends EventEmitter<ClientEvents> {
     openssh_unforwardInStreamLocal(socketPath: string): Promise<void>;
     connect(): Promise<void>;
     end(): this;
+    /**
+     * Gracefully disconnect and settle after terminal transport cleanup.
+     *
+     * Concurrent calls for one connection share the same Promise. The client remains reusable
+     * after the Promise resolves.
+     */
+    close(): Promise<void>;
+    [Symbol.asyncDispose](): Promise<void>;
     disconnect(error?: DisconnectError): this;
     destroy(): this;
     sendPacket(packet: Packet): number;
