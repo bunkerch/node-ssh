@@ -289,6 +289,9 @@ export default class SFTPClient extends EventEmitter<SFTPClientEvents> {
     fastGet(remotePath: SFTPPath, localPath: string, options?: SFTPFastGetOptions): Promise<void>;
     fastPut(localPath: string, remotePath: SFTPPath, options?: SFTPFastPutOptions): Promise<void>;
     open(path: SFTPPath, flags: string | number, attributes?: SFTPAttributes): Promise<Buffer>;
+    /** Close the SFTP session and settle after its SSH channel closes. */
+    close(): Promise<void>;
+    /** Close one active remote file, directory, or extension handle. */
     close(handle: Buffer): Promise<void>;
     read(handle: Buffer, length: number, position: SFTPPosition): Promise<Buffer>;
     read(handle: Buffer, buffer: Buffer, bufferOffset: number, length: number, position: SFTPPosition): Promise<SFTPReadResult>;
@@ -347,6 +350,7 @@ export default class SFTPClient extends EventEmitter<SFTPClientEvents> {
     utimes(path: SFTPPath, accessTime: Date | number, modificationTime: Date | number): Promise<void>;
     futimes(handle: Buffer, accessTime: Date | number, modificationTime: Date | number): Promise<void>;
     end(): void;
+    [Symbol.asyncDispose](): Promise<void>;
     destroy(error?: Error): void;
 }
 ```

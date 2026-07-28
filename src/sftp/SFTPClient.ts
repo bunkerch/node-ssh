@@ -1,6 +1,6 @@
 import type ClientSessionChannel from "../channels/ClientSessionChannel.js"
 import { constants as bufferConstants } from "node:buffer"
-import EventEmitter from "node:events"
+import EventEmitter, { once } from "node:events"
 import { open as openLocalFile } from "node:fs/promises"
 import type { FileHandle } from "node:fs/promises"
 import { validateSSHName } from "../utils/SSHName.js"
@@ -276,6 +276,7 @@ export default class SFTPClient extends EventEmitter<SFTPClientEvents> {
     private nextRequestId = 0
     private initialized = false
     private closed = false
+    private closePromise: Promise<void> | undefined
     private readyResolve!: () => void
     private readyReject!: (error: Error) => void
     private readonly ready: Promise<void>
@@ -597,7 +598,15 @@ export default class SFTPClient extends EventEmitter<SFTPClientEvents> {
         })
     }
 
-    async close(handle: Buffer): Promise<void> {
+    /** Close the SFTP session and settle after its SSH channel closes. */
+    close(): Promise<void>
+    /** Close one active remote file, directory, or extension handle. */
+    close(handle: Buffer): Promise<void>
+    close(handle?: Buffer): Promise<void> {
+        return handle === undefined ? this.closeSession() : this.closeHandle(handle)
+    }
+
+    private async closeHandle(handle: Buffer): Promise<void> {
         const ownedHandle = this.activeHandle(handle)
         await this.requestPacket(
             {
@@ -1193,9 +1202,30 @@ export default class SFTPClient extends EventEmitter<SFTPClientEvents> {
         if (!this.closed) this.channel.end()
     }
 
+    [Symbol.asyncDispose](): Promise<void> {
+        return this.closeSession()
+    }
+
     destroy(error?: Error): void {
-        if (!this.closed) this.channel.destroy(error)
+        if (!this.channel.destroyed) this.channel.destroy(error)
         this.fail(error ?? new Error("SFTP session closed"))
+    }
+
+    private closeSession(): Promise<void> {
+        if (this.closePromise !== undefined) return this.closePromise
+        if (this.channel.destroyed) return Promise.resolve()
+
+        this.closePromise = this.waitForResponse(
+            once(this.channel, "close").then(() => undefined),
+            "channel close",
+        )
+        this.fail(new Error("SFTP session closed"))
+        try {
+            this.channel.close()
+        } catch (error) {
+            this.channel.destroy(error instanceof Error ? error : new Error(String(error)))
+        }
+        return this.closePromise
     }
 
     private async withFileHandle<T>(

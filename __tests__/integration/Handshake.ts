@@ -765,7 +765,9 @@ describe("client/server integration", () => {
                 type: SFTPPacketType.ExtendedReply,
                 data: Buffer.from("ORDERED EXTENSION"),
             })
-            applicationSFTP.end()
+            await applicationSFTP.close()
+            expect(applicationSFTP.channel.destroyed).toBe(true)
+            expect(client.isConnected).toBe(true)
 
             const forwardedPort = await client.forwardIn("127.0.0.1", 0)
             expect(forwardedPort).toBeGreaterThan(0)

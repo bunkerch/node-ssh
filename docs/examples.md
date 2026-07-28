@@ -110,7 +110,7 @@ try {
         concurrency: 8,
     })
 } finally {
-    sftp.end()
+    await sftp.close()
 }
 ```
 

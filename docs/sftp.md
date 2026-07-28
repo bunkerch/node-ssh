@@ -157,9 +157,17 @@ mutating them cannot redirect later reads, writes, or close operations. A suppli
 active and issued by the same `SFTPClient`, in addition to satisfying the protocol's 256-byte
 maximum.
 
-Call `sftp.end()` to send EOF to the subsystem once no requests remain. `sftp.destroy(error?)`
-aborts it. An abort rejects every pending request and handle allocation with the supplied error;
-subsequent operations reject because the SFTP session is closed.
+Call `await sftp.close()` to close the subsystem channel and settle after its terminal `close`
+event. Concurrent calls share one Promise; `await using` invokes the same operation through
+`Symbol.asyncDispose`. This no-argument overload is distinct from `close(handle)`, which closes one
+remote file, directory, or extension handle. Session closure rejects outstanding SFTP requests,
+causes the peer to release any remaining handles, and leaves the parent SSH connection available.
+The configured `requestTimeout` also bounds this close handshake; expiry rejects the shared Promise
+and destroys only the subsystem channel.
+Call `sftp.end()` only when intentionally sending EOF while continuing to receive from the
+subsystem. `sftp.destroy(error?)` aborts it. An abort rejects every pending request and handle
+allocation with the supplied error; subsequent operations reject because the SFTP session is
+closed.
 
 ## Paths, offsets, and attributes
 

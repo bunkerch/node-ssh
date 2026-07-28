@@ -353,6 +353,8 @@ describe("package exports", () => {
         expect(SFTPPacketType.Init).toBe(1)
         expect(SFTPClient).toBeFunction()
         expect(SFTPClient.prototype.iterateDirectory).toBeFunction()
+        expect(SFTPClient.prototype.close).toBeFunction()
+        expect(SFTPClient.prototype[Symbol.asyncDispose]).toBeFunction()
         expect(SFTPReadStream).toBeFunction()
         expect(SFTPServer).toBeFunction()
         expect(SFTPStats).toBeFunction()
@@ -480,6 +482,8 @@ describe("package exports", () => {
         expect(entry.SFTPPacketType.Status).toBe(101)
         expect(entry.SFTPClient).toBeDefined()
         expect(entry.SFTPClient.prototype.iterateDirectory).toBeFunction()
+        expect(entry.SFTPClient.prototype.close).toBeFunction()
+        expect(entry.SFTPClient.prototype[Symbol.asyncDispose]).toBeFunction()
         expect(entry.SFTPReadStream).toBeDefined()
         expect(entry.SFTPServer).toBeDefined()
         expect(entry.SFTPStats).toBeDefined()
@@ -751,6 +755,9 @@ describe("package exports", () => {
         expect(sftpClient).toContain(
             "iterateDirectory(path: SFTPPath): AsyncGenerator<SFTPClientNameEntry, void, void>",
         )
+        expect(sftpClient).toContain("close(): Promise<void>")
+        expect(sftpClient).toContain("close(handle: Buffer): Promise<void>")
+        expect(sftpClient).toContain("[Symbol.asyncDispose](): Promise<void>")
         expect(sftpClient).not.toContain("callback")
         expect(sftpClient).not.toContain("step?:")
         expect(sftpClient).toContain("extends EventEmitter<SFTPClientEvents>")

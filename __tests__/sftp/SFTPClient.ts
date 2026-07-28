@@ -56,6 +56,19 @@ class BlockedSFTPChannel extends Duplex {
     }
 }
 
+class ClosableSFTPChannel extends SFTPServerFixture {
+    closeCalls = 0
+
+    close(): this {
+        this.closeCalls++
+        return this
+    }
+
+    finishClose(error?: Error): void {
+        this.destroy(error)
+    }
+}
+
 function asClientChannel(channel: Duplex): ClientSessionChannel {
     return channel as unknown as ClientSessionChannel
 }
@@ -143,6 +156,70 @@ describe("SFTP client request engine", () => {
         ])
         await expect(client.stat("after-abort")).rejects.toThrow("SFTP session is closed")
         expect(fixture.destroyed).toBe(true)
+    })
+
+    test("shares graceful session shutdown and awaits the channel close", async () => {
+        const channel = new ClosableSFTPChannel((packet) => {
+            if (packet.type === SFTPPacketType.Init) {
+                channel.send({ type: SFTPPacketType.Version, version: 3, extensions: [] })
+            }
+        })
+        const client = await SFTPClient.connect(asClientChannel(channel))
+        const pending = client.stat("pending")
+
+        const firstClose = client.close()
+        const secondClose = client.close()
+        expect(secondClose).toBe(firstClose)
+        expect(channel.closeCalls).toBe(1)
+        await expect(pending).rejects.toThrow("SFTP session closed")
+
+        let settled = false
+        void firstClose.then(() => {
+            settled = true
+        })
+        await Promise.resolve()
+        expect(settled).toBe(false)
+
+        channel.finishClose()
+        await firstClose
+        expect(settled).toBe(true)
+        await client[Symbol.asyncDispose]()
+        expect(channel.closeCalls).toBe(1)
+        await expect(client.stat("after-close")).rejects.toThrow("SFTP session is closed")
+    })
+
+    test("reports a channel error while awaiting graceful session shutdown", async () => {
+        const channel = new ClosableSFTPChannel((packet) => {
+            if (packet.type === SFTPPacketType.Init) {
+                channel.send({ type: SFTPPacketType.Version, version: 3, extensions: [] })
+            }
+        })
+        const client = await SFTPClient.connect(asClientChannel(channel))
+        const failure = new Error("channel close failed")
+
+        const closing = client[Symbol.asyncDispose]()
+        channel.finishClose(failure)
+
+        await expect(closing).rejects.toBe(failure)
+        expect(channel.closeCalls).toBe(1)
+    })
+
+    test("bounds graceful session shutdown when the peer does not close", async () => {
+        const channel = new ClosableSFTPChannel((packet) => {
+            if (packet.type === SFTPPacketType.Init) {
+                channel.send({ type: SFTPPacketType.Version, version: 3, extensions: [] })
+            }
+        })
+        const client = await SFTPClient.connect(asClientChannel(channel), false, {
+            requestTimeout: 20,
+        })
+
+        await expect(client.close()).rejects.toThrow("Timed out waiting for SFTP channel close")
+        expect(channel.closeCalls).toBe(1)
+        expect(channel.destroyed).toBe(true)
+        await expect(client[Symbol.asyncDispose]()).rejects.toThrow(
+            "Timed out waiting for SFTP channel close",
+        )
     })
 
     test("rejects an invalid write limit before sending a request", async () => {
