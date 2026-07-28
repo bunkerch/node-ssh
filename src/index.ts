@@ -183,6 +183,7 @@ export type { TCPIPConnectionDetails } from "./channels/ClientTCPIPChannel.js"
 
 export { default as Server } from "./Server.js"
 export type {
+    HostKeyAdvertisementFormat,
     ServerConnectionListener,
     ServerConnectionInfo,
     ServerEvents,

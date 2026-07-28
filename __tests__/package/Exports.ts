@@ -119,6 +119,7 @@ import {
     type DelayCompressionOptions,
     type ElevationPreference,
     type GSSAPIKeyExchangeClientContextOptions,
+    type HostKeyAdvertisementFormat,
     type NoFlowControlPreference,
     type OpenSSHAgentDestinationConstraint,
     type OpenSSHAgentSessionBinding,
@@ -146,6 +147,7 @@ describe("package exports", () => {
         const clientOptions: ClientOptions = { hostname: "example.test" }
         const sessionOptions: ClientSessionOptions = { env: { LANG: "C" }, pty: true }
         const serverOptions: ServerOptions = { sendAllHostKeys: false }
+        const hostKeyAdvertisementFormat: HostKeyAdvertisementFormat = "standard"
         const connectionInfo: ServerConnectionInfo = { remoteAddress: "127.0.0.1" }
         const connectionListener: ServerConnectionListener = () => undefined
         const incomingChannelDecision: ClientHookerIncomingChannelController = {
@@ -161,6 +163,7 @@ describe("package exports", () => {
         clientOptions.elevation = elevation
         clientOptions.delayCompression = delayCompression
         serverOptions.noFlowControl = noFlowControl
+        serverOptions.hostKeyAdvertisementFormat = hostKeyAdvertisementFormat
         serverOptions.bannerLanguageTag = "en-US"
         const keyExchangeOptions: GSSAPIKeyExchangeClientContextOptions = {
             hostname: "example.test",
@@ -225,6 +228,7 @@ describe("package exports", () => {
         expect(clientOptions.hostname).toBe("example.test")
         expect(sessionOptions.pty).toBe(true)
         expect(serverOptions.sendAllHostKeys).toBe(false)
+        expect(serverOptions.hostKeyAdvertisementFormat).toBe("standard")
         expect(serverOptions.bannerLanguageTag).toBe("en-US")
         expect(connectionInfo.remoteAddress).toBe("127.0.0.1")
         expect(connectionListener).toBeFunction()

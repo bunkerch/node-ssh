@@ -50,6 +50,9 @@ import { encodeSSHLanguageTag, encodeSSHUTF8 } from "./utils/SSHText.js"
 import { MAX_HOST_KEYS_PER_REQUEST } from "./utils/HostKeysProof.js"
 import { isPlainConfigurationObject } from "./utils/Configuration.js"
 
+/** Wire name used for the post-authentication host-key advertisement. */
+export type HostKeyAdvertisementFormat = "standard" | "compatibility"
+
 export interface ServerOptions {
     protocolVersionExchange?: ProtocolVersionExchange
     /** Custom SSH software identifier and optional comments, without the `SSH-2.0-` prefix. */
@@ -60,13 +63,10 @@ export interface ServerOptions {
     hostKeys?: (PrivateKey | string | Buffer | ServerHostKeyInput)[]
     /** Public host certificates paired with matching entries in `hostKeys`. */
     hostCertificates?: (PublicKey | string | Buffer)[]
-    // by default, the Server will send all available hostkeys
-    // to the client after login (USERAUTH_SUCCESS)
-    // this allows the client to save them and then to accept unknown
-    // of them on the next login.
-    // This is particularily useful when a transition in hostkeys
-    // is happening (for example deprecating an host key)
+    /** Send the complete host-key set after authentication. */
     sendAllHostKeys?: boolean
+    /** Use the standardized or deployed compatibility advertisement name. */
+    hostKeyAdvertisementFormat?: HostKeyAdvertisementFormat
     /** RFC 4252 banner sent once before authentication begins. */
     banner?: string
     /** RFC 3066 language tag sent with `banner`; empty means unspecified. */
@@ -488,6 +488,16 @@ export default class Server extends EventEmitter<ServerEvents> {
             true,
             "sendAllHostKeys",
         )
+        if (this.#options.hostKeyAdvertisementFormat === undefined) {
+            this.#options.hostKeyAdvertisementFormat = "compatibility"
+        } else if (
+            this.#options.hostKeyAdvertisementFormat !== "standard" &&
+            this.#options.hostKeyAdvertisementFormat !== "compatibility"
+        ) {
+            throw new TypeError(
+                "SSH server hostKeyAdvertisementFormat must be standard or compatibility",
+            )
+        }
         if (
             this.#options.sendAllHostKeys &&
             this.#options.hostKeys.length > MAX_HOST_KEYS_PER_REQUEST

@@ -161,6 +161,7 @@ import {
     HOST_KEYS_EXTENSION_VERSION,
     HOST_KEYS_PROOF_DOMAIN,
     HOST_KEYS_PROOF_REQUEST,
+    HOST_KEYS_REQUEST,
     isRSAHostKey,
     LEGACY_HOST_KEYS_PROOF_REQUEST,
     LEGACY_HOST_KEYS_REQUEST,
@@ -1329,12 +1330,12 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         })
 
         if (this.#configuration.sendAllHostKeys && this.#configuration.hostKeys.length > 0) {
-            // we can send every host key we have
-            // https://cvsweb.openbsd.org/src/usr.bin/ssh/PROTOCOL?annotate=HEAD
-            // section 2.5 (ctrl + f search for "hostkeys-00@openssh.com")
             this.sendPacket(
                 new GlobalRequest({
-                    request_name: LEGACY_HOST_KEYS_REQUEST,
+                    request_name:
+                        this.#configuration.hostKeyAdvertisementFormat === "standard"
+                            ? HOST_KEYS_REQUEST
+                            : LEGACY_HOST_KEYS_REQUEST,
                     want_reply: false,
                     args: Buffer.concat(
                         this.#configuration.hostKeys.map((key) => {

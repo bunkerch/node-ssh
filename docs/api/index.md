@@ -7,7 +7,7 @@ description: Exact public TypeScript declarations shipped by modernssh.
 
 # API reference
 
-This reference is generated from the declarations shipped by the package. It covers all 458 exports available from `@bunkerch/modernssh`. Class sections contain every public constructor, property, accessor, and method declared by that class; inherited Node.js stream and EventEmitter members remain documented by Node.js.
+This reference is generated from the declarations shipped by the package. It covers all 459 exports available from `@bunkerch/modernssh`. Class sections contain every public constructor, property, accessor, and method declared by that class; inherited Node.js stream and EventEmitter members remain documented by Node.js.
 
 Regenerate it with `pnpm docs:api`. CI runs `pnpm docs:api:check` to prevent the reference from drifting from `dist/*.d.ts`.
 
@@ -144,6 +144,7 @@ Regenerate it with `pnpm docs:api`. CI runs `pnpm docs:api:check` to prevent the
 | [`GSSAPIServerContext`](authentication.md#gssapiservercontext) | Interface | Authentication |
 | [`GSSAPIServerContextOptions`](authentication.md#gssapiservercontextoptions) | Interface | Authentication |
 | [`GSSAPIServerMechanism`](authentication.md#gssapiservermechanism) | Interface | Authentication |
+| [`HostKeyAdvertisementFormat`](connections.md#hostkeyadvertisementformat) | Type | Connections and servers |
 | [`HTTPAgent`](connections.md#httpagent) | Class | Connections and servers |
 | [`HTTPSAgent`](connections.md#httpsagent) | Class | Connections and servers |
 | [`KERBEROS_V5_GSSAPI_OID`](authentication.md#kerberos_v5_gssapi_oid) | Constant | Authentication |

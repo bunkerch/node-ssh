@@ -19,6 +19,10 @@ describe("server configuration normalization", () => {
                 "SSH server sendAllHostKeys option must be a boolean",
             ],
             [
+                { hostKeys: [hostKey], hostKeyAdvertisementFormat: "future" as never },
+                "SSH server hostKeyAdvertisementFormat must be standard or compatibility",
+            ],
+            [
                 { hostKeys: [hostKey], banner: null as never },
                 "SSH authentication banner must be a string",
             ],

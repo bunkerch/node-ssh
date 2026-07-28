@@ -122,10 +122,10 @@ The client and server implement the current
 [SSHM host-key update draft](https://datatracker.ietf.org/doc/draft-ietf-sshm-hostkey-update/)
 alongside its deployed compatibility names. A server with host keys advertises the exact RFC 8308
 extension value `hostkeys=0`. When `sendAllHostKeys` is enabled, it sends one post-authentication
-host-key advertisement. The compatibility advertisement remains usable by clients that predate
-extension negotiation; a client that received `hostkeys=0` requests possession proofs with the
-standard `hostkeys-prove` request. Standard `hostkeys` advertisements from other servers are also
-accepted.
+host-key advertisement. The default `hostKeyAdvertisementFormat: "compatibility"` remains usable by
+clients that predate extension negotiation. Set it to `"standard"` to send the draft's `hostkeys`
+request instead. A client that received `hostkeys=0` requests possession proofs with the standard
+`hostkeys-prove` request; both advertisement forms are accepted.
 
 The standard request name and its signed domain separator are intentionally different:
 `hostkeys-prove` is the global request, while each proof signs `hostkeys-prove-0`, the initial

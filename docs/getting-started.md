@@ -330,13 +330,16 @@ passphrases, or host private keys through a public options bag. If `hostKeys` is
 generates a temporary Ed25519 key, which changes identity after every restart.
 With the default `sendAllHostKeys: true`, advertised public identities must be unique and no more
 than 64 may be configured. Set `sendAllHostKeys: false` when the server should select among a
-larger key inventory without announcing it after authentication.
+larger key inventory without announcing it after authentication. Advertisements use the deployed
+compatibility request name by default. Set `hostKeyAdvertisementFormat: "standard"` to emit the
+current SSHM draft's `hostkeys` request instead.
 
 Server construction validates option shapes at runtime as well as through TypeScript. Host-key,
-certificate, GSS-API, and algorithm collections require their documented arrays or objects, and
-`sendAllHostKeys` requires an actual boolean. Only `undefined` selects a default: explicit `null`
-for a banner, timeout, protocol identification, or collection is rejected instead of silently
-enabling a default or generating a temporary identity.
+certificate, GSS-API, and algorithm collections require their documented arrays or objects,
+`sendAllHostKeys` requires an actual boolean, and `hostKeyAdvertisementFormat` accepts only
+`"standard"` or `"compatibility"`. Only `undefined` selects a default: explicit `null` for a
+banner, timeout, protocol identification, or collection is rejected instead of silently enabling
+a default or generating a temporary identity.
 
 `Server` mirrors useful Node TCP-server controls without exposing callback completion flows.
 `getConnections()` and `close()` return Promises, `listen()` reports readiness through the

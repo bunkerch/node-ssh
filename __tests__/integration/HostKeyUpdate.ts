@@ -117,20 +117,20 @@ describe("standard SSH host-key update", () => {
         }
     }, 15_000)
 
-    test("accepts a standard advertisement and verifies its standard-domain proof", async () => {
+    test("emits a standard advertisement and uses its standard proof domain", async () => {
         const hostKey = await PrivateKey.generate("ssh-ed25519")
-        const server = new Server({ hostKeys: [hostKey], sendAllHostKeys: false })
-        allowNoneAuthentication(server)
-        server.on("connection", (peer) => {
-            peer.once("connect", () => {
-                peer.sendPacket(
-                    new GlobalRequest({
-                        request_name: HOST_KEYS_REQUEST,
-                        want_reply: false,
-                        args: serializeBuffer(hostKey.data.publicKey.serialize()),
-                    }),
-                )
-            })
+        const server = new Server({
+            hostKeys: [hostKey],
+            sendAllHostKeys: true,
+            hostKeyAdvertisementFormat: "standard",
+        })
+        server.hooker.hook("noneAuthentication", (_hook, context, decision, connection) => {
+            if (connection.clientSupportsAuthenticationExtensionInfo) {
+                connection.sendAuthenticationExtensions([
+                    { name: "account-policy@example.com", value: Buffer.from(context.username) },
+                ])
+            }
+            decision.allowLogin = context.username === "rotation"
         })
         server.listen({ host: "127.0.0.1", port: 0 })
         await once(server.server, "listening")
@@ -149,7 +149,11 @@ describe("standard SSH host-key update", () => {
             const [verified] = (await announced) as [readonly PublicKey[]]
             expect(verified).toHaveLength(1)
             expect(verified[0].equals(hostKey.data.publicKey)).toBe(true)
+            expect(client.serverExtensions.map(({ name }) => name)).toEqual([
+                "account-policy@example.com",
+            ])
             expect(client.globalRequests).toContain(HOST_KEYS_PROOF_REQUEST)
+            expect(client.globalRequests).not.toContain(LEGACY_HOST_KEYS_PROOF_REQUEST)
         } finally {
             await close(server, client)
         }
