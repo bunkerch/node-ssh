@@ -2,7 +2,7 @@
 
 ## Project Direction
 
-`modernssh` is a typed, ESM-native SSH client and server library for Node.js 20+. Work toward
+`modernssh` is a typed, ESM-native SSH client and server library for Node.js 20.19+. Work toward
 production-ready protocol correctness, broad client/server functionality, stable public APIs, and
 meaningful interoperability. Implement complete, reviewable slices; do not add shortcuts,
 temporary fixes, test-only production branches, or speculative compatibility behavior.
@@ -39,8 +39,8 @@ relevant file under `docs/`.
 - `pnpm docs:preview`: preview an existing production documentation build.
 - `pnpm pack`: build a consumer-installable archive.
 
-The Fumadocs toolchain requires Node.js 22 or newer. This does not change the library's Node.js 20
-runtime support; GitHub Actions builds documentation in the Node.js 24 lint job.
+The Fumadocs toolchain requires Node.js 22 or newer. This does not change the library's Node.js
+20.19 runtime support; GitHub Actions builds documentation in the Node.js 24 lint job.
 
 Test, lint, and documentation jobs run on the Linux `bunkerch-sysbox` runner. The npm publishing
 job runs on GitHub-hosted Linux because npm trusted publishing does not support self-hosted

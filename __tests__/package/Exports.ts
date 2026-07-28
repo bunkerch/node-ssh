@@ -793,12 +793,14 @@ describe("package exports", () => {
                 ),
             ) as {
                 dependencies?: Record<string, string>
+                engines?: Record<string, string>
                 peerDependencies?: Record<string, string>
                 peerDependenciesMeta?: Record<string, { optional?: boolean }>
             }
             expect(installedManifest.dependencies?.koffi).toBeUndefined()
             expect(installedManifest.peerDependencies?.koffi).toBe("3.1.1")
             expect(installedManifest.peerDependenciesMeta?.koffi?.optional).toBe(true)
+            expect(installedManifest.engines?.node).toBe(">=20.19.0")
             await expect(access(join(consumer, "node_modules", "koffi"))).rejects.toThrow()
             const { stdout, stderr } = await execFileAsync(
                 "node",

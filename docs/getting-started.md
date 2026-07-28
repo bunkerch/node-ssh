@@ -5,8 +5,9 @@ description: Connect clients, run servers, configure trust, and manage SSH lifec
 
 # Getting started
 
-`modernssh` is an ESM package for Node.js 20 and newer. It exports its client, server, key,
-authentication-agent, and channel types from the package root. Importing the package does not open
+`modernssh` is an ESM package for Node.js 20.19 and newer. This exact minimum matches its
+cryptographic dependencies and is exercised by CI. The package exports its client, server, key,
+authentication-agent, and channel types from the package root. Importing it does not open
 connections or install global patches.
 
 ## Client connection

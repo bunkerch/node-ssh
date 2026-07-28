@@ -1,6 +1,6 @@
 # modernssh
 
-A typed, ESM-native SSH client and server library for Node.js.
+A typed, ESM-native SSH client and server library for Node.js 20.19 or newer.
 
 The project implements SSH from its standards and includes typed client, server, channel,
 forwarding, agent, key-management, and SFTP APIs. Public asynchronous operations return Promises;
@@ -89,4 +89,4 @@ interoperability suite. The SoftHSM token fixture is skipped locally when its pr
 `pnpm docs:api` rebuilds the package and regenerates the complete declaration reference under
 `docs/api/`. `pnpm docs:dev` starts the local Fumadocs site, and `pnpm docs:build` verifies the
 production documentation build. The documentation toolchain requires Node.js 22 or newer; the
-published library continues to support Node.js 20.
+published library supports Node.js 20.19 and newer.

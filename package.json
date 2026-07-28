@@ -22,7 +22,7 @@
         "registry": "https://registry.npmjs.org/"
     },
     "engines": {
-        "node": ">=20"
+        "node": ">=20.19.0"
     },
     "scripts": {
         "clean": "node --eval \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
