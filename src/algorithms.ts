@@ -218,6 +218,22 @@ export const public_key_signature_algorithms: readonly string[] = Object.freeze(
     securityKeyCertificateAlgorithm(SSH_WEBAUTHN_ECDSA_SECURITY_KEY_ALGORITHM),
 ])
 
+const legacyPublicKeySignatureAlgorithms = new Set([
+    "ssh-rsa",
+    "ssh-rsa-cert",
+    "ssh-rsa-cert-v01@openssh.com",
+    "ssh-dss",
+    "ssh-dss-cert",
+    "ssh-dss-cert-v01@openssh.com",
+])
+
+/** User-authentication signature algorithms enabled without an explicit legacy opt-in. */
+export const default_public_key_signature_algorithms: readonly string[] = Object.freeze(
+    public_key_signature_algorithms.filter(
+        (algorithm) => !legacyPublicKeySignatureAlgorithms.has(algorithm),
+    ),
+)
+
 export abstract class KexAlgorithm {
     static alg_name: string
     static requires_encryption: boolean

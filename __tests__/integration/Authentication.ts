@@ -1271,6 +1271,14 @@ describe("RFC 4252 multi-method authentication", () => {
         let connection: ServerClient | undefined
         server.hooker.hook("passwordAuthentication", (_hook, context, decision, peer) => {
             const policy = Buffer.from(context.username)
+            expect(() =>
+                peer.sendAuthenticationExtensions([
+                    {
+                        name: "server-sig-algs",
+                        value: Buffer.from("ssh-rsa", "ascii"),
+                    },
+                ]),
+            ).toThrow("disabled signature algorithm")
             peer.sendAuthenticationExtensions([
                 {
                     name: "server-sig-algs",

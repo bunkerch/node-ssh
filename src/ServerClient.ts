@@ -50,7 +50,6 @@ import {
     describeNegotiatedAlgorithms,
     compression_algorithms,
     host_key_algorithms,
-    public_key_signature_algorithms,
     type CompressionAlgorithm,
     type HostKeyAlgorithm,
     type KeyExchangeHashContext,
@@ -108,6 +107,7 @@ import GlobalRequest from "./packets/GlobalRequest.js"
 import { readNextBuffer, readNextUint32, serializeBuffer, serializeUint32 } from "./utils/Buffer.js"
 import { decodeSSHUTF8, encodeSSHUTF8 } from "./utils/SSHText.js"
 import { validateSSHName } from "./utils/SSHName.js"
+import { decodeSSHNameList } from "./utils/NameList.js"
 import {
     registerUnimplementedRejection,
     rejectUnimplementedPacket,
@@ -768,6 +768,19 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         if (this.authenticationExtInfoSent) {
             throw new Error("SSH server already sent authentication extension information")
         }
+        const signatureAlgorithms = extensions.find(({ name }) => name === "server-sig-algs")
+        if (signatureAlgorithms !== undefined) {
+            const advertised = decodeSSHNameList(signatureAlgorithms.value)
+            const unsupported = advertised.find(
+                (algorithm) =>
+                    !this.#configuration.authenticationSignatureAlgorithms.includes(algorithm),
+            )
+            if (unsupported !== undefined) {
+                throw new Error(
+                    `SSH authentication extension advertises a disabled signature algorithm: ${unsupported}`,
+                )
+            }
+        }
         const packet = new ExtInfo({ extensions })
         const noFlowControl = findNoFlowControlValue(extensions)
         const delayCompression = findDelayCompressionOffers(extensions)
@@ -1189,7 +1202,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                             {
                                 name: "server-sig-algs",
                                 value: Buffer.from(
-                                    public_key_signature_algorithms.join(","),
+                                    this.#configuration.authenticationSignatureAlgorithms.join(","),
                                     "ascii",
                                 ),
                             },
@@ -2141,6 +2154,14 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                         const method = authRequest.data.method as
                             | PublicKeyAuthMethod
                             | HostboundPublicKeyAuthMethod
+                        if (
+                            !this.#configuration.authenticationSignatureAlgorithms.includes(
+                                method.data.algorithm!,
+                            )
+                        ) {
+                            sendAuthenticationFailure({}, SSHAuthenticationMethods.PublicKey)
+                            break
+                        }
                         const hostbound = method instanceof HostboundPublicKeyAuthMethod
                         let boundServerHostKey: PublicKey | undefined
                         if (hostbound) {
@@ -2300,6 +2321,14 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                     }
                     case SSHAuthenticationMethods.Hostbased: {
                         const method = authRequest.data.method as HostbasedAuthMethod
+                        if (
+                            !this.#configuration.authenticationSignatureAlgorithms.includes(
+                                method.data.algorithm,
+                            )
+                        ) {
+                            sendAuthenticationFailure({}, SSHAuthenticationMethods.Hostbased)
+                            break
+                        }
                         const signatureMessage = authRequest.serializeForSignature(this)
                         if (
                             !method.data.publicKey.verifySignature(

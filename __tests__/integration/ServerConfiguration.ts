@@ -60,6 +60,28 @@ describe("server configuration normalization", () => {
                 "SSH server algorithms option must be an object",
             ],
             [
+                { hostKeys: [hostKey], authenticationSignatureAlgorithms: null as never },
+                "SSH authentication signature algorithms must be an array",
+            ],
+            [
+                { hostKeys: [hostKey], authenticationSignatureAlgorithms: [] },
+                "SSH authentication signature algorithm list must not be empty",
+            ],
+            [
+                {
+                    hostKeys: [hostKey],
+                    authenticationSignatureAlgorithms: ["unknown@example.test"],
+                },
+                "Unsupported SSH authentication signature algorithm",
+            ],
+            [
+                {
+                    hostKeys: [hostKey],
+                    authenticationSignatureAlgorithms: ["ssh-ed25519", "ssh-ed25519"],
+                },
+                "Duplicate SSH authentication signature algorithm",
+            ],
+            [
                 { hostKeys: [hostKey], maxSessionEnvironmentVariables: -1 },
                 "SSH maximum session environment variables must be a non-negative safe integer",
             ],

@@ -1215,6 +1215,8 @@ export interface ServerOptions {
     banner?: string;
     /** RFC 3066 language tag sent with `banner`; empty means unspecified. */
     bannerLanguageTag?: string;
+    /** Public-key and host-based user-authentication signature algorithms accepted by the server. */
+    authenticationSignatureAlgorithms?: readonly string[];
     /** Milliseconds allowed through key exchange and user-auth service acceptance. Zero disables. */
     handshakeTimeout?: number;
     /** Milliseconds allowed after accepting the user-authentication service. Zero disables. */

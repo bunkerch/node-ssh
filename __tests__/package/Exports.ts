@@ -701,6 +701,7 @@ describe("package exports", () => {
         expect(server).toContain("[Symbol.asyncDispose](): Promise<void>")
         expect(server).toContain("delayCompression?: DelayCompressionConfiguration")
         expect(server).toContain("bannerLanguageTag?: string")
+        expect(server).toContain("authenticationSignatureAlgorithms?: readonly string[]")
         expect(server).toContain("handledCertificateCriticalOptions?: readonly string[]")
         expect(server).toContain("rejection?: ChannelOpenError")
         expect(server).toContain("replyTimeout?: number")
@@ -942,6 +943,8 @@ describe("package exports", () => {
                     try { new Server({ hostKeys: null }); process.exit(72) } catch (error) { if (!String(error).includes("hostKeys option must be an array")) process.exit(73) }
                     try { new Server({}); process.exit(119) } catch (error) { if (!String(error).includes("requires at least one host key")) process.exit(120) }
                     try { new Server({ hostKeys: [] }); process.exit(121) } catch (error) { if (!String(error).includes("requires at least one host key")) process.exit(122) }
+                    try { new Server({ hostKeys: [privateKey], authenticationSignatureAlgorithms: null }); process.exit(123) } catch (error) { if (!String(error).includes("signature algorithms must be an array")) process.exit(124) }
+                    new Server({ hostKeys: [privateKey], authenticationSignatureAlgorithms: ["ssh-ed25519"] })
                     try { new Client({ username: "packed", gssapi: null }); process.exit(74) } catch (error) { if (!String(error).includes("client GSS-API mechanisms must be an array")) process.exit(75) }
                     try { new ProtocolVersionExchange("2.0", null); process.exit(76) } catch (error) { if (!String(error).includes("software version must be a string")) process.exit(77) }
                     try { new Client({ username: "packed", serverClient: true }); process.exit(78) } catch (error) { if (!String(error).includes("serverClient is not a client option")) process.exit(79) }
