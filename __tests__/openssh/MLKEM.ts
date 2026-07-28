@@ -1,22 +1,30 @@
 import { spawn } from "node:child_process"
 import { once } from "node:events"
+import { access, mkdtemp, readFile, rm } from "node:fs/promises"
 import type { AddressInfo } from "node:net"
 import { createConnection } from "node:net"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 
 import SessionChannel from "../../src/channels/SessionChannel.js"
 import Client from "../../src/Client.js"
+import SSHAgent from "../../src/publickey/SSHAgent.js"
+import { SSHAgentProtocolClient } from "../../src/publickey/SSHAgentProtocol.js"
 import Server from "../../src/Server.js"
 import PrivateKey from "../../src/utils/PrivateKey.js"
+import PublicKey from "../../src/utils/PublicKey.js"
 
 const keyExchange = "mlkem768x25519-sha256"
 const imageName = "modernssh-openssh-test:trixie"
+let imageBuild: Promise<void> | undefined
 
 async function collectProcess(
     executable: string,
     args: string[],
     input = "",
+    options: { env?: NodeJS.ProcessEnv } = {},
 ): Promise<{ code: number | null; stdout: string; stderr: string }> {
-    const child = spawn(executable, args, { stdio: "pipe" })
+    const child = spawn(executable, args, { stdio: "pipe", ...options })
     const stdout: Buffer[] = []
     const stderr: Buffer[] = []
     child.stdout.on("data", (data: Buffer) => stdout.push(data))
@@ -31,7 +39,7 @@ async function collectProcess(
 }
 
 async function buildImage(): Promise<void> {
-    const build = await collectProcess("docker", [
+    imageBuild ??= collectProcess("docker", [
         "build",
         "--quiet",
         "--file",
@@ -39,8 +47,10 @@ async function buildImage(): Promise<void> {
         "--tag",
         imageName,
         "__tests__/openssh",
-    ])
-    expect(build).toMatchObject({ code: 0, stderr: "" })
+    ]).then((build) => {
+        expect(build).toMatchObject({ code: 0, stderr: "" })
+    })
+    await imageBuild
 }
 
 async function waitForPort(port: number): Promise<void> {
@@ -59,7 +69,56 @@ async function waitForPort(port: number): Promise<void> {
     throw new Error(`OpenSSH server did not listen on port ${port}`)
 }
 
-describe("ML-KEM OpenSSH interoperability", () => {
+describe("OpenSSH 10.4 interoperability", () => {
+    test("modernssh queries the standard extensions of an OpenSSH 10.4 agent", async () => {
+        await buildImage()
+        const version = await collectProcess("docker", ["run", "--rm", imageName, "ssh", "-V"])
+        expect(version).toEqual({
+            code: 0,
+            stdout: "",
+            stderr: expect.stringContaining("OpenSSH_10.4p1"),
+        })
+
+        const directory = await mkdtemp(join(tmpdir(), "modernssh-openssh-agent-query-"))
+        const socketPath = join(directory, "agent.sock")
+        const started = await collectProcess("docker", [
+            "run",
+            "--detach",
+            "--rm",
+            "--user",
+            `${process.getuid!()}:${process.getgid!()}`,
+            "--volume",
+            `${directory}:/agent`,
+            imageName,
+            "ssh-agent",
+            "-D",
+            "-a",
+            "/agent/agent.sock",
+        ])
+        expect(started.code).toBe(0)
+        const containerId = started.stdout.trim()
+        let protocol: SSHAgentProtocolClient | undefined
+        try {
+            for (let attempt = 0; attempt < 100; attempt++) {
+                try {
+                    await access(socketPath)
+                    break
+                } catch {
+                    await new Promise<void>((resolve) => setTimeout(resolve, 20))
+                }
+            }
+            await access(socketPath)
+            const stream = createConnection(socketPath)
+            await once(stream, "connect")
+            protocol = new SSHAgentProtocolClient(stream)
+            expect(await protocol.queryExtensions()).toEqual(["session-bind@openssh.com"])
+        } finally {
+            protocol?.destroy()
+            await collectProcess("docker", ["rm", "--force", containerId])
+            await rm(directory, { recursive: true, force: true })
+        }
+    }, 90_000)
+
     test("OpenSSH exchanges traffic and rekeys with a modernssh server", async () => {
         await buildImage()
 
@@ -161,6 +220,11 @@ describe("ML-KEM OpenSSH interoperability", () => {
 
     test("modernssh exchanges ping, traffic, and rekeys with an OpenSSH server", async () => {
         await buildImage()
+        const agentDirectory = await mkdtemp(join(tmpdir(), "modernssh-rfc9987-forwarding-"))
+        const agentSocketPath = join(agentDirectory, "agent.sock")
+        const agentKeyPath = join(agentDirectory, "id_ed25519")
+        const agentProcess = spawn("ssh-agent", ["-D", "-a", agentSocketPath], { stdio: "ignore" })
+        let containerId = ""
         const started = await collectProcess("docker", [
             "run",
             "--detach",
@@ -170,8 +234,37 @@ describe("ML-KEM OpenSSH interoperability", () => {
             imageName,
         ])
         expect(started.code).toBe(0)
-        const containerId = started.stdout.trim()
+        containerId = started.stdout.trim()
         try {
+            for (let attempt = 0; attempt < 100; attempt++) {
+                try {
+                    await access(agentSocketPath)
+                    break
+                } catch {
+                    await new Promise<void>((resolve) => setTimeout(resolve, 20))
+                }
+            }
+            await access(agentSocketPath)
+            expect(
+                await collectProcess("ssh-keygen", [
+                    "-q",
+                    "-t",
+                    "ed25519",
+                    "-N",
+                    "",
+                    "-f",
+                    agentKeyPath,
+                ]),
+            ).toMatchObject({ code: 0, stderr: "" })
+            expect(
+                await collectProcess("ssh-add", [agentKeyPath], "", {
+                    env: { ...process.env, SSH_AUTH_SOCK: agentSocketPath },
+                }),
+            ).toMatchObject({ code: 0 })
+            const agentPublicKey = PublicKey.parseString(
+                await readFile(`${agentKeyPath}.pub`, "utf8"),
+            )
+
             const portResult = await collectProcess("docker", ["port", containerId, "22/tcp"])
             expect(portResult.code).toBe(0)
             const port = Number(portResult.stdout.trim().match(/:(\d+)$/u)?.[1])
@@ -184,6 +277,7 @@ describe("ML-KEM OpenSSH interoperability", () => {
                 username: "interop",
                 password: "correct-horse-battery-staple",
                 algorithms: { kex: [keyExchange] },
+                agent: new SSHAgent(agentSocketPath),
             })
             const errors: Error[] = []
             const handshakes: string[] = []
@@ -198,6 +292,19 @@ describe("ML-KEM OpenSSH interoperability", () => {
                 const pingPromise = client.ping(pingData)
                 pingData.fill(0)
                 const pingReply = await pingPromise
+
+                expect(client.rfc9987AgentForwarding).toBe(true)
+                const agentSession = await client.openSession()
+                const agentOutput: Buffer[] = []
+                agentSession.on("data", (data: Buffer) => agentOutput.push(data))
+                await agentSession.forwardAgent()
+                await agentSession.exec("ssh-add -L")
+                await once(agentSession, "close")
+                expect(
+                    PublicKey.parseString(Buffer.concat(agentOutput).toString()).equals(
+                        agentPublicKey,
+                    ),
+                ).toBe(true)
 
                 const first = await client.exec("printf mlkem-client-first")
                 const firstOutput: Buffer[] = []
@@ -240,7 +347,12 @@ describe("ML-KEM OpenSSH interoperability", () => {
                 }
             }
         } finally {
-            await collectProcess("docker", ["rm", "--force", containerId])
+            if (containerId) await collectProcess("docker", ["rm", "--force", containerId])
+            agentProcess.kill("SIGTERM")
+            if (agentProcess.exitCode === null && agentProcess.signalCode === null) {
+                await once(agentProcess, "close")
+            }
+            await rm(agentDirectory, { recursive: true, force: true })
         }
     }, 90_000)
 })

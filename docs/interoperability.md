@@ -56,6 +56,13 @@ The OpenSSH server test requires Docker. The image is tagged locally as
 image makes the operating-system fixture reproducible, while installing the distribution's
 `openssh-server` package exercises the normal packaged daemon configuration.
 
+A second image, `modernssh-openssh-test:trixie`, builds the official portable OpenSSH 10.4p1
+release from its SHA-256-pinned source archive with two compiler jobs. Besides current
+`mlkem768x25519-sha256`, ping, traffic, and rekey coverage, it proves the RFC 9987 transition:
+`queryExtensions()` parses the real agent's standard `query` response, and a library client observes
+the server's exact `agent-forward` version `0` advertisement before forwarding a real agent through
+`agent-req` and `agent-connect`.
+
 ## Deterministic protocol vectors
 
 RFC 4462 GSS-API authentication is covered by literal packet bytes for mechanism negotiation, every
@@ -107,6 +114,8 @@ Agent-forwarding integration also connects the library's client and server direc
 literal `agent-forward` version `0` advertisement, and proves that `forwardAgent()` selects
 `agent-req` followed by `agent-connect`. Replacement-extension coverage proves that omitting the
 advertisement clears the capability instead of retaining stale negotiation state.
+The pinned OpenSSH 10.4p1 fixture independently exercises the same standard request/channel pair
+and the agent protocol's `query` extension against a current external peer.
 Fixed public agent-protocol exchanges also prove that a contained later policy failure cannot
 release an earlier identity list or cryptographic signature.
 Management exchanges independently apply that failure ordering to identity and token additions,
@@ -174,7 +183,7 @@ specified SHA-256 and SHA-384 `K_PQ || K_CL` combiners. Tests exercise exact cli
 sizes, compressed and uncompressed NIST points, invalid ML-KEM and classical values, ciphertext
 implicit rejection, and defensive buffer ownership. In-process peers force all three registered
 method names through authenticated traffic and rekeys initiated by both roles. A digest-pinned
-OpenSSH 10 fixture additionally forces `mlkem768x25519-sha256` in both peer roles. Its client
+OpenSSH 10.4p1 fixture additionally forces `mlkem768x25519-sha256` in both peer roles. Its client
 exchanges channel traffic with the library server across a byte-limit rekey; the library client
 executes commands before and after an explicit rekey against its server while preserving the first
 session ID and changing the exchange hash.

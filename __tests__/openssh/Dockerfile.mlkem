@@ -1,7 +1,41 @@
 FROM debian:trixie-slim@sha256:020c0d20b9880058cbe785a9db107156c3c75c2ac944a6aa7ab59f2add76a7bd
 
+ARG OPENSSH_VERSION=10.4p1
+ARG OPENSSH_SHA256=ef6026dd2aea8d56059638d5d3262902c892ceba9f88395835e0d06d3fb63238
+
 RUN apt-get update \
-    && apt-get install --yes --no-install-recommends openssh-server \
+    && apt-get install --yes --no-install-recommends \
+        build-essential \
+        ca-certificates \
+        curl \
+        libpam0g-dev \
+        libssl-dev \
+        openssh-server \
+        zlib1g-dev \
+    && curl --fail --location --silent --show-error \
+        "https://cdn.openbsd.org/pub/OpenBSD/OpenSSH/portable/openssh-${OPENSSH_VERSION}.tar.gz" \
+        --output /tmp/openssh.tar.gz \
+    && echo "${OPENSSH_SHA256}  /tmp/openssh.tar.gz" | sha256sum --check --strict \
+    && mkdir /tmp/openssh \
+    && tar --extract --gzip --file /tmp/openssh.tar.gz --directory /tmp/openssh --strip-components=1 \
+    && mkdir -p /run/sshd \
+    && cd /tmp/openssh \
+    && ./configure \
+        --prefix=/usr \
+        --sysconfdir=/etc/ssh \
+        --with-pam \
+        --with-privsep-path=/run/sshd \
+        --with-privsep-user=sshd \
+    && make -j2 \
+    && make install \
+    && /usr/bin/ssh -V 2>&1 | grep --fixed-strings "OpenSSH_10.4p1" \
+    && rm -rf /tmp/openssh /tmp/openssh.tar.gz \
+    && apt-get purge --yes --auto-remove \
+        build-essential \
+        curl \
+        libpam0g-dev \
+        libssl-dev \
+        zlib1g-dev \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /run/sshd \
     && useradd --create-home --shell /bin/sh interop \
