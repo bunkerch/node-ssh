@@ -23,6 +23,7 @@ import { SSHAuthenticationMethods } from "../../src/constants.js"
 import KexInit from "../../src/packets/KexInit.js"
 import { DisconnectReason, PeerDisconnectError } from "../../src/packets/Disconnect.js"
 import { TerminalMode } from "../../src/TerminalModes.js"
+import ChannelRequest from "../../src/packets/ChannelRequest.js"
 
 class UnsupportedPacket {
     static type = 200
@@ -58,6 +59,67 @@ function within<T>(promise: Promise<T>, label: string): Promise<T> {
 const execFileAsync = promisify(execFile)
 
 describe("client/server integration", () => {
+    test("rejects a non-ASCII session signal before application policy", async () => {
+        const server = new Server({
+            hostKeys: [await PrivateKey.generate("ssh-ed25519")],
+            sendAllHostKeys: false,
+        })
+        server.hooker.hook("noneAuthentication", (_hook, _context, decision) => {
+            decision.allowLogin = true
+        })
+        server.hooker.hook("channelOpenRequest", (_hook, channel, decision) => {
+            decision.allowOpen = channel instanceof SessionChannel
+        })
+        let signalPolicyCalls = 0
+        server.on("connection", (connection) => {
+            connection.on("channel", (channel) => {
+                if (!(channel instanceof SessionChannel)) return
+                channel.hooker.hook("execRequest", (_hook, _context, decision) => {
+                    decision.success = true
+                })
+                channel.hooker.hook("signal", () => {
+                    signalPolicyCalls++
+                })
+            })
+        })
+        server.listen({ host: "127.0.0.1", port: 0 })
+        await once(server, "listening")
+
+        const client = new Client({
+            hostname: "127.0.0.1",
+            port: (server.address() as AddressInfo).port,
+            username: "signal-validation",
+            authenticationMethodsOrder: [SSHAuthenticationMethods.None],
+        })
+        client.hooker.hook("hostKey", (_hook, decision) => {
+            decision.allowHostKey = true
+        })
+
+        try {
+            await client.connect()
+            const channel = await client.exec("signal-target")
+            if (channel.remoteId === undefined) throw new Error("Session has no remote channel ID")
+            client.sendPacket(
+                new ChannelRequest({
+                    recipient_channel_id: channel.remoteId,
+                    request_type: "signal",
+                    want_reply: false,
+                    args: serializeBuffer(Buffer.from([0xd4, 0x45, 0x52, 0x4d])),
+                }),
+            )
+
+            await expect(
+                channel.request("signal-validation-barrier@example.test", Buffer.alloc(0)),
+            ).rejects.toThrow("request failed")
+            expect(signalPolicyCalls).toBe(0)
+            expect(client.isConnected).toBe(true)
+        } finally {
+            client.destroy()
+            for (const connection of server.clients) connection.terminate()
+            await server.close()
+        }
+    }, 15_000)
+
     test("completes an encrypted handshake and none authentication over fragmented-safe transport", async () => {
         const hostKey = await PrivateKey.generate("ssh-ed25519")
         const server = new Server({

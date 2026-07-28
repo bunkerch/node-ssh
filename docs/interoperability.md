@@ -117,7 +117,8 @@ channel opens, session exit status and signal metadata,
 `keepalive@openssh.com`, standard data, stderr extended data, EOF, and CLOSE. Every vector is parsed
 into asserted fields and serialized back to the exact original bytes.
 
-The encrypted dual-role suite also applies `no-more-sessions@openssh.com`, attempts a forbidden
+The encrypted suite rejects a high-bit session signal before its awaited policy hook while keeping
+the connection usable. The dual-role suite also applies `no-more-sessions@openssh.com`, attempts a forbidden
 second session, and verifies the specified immediate disconnect rather than an ordinary channel
 failure. Existing channel requests on both peers are required to reject during teardown.
 

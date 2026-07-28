@@ -465,7 +465,9 @@ channel.hooker.hook("signal", async (_hook, { signal }) => {
 ```
 
 These runtime controls are one-way notifications: conforming senders never request a reply. PTY
-mode payloads are parsed and validated before a policy hook runs, and malformed setup requests that
+mode payloads are parsed and validated before a policy hook runs. Signal names must be exact ASCII
+bytes and omit the `SIG` prefix; malformed one-way signals are ignored before policy without
+closing the otherwise healthy connection. Malformed setup requests that
 ask for a reply receive channel failure.
 
 RFC 4335 BREAK is denied unless the session has started a program and an awaited `breakRequest`

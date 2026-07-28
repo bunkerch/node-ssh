@@ -590,6 +590,10 @@ export default class SessionChannel extends Channel {
     parseSignalRequest(raw: Buffer): string {
         const [signal, remaining] = readNextBuffer(raw)
         assert(remaining.length === 0)
+        assert(
+            signal.every((byte) => byte <= 0x7f),
+            "SSH signal request name must be ASCII",
+        )
         const name = signal.toString("ascii")
         const normalized = normalizeSSHSignal(name)
         assert(normalized === name, 'SSH signal requests must omit the "SIG" prefix')
