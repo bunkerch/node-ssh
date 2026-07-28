@@ -487,7 +487,9 @@ reject authentication.
 Host-based authentication proves possession of a client machine's private host key and sends the
 claimed client hostname and local username for authorization. Configure all three explicitly and
 include `Hostbased` in the method order. The hostname must be a non-empty ASCII DNS name; a trailing
-root dot is accepted.
+root dot is accepted. The server rejects non-ASCII hostname bytes before policy and reconstructs
+the signature preimage only from fields whose wire encoding was validated without lossy text
+conversion.
 
 ```ts
 const client = new Client({

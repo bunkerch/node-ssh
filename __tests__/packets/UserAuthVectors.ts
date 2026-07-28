@@ -439,6 +439,14 @@ describe("RFC 4252 and RFC 4256 authentication vectors", () => {
         expect(() => UserAuthRequest.parse(malformedAlgorithm)).toThrow(
             "SSH hostbased signature algorithm must be US-ASCII",
         )
+
+        const malformedHostname = Buffer.from(hostbasedRequest)
+        const hostnameOffset = malformedHostname.indexOf("client.example")
+        expect(hostnameOffset).toBeGreaterThanOrEqual(0)
+        malformedHostname[hostnameOffset] |= 0x80
+        expect(() => UserAuthRequest.parse(malformedHostname)).toThrow(
+            "Hostbased client hostname must be ASCII",
+        )
     })
 
     test("does not retain hostbased constructor metadata", () => {

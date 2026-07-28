@@ -78,6 +78,10 @@ export default class HostbasedAuthMethod implements AuthMethod {
         const algorithmName = decodeSSHName(algorithm, "SSH hostbased signature algorithm")
         const publicKey = PublicKey.parse(publicKeyBlob)
         const encodedSignature = EncodedSignature.parse(signature)
+        assert(
+            clientHostname.every((byte) => byte <= 0x7f),
+            "Hostbased client hostname must be ASCII",
+        )
         return new HostbasedAuthMethod({
             publicKey,
             algorithm: algorithmName,

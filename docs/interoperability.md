@@ -451,7 +451,8 @@ signs a request with the isolated container's Ed25519 host key and the modern se
 claimed hostname, local user, target user, public key, and observed address through an awaited hook.
 The modern client then uses an OpenSSH host private key to authenticate to the containerized server,
 explicitly rekeys, and executes a command. A fixed RFC 4252 request and signature preimage cover the
-wire format, while an invalid signature is rejected before application policy runs.
+wire format. Invalid signatures and high-bit hostname bytes are rejected before application policy
+runs; an encrypted adversarial request verifies the latter at the connection boundary.
 
 RSA SHA-2 interoperability covers RFC 8332 host and user signatures in both peer roles. The system
 OpenSSH client forces `rsa-sha2-512`, authenticates with an RSA key, and initiates rekeying against

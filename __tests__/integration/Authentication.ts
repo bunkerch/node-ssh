@@ -23,6 +23,7 @@ import UserAuthPasswordChangeRequest from "../../src/packets/UserAuthPasswordCha
 import PasswordAuthMethod from "../../src/auth/password.js"
 import UserAuthPKOK from "../../src/packets/UserAuthPKOK.js"
 import UserAuthFailure from "../../src/packets/UserAuthFailure.js"
+import HostbasedAuthMethod from "../../src/auth/hostbased.js"
 
 class UnavailableAuthenticationServiceClient extends Client {
     override sendPacket(packet: Packet): number {
@@ -48,6 +49,26 @@ class ChangedPartialIdentityClient extends Client {
                   })
                 : packet,
         )
+    }
+}
+
+class MalformedHostbasedHostnameClient extends Client {
+    override sendPacket(packet: Packet): number {
+        if (
+            packet instanceof UserAuthRequest &&
+            packet.data.method instanceof HostbasedAuthMethod
+        ) {
+            const serialize = packet.serialize.bind(packet)
+            packet.serialize = () => {
+                const raw = serialize()
+                const hostname = Buffer.from(packet.data.method.data.clientHostname, "ascii")
+                const offset = raw.indexOf(hostname)
+                if (offset < 0) throw new Error("Hostbased hostname is absent from its request")
+                raw[offset] |= 0x80
+                return raw
+            }
+        }
+        return super.sendPacket(packet)
     }
 }
 
@@ -1514,6 +1535,43 @@ describe("RFC 4252 multi-method authentication", () => {
             await new Promise<void>((resolve, reject) => {
                 server.server!.close((error) => (error ? reject(error) : resolve()))
             })
+        }
+    }, 15_000)
+
+    test("rejects a non-ASCII hostbased hostname before application policy", async () => {
+        const serverHostKey = await PrivateKey.generate("ssh-ed25519")
+        const clientHostKey = await PrivateKey.generate("ssh-ed25519")
+        const server = new Server({ hostKeys: [serverHostKey], sendAllHostKeys: false })
+        let policyCalls = 0
+        server.hooker.hook("hostbasedAuthentication", (_hook, _context, decision) => {
+            policyCalls++
+            decision.allowLogin = true
+        })
+        server.listen({ host: "127.0.0.1", port: 0 })
+        await once(server, "listening")
+
+        const client = new MalformedHostbasedHostnameClient({
+            hostname: "127.0.0.1",
+            port: (server.address() as AddressInfo).port,
+            username: "remote",
+            hostbased: {
+                key: clientHostKey,
+                localHostname: "client.example",
+                localUsername: "alice",
+            },
+            authenticationMethodsOrder: [SSHAuthenticationMethods.Hostbased],
+        })
+        client.hooker.hook("hostKey", (_hook, decision) => {
+            decision.allowHostKey = true
+        })
+
+        try {
+            await expect(client.connect()).rejects.toThrow()
+            expect(policyCalls).toBe(0)
+        } finally {
+            client.destroy()
+            for (const connection of server.clients) connection.terminate()
+            await server.close()
         }
     }, 15_000)
 
