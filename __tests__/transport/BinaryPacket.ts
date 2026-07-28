@@ -279,6 +279,29 @@ describe("BinaryPacket", () => {
         }
     })
 
+    test("decodes a large fixed packet fragmented one byte at a time", () => {
+        const packetSize = 256 * 1024
+        const payloadLength = packetSize - 9
+        const encoded = Buffer.alloc(packetSize, 0xa5)
+        encoded.writeUInt32BE(packetSize - 4, 0)
+        encoded[4] = 4
+        encoded.fill(0x02, 5, 5 + payloadLength)
+        const decoder = new BinaryPacketDecoder({ maximumPacketSize: packetSize })
+        let decoded
+
+        for (let offset = 0; offset < encoded.length; offset++) {
+            decoder.push(encoded.subarray(offset, offset + 1))
+            decoded = decoder.read() ?? decoded
+        }
+
+        expect(decoded).toEqual({
+            sequenceNumber: 0,
+            payload: Buffer.alloc(payloadLength, 0x02),
+            padding: Buffer.alloc(4, 0xa5),
+            data: encoded,
+        })
+    }, 1_000)
+
     test("decodes multiple packets and advances sequence numbers", () => {
         const encoder = new BinaryPacketEncoder({ randomBytes: deterministicPadding })
         const first = encoder.encode(Buffer.from([20]))

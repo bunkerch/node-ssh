@@ -276,11 +276,135 @@ export class BinaryPacketEncoder {
     }
 }
 
+class InboundPacketBuffer {
+    private chunks: Buffer[] = []
+    private head = 0
+    private headOffset = 0
+    private queuedLength = 0
+    private frame: Buffer | undefined
+    private frameLength = 0
+
+    get length(): number {
+        return this.frameLength + this.queuedLength
+    }
+
+    push(chunk: Buffer): void {
+        if (chunk.length === 0) return
+        let offset = 0
+        if (this.frame && this.frameLength < this.frame.length) {
+            const copied = chunk.copy(
+                this.frame,
+                this.frameLength,
+                0,
+                Math.min(chunk.length, this.frame.length - this.frameLength),
+            )
+            this.frameLength += copied
+            offset += copied
+        }
+        if (offset < chunk.length) {
+            const owned = Buffer.from(chunk.subarray(offset))
+            this.chunks.push(owned)
+            this.queuedLength += owned.length
+        }
+    }
+
+    peek(length: number): Buffer {
+        if (length > this.length) throw new RangeError("SSH packet buffer is truncated")
+        if (this.frame) {
+            if (length > this.frameLength) throw new RangeError("SSH packet frame is truncated")
+            return this.frame.subarray(0, length)
+        }
+        const first = this.chunks[this.head]!
+        if (first.length - this.headOffset >= length) {
+            return first.subarray(this.headOffset, this.headOffset + length)
+        }
+        const result = Buffer.allocUnsafe(length)
+        this.copyQueued(result, 0, length, false)
+        return result
+    }
+
+    reserve(length: number): void {
+        if (this.frame) {
+            if (this.frame.length !== length) {
+                throw new Error("SSH packet frame length changed while buffering")
+            }
+            return
+        }
+        this.frame = Buffer.allocUnsafe(length)
+        const available = Math.min(length, this.queuedLength)
+        this.copyQueued(this.frame, 0, available, true)
+        this.frameLength = available
+    }
+
+    get frameComplete(): boolean {
+        return this.frame !== undefined && this.frameLength === this.frame.length
+    }
+
+    consumeFrame(length: number): Buffer {
+        if (!this.frame || this.frame.length !== length || this.frameLength !== length) {
+            throw new Error("SSH packet frame is incomplete")
+        }
+        const frame = this.frame
+        this.frame = undefined
+        this.frameLength = 0
+        return frame
+    }
+
+    clear(): void {
+        this.frame?.fill(0)
+        this.frame = undefined
+        this.frameLength = 0
+        for (let index = this.head; index < this.chunks.length; index++) {
+            this.chunks[index]!.fill(0)
+        }
+        this.chunks = []
+        this.head = 0
+        this.headOffset = 0
+        this.queuedLength = 0
+    }
+
+    private copyQueued(
+        target: Buffer,
+        targetOffset: number,
+        length: number,
+        consume: boolean,
+    ): void {
+        let index = this.head
+        let sourceOffset = this.headOffset
+        let remaining = length
+        let outputOffset = targetOffset
+        while (remaining > 0) {
+            const chunk = this.chunks[index]!
+            const copied = Math.min(remaining, chunk.length - sourceOffset)
+            chunk.copy(target, outputOffset, sourceOffset, sourceOffset + copied)
+            remaining -= copied
+            outputOffset += copied
+            sourceOffset += copied
+            if (sourceOffset === chunk.length) {
+                index++
+                sourceOffset = 0
+            }
+        }
+        if (!consume) return
+
+        this.queuedLength -= length
+        while (this.head < index) {
+            this.chunks[this.head] = Buffer.alloc(0)
+            this.head++
+        }
+        this.headOffset = sourceOffset
+        if (this.head >= 1024 && this.head * 2 >= this.chunks.length) {
+            this.chunks = this.chunks.slice(this.head)
+            this.head = 0
+        }
+    }
+}
+
 export class BinaryPacketDecoder {
     private readonly maximumPacketSize: number
     private protection?: InboundPacketProtection
     private decompressor?: PacketDecompressor
-    private buffered = Buffer.alloc(0)
+    private readonly buffered = new InboundPacketBuffer()
     private decryptedFirstBlock?: Buffer
     private sequenceNumber = 0
     private sequenceNumberWrapped = false
@@ -313,7 +437,7 @@ export class BinaryPacketDecoder {
     push(chunk: Buffer): void {
         if (this.disposed) throw new Error("SSH binary packet decoder is disposed")
         if (chunk.length === 0) return
-        this.buffered = Buffer.concat([this.buffered, chunk])
+        this.buffered.push(chunk)
     }
 
     setProtection(protection: InboundPacketProtection): void {
@@ -343,8 +467,7 @@ export class BinaryPacketDecoder {
         this.decompressor = undefined
         this.decryptedFirstBlock?.fill(0)
         this.decryptedFirstBlock = undefined
-        this.buffered.fill(0)
-        this.buffered = Buffer.alloc(0)
+        this.buffered.clear()
     }
 
     read(): DecodedBinaryPacket | undefined {
@@ -364,18 +487,18 @@ export class BinaryPacketDecoder {
         if (this.protection?.aead) {
             firstBlock = this.protection.cipher.decryptPacketLength(
                 this.sequenceNumber,
-                this.buffered.subarray(0, 4),
+                this.buffered.peek(4),
             )
         } else if (this.protection && !separatelyProcessedLength) {
             const decryptedFirstBlock =
                 this.decryptedFirstBlock ??
-                this.protection.cipher.decrypt(this.buffered.subarray(0, blockSize))
+                this.protection.cipher.decrypt(this.buffered.peek(blockSize))
             this.decryptedFirstBlock = decryptedFirstBlock
             firstBlock = decryptedFirstBlock
         } else if (!separatelyProcessedLength) {
-            firstBlock = this.buffered.subarray(0, blockSize)
+            firstBlock = this.buffered.peek(blockSize)
         } else {
-            firstBlock = this.buffered.subarray(0, 4)
+            firstBlock = this.buffered.peek(4)
         }
         const expectedFirstBlockLength = separatelyProcessedLength ? 4 : blockSize
         if (firstBlock.length !== expectedFirstBlockLength) {
@@ -401,12 +524,14 @@ export class BinaryPacketDecoder {
         if ((bodyOnlyAlignment ? packetLength : encryptedLength) % blockSize !== 0) {
             throw new Error("SSH binary packet length is not a cipher block multiple")
         }
-        if (this.buffered.length < totalLength) return undefined
+        this.buffered.reserve(totalLength)
+        if (!this.buffered.frameComplete) return undefined
+        const packet = this.buffered.consumeFrame(totalLength)
 
         let plaintext: Buffer
         if (this.protection?.aead) {
-            const ciphertext = this.buffered.subarray(0, encryptedLength)
-            const authenticationTag = this.buffered.subarray(encryptedLength, totalLength)
+            const ciphertext = packet.subarray(0, encryptedLength)
+            const authenticationTag = packet.subarray(encryptedLength, totalLength)
             if (authenticationTag.length !== authenticationLength) {
                 throw new Error("SSH binary packet has an invalid authentication tag length")
             }
@@ -422,8 +547,8 @@ export class BinaryPacketDecoder {
                 throw new Error("SSH AEAD cipher returned an inconsistent packet length")
             }
         } else if (this.protection && encryptThenMac) {
-            const authenticated = this.buffered.subarray(0, encryptedLength)
-            const receivedMAC = this.buffered.subarray(encryptedLength, totalLength)
+            const authenticated = packet.subarray(0, encryptedLength)
+            const receivedMAC = packet.subarray(encryptedLength, totalLength)
             const expectedMAC = this.protection.mac.computeMAC(this.sequenceNumber, authenticated)
             if (
                 expectedMAC.length !== authenticationLength ||
@@ -434,21 +559,21 @@ export class BinaryPacketDecoder {
             if (!timingSafeEqual(expectedMAC, receivedMAC)) {
                 throw new Error("SSH binary packet MAC verification failed")
             }
-            const body = this.protection.cipher.decrypt(this.buffered.subarray(4, encryptedLength))
+            const body = this.protection.cipher.decrypt(packet.subarray(4, encryptedLength))
             if (body.length !== packetLength) {
                 throw new Error("SSH cipher returned an incomplete packet")
             }
             plaintext = Buffer.concat([firstBlock, body])
         } else if (this.protection) {
             const remaining = this.protection.cipher.decrypt(
-                this.buffered.subarray(blockSize, encryptedLength),
+                packet.subarray(blockSize, encryptedLength),
             )
             plaintext = Buffer.concat([firstBlock, remaining])
             if (plaintext.length !== encryptedLength) {
                 throw new Error("SSH cipher returned an incomplete packet")
             }
 
-            const receivedMAC = this.buffered.subarray(encryptedLength, totalLength)
+            const receivedMAC = packet.subarray(encryptedLength, totalLength)
             const expectedMAC = this.protection.mac.computeMAC(this.sequenceNumber, plaintext)
             if (
                 expectedMAC.length !== authenticationLength ||
@@ -460,7 +585,7 @@ export class BinaryPacketDecoder {
                 throw new Error("SSH binary packet MAC verification failed")
             }
         } else {
-            plaintext = this.buffered.subarray(0, encryptedLength)
+            plaintext = packet.subarray(0, encryptedLength)
         }
 
         const paddingLength = plaintext[4]
@@ -478,10 +603,9 @@ export class BinaryPacketDecoder {
             throw new Error("SSH binary packet payload is empty after decompression")
         }
         const padding = plaintext.subarray(5 + payloadLength, encryptedLength)
-        const data = this.buffered.subarray(0, totalLength)
+        const data = packet
         const sequenceNumber = this.sequenceNumber
 
-        this.buffered = this.buffered.subarray(totalLength)
         this.decryptedFirstBlock = undefined
         if (this.protection) {
             this.protectedBytes = Math.min(

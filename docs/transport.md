@@ -180,6 +180,11 @@ sequence number, and applies the negotiated packet protection. Conventional ciph
 complete packet and authenticate its plaintext with the negotiated MAC. Encrypt-then-MAC and AEAD
 ciphers use their separately documented layouts.
 
+After enough authenticated framing bytes are available to determine the packet length, the decoder
+allocates that bounded frame once and copies later fragments directly into it. One-byte TCP
+fragmentation therefore requires work linear in the packet size rather than repeatedly copying the
+accumulated prefix. Bytes for coalesced following packets remain queued for the next decode.
+
 SSH boolean fields follow the RFC wire definition: zero is false and every nonzero byte is true.
 Serializing a local boolean uses the canonical zero or one representation.
 
