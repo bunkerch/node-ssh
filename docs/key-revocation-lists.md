@@ -39,6 +39,7 @@ const verifyKnownHost = knownHosts.verifier(hostname)
 
 const client = new Client({
     hostname,
+    username: "deploy",
     hostVerifier(serializedKey) {
         if (!Buffer.isBuffer(serializedKey)) {
             throw new TypeError("Raw host-key verification is required")

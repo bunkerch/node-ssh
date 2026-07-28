@@ -278,7 +278,9 @@ describe("configured diagnostic sinks", () => {
     }, 15_000)
 
     test("rejects non-callable diagnostic options", () => {
-        expect(() => new Client({ debug: "invalid" as never })).toThrow("must be a function")
+        expect(() => new Client({ username: "test", debug: "invalid" as never })).toThrow(
+            "must be a function",
+        )
         expect(() => new Server({ debug: "invalid" as never })).toThrow("must be a function")
     })
 })

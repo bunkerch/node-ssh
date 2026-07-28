@@ -364,7 +364,7 @@ describe("client agent-forwarding defaults", () => {
     }, 15_000)
 
     test("keeps the connection default disabled", () => {
-        expect("options" in new Client({})).toBe(false)
+        expect("options" in new Client({ username: "test" })).toBe(false)
     })
 
     test("bounds pending client agent-channel setup without closing the connection", async () => {

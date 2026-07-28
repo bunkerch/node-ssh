@@ -6,7 +6,7 @@ const deterministicPadding = (size: number): Buffer => Buffer.alloc(size, 0xa5)
 
 describe("transport message scheduling", () => {
     test("yields after identification before processing coalesced binary data", async () => {
-        const client = new Client({ hostname: "unused.invalid" })
+        const client = new Client({ hostname: "unused.invalid", username: "test" })
         const events: string[] = []
         client.on("serverProtocolVersion", () => events.push("identification"))
         client.on("packet", () => events.push("packet"))
@@ -22,7 +22,7 @@ describe("transport message scheduling", () => {
     })
 
     test("emits a complete fixed server greeting before identification", () => {
-        const client = new Client({ hostname: "unused.invalid" })
+        const client = new Client({ hostname: "unused.invalid", username: "test" })
         const greetings: string[] = []
         const wrapperLines: string[] = []
         client.on("greeting", (greeting) => greetings.push(greeting))
@@ -37,7 +37,7 @@ describe("transport message scheduling", () => {
     })
 
     test("yields between complete packets from one TCP read", async () => {
-        const client = new Client({ hostname: "unused.invalid" })
+        const client = new Client({ hostname: "unused.invalid", username: "test" })
         client.onMessage(Buffer.from("SSH-2.0-test_server\r\n"))
 
         const received: number[] = []

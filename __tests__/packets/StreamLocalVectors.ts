@@ -42,7 +42,7 @@ describe("OpenSSH stream-local forwarding vectors", () => {
             ${socketPathHex} 00000000 00000000
         `)
         const channel = new ClientDirectStreamLocalChannel(
-            new Client({ hostname: "unused" }),
+            new Client({ hostname: "unused", username: "test" }),
             socketPath,
         )
 
@@ -69,7 +69,7 @@ describe("OpenSSH stream-local forwarding vectors", () => {
             ClientForwardedStreamLocalChannel.parseDetails(vector("00000001 ff 00000000")),
         ).toThrow("forwarded stream-local socket path is not valid UTF-8 text")
         const outbound = new ClientDirectStreamLocalChannel(
-            new Client({ hostname: "unused" }),
+            new Client({ hostname: "unused", username: "test" }),
             "\ud800",
         )
         expect(() => outbound.getOpenPacket()).toThrow(

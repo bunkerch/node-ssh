@@ -55,7 +55,7 @@ describe("RFC 8308 elevation negotiation", () => {
         expect(() => normalizeElevationPreference(true as never)).toThrow(
             'must be false, "default", "elevated", or "unelevated"',
         )
-        expect(() => new Client({ elevation: true as never })).toThrow(
+        expect(() => new Client({ username: "test", elevation: true as never })).toThrow(
             'must be false, "default", "elevated", or "unelevated"',
         )
     })

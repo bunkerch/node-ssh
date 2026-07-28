@@ -450,7 +450,8 @@ export interface ClientOptions {
     /** Reject OpenSSH-specific APIs for peers without a compatible OpenSSH identifier. */
     strictVendor?: boolean;
     algorithms?: ClientAlgorithmOptions;
-    username?: string;
+    /** Remote SSH account name. */
+    username: string;
     password?: string;
     /** Signing agent object, Unix socket, Windows named pipe, or Cygwin socket descriptor path. */
     agent?: Agent | string;

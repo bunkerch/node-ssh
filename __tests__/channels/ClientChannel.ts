@@ -15,7 +15,7 @@ import { AgentType } from "../../src/publickey/Agent.js"
 import { rejectUnimplementedPacket } from "../../src/utils/UnimplementedRegistry.js"
 
 function createChannel(options: { initialWindowSize?: number; maximumPacketSize?: number } = {}) {
-    const client = new Client({ hostname: "unused" })
+    const client = new Client({ hostname: "unused", username: "test" })
     const sent: Packet[] = []
     client.sendPacket = (packet: Packet) => {
         sent.push(packet)
@@ -36,7 +36,7 @@ function createChannel(options: { initialWindowSize?: number; maximumPacketSize?
 
 describe("ClientChannel", () => {
     test("rejects invalid local session text before sending a request", async () => {
-        const client = new Client({ hostname: "unused" })
+        const client = new Client({ hostname: "unused", username: "test" })
         const sent: Packet[] = []
         client.sendPacket = (packet: Packet) => {
             sent.push(packet)
@@ -73,7 +73,7 @@ describe("ClientChannel", () => {
     })
 
     test("reserves one X11 request and permits retry only after failure", async () => {
-        const client = new Client({ hostname: "unused", strictVendor: false })
+        const client = new Client({ hostname: "unused", username: "test", strictVendor: false })
         const sent: Packet[] = []
         client.sendPacket = (packet: Packet) => {
             sent.push(packet)
@@ -135,7 +135,12 @@ describe("ClientChannel", () => {
                 throw new Error("No forwarded stream expected")
             },
         }
-        const client = new Client({ hostname: "unused", strictVendor: false, agent })
+        const client = new Client({
+            hostname: "unused",
+            username: "test",
+            strictVendor: false,
+            agent,
+        })
         const sent: Packet[] = []
         client.sendPacket = (packet: Packet) => {
             sent.push(packet)
@@ -181,7 +186,7 @@ describe("ClientChannel", () => {
     })
 
     test("encodes named RFC terminal modes in a PTY request", async () => {
-        const client = new Client({ hostname: "unused" })
+        const client = new Client({ hostname: "unused", username: "test" })
         const sent: Packet[] = []
         client.sendPacket = (packet: Packet) => {
             sent.push(packet)
@@ -221,7 +226,7 @@ describe("ClientChannel", () => {
 
     test("sends the OpenSSH SIGINFO extension only for a compatible peer", async () => {
         const createStartedSession = async (strictVendor: boolean) => {
-            const client = new Client({ hostname: "unused", strictVendor })
+            const client = new Client({ hostname: "unused", username: "test", strictVendor })
             const sent: Packet[] = []
             client.sendPacket = (packet: Packet) => {
                 sent.push(packet)
@@ -409,7 +414,7 @@ describe("ClientChannel", () => {
     })
 
     test("validates one-way RFC 4254 xon-xoff notifications", () => {
-        const client = new Client({ hostname: "unused" })
+        const client = new Client({ hostname: "unused", username: "test" })
         client.sendPacket = () => 0
         const channel = new ClientSessionChannel(client)
         channel.confirmOpen(
@@ -456,7 +461,7 @@ describe("ClientChannel", () => {
     })
 
     test("validates and exposes an RFC 4254 exit signal exactly once", async () => {
-        const client = new Client({ hostname: "unused" })
+        const client = new Client({ hostname: "unused", username: "test" })
         client.sendPacket = () => 0
         const channel = new ClientSessionChannel(client)
         channel.confirmOpen(
@@ -494,7 +499,7 @@ describe("ClientChannel", () => {
     })
 
     test("rejects malformed or misplaced RFC 4254 exit results", async () => {
-        const nonSessionClient = new Client({ hostname: "unused" })
+        const nonSessionClient = new Client({ hostname: "unused", username: "test" })
         nonSessionClient.sendPacket = () => 0
         const channel = new ClientChannel(nonSessionClient, "direct-tcpip")
         channel.confirmOpen(
@@ -523,7 +528,7 @@ describe("ClientChannel", () => {
             channel.receiveRequest(request(channel.localId, "exit-status", Buffer.alloc(4))),
         ).rejects.toThrow("only valid on sessions")
 
-        const client = new Client({ hostname: "unused" })
+        const client = new Client({ hostname: "unused", username: "test" })
         client.sendPacket = () => 0
         const session = new ClientSessionChannel(client)
         session.confirmOpen(
@@ -570,7 +575,7 @@ describe("ClientChannel", () => {
     })
 
     test("handles awaited end-of-write as a one-way writable half-close", async () => {
-        const client = new Client({ hostname: "unused" })
+        const client = new Client({ hostname: "unused", username: "test" })
         const sent: Packet[] = []
         client.sendPacket = (packet: Packet) => {
             sent.push(packet)

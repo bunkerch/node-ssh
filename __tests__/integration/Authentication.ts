@@ -380,29 +380,30 @@ describe("RFC 4252 multi-method authentication", () => {
             ["gssapiDelegateCredentials", { gssapiDelegateCredentials: 1 }],
             ["gssapiKeyExchangeAuthentication", { gssapiKeyExchangeAuthentication: null }],
         ] as const) {
-            expect(() => new Client(options as never)).toThrow(
+            expect(() => new Client({ username: "test", ...options } as never)).toThrow(
                 `SSH ${name} option must be a boolean`,
             )
         }
 
         expect(() => new Client({ username: 7 as never })).toThrow(
-            "SSH username option must be a string",
+            "SSH username option is required and must be a string",
         )
         expect(() => new Client({ username: "invalid\ud800username" })).toThrow(
             "SSH username is not valid UTF-8 text",
         )
-        expect(() => new Client({ hostVerifier: true as never })).toThrow(
+        expect(() => new Client({ username: "test", hostVerifier: true as never })).toThrow(
             "SSH hostVerifier option must be a function",
         )
     })
 
     test("rejects malformed authentication method orders during construction", () => {
-        expect(() => new Client({ authenticationMethodsOrder: [] })).toThrow(
+        expect(() => new Client({ username: "test", authenticationMethodsOrder: [] })).toThrow(
             "SSH authentication method order must contain at least one method",
         )
         expect(
             () =>
                 new Client({
+                    username: "test",
                     authenticationMethodsOrder: [
                         SSHAuthenticationMethods.None,
                         SSHAuthenticationMethods.None,
@@ -412,6 +413,7 @@ describe("RFC 4252 multi-method authentication", () => {
         expect(
             () =>
                 new Client({
+                    username: "test",
                     authenticationMethodsOrder: ["future-auth" as SSHAuthenticationMethods],
                 }),
         ).toThrow("SSH authentication method order contains an unsupported method: future-auth")
@@ -434,15 +436,20 @@ describe("RFC 4252 multi-method authentication", () => {
             ...methods,
         }
 
-        expect(() => new Client({ agent: null as never })).toThrow(
+        expect(() => new Client({ username: "test", agent: null as never })).toThrow(
             "SSH agent option must be an Agent or socket path",
-        )
-        expect(() => new Client({ agent: { ...methods, type: 99 } as never })).toThrow(
-            "SSH agent type must be Interactive or NonInteractive",
         )
         expect(
             () =>
                 new Client({
+                    username: "test",
+                    agent: { ...methods, type: 99 } as never,
+                }),
+        ).toThrow("SSH agent type must be Interactive or NonInteractive")
+        expect(
+            () =>
+                new Client({
+                    username: "test",
                     agent: {
                         type: AgentType.NonInteractive,
                         getPublicKey: () => undefined,
@@ -450,10 +457,14 @@ describe("RFC 4252 multi-method authentication", () => {
                     } as never,
                 }),
         ).toThrow("SSH agent must implement getPublicKeys()")
-        expect(() => new Client({ agent: { ...valid, getStream: true } as never })).toThrow(
-            "SSH agent getStream must be a function when provided",
-        )
-        expect(() => new Client({ agent: valid })).not.toThrow()
+        expect(
+            () =>
+                new Client({
+                    username: "test",
+                    agent: { ...valid, getStream: true } as never,
+                }),
+        ).toThrow("SSH agent getStream must be a function when provided")
+        expect(() => new Client({ username: "test", agent: valid })).not.toThrow()
     })
 
     test("owns the configured authentication method order before connecting", async () => {
@@ -548,10 +559,14 @@ describe("RFC 4252 multi-method authentication", () => {
     }, 15_000)
 
     test("distinguishes an empty configured password from an absent credential", async () => {
-        expect(() => new Client({ password: null as unknown as string })).toThrow(
-            "SSH password option must be a string",
-        )
-        expect(() => new Client({ password: "invalid\ud800password" })).toThrow(
+        expect(
+            () =>
+                new Client({
+                    username: "test",
+                    password: null as unknown as string,
+                }),
+        ).toThrow("SSH password option must be a string")
+        expect(() => new Client({ username: "test", password: "invalid\ud800password" })).toThrow(
             "SSH password is not valid UTF-8 text",
         )
 

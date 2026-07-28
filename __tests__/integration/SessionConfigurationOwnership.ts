@@ -9,7 +9,7 @@ import PrivateKey from "../../src/utils/PrivateKey.js"
 
 describe("client session configuration ownership", () => {
     test("rejects malformed session policy before opening a channel", async () => {
-        const client = new Client({})
+        const client = new Client({ username: "test" })
         const invalidOptions: readonly [unknown, string][] = [
             [null, "SSH session options must be an object"],
             [[], "SSH session options must be an object"],
@@ -32,7 +32,7 @@ describe("client session configuration ownership", () => {
     })
 
     test("rejects malformed subsystem options before opening a channel", async () => {
-        const client = new Client({})
+        const client = new Client({ username: "test" })
         const cases: readonly [Promise<unknown>, string][] = [
             [client.sftp(null as never), "SSH SFTP environment must be an object"],
             [client.sftp({}, null as never), "SFTP client options must be an object"],

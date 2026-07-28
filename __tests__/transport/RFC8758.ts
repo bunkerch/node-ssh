@@ -12,6 +12,7 @@ test.each(["arcfour", "arcfour128", "arcfour256"])(
             () =>
                 new Client({
                     hostname: "unused.invalid",
+                    username: "test",
                     algorithms: { cipher: [cipher] },
                 }),
         ).toThrow(`Unsupported algorithm: ${cipher}`)

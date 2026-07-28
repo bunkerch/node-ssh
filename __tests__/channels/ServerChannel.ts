@@ -15,7 +15,7 @@ import Shell from "../../src/channels/Session/Shell.js"
 import { rejectUnimplementedPacket } from "../../src/utils/UnimplementedRegistry.js"
 
 function createChannel(remoteWindow = 5, remotePacketSize = 3) {
-    const client = new Client({ hostname: "unused" })
+    const client = new Client({ hostname: "unused", username: "test" })
     const sent: Packet[] = []
     client.sendPacket = (packet: Packet) => {
         sent.push(packet)

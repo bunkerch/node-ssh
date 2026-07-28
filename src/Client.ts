@@ -298,7 +298,8 @@ export interface ClientOptions {
     /** Reject OpenSSH-specific APIs for peers without a compatible OpenSSH identifier. */
     strictVendor?: boolean
     algorithms?: ClientAlgorithmOptions
-    username?: string
+    /** Remote SSH account name. */
+    username: string
     password?: string
     /** Signing agent object, Unix socket, Windows named pipe, or Cygwin socket descriptor path. */
     agent?: Agent | string
@@ -387,7 +388,9 @@ export interface ClientOptionsRequired
 }
 
 /** Normalize reusable authentication configuration without retaining encoded key containers. */
-export function normalizeClientAuthenticationAgent(options: Readonly<ClientOptions>): Agent {
+export function normalizeClientAuthenticationAgent(
+    options: Readonly<Pick<ClientOptions, "agent" | "privateKey" | "certificate" | "passphrase">>,
+): Agent {
     const configuredAgent =
         typeof options.agent === "string" ? createSocketAgent(options.agent) : options.agent
     if (configuredAgent !== undefined && options.privateKey !== undefined) {
@@ -820,9 +823,8 @@ export default class Client extends EventEmitter<ClientEvents> {
             true,
             "strictVendor",
         )
-        if (this.#options.username === undefined) this.#options.username = "root"
         if (typeof this.#options.username !== "string") {
-            throw new TypeError("SSH username option must be a string")
+            throw new TypeError("SSH username option is required and must be a string")
         }
         encodeSSHUTF8(this.#options.username, "SSH username")
         validateEndpointText(this.#options.hostname, "hostname")

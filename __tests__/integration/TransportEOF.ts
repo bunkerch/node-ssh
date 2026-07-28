@@ -46,7 +46,7 @@ describe("SSH transport EOF", () => {
         await once(socket, "connect")
         while (!peer) await new Promise<void>((resolve) => setImmediate(resolve))
 
-        const client = new Client({ sock: socket, readyTimeout: 5_000 })
+        const client = new Client({ sock: socket, username: "test", readyTimeout: 5_000 })
         const ended = once(client, "end")
         const closed = once(client, "close")
         const connecting = client.connect()

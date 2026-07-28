@@ -296,7 +296,7 @@ describe("RFC 4254 channel identifiers", () => {
             Number.POSITIVE_INFINITY,
             Number.MAX_SAFE_INTEGER + 1,
         ]) {
-            expect(() => new Client({ maxPendingChannelOpens })).toThrow(
+            expect(() => new Client({ username: "test", maxPendingChannelOpens })).toThrow(
                 "SSH maximum pending channel opens must be a non-negative safe integer",
             )
             expect(() => new Server({ maxPendingChannelOpens })).toThrow(
@@ -313,7 +313,7 @@ describe("RFC 4254 channel identifiers", () => {
             Number.POSITIVE_INFINITY,
             Number.MAX_SAFE_INTEGER + 1,
         ]) {
-            expect(() => new Client({ maxChannels })).toThrow(
+            expect(() => new Client({ username: "test", maxChannels })).toThrow(
                 "SSH maximum simultaneous channels must be a non-negative safe integer",
             )
             expect(() => new Server({ maxChannels })).toThrow(

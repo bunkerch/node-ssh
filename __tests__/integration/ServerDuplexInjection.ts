@@ -65,7 +65,7 @@ test("rejects a client transport that has already ended", async () => {
     await Promise.all([ended, finished])
     expect(transport.destroyed).toBe(false)
 
-    const client = new Client({ sock: transport, readyTimeout: 20 })
+    const client = new Client({ sock: transport, username: "test", readyTimeout: 20 })
     client.on("error", () => undefined)
     await expect(client.connect()).rejects.toThrow(
         "The supplied SSH transport must be open, readable, and writable",

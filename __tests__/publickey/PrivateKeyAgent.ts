@@ -36,34 +36,56 @@ describe("client private-key option", () => {
     test("loads encrypted text without exposing client configuration", async () => {
         const privateKey = await PrivateKey.generate("ssh-ed25519")
         const encoded = privateKey.toString({ passphrase: "key-secret", rounds: 1 })
-        const configured = { privateKey: encoded, passphrase: "key-secret" }
+        const configured = {
+            username: "test",
+            privateKey: encoded,
+            passphrase: "key-secret",
+        }
         const client = new Client(configured)
 
         expect("options" in client).toBe(false)
-        expect(configured).toEqual({ privateKey: encoded, passphrase: "key-secret" })
+        expect(configured).toEqual({
+            username: "test",
+            privateKey: encoded,
+            passphrase: "key-secret",
+        })
     })
 
     test("accepts objects and raw containers and rejects ambiguous options", async () => {
         const privateKey = await PrivateKey.generate("ssh-ed25519")
-        expect("options" in new Client({ privateKey })).toBe(false)
-        expect("options" in new Client({ privateKey: privateKey.serialize() })).toBe(false)
+        expect("options" in new Client({ username: "test", privateKey })).toBe(false)
+        expect(
+            "options" in
+                new Client({
+                    username: "test",
+                    privateKey: privateKey.serialize(),
+                }),
+        ).toBe(false)
         expect(
             () =>
                 new Client({
+                    username: "test",
                     privateKey,
                     agent: new NoneAgent(),
                 }),
         ).toThrow("mutually exclusive")
-        expect(() => new Client({ passphrase: "unused" })).toThrow("requires privateKey")
-        expect(() => new Client({ privateKey, passphrase: "unused" })).toThrow(
-            "only valid for an encoded privateKey",
+        expect(() => new Client({ username: "test", passphrase: "unused" })).toThrow(
+            "requires privateKey",
         )
-        expect(() => new Client({ privateKey: privateKey.data.publicKey.toString() })).toThrow(
-            "must contain a private key",
+        expect(() => new Client({ username: "test", privateKey, passphrase: "unused" })).toThrow(
+            "only valid for an encoded privateKey",
         )
         expect(
             () =>
                 new Client({
+                    username: "test",
+                    privateKey: privateKey.data.publicKey.toString(),
+                }),
+        ).toThrow("must contain a private key")
+        expect(
+            () =>
+                new Client({
+                    username: "test",
                     privateKey: privateKey.toString({ passphrase: "right", rounds: 1 }),
                     passphrase: "wrong",
                 }),

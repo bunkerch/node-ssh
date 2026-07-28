@@ -144,7 +144,10 @@ const execFileAsync = promisify(execFile)
 
 describe("package exports", () => {
     test("exposes the supported source API without executing a demo", () => {
-        const clientOptions: ClientOptions = { hostname: "example.test" }
+        const clientOptions: ClientOptions = {
+            hostname: "example.test",
+            username: "package-test",
+        }
         const sessionOptions: ClientSessionOptions = { env: { LANG: "C" }, pty: true }
         const serverOptions: ServerOptions = { sendAllHostKeys: false }
         const hostKeyAdvertisementFormat: HostKeyAdvertisementFormat = "standard"
@@ -572,6 +575,7 @@ describe("package exports", () => {
         expect(serverClient).not.toContain("channelData: [packet: ChannelData]")
         expect(index).toContain("export type { ProtocolPacketMetadata }")
         expect(client).not.toContain("options: ClientOptionsRequired")
+        expect(client).toContain("/** Remote SSH account name. */\n    username: string")
         expect(server).not.toContain("options: ServerOptionsRequired")
         expect(client).toContain("globalRequest(name: string, args?: Buffer): Promise<Buffer>")
         expect(client).toContain(
@@ -919,28 +923,29 @@ describe("package exports", () => {
                     packedKnownHostOptions.port = 2200
                     await packedKnownHostUpdate
                     if (packedKnownHosts.check("packed.example.test", publicKey, 2222).status !== "trusted") process.exit(101)
-                    const configured = new Client({ privateKey: encrypted, passphrase: "packed-secret" })
+                    const configured = new Client({ username: "packed", privateKey: encrypted, passphrase: "packed-secret" })
                     if ("options" in configured) process.exit(5)
-                    const emptyPasswordClient = new Client({ password: "" })
+                    const emptyPasswordClient = new Client({ username: "packed", password: "" })
                     const emptyPasswordDecision = { password: undefined }
-                    if (!await emptyPasswordClient.hooker.triggerHookChecked("passwordAuth", { username: "root" }, emptyPasswordDecision) || emptyPasswordDecision.password !== "") process.exit(61)
-                    try { new Client({ agentForward: "false" }); process.exit(62) } catch (error) { if (!String(error).includes("agentForward option must be a boolean")) process.exit(63) }
-                    try { new Client({ hostVerifier: true }); process.exit(64) } catch (error) { if (!String(error).includes("hostVerifier option must be a function")) process.exit(65) }
-                    try { new Client({ timeout: null }); process.exit(105) } catch (error) { if (!String(error).includes("transport inactivity timeout must be an integer")) process.exit(106) }
-                    const invalidSession = new Client({}).exec("true", { agentForward: "false" })
+                    if (!await emptyPasswordClient.hooker.triggerHookChecked("passwordAuth", { username: "packed" }, emptyPasswordDecision) || emptyPasswordDecision.password !== "") process.exit(61)
+                    try { new Client({ username: "packed", agentForward: "false" }); process.exit(62) } catch (error) { if (!String(error).includes("agentForward option must be a boolean")) process.exit(63) }
+                    try { new Client({ username: "packed", hostVerifier: true }); process.exit(64) } catch (error) { if (!String(error).includes("hostVerifier option must be a function")) process.exit(65) }
+                    try { new Client({ username: "packed", timeout: null }); process.exit(105) } catch (error) { if (!String(error).includes("transport inactivity timeout must be an integer")) process.exit(106) }
+                    try { new Client({}); process.exit(117) } catch (error) { if (!String(error).includes("username option is required")) process.exit(118) }
+                    const invalidSession = new Client({ username: "packed" }).exec("true", { agentForward: "false" })
                     if (!(invalidSession instanceof Promise)) process.exit(66)
                     try { await invalidSession; process.exit(67) } catch (error) { if (!String(error).includes("session agentForward option must be a boolean")) process.exit(68) }
-                    const invalidForward = new Client({}).forwardOut("source.example", 0, "target.example", -1)
+                    const invalidForward = new Client({ username: "packed" }).forwardOut("source.example", 0, "target.example", -1)
                     if (!(invalidForward instanceof Promise)) process.exit(69)
                     try { await invalidForward; process.exit(70) } catch (error) { if (!String(error).includes("destination port must be between 0 and 65535")) process.exit(71) }
                     try { new Server({ hostKeys: null }); process.exit(72) } catch (error) { if (!String(error).includes("hostKeys option must be an array")) process.exit(73) }
-                    try { new Client({ gssapi: null }); process.exit(74) } catch (error) { if (!String(error).includes("client GSS-API mechanisms must be an array")) process.exit(75) }
+                    try { new Client({ username: "packed", gssapi: null }); process.exit(74) } catch (error) { if (!String(error).includes("client GSS-API mechanisms must be an array")) process.exit(75) }
                     try { new ProtocolVersionExchange("2.0", null); process.exit(76) } catch (error) { if (!String(error).includes("software version must be a string")) process.exit(77) }
-                    try { new Client({ serverClient: true }); process.exit(78) } catch (error) { if (!String(error).includes("serverClient is not a client option")) process.exit(79) }
-                    const invalidSFTPOptions = new Client({}).sftp({}, null)
+                    try { new Client({ username: "packed", serverClient: true }); process.exit(78) } catch (error) { if (!String(error).includes("serverClient is not a client option")) process.exit(79) }
+                    const invalidSFTPOptions = new Client({ username: "packed" }).sftp({}, null)
                     if (!(invalidSFTPOptions instanceof Promise)) process.exit(80)
                     try { await invalidSFTPOptions; process.exit(81) } catch (error) { if (!String(error).includes("SFTP client options must be an object")) process.exit(82) }
-                    const invalidPublicKeySubsystemOptions = new Client({}).publicKeySubsystem(null)
+                    const invalidPublicKeySubsystemOptions = new Client({ username: "packed" }).publicKeySubsystem(null)
                     if (!(invalidPublicKeySubsystemOptions instanceof Promise)) process.exit(83)
                     try { await invalidPublicKeySubsystemOptions; process.exit(84) } catch (error) { if (!String(error).includes("Public-key subsystem client options must be an object")) process.exit(85) }
                     try { new PublicKeySubsystemServer(null, null); process.exit(86) } catch (error) { if (!String(error).includes("Public-key subsystem server options must be an object")) process.exit(87) }
@@ -953,13 +958,13 @@ describe("package exports", () => {
                     const invalidAgentConstraints = packedAgent.addIdentity(privateKey, { constraints: null })
                     try { await invalidAgentConstraints; process.exit(93) } catch (error) { if (!String(error).includes("SSH agent identity constraints must be an array")) process.exit(94) }
                     packedAgent.destroy()
-                    try { new Client({ port: 0 }); process.exit(57) } catch (error) { if (!String(error).includes("between 1 and 65535")) process.exit(58) }
+                    try { new Client({ username: "packed", port: 0 }); process.exit(57) } catch (error) { if (!String(error).includes("between 1 and 65535")) process.exit(58) }
                     try { new Server({ greeting: "invalid\\ud800greeting" }); process.exit(59) } catch (error) { if (!String(error).includes("not valid UTF-8 text")) process.exit(60) }
                     const legacy = generateKeyPairSync("dsa")
                     const legacySignature = legacy.privateKey.sign(message)
                     if (!legacy.publicKey.verifySignature(message, legacySignature)) process.exit(6)
-                    if (new Client({}).algorithmOffer.serverHostKey.includes("ssh-dss")) process.exit(7)
-                    const explicitLegacy = new Client({ algorithms: { serverHostKey: ["ssh-dss"] } })
+                    if (new Client({ username: "packed" }).algorithmOffer.serverHostKey.includes("ssh-dss")) process.exit(7)
+                    const explicitLegacy = new Client({ username: "packed", algorithms: { serverHostKey: ["ssh-dss"] } })
                     if (explicitLegacy.algorithmOffer.serverHostKey[0] !== "ssh-dss") process.exit(8)
                     const synchronous = generateKeyPairSync("ecdsa", { bits: 256 })
                     if (!synchronous.publicKey.verifySignature(message, synchronous.privateKey.sign(message))) process.exit(9)
@@ -973,7 +978,7 @@ describe("package exports", () => {
                     if (!(importedPPK instanceof PrivateKey)) process.exit(11)
                     if (importedPPK.data.comment !== "RFC 8032 test vector 1") process.exit(12)
                     if (!importedPPK.data.publicKey.verifySignature(Buffer.alloc(0), importedPPK.sign(Buffer.alloc(0)))) process.exit(13)
-                    const curve448Client = new Client({ algorithms: { kex: ["curve448-sha512"] } })
+                    const curve448Client = new Client({ username: "packed", algorithms: { kex: ["curve448-sha512"] } })
                     if (curve448Client.algorithmOffer.kex[0] !== "curve448-sha512") process.exit(14)
                     const knownHosts = KnownHosts.parse("packed.example.test " + publicKey.toString())
                     if (knownHosts.check("packed.example.test", publicKey).status !== "trusted") process.exit(15)
@@ -983,7 +988,7 @@ describe("package exports", () => {
                     if (packedKRL.isSignedBy(packedRevokedKey)) process.exit(40)
                     const packedAttestation = SecurityKeyAttestation.parse(Buffer.from("000000117373682d736b2d6174746573742d76303000000004cafebabe00000004112233440000000000000000", "hex"))
                     if (packedAttestation.format !== "ssh-sk-attest-v00" || !packedAttestation.serialize().equals(Buffer.from("000000117373682d736b2d6174746573742d76303000000004cafebabe00000004112233440000000000000000", "hex"))) process.exit(41)
-                    if (new Client({}).algorithmOffer.kex[0] !== "mlkem768x25519-sha256") process.exit(16)
+                    if (new Client({ username: "packed" }).algorithmOffer.kex[0] !== "mlkem768x25519-sha256") process.exit(16)
                     if (typeof SSHAgentProtocolClient !== "function" || typeof SSHAgentProtocolServer !== "function" || typeof SSHAgentProtocolError !== "function") process.exit(17)
                     if (SSHAgentMessageType.SignResponse !== 14 || MAX_SSH_AGENT_MESSAGE_LENGTH !== 262144) process.exit(18)
                     if (typeof CygwinAgent !== "function" || typeof CygwinAgentError !== "function" || typeof createSocketAgent !== "function") process.exit(19)
@@ -1003,7 +1008,7 @@ describe("package exports", () => {
                     const originalPlatform = process.platform
                     Object.defineProperty(process, "platform", { configurable: true, value: "win32" })
                     const selectedAgent = createSocketAgent("C:/cygwin/tmp/agent.socket")
-                    const selectedClient = new Client({ agent: "C:/cygwin/tmp/agent.socket" })
+                    const selectedClient = new Client({ username: "packed", agent: "C:/cygwin/tmp/agent.socket" })
                     const onePasswordAgent = new OnePasswordAgent()
                     Object.defineProperty(process, "platform", { configurable: true, value: originalPlatform })
                     if (!(selectedAgent instanceof CygwinAgent) || "options" in selectedClient) process.exit(20)
@@ -1018,7 +1023,7 @@ describe("package exports", () => {
                     Object.defineProperty(process, "platform", { configurable: true, value: "win32" })
                     try { discoverPageantAgentSocket(); process.exit(109) } catch (error) { if (!String(error).includes('requires the optional "koffi" package')) process.exit(110) }
                     Object.defineProperty(process, "platform", { configurable: true, value: originalPlatform })
-                    const standaloneMLKEM = new Client({ algorithms: { kex: ["mlkem512-sha256", "mlkem768-sha256", "mlkem1024-sha384"] } })
+                    const standaloneMLKEM = new Client({ username: "packed", algorithms: { kex: ["mlkem512-sha256", "mlkem768-sha256", "mlkem1024-sha384"] } })
                     if (standaloneMLKEM.algorithmOffer.kex.join(",") !== "mlkem512-sha256,mlkem768-sha256,mlkem1024-sha384") process.exit(37)
                     if (typeof PublicKeySubsystemClient !== "function" || typeof PublicKeySubsystemServer !== "function" || PublicKeySubsystemStatusCode.Success !== 0) process.exit(38)
                     let rejectRuntime

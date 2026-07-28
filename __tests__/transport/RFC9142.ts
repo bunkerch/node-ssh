@@ -40,6 +40,7 @@ describe("RFC 9142 key-exchange policy", () => {
             () =>
                 new Client({
                     hostname: "unused.invalid",
+                    username: "test",
                     algorithms: { kex: ["rsa1024-sha1"] },
                 }),
         ).toThrow("Unsupported algorithm: rsa1024-sha1")
@@ -48,6 +49,7 @@ describe("RFC 9142 key-exchange policy", () => {
     test("offers every implemented RFC 8732 family for a configured GSS mechanism", () => {
         const client = new Client({
             hostname: "unused.invalid",
+            username: "test",
             gssapi: [
                 {
                     oid: KERBEROS_V5_GSSAPI_OID,

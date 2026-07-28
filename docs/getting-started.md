@@ -49,6 +49,10 @@ await once(command, "close")
 client.end()
 ```
 
+`username` is required and identifies the remote SSH account. The client never substitutes
+`root`, the local operating-system account, or an environment variable when it is omitted; missing
+or non-string values fail during construction before any socket is opened.
+
 `connect()` resolves after authentication and is the preferred completion API. The client also
 emits synchronous `connect` and `ready` observation events once at that same transition. On the
 server role, each accepted `ServerClient` emits the same pair after user authentication succeeds.
@@ -94,6 +98,7 @@ typed protocol event.
 ```ts
 const client = new Client({
     hostname: "ssh.example.com",
+    username: "deploy",
     debug: (...message) => logger.debug({ component: "ssh", message }),
 })
 ```
@@ -584,7 +589,7 @@ const agent = new DiskAgent("/home/deploy/.ssh", {
         await auditLog.write({ error, publicKeyPath })
     },
 })
-const client = new Client({ hostname: "ssh.example.com", agent })
+const client = new Client({ hostname: "ssh.example.com", username: "deploy", agent })
 ```
 
 Each decryption attempt copies its passphrase and clears that temporary copy with the derived key

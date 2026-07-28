@@ -1046,6 +1046,7 @@ describe("client/server integration", () => {
         const client = new Client({
             hostname: "127.0.0.1",
             port: (silentPeer.address() as AddressInfo).port,
+            username: "timeout-test",
             readyTimeout: 40,
         })
         const errors: Error[] = []
@@ -1062,7 +1063,7 @@ describe("client/server integration", () => {
         await new Promise<void>((resolve, reject) => {
             silentPeer.close((error) => (error ? reject(error) : resolve()))
         })
-        expect(() => new Client({ readyTimeout: -1 })).toThrow(
+        expect(() => new Client({ username: "test", readyTimeout: -1 })).toThrow(
             "SSH ready timeout must be a non-negative number",
         )
     })
@@ -1089,6 +1090,7 @@ describe("client/server integration", () => {
             const client = new Client({
                 hostname: "127.0.0.1",
                 port: (peer.address() as AddressInfo).port,
+                username: "greeting-test",
                 readyTimeout: 1_000,
             })
             client.on("error", () => undefined)
@@ -1126,6 +1128,7 @@ describe("client/server integration", () => {
             const client = new Client({
                 hostname: "localhost",
                 port: server.address().port,
+                username: "endpoint-test",
                 localAddress: "127.0.0.1",
                 localPort,
                 forceIPv4: true,
@@ -1154,13 +1157,13 @@ describe("client/server integration", () => {
             remote: { address: string; port: number }
         }
         expect(result.remote).toEqual({ address: "127.0.0.1", port: result.localPort })
-        expect(() => new Client({ localPort: 65_536 })).toThrow(
+        expect(() => new Client({ username: "test", localPort: 65_536 })).toThrow(
             "SSH local port must be an integer between 0 and 65535",
         )
     })
 
     test("validates TCP endpoint configuration before connecting", () => {
-        const invalid: readonly [ClientOptions, string][] = [
+        const invalid: readonly [Partial<ClientOptions>, string][] = [
             [{ hostname: "" }, "SSH hostname must be a non-empty string"],
             [{ hostname: "bad\ud800host" }, "SSH hostname is not valid UTF-8 text"],
             [{ hostname: "bad\0host" }, "SSH hostname must not contain NUL"],
@@ -1201,7 +1204,7 @@ describe("client/server integration", () => {
         ]
 
         for (const [options, message] of invalid) {
-            expect(() => new Client(options)).toThrow(message)
+            expect(() => new Client({ username: "test", ...options })).toThrow(message)
         }
     })
 
@@ -1219,6 +1222,7 @@ describe("client/server integration", () => {
         const client = new Client({
             hostname: "127.0.0.1",
             port: (server.address() as AddressInfo).port,
+            username: "host-verifier-test",
             hostVerifier: (key) => {
                 presentedKey = key
                 return false
@@ -1231,7 +1235,7 @@ describe("client/server integration", () => {
         expect(client.canConnect).toBe(true)
 
         await server.close()
-        expect(() => new Client({ hostHash: "not-a-real-hash" })).toThrow(
+        expect(() => new Client({ username: "test", hostHash: "not-a-real-hash" })).toThrow(
             "Unsupported SSH host hash algorithm: not-a-real-hash",
         )
     })

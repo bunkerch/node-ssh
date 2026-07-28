@@ -11,7 +11,7 @@ function invokePromise(operation: () => Promise<unknown>): Promise<unknown> {
 
 describe("public Promise operation validation", () => {
     test("rejects invalid channel metadata before allocating an identifier", async () => {
-        const client = new Client({ strictVendor: false })
+        const client = new Client({ username: "test", strictVendor: false })
         const operations: readonly [() => Promise<unknown>, string][] = [
             [() => client.exec("invalid\ud800command"), "SSH exec command is not valid UTF-8 text"],
             [

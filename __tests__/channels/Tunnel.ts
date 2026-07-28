@@ -65,7 +65,7 @@ describe("packet tunnel channels", () => {
     })
 
     test("waits for a complete remote window and sends one channel-data message", async () => {
-        const client = new Client({ hostname: "unused" })
+        const client = new Client({ hostname: "unused", username: "test" })
         const sent: Packet[] = []
         client.sendPacket = (packet: Packet) => {
             sent.push(packet)
@@ -99,7 +99,7 @@ describe("packet tunnel channels", () => {
     })
 
     test("validates raw client writes and keeps their framing atomic", async () => {
-        const client = new Client({ hostname: "unused" })
+        const client = new Client({ hostname: "unused", username: "test" })
         const sent: Packet[] = []
         client.sendPacket = (packet: Packet) => {
             sent.push(packet)

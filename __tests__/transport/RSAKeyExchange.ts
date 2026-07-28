@@ -121,6 +121,7 @@ describe("RFC 4432 RSA SHA-256 key exchange", () => {
         const client = new Client({
             hostname: "127.0.0.1",
             port: (server.server!.address() as AddressInfo).port,
+            username: "rsa-kex-test",
             algorithms: { kex: ["rsa2048-sha256"] },
             authenticationMethodsOrder: [SSHAuthenticationMethods.None],
         })

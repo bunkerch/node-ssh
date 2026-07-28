@@ -168,7 +168,7 @@ describe("RFC 4253 algorithm negotiation", () => {
             ),
         ).toThrow("Invalid SSH algorithm list operation")
 
-        const standardClient = new Client({ hostname: "unused.invalid" })
+        const standardClient = new Client({ hostname: "unused.invalid", username: "test" })
         expect("kexAlgorithms" in standardClient).toBe(false)
         expect(standardClient.algorithmOffer.kex.slice(0, 8)).toEqual([
             "mlkem768x25519-sha256",
@@ -195,6 +195,7 @@ describe("RFC 4253 algorithm negotiation", () => {
         ])
         const legacyClient = new Client({
             hostname: "unused.invalid",
+            username: "test",
             algorithms: {
                 kex: {
                     append: [
@@ -222,6 +223,7 @@ describe("RFC 4253 algorithm negotiation", () => {
 
         const standaloneMLKEM = new Client({
             hostname: "unused.invalid",
+            username: "test",
             algorithms: {
                 kex: ["mlkem512-sha256", "mlkem768-sha256", "mlkem1024-sha384"],
             },

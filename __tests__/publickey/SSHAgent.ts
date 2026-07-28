@@ -94,7 +94,7 @@ describe("SSHAgent", () => {
 
         try {
             const agent = createSocketAgent(socketPath)
-            const client = new Client({ agent })
+            const client = new Client({ username: "test", agent })
             expect(agent).toBeInstanceOf(SSHAgent)
             expect((agent as SSHAgent).socketPath).toBe(socketPath)
             expect("options" in client).toBe(false)

@@ -54,6 +54,7 @@ describe("certificate host authentication", () => {
             client = new Client({
                 hostname: "127.0.0.1",
                 port: (server.server!.address() as AddressInfo).port,
+                username: "host-certificate-test",
                 authenticationMethodsOrder: [SSHAuthenticationMethods.None],
             })
             client.hooker.hook("hostKey", () => {

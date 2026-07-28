@@ -300,6 +300,8 @@ deliberately require a pure post-quantum exchange, for example:
 
 ```ts
 const client = new Client({
+    hostname: "ssh.example.com",
+    username: "deploy",
     algorithms: { kex: ["mlkem768-sha256"] },
 })
 ```
@@ -404,6 +406,7 @@ MAC lists for each direction. Configure both lists when opting in:
 ```ts
 const client = new Client({
     hostname: "ssh.example.com",
+    username: "deploy",
     algorithms: {
         cipher: ["AEAD_AES_256_GCM"],
         hmac: ["AEAD_AES_256_GCM"],
@@ -781,6 +784,7 @@ enabled OpenSSH negotiation in both peer roles cover both SHA-1 methods.
 ```ts
 const client = new Client({
     hostname,
+    username: "deploy",
     algorithms: {
         kex: ["curve25519-sha256"],
         cipher: { remove: [/^aes(?:192|256)-ctr$/] },
@@ -798,6 +802,7 @@ method is `MAY` in RFC 9142 and does not provide forward secrecy, so it is exclu
 ```ts
 const client = new Client({
     hostname,
+    username: "deploy",
     algorithms: { kex: ["rsa2048-sha256"] },
 })
 ```
@@ -844,6 +849,7 @@ connections through their parent server:
 ```ts
 const client = new Client({
     hostname: "ssh.example.com",
+    username: "deploy",
     rekeyBytes: 512 * 1024 * 1024,
     rekeyInterval: 30 * 60 * 1000,
 })

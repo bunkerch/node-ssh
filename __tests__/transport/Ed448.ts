@@ -36,6 +36,7 @@ describe("RFC 8709 Ed448 host keys", () => {
         const client = new Client({
             hostname: "127.0.0.1",
             port: (server.server!.address() as AddressInfo).port,
+            username: "ed448-test",
             algorithms: { serverHostKey: ["ssh-ed448"] },
             authenticationMethodsOrder: [SSHAuthenticationMethods.None],
         })
@@ -97,6 +98,7 @@ describe("RFC 8709 Ed448 host keys", () => {
         const client = new Client({
             hostname: "127.0.0.1",
             port: (server.server!.address() as AddressInfo).port,
+            username: "ed448-certificate-test",
             algorithms: { serverHostKey: [certificateType] },
             authenticationMethodsOrder: [SSHAuthenticationMethods.None],
         })

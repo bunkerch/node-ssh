@@ -3,7 +3,10 @@ import Client, { type ClientOptions } from "../../src/Client.js"
 describe("client configuration normalization", () => {
     test("does not treat malformed values as omitted options", () => {
         expect(() => new Client(null as never)).toThrow("SSH client options must be an object")
-        const cases: readonly [ClientOptions, string][] = [
+        expect(() => new Client({} as never)).toThrow(
+            "SSH username option is required and must be a string",
+        )
+        const cases: readonly [Partial<ClientOptions>, string][] = [
             [
                 { protocolVersionExchange: null as never },
                 "SSH client protocolVersionExchange option must be a ProtocolVersionExchange",
@@ -67,7 +70,7 @@ describe("client configuration normalization", () => {
         ]
 
         for (const [options, message] of cases) {
-            expect(() => new Client(options)).toThrow(message)
+            expect(() => new Client({ username: "test", ...options })).toThrow(message)
         }
     })
 })

@@ -145,12 +145,15 @@ describe("RFC 4254 TCP forwarding packet vectors", () => {
         expect(() => ClientX11Channel.parseDetails(vector("00000001 ff 00000000"))).toThrow(
             "X11 originator address is not valid UTF-8 text",
         )
-        const outbound = new ClientTCPIPChannel(new Client({ hostname: "unused" }), {
-            destinationHost: "\ud800",
-            destinationPort: 22,
-            sourceHost: "127.0.0.1",
-            sourcePort: 0,
-        })
+        const outbound = new ClientTCPIPChannel(
+            new Client({ hostname: "unused", username: "test" }),
+            {
+                destinationHost: "\ud800",
+                destinationPort: 22,
+                sourceHost: "127.0.0.1",
+                sourcePort: 0,
+            },
+        )
         expect(() => outbound.getOpenPacket()).toThrow(
             "direct-tcpip destination address is not valid UTF-8 text",
         )

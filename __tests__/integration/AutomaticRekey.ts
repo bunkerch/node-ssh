@@ -244,10 +244,16 @@ describe("RFC 4253 automatic key re-exchange", () => {
     }, 15_000)
 
     test("validates byte and timer limits for both peer roles", () => {
-        expect(() => new Client({ rekeyBytes: -1 })).toThrow("non-negative safe integer")
-        expect(() => new Client({ rekeyBytes: 1.5 })).toThrow("non-negative safe integer")
-        expect(() => new Client({ rekeyInterval: -1 })).toThrow("between 0")
-        expect(() => new Client({ rekeyInterval: 2_147_483_648 })).toThrow("between 0")
+        expect(() => new Client({ username: "test", rekeyBytes: -1 })).toThrow(
+            "non-negative safe integer",
+        )
+        expect(() => new Client({ username: "test", rekeyBytes: 1.5 })).toThrow(
+            "non-negative safe integer",
+        )
+        expect(() => new Client({ username: "test", rekeyInterval: -1 })).toThrow("between 0")
+        expect(() => new Client({ username: "test", rekeyInterval: 2_147_483_648 })).toThrow(
+            "between 0",
+        )
 
         expect(() => new Server({ rekeyBytes: Number.MAX_SAFE_INTEGER + 1 })).toThrow(
             "non-negative safe integer",

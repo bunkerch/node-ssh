@@ -426,6 +426,7 @@ describe("RFC 8732 GSS-API key exchange", () => {
         expect(
             () =>
                 new Client({
+                    username: "test",
                     gssapi: [mechanism],
                     gssapiKeyExchangeAuthentication: false,
                     authenticationMethodsOrder: [SSHAuthenticationMethods.GSSAPIKeyExchange],
@@ -434,6 +435,7 @@ describe("RFC 8732 GSS-API key exchange", () => {
         expect(
             () =>
                 new Client({
+                    username: "test",
                     authenticationMethodsOrder: [SSHAuthenticationMethods.GSSAPIKeyExchange],
                 }),
         ).toThrow("requires a GSS-API key-exchange mechanism")
