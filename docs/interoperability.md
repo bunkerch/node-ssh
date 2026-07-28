@@ -497,11 +497,13 @@ session ID, and derives a different exchange hash. These opt-in tests are compat
 rather than a deployment recommendation.
 
 AEAD integration forces both the standardized and deployed ChaCha20-Poly1305 names through traffic
-and rekey. Independent-peer interoperability exercises the deployed name and both 128- and 256-bit
-AES-GCM variants in both peer roles. OpenSSH streams enough data to initiate low-limit rekeys against
-the modern server; separate modern clients force each supported cipher against the containerized
-server, explicitly rekey, and execute a command. Negotiated handshake details prove that both
-directions use implicit integrity rather than a separate MAC.
+and rekey. The independent Python peer registers the RFC 5647 `AEAD_AES_128_GCM` and
+`AEAD_AES_256_GCM` encryption/MAC pairs over its separately implemented AES-GCM packet protection.
+Both registered names exchange command traffic and rekey in both peer roles. OpenSSH independently
+exercises the deployed 128- and 256-bit AES-GCM variants: it streams enough data to initiate
+low-limit rekeys against the modern server, while separate modern clients explicitly rekey and
+execute a command against the containerized server. Negotiated handshake details distinguish the
+RFC's paired-list names from the deployed variants' implicit-MAC negotiation.
 
 CBC interoperability forces AES-128, AES-192, AES-256, and three-key 3DES in both peer roles.
 OpenSSH initiates low-limit rekeys against the modern server; separate modern clients explicitly

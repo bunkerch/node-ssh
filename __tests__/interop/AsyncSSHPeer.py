@@ -10,6 +10,8 @@ import struct
 import sys
 
 import asyncssh
+from asyncssh.encryption import GCMEncryption, register_encryption_alg
+from asyncssh.mac import MAC, register_mac_alg
 
 if os.environ.get("MODERNSSH_PEER_DEBUG"):
     logging.basicConfig(level=logging.DEBUG)
@@ -23,6 +25,24 @@ PUBLIC_KEY = bytes.fromhex(
     "0000000b7373682d6564323535313900000020"
     "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
 )
+
+
+class RegisteredAEADMAC(MAC):
+    """Negotiation placeholder for RFC 5647's paired MAC registry names."""
+
+    def sign(self, _seq: int, _packet: bytes) -> bytes:
+        raise RuntimeError("RFC 5647 authenticates through its encryption algorithm")
+
+    def verify(self, _seq: int, _packet: bytes, _signature: bytes) -> bool:
+        raise RuntimeError("RFC 5647 authenticates through its encryption algorithm")
+
+
+for algorithm, cipher in (
+    (b"AEAD_AES_128_GCM", "aes128-gcm"),
+    (b"AEAD_AES_256_GCM", "aes256-gcm"),
+):
+    register_encryption_alg(algorithm, GCMEncryption, cipher, False)
+    register_mac_alg(algorithm, 0, 16, True, RegisteredAEADMAC, (), False)
 
 
 def ssh_string(value: bytes) -> bytes:
@@ -210,7 +230,9 @@ async def handle_process(process: asyncssh.SSHServerProcess[bytes]) -> None:
         await handle_command_process(process)
 
 
-async def serve(key_exchange: str) -> None:
+async def serve(
+    key_exchange: str, cipher: str = "aes128-ctr", mac: str = "hmac-sha2-256"
+) -> None:
     host_key = asyncssh.generate_private_key("ssh-ed448")
     listener = await asyncssh.create_server(
         ServerPolicy,
@@ -218,8 +240,8 @@ async def serve(key_exchange: str) -> None:
         0,
         server_host_keys=[host_key],
         kex_algs=[key_exchange],
-        encryption_algs=["aes128-ctr"],
-        mac_algs=["hmac-sha2-256"],
+        encryption_algs=[cipher],
+        mac_algs=[mac],
         encoding=None,
         process_factory=handle_process,
     )
@@ -227,7 +249,12 @@ async def serve(key_exchange: str) -> None:
     await listener.wait_closed()
 
 
-async def connect_command(port: int, key_exchange: str) -> None:
+async def connect_command(
+    port: int,
+    key_exchange: str,
+    cipher: str = "aes128-ctr",
+    mac: str = "hmac-sha2-256",
+) -> None:
     async with asyncssh.connect(
         "127.0.0.1",
         port,
@@ -236,8 +263,8 @@ async def connect_command(port: int, key_exchange: str) -> None:
         known_hosts=None,
         kex_algs=[key_exchange],
         server_host_key_algs=["ssh-ed448"],
-        encryption_algs=["aes128-ctr"],
-        mac_algs=["hmac-sha2-256"],
+        encryption_algs=[cipher],
+        mac_algs=[mac],
     ) as connection:
         result = await connection.run("independent-client-command", input="client-input")
         print(
@@ -343,9 +370,13 @@ def parse_args() -> argparse.Namespace:
     subcommands = parser.add_subparsers(dest="mode", required=True)
     server = subcommands.add_parser("server")
     server.add_argument("key_exchange")
+    server.add_argument("cipher", nargs="?", default="aes128-ctr")
+    server.add_argument("mac", nargs="?", default="hmac-sha2-256")
     client = subcommands.add_parser("client")
     client.add_argument("port", type=int)
     client.add_argument("key_exchange")
+    client.add_argument("cipher", nargs="?", default="aes128-ctr")
+    client.add_argument("mac", nargs="?", default="hmac-sha2-256")
     public_key_client = subcommands.add_parser("publickey-client")
     public_key_client.add_argument("port", type=int)
     public_key_client.add_argument("key_exchange")
@@ -355,11 +386,11 @@ def parse_args() -> argparse.Namespace:
 async def main() -> None:
     args = parse_args()
     if args.mode == "server":
-        await serve(args.key_exchange)
+        await serve(args.key_exchange, args.cipher, args.mac)
     elif args.mode == "publickey-client":
         await connect_public_key(args.port, args.key_exchange)
     else:
-        await connect_command(args.port, args.key_exchange)
+        await connect_command(args.port, args.key_exchange, args.cipher, args.mac)
 
 
 if __name__ == "__main__":

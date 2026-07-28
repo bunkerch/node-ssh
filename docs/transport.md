@@ -412,6 +412,10 @@ explicit opt-ins because deployed peers rarely advertise them. The `aes128-gcm@o
 `aes256-gcm@openssh.com` variants use the same packet construction but retain their deployed
 implicit-MAC negotiation behavior.
 
+The independent peer fixture registers the RFC names in both negotiation lists over its separate
+AES-GCM packet implementation. Both key sizes exchange command traffic and rekey with the library
+acting as either client or server.
+
 For all four names, the four-byte packet length is clear authenticated data; the padding length,
 payload, and random padding are encrypted; and the complete 16-byte authentication tag terminates
 the packet. Each direction derives a 12-byte IV consisting of a four-byte fixed field and an

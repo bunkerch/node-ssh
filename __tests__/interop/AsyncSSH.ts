@@ -20,11 +20,13 @@ const publicKey = PublicKey.parse(
         "hex",
     ),
 )
-const keyExchanges = [
-    "curve448-sha512",
-    "rsa2048-sha256",
-    "mlkem768nistp256-sha256",
-    "mlkem1024nistp384-sha384",
+const transportProfiles = [
+    ["curve448-sha512", "curve448-sha512", "aes128-ctr", "hmac-sha2-256"],
+    ["rsa2048-sha256", "rsa2048-sha256", "aes128-ctr", "hmac-sha2-256"],
+    ["mlkem768nistp256-sha256", "mlkem768nistp256-sha256", "aes128-ctr", "hmac-sha2-256"],
+    ["mlkem1024nistp384-sha384", "mlkem1024nistp384-sha384", "aes128-ctr", "hmac-sha2-256"],
+    ["AEAD_AES_128_GCM", "curve448-sha512", "AEAD_AES_128_GCM", "AEAD_AES_128_GCM"],
+    ["AEAD_AES_256_GCM", "curve448-sha512", "AEAD_AES_256_GCM", "AEAD_AES_256_GCM"],
 ] as const
 
 interface ProcessResult {
@@ -135,9 +137,13 @@ function readFirstLine(child: ChildProcess): Promise<string> {
     })
 }
 
-async function startPeerServer(keyExchange: string): Promise<PeerServer> {
+async function startPeerServer(
+    keyExchange: string,
+    cipher = "aes128-ctr",
+    mac = "hmac-sha2-256",
+): Promise<PeerServer> {
     await buildImage()
-    const command = peerArguments(["server", keyExchange])
+    const command = peerArguments(["server", keyExchange, cipher, mac])
     const child = spawn(command.executable, command.args, { stdio: ["ignore", "pipe", "pipe"] })
     const stderr: Buffer[] = []
     child.stderr!.on("data", (data: Buffer) => stderr.push(data))
@@ -189,10 +195,10 @@ function decodePeerResult(result: ProcessResult): {
 }
 
 describe("independent SSH peer interoperability", () => {
-    test.each(keyExchanges)(
+    test.each(transportProfiles)(
         "modernssh client exchanges traffic using %s and an Ed448 host key",
-        async (keyExchange) => {
-            const peer = await startPeerServer(keyExchange)
+        async (_profile, keyExchange, cipher, mac) => {
+            const peer = await startPeerServer(keyExchange, cipher, mac)
             const client = new Client({
                 hostname: "127.0.0.1",
                 port: peer.port,
@@ -201,8 +207,8 @@ describe("independent SSH peer interoperability", () => {
                 algorithms: {
                     kex: [keyExchange],
                     serverHostKey: ["ssh-ed448"],
-                    cipher: ["aes128-ctr"],
-                    hmac: ["hmac-sha2-256"],
+                    cipher: [cipher],
+                    hmac: [mac],
                     compress: ["none"],
                 },
             })
@@ -230,12 +236,16 @@ describe("independent SSH peer interoperability", () => {
                     errors,
                     exitCode: channel.exitCode,
                     keyExchange: client.negotiatedAlgorithms?.kex,
+                    cipher: client.negotiatedAlgorithms?.cs.cipher,
+                    mac: client.negotiatedAlgorithms?.cs.mac,
                     stderr: Buffer.concat(stderr).toString(),
                     stdout: Buffer.concat(stdout).toString(),
                 }).toEqual({
                     errors: [],
                     exitCode: 23,
                     keyExchange,
+                    cipher,
+                    mac,
                     stderr: "independent-peer-stderr",
                     stdout: "library-client-command\0library-input",
                 })
@@ -247,9 +257,9 @@ describe("independent SSH peer interoperability", () => {
         30_000,
     )
 
-    test.each(keyExchanges)(
+    test.each(transportProfiles)(
         "modernssh server exchanges traffic using %s and an Ed448 host key",
-        async (keyExchange) => {
+        async (_profile, keyExchange, cipher, mac) => {
             const server = new Server({
                 hostKeys: [PrivateKey.generateSync("ssh-ed448")],
                 sendAllHostKeys: false,
@@ -259,13 +269,17 @@ describe("independent SSH peer interoperability", () => {
                 algorithms: {
                     kex: [keyExchange],
                     serverHostKey: ["ssh-ed448"],
-                    cipher: ["aes128-ctr"],
-                    hmac: ["hmac-sha2-256"],
+                    cipher: [cipher],
+                    hmac: [mac],
                     compress: ["none"],
                 },
             })
             const errors: Error[] = []
-            const handshakes: string[] = []
+            const handshakes: {
+                kex: string
+                cs: { cipher: string; mac: string }
+                sc: { cipher: string; mac: string }
+            }[] = []
             const globalRequestSupport: boolean[] = []
             server.hooker.hook("passwordAuthentication", (_hook, context, decision) => {
                 decision.allowLogin =
@@ -276,13 +290,26 @@ describe("independent SSH peer interoperability", () => {
             })
             server.on("connection", (connection) => {
                 connection.on("error", (error) => errors.push(error))
-                connection.on("handshake", (algorithms) => handshakes.push(algorithms.kex))
+                connection.on("handshake", (algorithms) =>
+                    handshakes.push({
+                        kex: algorithms.kex,
+                        cs: {
+                            cipher: algorithms.cs.cipher,
+                            mac: algorithms.cs.mac,
+                        },
+                        sc: {
+                            cipher: algorithms.sc.cipher,
+                            mac: algorithms.sc.mac,
+                        },
+                    }),
+                )
                 connection.on("clientExtensions", () =>
                     globalRequestSupport.push(connection.clientSupportsGlobalRequests),
                 )
                 connection.on("channel", (channel) => {
                     if (!(channel instanceof SessionChannel)) return
-                    channel.hooker.hook("execRequest", (_hook, _context, decision) => {
+                    channel.hooker.hook("execRequest", async (_hook, _context, decision) => {
+                        await connection.rekey()
                         decision.success = true
                     })
                     channel.events.on("exec", (command, shell) => {
@@ -302,7 +329,13 @@ describe("independent SSH peer interoperability", () => {
             await once(server, "listening")
             const port = (server.address() as AddressInfo).port
             try {
-                const peerProcess = await runPeer(["client", String(port), keyExchange])
+                const peerProcess = await runPeer([
+                    "client",
+                    String(port),
+                    keyExchange,
+                    cipher,
+                    mac,
+                ])
                 if (peerProcess.code !== 0) {
                     throw new Error(
                         `Independent SSH client failed: ${JSON.stringify({
@@ -321,7 +354,18 @@ describe("independent SSH peer interoperability", () => {
                 }).toEqual({
                     errors: [],
                     globalRequestSupport: [true],
-                    handshakes: [keyExchange],
+                    handshakes: [
+                        {
+                            kex: keyExchange,
+                            cs: { cipher, mac },
+                            sc: { cipher, mac },
+                        },
+                        {
+                            kex: keyExchange,
+                            cs: { cipher, mac },
+                            sc: { cipher, mac },
+                        },
+                    ],
                     result: {
                         exitStatus: 23,
                         stdout: "independent-client-command\0client-input",
