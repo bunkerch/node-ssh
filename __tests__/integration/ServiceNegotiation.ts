@@ -6,6 +6,7 @@ import { DisconnectReason, type PeerDisconnectInfo } from "../../src/packets/Dis
 import Ignore from "../../src/packets/Ignore.js"
 import ServiceAccept from "../../src/packets/ServiceAccept.js"
 import ServiceRequest from "../../src/packets/ServiceRequest.js"
+import Unimplemented from "../../src/packets/Unimplemented.js"
 import Server from "../../src/Server.js"
 import type ServerClient from "../../src/ServerClient.js"
 import PrivateKey from "../../src/utils/PrivateKey.js"
@@ -137,6 +138,36 @@ describe("RFC 4253 service negotiation state", () => {
             expect(connection.peerDisconnect?.reasonCode).toBe(
                 DisconnectReason.SSH_DISCONNECT_PROTOCOL_ERROR,
             )
+        } finally {
+            await close(server, client)
+        }
+    }, 15_000)
+
+    test("fails an unimplemented service request immediately and closes the transport", async () => {
+        const server = await createServer()
+        let serviceSequence: number | undefined
+        server.once("connection", (peer) => {
+            peer.on("packet", (metadata) => {
+                if (metadata.name === "SSH_MSG_SERVICE_REQUEST") {
+                    serviceSequence = metadata.sequenceNumber
+                }
+            })
+            const sendPacket = peer.sendPacket.bind(peer)
+            peer.sendPacket = (packet: Packet) =>
+                packet instanceof ServiceAccept && serviceSequence !== undefined
+                    ? sendPacket(new Unimplemented({ sequence_number: serviceSequence }))
+                    : sendPacket(packet)
+        })
+        const client = createClient(server)
+        client.on("error", () => undefined)
+        const closed = new Promise<void>((resolve) => client.once("close", resolve))
+
+        try {
+            const result = await client.connect().catch((error: Error) => error)
+            expect(String(result)).toContain(
+                "SSH peer did not implement service request ssh-userauth",
+            )
+            await closed
         } finally {
             await close(server, client)
         }

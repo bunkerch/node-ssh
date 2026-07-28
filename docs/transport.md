@@ -167,7 +167,9 @@ acceptance before sending authentication data. The server accepts only that supp
 unknown service is rejected with `SSH_DISCONNECT_SERVICE_NOT_AVAILABLE`; a mismatched acceptance,
 a message sent by the wrong peer role, application data before the request, or another service
 message after negotiation is an RFC protocol error. Transport diagnostics and key-exchange traffic
-remain independent of this wait as RFC 4253 requires.
+remain independent of this wait as RFC 4253 requires. If the peer returns
+`SSH_MSG_UNIMPLEMENTED` for the exact outbound service-request sequence, connection setup rejects
+immediately and closes the transport rather than waiting for the general readiness deadline.
 
 ## Binary packet framing
 

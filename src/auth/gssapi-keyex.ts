@@ -44,14 +44,14 @@ export default class GSSAPIKeyExchangeAuthMethod implements AuthMethod {
             SSHServiceNames.Connection,
         )
         assertCurrent()
-        client.sendPacket(
+        const seqno = client.sendPacket(
             new UserAuthRequest({
                 username: clientAuthenticationConfigurationFor(client).username,
                 service_name: SSHServiceNames.Connection,
                 method: new GSSAPIKeyExchangeAuthMethod(mic),
             }),
         )
-        const answer = await AuthMethod.waitForAnswer(client)
+        const answer = await AuthMethod.waitForAnswer(client, seqno)
         assertCurrent()
         return answer instanceof UserAuthSuccess
     }

@@ -11,6 +11,9 @@ import {
     type GSSAPIServerContextOptions,
     type GSSAPIServerMechanism,
 } from "../../src/GSSAPI.js"
+import type Packet from "../../src/packet.js"
+import { UserAuthGSSAPIResponse } from "../../src/packets/UserAuthGSSAPI.js"
+import Unimplemented from "../../src/packets/Unimplemented.js"
 import Server, { type ServerHookerGSSAPIAuthenticationContext } from "../../src/Server.js"
 import type ServerClient from "../../src/ServerClient.js"
 import PrivateKey from "../../src/utils/PrivateKey.js"
@@ -152,6 +155,33 @@ async function closePeers(client: Client, server: Server, peers: ServerClient[])
 }
 
 describe("RFC 4462 GSS-API user authentication", () => {
+    test("treats an exact unimplemented reply as method failure", async () => {
+        const observation: MechanismObservation = { clientClosed: 0, serverClosed: 0 }
+        const pair = mechanisms(true, observation)
+        const { client, server, peers } = await createPeers(pair.client, pair.server, () => true)
+
+        server.once("connection", (peer) => {
+            let requestSequence: number | undefined
+            peer.on("packet", (metadata) => {
+                if (metadata.name === "SSH_MSG_USERAUTH_REQUEST") {
+                    requestSequence = metadata.sequenceNumber
+                }
+            })
+            const sendPacket = peer.sendPacket.bind(peer)
+            peer.sendPacket = (packet: Packet) =>
+                packet instanceof UserAuthGSSAPIResponse && requestSequence !== undefined
+                    ? sendPacket(new Unimplemented({ sequence_number: requestSequence }))
+                    : sendPacket(packet)
+        })
+
+        try {
+            await expect(client.connect()).rejects.toThrow("All authentication methods failed")
+            expect(observation.clientOptions).toBeUndefined()
+        } finally {
+            await closePeers(client, server, peers)
+        }
+    }, 15_000)
+
     test.each([true, false])(
         "authenticates a multi-token context with integrity=%s",
         async (integrity) => {

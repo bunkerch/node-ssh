@@ -102,6 +102,12 @@ the current transport generation. If the same `Client` reconnects while an old p
 pending, that provider's eventual result is discarded before it can send an authentication packet
 on the replacement connection.
 
+Every authentication request and challenge response records its outbound packet sequence.
+`SSH_MSG_UNIMPLEMENTED` is treated as rejection of an authentication exchange only when it names
+that exact packet. It then advances or ends the configured method strategy like an ordinary method
+failure. A rejection naming some other packet is ignored by that method and cannot displace the
+eventual success, failure, challenge, or GSS-API response.
+
 The `password` client option installs the same awaited credential policy for a fixed value. An
 explicit empty string is preserved and sent as an empty RFC 4252 password; omitting the option means
 that no automatic password credential is configured. Configured password text is validated as

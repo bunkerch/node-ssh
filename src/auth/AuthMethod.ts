@@ -34,12 +34,11 @@ export default abstract class AuthMethod {
         throw new Error("Not implemented")
     }
 
-    static async waitForAnswer(client: Client, seqno?: number): Promise<Packet> {
+    static async waitForAnswer(client: Client, seqno: number): Promise<Packet> {
         return waitForMatchingPacket(
             client,
             (packet) =>
-                (packet instanceof Unimplemented &&
-                    (seqno === undefined || packet.data.sequence_number === seqno)) ||
+                (packet instanceof Unimplemented && packet.data.sequence_number === seqno) ||
                 packet instanceof UserAuthFailure ||
                 packet instanceof UserAuthSuccess ||
                 (packet.constructor as typeof Packet).type === UserAuthPKOK.type ||

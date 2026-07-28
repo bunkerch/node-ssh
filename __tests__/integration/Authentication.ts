@@ -15,8 +15,61 @@ import { HostboundPublicKeyAuthMethod } from "../../src/auth/publickey.js"
 import ExtInfo from "../../src/packets/ExtInfo.js"
 import type { ProtocolPacketMetadata } from "../../src/packet.js"
 import { AgentType, type Agent } from "../../src/publickey/Agent.js"
+import UserAuthSuccess from "../../src/packets/UserAuthSuccess.js"
+import Unimplemented from "../../src/packets/Unimplemented.js"
 
 describe("RFC 4252 multi-method authentication", () => {
+    test("ignores an unimplemented reply for a different authentication packet", async () => {
+        const server = new Server({
+            hostKeys: [await PrivateKey.generate("ssh-ed25519")],
+            sendAllHostKeys: false,
+        })
+        server.hooker.hook("passwordAuthentication", (_hook, context, decision) => {
+            decision.allowLogin = context.password === "exact-sequence-password"
+        })
+        let requestSequence: number | undefined
+        server.once("connection", (peer) => {
+            peer.on("packet", (metadata) => {
+                if (metadata.name === "SSH_MSG_USERAUTH_REQUEST") {
+                    requestSequence = metadata.sequenceNumber
+                }
+            })
+            const sendPacket = peer.sendPacket.bind(peer)
+            peer.sendPacket = (packet: Packet) => {
+                if (packet instanceof UserAuthSuccess && requestSequence !== undefined) {
+                    sendPacket(
+                        new Unimplemented({
+                            sequence_number: (requestSequence + 1) >>> 0,
+                        }),
+                    )
+                }
+                return sendPacket(packet)
+            }
+        })
+        server.listen({ host: "127.0.0.1", port: 0 })
+        await once(server, "listening")
+
+        const client = new Client({
+            hostname: "127.0.0.1",
+            port: (server.address() as AddressInfo).port,
+            username: "exact-auth-sequence",
+            password: "exact-sequence-password",
+            authenticationMethodsOrder: [SSHAuthenticationMethods.Password],
+        })
+        client.hooker.hook("hostKey", (_hook, decision) => {
+            decision.allowHostKey = true
+        })
+
+        try {
+            await client.connect()
+            expect(client.isConnected).toBe(true)
+        } finally {
+            client.destroy()
+            for (const connection of server.clients) connection.terminate()
+            await server.close()
+        }
+    })
+
     test("rejects malformed security-sensitive client options during construction", () => {
         for (const [name, options] of [
             ["strictVendor", { strictVendor: "false" }],

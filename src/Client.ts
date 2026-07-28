@@ -2829,11 +2829,20 @@ export default class Client extends EventEmitter<ClientEvents> {
 
         this.awaitingServiceAccept = true
         let serviceAnswer: ServiceAccept
+        let unregisterServiceRequest: (() => void) | undefined
         try {
-            this.sendPacket(
+            const sequenceNumber = this.sendPacket(
                 new ServiceRequest({
                     service_name: SSHServiceNames.UserAuth,
                 }),
+            )
+            unregisterServiceRequest = registerUnimplementedRejection(this, sequenceNumber, () =>
+                this.socket?.destroy(
+                    unimplementedPacketError(
+                        sequenceNumber,
+                        `service request ${SSHServiceNames.UserAuth}`,
+                    ),
+                ),
             )
 
             serviceAnswer = await this.#waitForPackets(
@@ -2854,6 +2863,7 @@ export default class Client extends EventEmitter<ClientEvents> {
             )
             this.assertConnectionGeneration(generation, "authentication")
         } finally {
+            unregisterServiceRequest?.()
             if (generation === this.connectionGeneration) this.awaitingServiceAccept = false
         }
         assert(serviceAnswer.data.service_name == SSHServiceNames.UserAuth)

@@ -25,6 +25,7 @@ import {
     UserAuthGSSAPIToken,
 } from "../packets/UserAuthGSSAPI.js"
 import UserAuthSuccess from "../packets/UserAuthSuccess.js"
+import Unimplemented from "../packets/Unimplemented.js"
 import type Packet from "../packet.js"
 import PacketEventQueue from "../utils/PacketEventQueue.js"
 import {
@@ -96,7 +97,7 @@ export default class GSSAPIWithMICAuthMethod implements AuthMethod {
         let context: GSSAPIClientContext | undefined
 
         try {
-            client.sendPacket(
+            const initialSequence = client.sendPacket(
                 new UserAuthRequest({
                     username: clientAuthenticationConfigurationFor(client).username,
                     service_name: SSHServiceNames.Connection,
@@ -106,7 +107,7 @@ export default class GSSAPIWithMICAuthMethod implements AuthMethod {
                 }),
             )
 
-            const response = await waitForGSSAPIAnswer(packets)
+            const response = await waitForGSSAPIAnswer(packets, initialSequence)
             assertCurrent()
             if (response instanceof UserAuthFailure) return false
             if (!(response instanceof UserAuthGSSAPIResponse)) return false
@@ -128,7 +129,10 @@ export default class GSSAPIWithMICAuthMethod implements AuthMethod {
             let step = normalizeGSSAPIContextStep(await context.step())
             assertCurrent()
             while (true) {
-                if (step.token) client.sendPacket(new UserAuthGSSAPIToken(step.token))
+                let outboundSequence: number | undefined
+                if (step.token) {
+                    outboundSequence = client.sendPacket(new UserAuthGSSAPIToken(step.token))
+                }
                 if (step.complete) {
                     assert(client.sessionID, "SSH session identifier is unavailable")
                     if (step.integrity) {
@@ -142,14 +146,20 @@ export default class GSSAPIWithMICAuthMethod implements AuthMethod {
                             "GSS-API MIC",
                         )
                         assertCurrent()
-                        client.sendPacket(new UserAuthGSSAPIMIC(mic))
+                        outboundSequence = client.sendPacket(new UserAuthGSSAPIMIC(mic))
                     } else {
-                        client.sendPacket(new UserAuthGSSAPIExchangeComplete())
+                        outboundSequence = client.sendPacket(new UserAuthGSSAPIExchangeComplete())
                     }
-                    return await waitForGSSAPICompletion(client, packets, context, assertCurrent)
+                    return await waitForGSSAPICompletion(
+                        client,
+                        packets,
+                        context,
+                        assertCurrent,
+                        outboundSequence,
+                    )
                 }
 
-                const answer = await waitForGSSAPIAnswer(packets)
+                const answer = await waitForGSSAPIAnswer(packets, outboundSequence)
                 assertCurrent()
                 if (answer instanceof UserAuthGSSAPIToken) {
                     step = normalizeGSSAPIContextStep(await context.step(answer.token))
@@ -197,12 +207,14 @@ async function waitForGSSAPICompletion(
     packets: PacketEventQueue,
     context: GSSAPIClientContext,
     assertCurrent: AuthenticationGenerationGuard,
+    sequenceNumber: number,
 ): Promise<boolean> {
     while (true) {
-        const answer = await waitForGSSAPIAnswer(packets)
+        const answer = await waitForGSSAPIAnswer(packets, sequenceNumber)
         assertCurrent()
         if (answer instanceof UserAuthSuccess) return true
         if (answer instanceof UserAuthFailure) return false
+        if (answer instanceof Unimplemented) return false
         if (answer instanceof UserAuthGSSAPIError) {
             client.emit("gssapiError", answer.data)
             continue
@@ -225,11 +237,13 @@ async function waitForGSSAPIFailure(
     client: Client,
     packets: PacketEventQueue,
     assertCurrent: AuthenticationGenerationGuard,
+    sequenceNumber?: number,
 ): Promise<boolean> {
     while (true) {
-        const answer = await waitForGSSAPIAnswer(packets)
+        const answer = await waitForGSSAPIAnswer(packets, sequenceNumber)
         assertCurrent()
         if (answer instanceof UserAuthFailure) return false
+        if (answer instanceof Unimplemented) return false
         if (answer instanceof UserAuthGSSAPIError) {
             client.emit("gssapiError", answer.data)
             continue
@@ -238,7 +252,10 @@ async function waitForGSSAPIFailure(
     }
 }
 
-async function waitForGSSAPIAnswer(packets: PacketEventQueue): Promise<Packet> {
+async function waitForGSSAPIAnswer(
+    packets: PacketEventQueue,
+    sequenceNumber?: number,
+): Promise<Packet> {
     while (true) {
         const packet = await packets.next()
         if (
@@ -247,7 +264,10 @@ async function waitForGSSAPIAnswer(packets: PacketEventQueue): Promise<Packet> {
             packet instanceof UserAuthGSSAPIError ||
             packet instanceof UserAuthGSSAPIErrorToken ||
             packet instanceof UserAuthFailure ||
-            packet instanceof UserAuthSuccess
+            packet instanceof UserAuthSuccess ||
+            (packet instanceof Unimplemented &&
+                sequenceNumber !== undefined &&
+                packet.data.sequence_number === sequenceNumber)
         ) {
             return packet
         }

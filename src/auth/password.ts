@@ -112,14 +112,14 @@ export default class PasswordAuthMethod implements AuthMethod {
             password: controller.password,
         })
         while (true) {
-            client.sendPacket(
+            const seqno = client.sendPacket(
                 new UserAuthRequest({
                     username: clientAuthenticationConfigurationFor(client).username,
                     service_name: SSHServiceNames.Connection,
                     method,
                 }),
             )
-            const answer = await AuthMethod.waitForAnswer!(client)
+            const answer = await AuthMethod.waitForAnswer!(client, seqno)
             assertCurrent()
             if (answer instanceof UserAuthSuccess) return true
             if (answer instanceof UserAuthFailure) return false

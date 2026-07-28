@@ -66,7 +66,7 @@ export default class KeyboardInteractiveAuthMethod implements AuthMethod {
     ): Promise<boolean> {
         if (!client.hooker.hasHooks("keyboardInteractive")) return false
 
-        client.sendPacket(
+        let seqno = client.sendPacket(
             new UserAuthRequest({
                 username: clientAuthenticationConfigurationFor(client).username,
                 service_name: SSHServiceNames.Connection,
@@ -76,7 +76,7 @@ export default class KeyboardInteractiveAuthMethod implements AuthMethod {
 
         let round = 0
         while (true) {
-            const answer = await AuthMethod.waitForAnswer!(client)
+            const answer = await AuthMethod.waitForAnswer!(client, seqno)
             assertCurrent()
             if (answer instanceof UserAuthSuccess) return true
             if (answer instanceof UserAuthFailure) return false
@@ -102,7 +102,7 @@ export default class KeyboardInteractiveAuthMethod implements AuthMethod {
             if (controller.responses.length !== answer.data.prompts.length) {
                 throw new Error("Keyboard-interactive response count does not match prompt count")
             }
-            client.sendPacket(new UserAuthInfoResponse({ responses: controller.responses }))
+            seqno = client.sendPacket(new UserAuthInfoResponse({ responses: controller.responses }))
             round++
         }
     }

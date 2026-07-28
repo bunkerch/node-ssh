@@ -117,9 +117,9 @@ export default class HostbasedAuthMethod implements AuthMethod {
             method,
         })
         method.data.signature = options.key.sign(request.serializeForSignature(client), algorithm)
-        client.sendPacket(request)
+        const seqno = client.sendPacket(request)
 
-        const answer = await AuthMethod.waitForAnswer(client)
+        const answer = await AuthMethod.waitForAnswer(client, seqno)
         assertCurrent()
         if (answer instanceof UserAuthSuccess) return true
         if (answer instanceof UserAuthFailure) return false
