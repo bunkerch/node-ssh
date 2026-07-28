@@ -666,7 +666,8 @@ await client.connect()
 server-side connection exposes the explicitly advertised preference through
 `clientElevationPreference`; it remains `undefined` when the client omitted the extension. A
 recognized result with a reply request, missing or trailing bytes, or a duplicate result is a
-protocol error.
+protocol error. Both peer roles are exercised against a pinned independent implementation,
+including its observation of the server result.
 
 ### No channel flow control
 
@@ -697,7 +698,8 @@ Packet-size limits, channel close ordering, and SSH packet bounds still apply. T
 refuses a second simultaneous channel, including while another channel open is pending, but another
 channel may be opened after both sides completely close the first. This mode is therefore suitable
 only for deliberately single-channel applications; leave it disabled for multiplexed sessions and
-forwarding workloads.
+forwarding workloads. A pinned independent peer negotiates this mode with both library roles and
+exchanges authenticated command traffic across rekey.
 
 Initial key exchange also offers strict key-exchange markers under both the standardized names and
 the widely deployed vendor-qualified names. Strict mode is enabled only when client and server

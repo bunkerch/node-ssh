@@ -14,12 +14,13 @@ from hashlib import sha256, sha384
 from typing import Callable, Mapping
 
 import asyncssh
+from asyncssh.constants import MSG_EXT_INFO
 from asyncssh.encryption import GCMEncryption, register_encryption_alg
 from asyncssh.kex import register_kex_alg
 from asyncssh.kex_dh import _KexDHBase
 from asyncssh.mac import MAC, register_mac_alg
 from asyncssh.misc import ProtocolError
-from asyncssh.packet import MPInt, SSHPacket, String
+from asyncssh.packet import Boolean, MPInt, SSHPacket, String
 from kyber_py.ml_kem import ML_KEM_1024, ML_KEM_512, ML_KEM_768
 
 if os.environ.get("MODERNSSH_PEER_DEBUG"):
@@ -264,6 +265,34 @@ async def exchange_version(
 
 
 class ServerPolicy(asyncssh.SSHServer):
+    connection: asyncssh.SSHServerConnection
+    client_elevation: bytes | None = None
+
+    def connection_made(self, connection: asyncssh.SSHServerConnection) -> None:
+        self.connection = connection
+        connection._extensions_to_send[b"no-flow-control"] = b"s"
+        handlers = dict(connection._packet_handlers)
+        process_ext_info = handlers[MSG_EXT_INFO]
+
+        def capture_ext_info(
+            target: asyncssh.SSHServerConnection,
+            packet_type: int,
+            packet_id: int,
+            packet: SSHPacket,
+        ) -> None:
+            extensions = SSHPacket(packet.get_remaining_payload())
+            extension_count = extensions.get_uint32()
+            for _ in range(extension_count):
+                name = extensions.get_string()
+                value = extensions.get_string()
+                if name == b"elevation":
+                    self.client_elevation = value
+            extensions.check_end()
+            process_ext_info(target, packet_type, packet_id, packet)
+
+        handlers[MSG_EXT_INFO] = capture_ext_info
+        connection._packet_handlers = handlers
+
     def begin_auth(self, username: str) -> bool:
         return True
 
@@ -272,6 +301,29 @@ class ServerPolicy(asyncssh.SSHServer):
 
     def validate_password(self, username: str, password: str) -> bool:
         return username == USERNAME and password == PASSWORD
+
+    def auth_completed(self) -> None:
+        if self.client_elevation == b"n":
+            self.connection._send_global_request(
+                b"elevation",
+                Boolean(False),
+                want_reply=False,
+            )
+
+
+class ClientPolicy(asyncssh.SSHClient):
+    elevated: bool | None = None
+
+    def connection_made(self, connection: asyncssh.SSHClientConnection) -> None:
+        connection._extensions_to_send[b"no-flow-control"] = b"p"
+        connection._extensions_to_send[b"elevation"] = b"n"
+
+        def process_elevation(packet: SSHPacket) -> None:
+            self.elevated = packet.get_boolean()
+            packet.check_end()
+            connection._report_global_response(True)
+
+        connection._process_elevation_global_request = process_elevation
 
 
 async def handle_command_process(process: asyncssh.SSHServerProcess[bytes]) -> None:
@@ -363,9 +415,11 @@ async def connect_command(
     cipher: str = "aes128-ctr",
     mac: str = "hmac-sha2-256",
 ) -> None:
+    policy = ClientPolicy()
     async with asyncssh.connect(
         "127.0.0.1",
         port,
+        client_factory=lambda: policy,
         username=USERNAME,
         password=PASSWORD,
         known_hosts=None,
@@ -378,6 +432,7 @@ async def connect_command(
         print(
             json.dumps(
                 {
+                    "elevated": policy.elevated,
                     "exitStatus": result.exit_status,
                     "stdout": base64.b64encode(result.stdout.encode()).decode(),
                     "stderr": base64.b64encode(result.stderr.encode()).decode(),

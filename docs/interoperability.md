@@ -166,7 +166,8 @@ preference outcome. In-process peers transfer data in both directions after thei
 windows are exhausted, ignore otherwise overflowing window adjustments, refuse a second live
 channel, permit another after complete close, and disable the capability when a replacement server
 extension set omits it. Packet-size checks remain active while channel-window accounting is
-disabled.
+disabled. The pinned independent peer advertises `s` as a server and `p` as a client; the library
+negotiates the active state in both roles and exchanges authenticated command traffic across rekey.
 
 RFC 8308 elevation coverage fixes the complete extension packets for the registered `y`, `n`, and
 `d` values and the exact post-authentication one-way global request. In-process peers prove that
@@ -174,7 +175,9 @@ authentication waits for asynchronous server policy, both boolean outcomes reach
 an omitted advertisement uses server-default policy without sending an unsolicited result.
 Malformed result framing is rejected through the encrypted connection. A real encrypted session
 also proves that a later contained policy failure suppresses an earlier elevation result without
-undoing otherwise successful authentication.
+undoing otherwise successful authentication. The pinned independent peer sends `n` as a client and
+observes the library server's false result; in the opposite role, it captures the library client's
+`n` extension and sends the result that the public client event and property expose.
 
 Session interoperability sends a BREAK from the modern client to a real OpenSSH PTY and delivers
 an `xon-xoff` notification from the modern server to the system OpenSSH client. In-process peers

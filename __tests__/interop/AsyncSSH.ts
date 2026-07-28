@@ -178,6 +178,7 @@ async function startPeerServer(
 }
 
 function decodePeerResult(result: ProcessResult): {
+    elevated: boolean
     exitStatus: number
     stdout: string
     stderr: string
@@ -186,11 +187,13 @@ function decodePeerResult(result: ProcessResult): {
         throw new Error(`Independent SSH peer failed: ${result.stderr}`)
     }
     const parsed = JSON.parse(result.stdout) as {
+        elevated: boolean
         exitStatus: number
         stdout: string
         stderr: string
     }
     return {
+        elevated: parsed.elevated,
         exitStatus: parsed.exitStatus,
         stdout: Buffer.from(parsed.stdout, "base64").toString(),
         stderr: Buffer.from(parsed.stderr, "base64").toString(),
@@ -214,14 +217,20 @@ describe("independent SSH peer interoperability", () => {
                     hmac: [mac],
                     compress: ["none"],
                 },
+                noFlowControl: "preferred",
+                elevation: "unelevated",
             })
             const errors: Error[] = []
             client.on("error", (error) => errors.push(error))
             client.hooker.hook("hostKey", (_hook, decision, key) => {
                 decision.allowHostKey = key.data.alg === "ssh-ed448"
             })
+            const elevation = once(client, "elevation", {
+                signal: AbortSignal.timeout(2_000),
+            })
             try {
                 await client.connect()
+                expect(await elevation).toEqual([false])
                 expect(client.serverSupportsGlobalRequests).toBe(true)
                 const firstExchangeHash = Buffer.from(client.exchangeHash!)
                 await client.rekey()
@@ -237,18 +246,22 @@ describe("independent SSH peer interoperability", () => {
 
                 expect({
                     errors,
+                    elevated: client.elevated,
                     exitCode: channel.exitCode,
                     keyExchange: client.negotiatedAlgorithms?.kex,
                     cipher: client.negotiatedAlgorithms?.cs.cipher,
                     mac: client.negotiatedAlgorithms?.cs.mac,
+                    noFlowControl: client.noFlowControl,
                     stderr: Buffer.concat(stderr).toString(),
                     stdout: Buffer.concat(stdout).toString(),
                 }).toEqual({
                     errors: [],
+                    elevated: false,
                     exitCode: 23,
                     keyExchange,
                     cipher,
                     mac,
+                    noFlowControl: true,
                     stderr: "independent-peer-stderr",
                     stdout: "library-client-command\0library-input",
                 })
@@ -276,6 +289,7 @@ describe("independent SSH peer interoperability", () => {
                     hmac: [mac],
                     compress: ["none"],
                 },
+                noFlowControl: "supported",
             })
             const errors: Error[] = []
             const handshakes: {
@@ -283,13 +297,20 @@ describe("independent SSH peer interoperability", () => {
                 cs: { cipher: string; mac: string }
                 sc: { cipher: string; mac: string }
             }[] = []
+            const clientElevationPreferences: (string | undefined)[] = []
             const globalRequestSupport: boolean[] = []
+            const noFlowControl: boolean[] = []
+            const elevationPreferences: string[] = []
             server.hooker.hook("passwordAuthentication", (_hook, context, decision) => {
                 decision.allowLogin =
                     context.username === "interop" && context.password === password
             })
             server.hooker.hook("channelOpenRequest", (_hook, channel, decision) => {
                 decision.allowOpen = channel instanceof SessionChannel
+            })
+            server.hooker.hook("elevation", (_hook, context, decision) => {
+                elevationPreferences.push(context.preference)
+                decision.elevated = false
             })
             server.on("connection", (connection) => {
                 connection.on("error", (error) => errors.push(error))
@@ -306,9 +327,11 @@ describe("independent SSH peer interoperability", () => {
                         },
                     }),
                 )
-                connection.on("clientExtensions", () =>
-                    globalRequestSupport.push(connection.clientSupportsGlobalRequests),
-                )
+                connection.on("clientExtensions", () => {
+                    clientElevationPreferences.push(connection.clientElevationPreference)
+                    globalRequestSupport.push(connection.clientSupportsGlobalRequests)
+                    noFlowControl.push(connection.noFlowControl)
+                })
                 connection.on("channel", (channel) => {
                     if (!(channel instanceof SessionChannel)) return
                     channel.hooker.hook("execRequest", async (_hook, _context, decision) => {
@@ -350,12 +373,17 @@ describe("independent SSH peer interoperability", () => {
                 }
                 const result = decodePeerResult(peerProcess)
                 expect({
+                    clientElevationPreferences,
                     errors,
+                    elevationPreferences,
                     globalRequestSupport,
                     handshakes,
+                    noFlowControl,
                     result,
                 }).toEqual({
+                    clientElevationPreferences: ["unelevated"],
                     errors: [],
+                    elevationPreferences: ["unelevated"],
                     globalRequestSupport: [true],
                     handshakes: [
                         {
@@ -369,7 +397,9 @@ describe("independent SSH peer interoperability", () => {
                             sc: { cipher, mac },
                         },
                     ],
+                    noFlowControl: [true],
                     result: {
+                        elevated: false,
                         exitStatus: 23,
                         stdout: "independent-client-command\0client-input",
                         stderr: "library-server-stderr",
