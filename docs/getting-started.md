@@ -137,6 +137,11 @@ It defaults to 20 seconds. Set it to `0` to disable the deadline. If the deadlin
 `connect()` rejects with `Timed out while waiting for handshake` and the client destroys the
 underlying transport.
 
+Clients and servers advertise `modernssh_<package version>` as their RFC 4253 software identifier
+by default. Set `ident` to a custom software identifier and optional comment, without the
+`SSH-2.0-` prefix, or provide a validated `ProtocolVersionExchange` when an embedding application
+needs full control. `ident` and `protocolVersionExchange` are mutually exclusive.
+
 `timeout` is a direct-TCP inactivity timer in milliseconds and defaults to `0` (disabled). It must
 be an integer from `0` through `2147483647`. The option uses the Node socket timeout and emits the
 client's observation-only `timeout` event; it does not close the SSH connection or reject an

@@ -1,4 +1,4 @@
-export const defaultProtocolVersionExchange = `SSH-2.0-NodeSSH_1.0.0\r\n`
+export const defaultProtocolVersionExchange = "SSH-2.0-modernssh_1.0.0\r\n"
 
 export enum SocketState {
     Connecting,

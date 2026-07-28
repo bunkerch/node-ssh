@@ -1,8 +1,22 @@
 import ProtocolVersionExchange, {
     MAX_IDENTIFICATION_LENGTH,
 } from "../../src/ProtocolVersionExchange.js"
+import { readFileSync } from "node:fs"
 
 describe("ProtocolVersionExchange", () => {
+    test("advertises the package name and version by default", () => {
+        const { version } = JSON.parse(readFileSync("package.json", "utf8")) as {
+            version: string
+        }
+
+        expect(ProtocolVersionExchange.defaultValue).toEqual(
+            new ProtocolVersionExchange("2.0", `modernssh_${version}`),
+        )
+        expect(ProtocolVersionExchange.defaultValue.toString()).toBe(
+            `SSH-2.0-modernssh_${version}\r\n`,
+        )
+    })
+
     test("parses and serializes an RFC 4253 identification", () => {
         const version = ProtocolVersionExchange.parse("SSH-2.0-OpenSSH_9.9 test server\r\n")
 

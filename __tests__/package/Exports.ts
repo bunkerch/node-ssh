@@ -393,6 +393,7 @@ describe("package exports", () => {
         expect(PublicKeySubsystemClient.prototype.listNamespaces).toBeFunction()
         expect(publicKeyCertificateOptions.namespace).toBe("users")
         expect(publicKeyRemoveCertificateOptions.namespace).toBe("users")
+        expect(ProtocolVersionExchange.defaultValue.protocol_software).toBe("modernssh_1.0.0")
         expect(SSHFPRecord).toBeFunction()
         expect(SSHFPAlgorithm.Ed25519).toBe(4)
         expect(SSHFPFingerprintType.SHA256).toBe(2)
@@ -432,6 +433,7 @@ describe("package exports", () => {
         expect(entry.PublicKeySubsystemClient.prototype.removeCertificate).toBeFunction()
         expect(entry.PublicKeySubsystemClient.prototype.listCertificates).toBeFunction()
         expect(entry.PublicKeySubsystemClient.prototype.listNamespaces).toBeFunction()
+        expect(entry.ProtocolVersionExchange.defaultValue.protocol_software).toBe("modernssh_1.0.0")
         expect(entry.KeyRevocationList).toBeFunction()
         expect(entry.SecurityKeyAttestation).toBeFunction()
         expect(entry.SSHSignature).toBeFunction()
@@ -861,6 +863,7 @@ describe("package exports", () => {
                     if (publicKeySubsystemEntry.PUBLIC_KEY_SUBSYSTEM_VERSION !== 3 || publicKeySubsystemEntry.MAX_PUBLIC_KEY_SUBSYSTEM_NAMESPACE_CHARACTERS !== 300) process.exit(113)
                     if (typeof PublicKeySubsystemClient.prototype.addCertificate !== "function" || typeof PublicKeySubsystemClient.prototype.removeCertificate !== "function" || typeof PublicKeySubsystemClient.prototype.listCertificates !== "function" || typeof PublicKeySubsystemClient.prototype.listNamespaces !== "function") process.exit(114)
                     if (PublicKeySubsystemStatusCode.CertificateNotFound !== 192 || PublicKeySubsystemStatusCode.CannotCreateNamespace !== 196) process.exit(115)
+                    if (ProtocolVersionExchange.defaultValue.protocol_software !== "modernssh_1.0.0") process.exit(116)
                     if (GLOBAL_REQUESTS_OK_EXTENSION !== "global-requests-ok") process.exit(111)
                     if (TerminalMode.IUTF8 !== 42) process.exit(112)
                     const { privateKey, publicKey } = await generateKeyPair("ed25519", {

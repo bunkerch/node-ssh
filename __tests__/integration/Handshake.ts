@@ -444,6 +444,9 @@ describe("client/server integration", () => {
             expect(serverPeer?.clientProtocolVersion).toEqual(
                 new ProtocolVersionExchange("2.0", "modernssh_integration", "fixed-comment"),
             )
+            expect(client.serverProtocolVersion).toEqual(
+                new ProtocolVersionExchange("2.0", "modernssh_1.0.0"),
+            )
             expect(client.keyExchangeAlgorithm).toBe("curve25519-sha256")
             expect(client.negotiatedAlgorithms?.cs.cipher).toBe("aes128-ctr")
             expect(client.negotiatedAlgorithms?.cs.mac).toBe("hmac-sha2-256-etm@openssh.com")
