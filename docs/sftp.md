@@ -440,12 +440,20 @@ request is sent. If an application maps distinct path byte strings to the same b
 example through aliases outside the virtual path model—it must additionally serialize those backend
 aliases because the protocol layer cannot discover that identity.
 
-The server allows 256 active or pending baseline `OPEN` and `OPENDIR` handles by default. Set
+The server rejects a fabricated, unknown, or closed handle with `SFTPStatusCode.Failure` before any
+request Hooker handler runs. It also rejects `READDIR` through a file handle and `READ` or `WRITE`
+through a directory handle. Handles returned by an `EXTENDED` request remain valid but
+type-agnostic because the extension defines their semantics. Applications still own the mapping
+from each issued opaque value to its backend resource and must not trust the bytes as a filesystem
+identifier.
+
+The server allows 256 active or pending `OPEN`, `OPENDIR`, or extension-issued handles by default. Set
 `maxOpenHandles` to a non-negative safe integer to match the backend's resource budget. Once the
-limit is reached, another open request receives `SFTPStatusCode.Failure` before its Hooker handler
-runs, so no backend handle should be allocated for it. A successful handle value must remain unique
-within the session until the corresponding `CLOSE` response has been written; that response releases
-the capacity even when it reports failure.
+limit is reached, another baseline open request receives `SFTPStatusCode.Failure` before its Hooker
+handler runs, so no backend handle should be allocated for it. An extension handler attempting to
+return another handle receives a local error and can return an appropriate status instead. A
+successful handle value must remain unique within the session until the corresponding `CLOSE`
+response has been written; that response releases the capacity even when it reports failure.
 
 An `OPEN` request with unknown flag bits, or with `EXCL` but no `CREAT`, receives
 `SFTPStatusCode.BadMessage` before the `OPEN` Hooker handler runs. `TRUNC` without `CREAT` remains
@@ -498,6 +506,6 @@ otherwise unusual peer. The returned paths are owned copies and cannot mutate th
 the Hooker handler.
 
 Never use a client-supplied path directly with a local filesystem API. Resolve it beneath an
-application-owned root, reject traversal outside that root, validate every opaque handle against
-per-session state, close all remaining resources on the SFTP `close` event, and apply authorization
-to every operation rather than only `OPEN`.
+application-owned root, reject traversal outside that root, map issued opaque handles to
+application-owned per-session resources, close all remaining resources on the SFTP `close` event,
+and apply authorization to every operation rather than only `OPEN`.

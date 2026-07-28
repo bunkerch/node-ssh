@@ -38,6 +38,9 @@ test("SFTP writes own buffers and chunk limit across acknowledgements", async ()
                 controller.sftp = {}
             })
             channel.events.on("sftp", (sftp) => {
+                sftp.hooker.hook("OPEN", async (_hook, request) => {
+                    await sftp.handle(request.requestId, Buffer.from("handle"))
+                })
                 sftp.hooker.hook("WRITE", async (_hook, request) => {
                     received.push({
                         handle: Buffer.from(request.handle),
@@ -48,6 +51,9 @@ test("SFTP writes own buffers and chunk limit across acknowledgements", async ()
                         reportFirstWrite()
                         await firstWriteReleased
                     }
+                    await sftp.status(request.requestId, SFTPStatusCode.Ok)
+                })
+                sftp.hooker.hook("CLOSE", async (_hook, request) => {
                     await sftp.status(request.requestId, SFTPStatusCode.Ok)
                 })
             })
@@ -71,7 +77,8 @@ test("SFTP writes own buffers and chunk limit across acknowledgements", async ()
         await client.connect()
         const sftp = await client.sftp()
         sftp.maxWriteLength = 3
-        const handle = Buffer.from("handle")
+        const handle = await sftp.open("remote-file", "w")
+        const closeHandle = Buffer.from(handle)
         const data = Buffer.from("abcdef")
         const writing = sftp.write(handle, data, 7n)
 
@@ -86,6 +93,7 @@ test("SFTP writes own buffers and chunk limit across acknowledgements", async ()
             { handle: Buffer.from("handle"), offset: 7n, data: Buffer.from("abc") },
             { handle: Buffer.from("handle"), offset: 10n, data: Buffer.from("def") },
         ])
+        await sftp.close(closeHandle)
         sftp.end()
     } finally {
         releaseFirstWrite()

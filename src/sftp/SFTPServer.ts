@@ -108,6 +108,8 @@ interface SFTPRequestOrdering {
     readonly resources: readonly string[]
 }
 
+type SFTPHandleType = "file" | "directory" | "extension"
+
 const REQUEST_HOOK_NAMES = new Map<SFTPPacketType, keyof SFTPServerHooker>([
     [SFTPPacketType.Open, "OPEN"],
     [SFTPPacketType.Close, "CLOSE"],
@@ -150,7 +152,7 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
     private readonly awaitingResponse = new Map<number, ActiveSFTPRequest>()
     private readonly activeResources = new Map<string, number>()
     private readonly handlePathResources = new Map<string, Set<string>>()
-    private readonly activeHandleKeys = new Set<string>()
+    private readonly activeHandleTypes = new Map<string, SFTPHandleType>()
     private readonly pendingHandleKeys = new Set<string>()
     private pendingHandleRequests = 0
     private activeOrderingBarriers = 0
@@ -278,7 +280,7 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
         if (request.type === SFTPPacketType.Close) {
             return response.then(() => {
                 const handleKey = handleResource(request.handle)
-                this.activeHandleKeys.delete(handleKey)
+                this.activeHandleTypes.delete(handleKey)
                 this.handlePathResources.delete(handleKey)
             })
         }
@@ -299,42 +301,56 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
         if (ownedHandle.length > MAX_SFTP_HANDLE_LENGTH) {
             throw new RangeError(`SFTP response handle exceeds ${MAX_SFTP_HANDLE_LENGTH} bytes`)
         }
-        if (request.type === SFTPPacketType.Open || request.type === SFTPPacketType.OpenDir) {
-            const handleKey = handleResource(ownedHandle)
-            if (this.activeHandleKeys.has(handleKey) || this.pendingHandleKeys.has(handleKey)) {
-                throw new Error("SFTP response handle is already active")
-            }
-            const pathKey = pathResource(
-                request.type === SFTPPacketType.Open ? request.filename : request.path,
-            )
-            this.pendingHandleKeys.add(handleKey)
-            let response: Promise<void>
-            try {
-                response = this.respond({
-                    type: SFTPPacketType.Handle,
-                    requestId,
-                    handle: ownedHandle,
-                })
-            } catch (error) {
+        const handleKey = handleResource(ownedHandle)
+        if (this.activeHandleTypes.has(handleKey) || this.pendingHandleKeys.has(handleKey)) {
+            throw new Error("SFTP response handle is already active")
+        }
+        if (
+            request.type === SFTPPacketType.Extended &&
+            this.activeHandleTypes.size + this.pendingHandleRequests >= this.#maxOpenHandles
+        ) {
+            throw new Error("SFTP open handle limit reached")
+        }
+        const handleType: SFTPHandleType =
+            request.type === SFTPPacketType.Open
+                ? "file"
+                : request.type === SFTPPacketType.OpenDir
+                  ? "directory"
+                  : "extension"
+        const pathKey =
+            request.type === SFTPPacketType.Open
+                ? pathResource(request.filename)
+                : request.type === SFTPPacketType.OpenDir
+                  ? pathResource(request.path)
+                  : undefined
+        this.pendingHandleKeys.add(handleKey)
+        let response: Promise<void>
+        try {
+            response = this.respond({
+                type: SFTPPacketType.Handle,
+                requestId,
+                handle: ownedHandle,
+            })
+        } catch (error) {
+            this.pendingHandleKeys.delete(handleKey)
+            throw error
+        }
+        const tracked = response.then(
+            () => {
+                this.pendingHandleKeys.delete(handleKey)
+                this.activeHandleTypes.set(handleKey, handleType)
+                if (pathKey !== undefined) {
+                    this.handlePathResources.set(handleKey, new Set([pathKey]))
+                }
+                this.releaseHandleReservation(active)
+            },
+            (error: unknown) => {
                 this.pendingHandleKeys.delete(handleKey)
                 throw error
-            }
-            const tracked = response.then(
-                () => {
-                    this.pendingHandleKeys.delete(handleKey)
-                    this.activeHandleKeys.add(handleKey)
-                    this.handlePathResources.set(handleKey, new Set([pathKey]))
-                    this.releaseHandleReservation(active)
-                },
-                (error: unknown) => {
-                    this.pendingHandleKeys.delete(handleKey)
-                    throw error
-                },
-            )
-            active.response = tracked
-            return tracked
-        }
-        return this.respond({ type: SFTPPacketType.Handle, requestId, handle: ownedHandle })
+            },
+        )
+        active.response = tracked
+        return tracked
     }
 
     data(requestId: number, data: Buffer): Promise<void> {
@@ -609,6 +625,11 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
                 return
             }
         }
+        const handleFailure = this.validateRequestHandle(request)
+        if (handleFailure !== undefined) {
+            await this.status(request.requestId, SFTPStatusCode.Failure, handleFailure)
+            return
+        }
         if (request.type === SFTPPacketType.Read && request.length > this.#maxReadLength) {
             await this.status(
                 request.requestId,
@@ -650,7 +671,7 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
             return
         }
         if (request.type === SFTPPacketType.Open || request.type === SFTPPacketType.OpenDir) {
-            if (this.activeHandleKeys.size + this.pendingHandleRequests >= this.#maxOpenHandles) {
+            if (this.activeHandleTypes.size + this.pendingHandleRequests >= this.#maxOpenHandles) {
                 await this.status(
                     request.requestId,
                     SFTPStatusCode.Failure,
@@ -696,6 +717,31 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
         if (!active.reservesHandle) return
         active.reservesHandle = false
         this.pendingHandleRequests--
+    }
+
+    private validateRequestHandle(request: SFTPRequestPacket): string | undefined {
+        if (
+            request.type !== SFTPPacketType.Close &&
+            request.type !== SFTPPacketType.FStat &&
+            request.type !== SFTPPacketType.ReadDir &&
+            request.type !== SFTPPacketType.Read &&
+            request.type !== SFTPPacketType.Write &&
+            request.type !== SFTPPacketType.FSetStat
+        ) {
+            return undefined
+        }
+        const handleType = this.activeHandleTypes.get(handleResource(request.handle))
+        if (handleType === undefined) return "SFTP handle is not active"
+        if (request.type === SFTPPacketType.ReadDir && handleType === "file") {
+            return "SFTP handle is not a directory"
+        }
+        if (
+            (request.type === SFTPPacketType.Read || request.type === SFTPPacketType.Write) &&
+            handleType === "directory"
+        ) {
+            return "SFTP handle is not a file"
+        }
+        return undefined
     }
 
     private triggerRequestHook(
@@ -770,7 +816,7 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
         this.activeRequestIds.clear()
         this.activeResources.clear()
         this.handlePathResources.clear()
-        this.activeHandleKeys.clear()
+        this.activeHandleTypes.clear()
         this.pendingHandleKeys.clear()
         this.activeOrderingBarriers = 0
         this.awaitingResponse.clear()
@@ -787,7 +833,7 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
         this.activeRequestIds.clear()
         this.activeResources.clear()
         this.handlePathResources.clear()
-        this.activeHandleKeys.clear()
+        this.activeHandleTypes.clear()
         this.pendingHandleKeys.clear()
         this.activeOrderingBarriers = 0
         this.awaitingResponse.clear()

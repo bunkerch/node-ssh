@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { Duplex } from "node:stream"
 import type Shell from "../../src/channels/Session/Shell.js"
 import { decodeSFTPPacket, encodeSFTPPacket } from "../../src/sftp/codec.js"
-import SFTPServer from "../../src/sftp/SFTPServer.js"
+import SFTPServer, { type SFTPRequestOf } from "../../src/sftp/SFTPServer.js"
 import { MAX_SFTP_PACKET_LENGTH, SFTPPacketType, SFTPStatusCode } from "../../src/sftp/constants.js"
 import type { SFTPPacket, SFTPRequestPacket } from "../../src/sftp/types.js"
 
@@ -46,6 +46,38 @@ function asShell(client: SFTPClientFixture): Shell {
 }
 
 const flush = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
+
+async function issueExtensionHandle(
+    server: SFTPServer,
+    fixture: SFTPClientFixture,
+    handle: Buffer,
+    requestId = 0xffff_fffe,
+): Promise<void> {
+    const issue = async (
+        controller: { stopPropagation(): void },
+        request: SFTPRequestOf<SFTPPacketType.Extended>,
+    ): Promise<void> => {
+        controller.stopPropagation()
+        await server.handle(request.requestId, handle)
+    }
+    server.hooker.hook("EXTENDED", issue)
+    try {
+        fixture.send({
+            type: SFTPPacketType.Extended,
+            requestId,
+            request: "test-handle@example.test",
+            data: Buffer.alloc(0),
+        })
+        await flush()
+    } finally {
+        server.hooker.unhook("EXTENDED", issue)
+    }
+    const responseIndex = fixture.responses.findIndex(
+        (packet) => "requestId" in packet && packet.requestId === requestId,
+    )
+    if (responseIndex === -1) throw new Error("SFTP extension handle was not issued")
+    fixture.responses.splice(responseIndex, 1)
+}
 
 describe("SFTP server request engine", () => {
     test("accepts standalone truncate and rejects invalid OPEN flags before policy", async () => {
@@ -93,6 +125,185 @@ describe("SFTP server request engine", () => {
                 languageTag: "",
             },
         ])
+        fixture.destroy()
+    })
+
+    test("rejects fabricated, closed, and wrongly typed handles before application policy", async () => {
+        const fixture = new SFTPClientFixture()
+        const server = new SFTPServer(asShell(fixture), { advertiseLimits: false })
+        const hooks: string[] = []
+        server.hooker.hook("OPEN", async (_hook, request) => {
+            await server.handle(request.requestId, Buffer.from("file"))
+        })
+        server.hooker.hook("OPENDIR", async (_hook, request) => {
+            await server.handle(request.requestId, Buffer.from("directory"))
+        })
+        server.hooker.hook("EXTENDED", async (_hook, request) => {
+            await server.handle(request.requestId, Buffer.from("extension"))
+        })
+        server.hooker.hook("READ", async (_hook, request) => {
+            hooks.push("READ")
+            await server.data(request.requestId, Buffer.from("x"))
+        })
+        server.hooker.hook("READDIR", () => {
+            hooks.push("READDIR")
+        })
+        server.hooker.hook("CLOSE", async (_hook, request) => {
+            hooks.push("CLOSE")
+            await server.status(request.requestId, SFTPStatusCode.Failure, "backend close failed")
+        })
+
+        fixture.send({ type: SFTPPacketType.Init, version: 3, extensions: [] })
+        fixture.send({
+            type: SFTPPacketType.Read,
+            requestId: 1,
+            handle: Buffer.from("fabricated"),
+            offset: 0n,
+            length: 1,
+        })
+        fixture.send({
+            type: SFTPPacketType.Close,
+            requestId: 2,
+            handle: Buffer.from("fabricated"),
+        })
+        await flush()
+        fixture.send({
+            type: SFTPPacketType.Open,
+            requestId: 3,
+            filename: Buffer.from("file"),
+            flags: 1,
+            attributes: {},
+        })
+        fixture.send({
+            type: SFTPPacketType.OpenDir,
+            requestId: 4,
+            path: Buffer.from("directory"),
+        })
+        fixture.send({
+            type: SFTPPacketType.Extended,
+            requestId: 5,
+            request: "open-resource@example.test",
+            data: Buffer.alloc(0),
+        })
+        await flush()
+        fixture.send({
+            type: SFTPPacketType.ReadDir,
+            requestId: 6,
+            handle: Buffer.from("file"),
+        })
+        fixture.send({
+            type: SFTPPacketType.Read,
+            requestId: 7,
+            handle: Buffer.from("directory"),
+            offset: 0n,
+            length: 1,
+        })
+        fixture.send({
+            type: SFTPPacketType.Read,
+            requestId: 8,
+            handle: Buffer.from("extension"),
+            offset: 0n,
+            length: 1,
+        })
+        fixture.send({
+            type: SFTPPacketType.Close,
+            requestId: 9,
+            handle: Buffer.from("file"),
+        })
+        await flush()
+        fixture.send({
+            type: SFTPPacketType.Read,
+            requestId: 10,
+            handle: Buffer.from("file"),
+            offset: 0n,
+            length: 1,
+        })
+        await flush()
+
+        expect(hooks).toEqual(["READ", "CLOSE"])
+        expect(
+            fixture.responses
+                .filter((packet) => packet.type === SFTPPacketType.Status)
+                .map(({ requestId, message }) => ({ requestId, message })),
+        ).toEqual([
+            { requestId: 1, message: "SFTP handle is not active" },
+            { requestId: 2, message: "SFTP handle is not active" },
+            { requestId: 6, message: "SFTP handle is not a directory" },
+            { requestId: 7, message: "SFTP handle is not a file" },
+            { requestId: 9, message: "backend close failed" },
+            { requestId: 10, message: "SFTP handle is not active" },
+        ])
+        expect(fixture.responses).toContainEqual({
+            type: SFTPPacketType.Data,
+            requestId: 8,
+            data: Buffer.from("x"),
+        })
+        fixture.destroy()
+    })
+
+    test("counts extension-issued handles against capacity until CLOSE", async () => {
+        const fixture = new SFTPClientFixture()
+        const server = new SFTPServer(asShell(fixture), {
+            advertiseLimits: false,
+            maxOpenHandles: 1,
+        })
+        let opens = 0
+        server.hooker.hook("EXTENDED", async (_hook, request) => {
+            await server.handle(request.requestId, Buffer.from("extension"))
+        })
+        server.hooker.hook("OPEN", async (_hook, request) => {
+            opens++
+            await server.handle(request.requestId, Buffer.from("file"))
+        })
+        server.hooker.hook("CLOSE", async (_hook, request) => {
+            await server.status(request.requestId, SFTPStatusCode.Ok)
+        })
+
+        fixture.send({ type: SFTPPacketType.Init, version: 3, extensions: [] })
+        fixture.send({
+            type: SFTPPacketType.Extended,
+            requestId: 1,
+            request: "open-resource@example.test",
+            data: Buffer.alloc(0),
+        })
+        await flush()
+        fixture.send({
+            type: SFTPPacketType.Open,
+            requestId: 2,
+            filename: Buffer.from("blocked"),
+            flags: 1,
+            attributes: {},
+        })
+        await flush()
+        expect(opens).toBe(0)
+        expect(fixture.responses.at(-1)).toMatchObject({
+            type: SFTPPacketType.Status,
+            requestId: 2,
+            code: SFTPStatusCode.Failure,
+            message: "SFTP open handle limit reached",
+        })
+
+        fixture.send({
+            type: SFTPPacketType.Close,
+            requestId: 3,
+            handle: Buffer.from("extension"),
+        })
+        await flush()
+        fixture.send({
+            type: SFTPPacketType.Open,
+            requestId: 4,
+            filename: Buffer.from("available"),
+            flags: 1,
+            attributes: {},
+        })
+        await flush()
+
+        expect(opens).toBe(1)
+        expect(fixture.responses.at(-1)).toEqual({
+            type: SFTPPacketType.Handle,
+            requestId: 4,
+            handle: Buffer.from("file"),
+        })
         fixture.destroy()
     })
 
@@ -489,6 +700,8 @@ describe("SFTP server request engine", () => {
                 ],
             },
         ])
+        await issueExtensionHandle(server, fixture, Buffer.from("h"))
+        await issueExtensionHandle(server, fixture, Buffer.from("other"))
         fixture.send({
             type: SFTPPacketType.Read,
             requestId: 7,
@@ -550,6 +763,8 @@ describe("SFTP server request engine", () => {
         })
 
         fixture.send({ type: SFTPPacketType.Init, version: 3, extensions: [] })
+        await flush()
+        await issueExtensionHandle(server, fixture, Buffer.from("shared"))
         fixture.send({
             type: SFTPPacketType.Read,
             requestId: 9,
@@ -951,6 +1166,7 @@ describe("SFTP server request engine", () => {
                 extended: [{ type: Buffer.from("policy@test"), data: Buffer.from("allowed") }],
             },
         })
+        await flush()
         fixture.send({
             type: SFTPPacketType.Write,
             requestId: 18,
@@ -1068,6 +1284,9 @@ describe("SFTP server request engine", () => {
     test("enforces response type, size, cardinality, and exactly-once rules", async () => {
         const fixture = new SFTPClientFixture()
         const server = new SFTPServer(asShell(fixture))
+        fixture.send({ type: SFTPPacketType.Init, version: 3, extensions: [] })
+        await flush()
+        await issueExtensionHandle(server, fixture, Buffer.from("h"))
         let requestId = -1
         let finishRead!: () => void
         const keepHandlerActive = new Promise<void>((resolve) => {
@@ -1077,7 +1296,6 @@ describe("SFTP server request engine", () => {
             requestId = request.requestId
             await keepHandlerActive
         })
-        fixture.send({ type: SFTPPacketType.Init, version: 3, extensions: [] })
         fixture.send({
             type: SFTPPacketType.Read,
             requestId: 2,
@@ -1101,6 +1319,9 @@ describe("SFTP server request engine", () => {
     test("sends the registered invalid-parameter status only for extension requests", async () => {
         const fixture = new SFTPClientFixture()
         const server = new SFTPServer(asShell(fixture), { advertiseLimits: false })
+        fixture.send({ type: SFTPPacketType.Init, version: 3, extensions: [] })
+        await flush()
+        await issueExtensionHandle(server, fixture, Buffer.from("h"))
         server.hooker.hook("READ", async (_hook, request) => {
             expect(() => server.status(request.requestId, SFTPStatusCode.InvalidParameter)).toThrow(
                 "only valid for extension requests",
@@ -1111,7 +1332,6 @@ describe("SFTP server request engine", () => {
             await server.status(request.requestId, SFTPStatusCode.InvalidParameter)
         })
 
-        fixture.send({ type: SFTPPacketType.Init, version: 3, extensions: [] })
         fixture.send({
             type: SFTPPacketType.Read,
             requestId: 20,
@@ -1149,6 +1369,9 @@ describe("SFTP server request engine", () => {
     test("rejects malformed response buffers without claiming the request", async () => {
         const fixture = new SFTPClientFixture()
         const server = new SFTPServer(asShell(fixture))
+        fixture.send({ type: SFTPPacketType.Init, version: 3, extensions: [] })
+        await flush()
+        await issueExtensionHandle(server, fixture, Buffer.from("h"))
         const errors: string[] = []
         const rejectLocally = async (
             requestId: number,
@@ -1189,7 +1412,6 @@ describe("SFTP server request engine", () => {
             ),
         )
 
-        fixture.send({ type: SFTPPacketType.Init, version: 3, extensions: [] })
         fixture.send({
             type: SFTPPacketType.Open,
             requestId: 40,
