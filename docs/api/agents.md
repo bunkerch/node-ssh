@@ -1232,6 +1232,11 @@ export declare class SSHAgentProtocolClient extends Agent<string> {
     extension(type: string, contents?: Buffer): Promise<SSHAgentExtensionResult>;
     queryExtensions(): Promise<readonly string[]>;
     opensshSessionBind(binding: OpenSSHAgentSessionBinding): Promise<void>;
+    /**
+     * Drain operations already queued, stop accepting requests, and await stream closure.
+     */
+    close(): Promise<void>;
+    [Symbol.asyncDispose](): Promise<void>;
     destroy(error?: Error): void;
 }
 ```

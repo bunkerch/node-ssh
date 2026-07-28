@@ -1,4 +1,5 @@
 import { randomBytes, scrypt, timingSafeEqual } from "node:crypto"
+import { once } from "node:events"
 import type { Duplex } from "node:stream"
 
 import { decodeSSHUTF8, encodeSSHUTF8 } from "../utils/SSHText.js"
@@ -780,6 +781,7 @@ export class SSHAgentProtocolClient extends Agent<string> {
     readonly #iterator: AsyncIterator<unknown>
     #buffer = Buffer.alloc(0)
     #queue: Promise<void> = Promise.resolve()
+    #closePromise: Promise<void> | undefined
 
     constructor(stream: Duplex, options: SSHAgentProtocolOptions = {}) {
         super()
@@ -1039,6 +1041,20 @@ export class SSHAgentProtocolClient extends Agent<string> {
         }
     }
 
+    /**
+     * Drain operations already queued, stop accepting requests, and await stream closure.
+     */
+    close(): Promise<void> {
+        if (this.#closePromise !== undefined) return this.#closePromise
+        if (this.stream.destroyed) return Promise.resolve()
+        this.#closePromise = this.#closeStream()
+        return this.#closePromise
+    }
+
+    [Symbol.asyncDispose](): Promise<void> {
+        return this.close()
+    }
+
     destroy(error?: Error): void {
         this.stream.destroy(error)
     }
@@ -1065,12 +1081,44 @@ export class SSHAgentProtocolClient extends Agent<string> {
     }
 
     #request(payload: Buffer): Promise<Buffer> {
+        if (this.#closePromise !== undefined || this.stream.destroyed || !this.stream.writable) {
+            return Promise.reject(new SSHAgentProtocolError("SSH agent protocol client is closed"))
+        }
         const operation = this.#queue.then(() => this.#requestNow(payload))
         this.#queue = operation.then(
             () => undefined,
             () => undefined,
         )
         return operation
+    }
+
+    async #closeStream(): Promise<void> {
+        await this.#queue
+        if (this.stream.destroyed) return
+
+        const closed = once(this.stream, "close").then(() => undefined)
+        if (!this.stream.writableEnded) this.stream.end()
+        if (this.options.requestTimeout === 0) {
+            await closed
+            return
+        }
+
+        let timer: ReturnType<typeof setTimeout> | undefined
+        const deadline = new Promise<never>((_resolve, reject) => {
+            timer = setTimeout(() => {
+                const error = new SSHAgentProtocolError(
+                    `SSH agent stream did not close within ${this.options.requestTimeout} milliseconds`,
+                )
+                this.stream.destroy(error)
+                reject(error)
+            }, this.options.requestTimeout)
+            timer.unref()
+        })
+        try {
+            await Promise.race([closed, deadline])
+        } finally {
+            if (timer !== undefined) clearTimeout(timer)
+        }
     }
 
     async #requestNow(payload: Buffer): Promise<Buffer> {

@@ -47,9 +47,15 @@ try {
     const signature = await agent.sign(id, message)
     if (!publicKey.verifySignature(message, signature)) throw new Error("Invalid signature")
 } finally {
-    agent.destroy()
+    await agent.close()
 }
 ```
+
+`close()` stops accepting new operations, drains requests that were already queued, sends EOF, and
+settles after the duplex stream closes. Concurrent calls share one Promise, and
+`Symbol.asyncDispose` exposes the same lifecycle for `await using`. When `requestTimeout` is
+nonzero, it also bounds terminal stream closure and destroys an unresponsive stream. Use
+`destroy(error?)` when queued work must be aborted immediately.
 
 The management methods are:
 

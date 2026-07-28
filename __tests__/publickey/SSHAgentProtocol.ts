@@ -75,6 +75,20 @@ function streamPair(): [Duplex, Duplex] {
     return [left, right]
 }
 
+class HangingCloseStream extends Duplex {
+    _read(): void {
+        // The fixture intentionally never ends the readable side.
+    }
+
+    _write(
+        _chunk: Buffer,
+        _encoding: BufferEncoding,
+        callback: (error?: Error | null) => void,
+    ): void {
+        callback()
+    }
+}
+
 async function readFrames(stream: Duplex, count: number): Promise<Buffer[]> {
     const frames: Buffer[] = []
     let buffered = Buffer.alloc(0)
@@ -329,7 +343,9 @@ describe("SSH agent protocol", () => {
 
             await expect(client.getPublicKeys()).rejects.toThrow(violation.message)
             expect(clientStream.destroyed).toBeTrue()
-            await expect(client.getPublicKeys()).rejects.toThrow("stream is not writable")
+            await expect(client.getPublicKeys()).rejects.toThrow(
+                "SSH agent protocol client is closed",
+            )
             fixtureStream.destroy()
             await fixture
         }
@@ -360,6 +376,66 @@ describe("SSH agent protocol", () => {
         expect(await request).toEqual([requestIdentities])
         expect(clientStream.destroyed).toBeTrue()
         fixtureStream.destroy()
+    })
+
+    test("drains queued work before closing and rejects later requests", async () => {
+        const [clientStream, serverStream] = streamPair()
+        const server = new SSHAgentProtocolServer()
+        let release!: () => void
+        const released = new Promise<void>((resolve) => {
+            release = resolve
+        })
+        let reportRequest!: () => void
+        const requested = new Promise<void>((resolve) => {
+            reportRequest = resolve
+        })
+        server.hooker.hook("identities", async (_hook, decision) => {
+            reportRequest()
+            await released
+            decision.identities = []
+        })
+        const serving = server.serve(serverStream)
+        const client = new SSHAgentProtocolClient(clientStream)
+
+        try {
+            const identities = client.getPublicKeys()
+            await requested
+            const firstClose = client.close()
+            const secondClose = client.close()
+
+            expect(secondClose).toBe(firstClose)
+            expect(clientStream.writableEnded).toBe(false)
+            await expect(client.getPublicKeys()).rejects.toThrow(
+                "SSH agent protocol client is closed",
+            )
+
+            release()
+            expect(await identities).toEqual([])
+            await serving
+            clientStream.destroy()
+            await firstClose
+            expect(clientStream.destroyed).toBe(true)
+            await client[Symbol.asyncDispose]()
+        } finally {
+            release()
+            client.destroy()
+            serverStream.destroy()
+        }
+    })
+
+    test("bounds terminal agent stream closure when a peer ignores EOF", async () => {
+        const stream = new HangingCloseStream()
+        const client = new SSHAgentProtocolClient(stream, { requestTimeout: 20 })
+
+        const firstClose = client.close()
+        expect(client.close()).toBe(firstClose)
+        await expect(firstClose).rejects.toThrow(
+            "SSH agent stream did not close within 20 milliseconds",
+        )
+        expect(stream.destroyed).toBe(true)
+        await expect(client[Symbol.asyncDispose]()).rejects.toThrow(
+            "SSH agent stream did not close within 20 milliseconds",
+        )
     })
 
     test("lists and signs through one persistent real agent connection", async () => {
@@ -401,7 +477,7 @@ describe("SSH agent protocol", () => {
             const message = Buffer.from("persistent agent protocol")
             const signature = await client.sign(identities[0][0], message)
             expect(identities[0][1].verifySignature(message, signature)).toBeTrue()
-            client.destroy()
+            await client.close()
         } finally {
             process.kill("SIGTERM")
             if (process.exitCode === null && process.signalCode === null)
