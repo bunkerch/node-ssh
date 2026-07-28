@@ -308,6 +308,12 @@ display are checked against the document's literal RSA example and strict malfor
 continuation, line-length, UTF-8, and base64 cases. Generated Ed25519 files are exchanged in both
 directions with `ssh-keygen`, including package-archive exports.
 
+SSHFP coverage reproduces RFC 6594's RSA, DSA, and ECDSA SHA-1 and SHA-256 fingerprints and RFC
+7479's Ed25519 SHA-256 fingerprint from their published public-key blobs. The system
+`ssh-keygen -r` independently generates both digest records for each supported system key format;
+the library parses the RDATA and verifies the complete record set with mandatory SHA-256
+preference.
+
 Detached signature coverage parses an independently assembled fixed `SSHSIG` blob, enforces
 namespace binding, owns data across awaited agent signing, and rejects malformed armor and future
 versions. Ed25519 and RSA signatures are exchanged in both directions with `ssh-keygen -Y`; the

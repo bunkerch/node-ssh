@@ -33,7 +33,7 @@ function categoryFor(path) {
         return "authentication"
     }
     if (
-        /\/(?:AllowedSigners|KeyGeneration|KeyParsing|KeyRevocationList|KnownHosts|SecurityKeyAttestation|SSHSignature)\.d\.ts$/u.test(
+        /\/(?:AllowedSigners|KeyGeneration|KeyParsing|KeyRevocationList|KnownHosts|SecurityKeyAttestation|SSHFP|SSHSignature)\.d\.ts$/u.test(
             normalized,
         ) ||
         /\/utils\/(?:PrivateKey|PublicKey|PuTTYPrivateKey|RFC4716|Signature)\.d\.ts$/u.test(

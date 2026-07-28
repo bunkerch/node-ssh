@@ -60,6 +60,7 @@ asynchronous policy decisions belong in awaited `Hooker` handlers.
 | Transfer and manage files                                         | [SFTP](docs/sftp.md)                                                                        |
 | Create direct, remote, HTTP, and tunnel forwarding                | [Forwarding](docs/forwarding.md) and [packet tunnels](docs/tunnels.md)                      |
 | Verify and rotate host keys                                       | [Known hosts](docs/known-hosts.md)                                                          |
+| Publish or verify DNS host-key fingerprints                       | [SSHFP DNS records](docs/sshfp.md)                                                          |
 | Use or expose an authentication agent                             | [Agent protocol](docs/agent-protocol.md)                                                    |
 | Check implemented standards and tested peers                      | [Standards coverage](docs/rfc-coverage.md) and [interoperability](docs/interoperability.md) |
 

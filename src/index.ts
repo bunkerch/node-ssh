@@ -15,6 +15,13 @@ export type {
 export { default as KeyRevocationList } from "./KeyRevocationList.js"
 export { default as SSHSignature } from "./SSHSignature.js"
 export type { SSHSignatureHashAlgorithm, SSHSignatureOptions } from "./SSHSignature.js"
+export {
+    default as SSHFPRecord,
+    SSHFPAlgorithm,
+    SSHFPFingerprintType,
+    verifySSHFP,
+} from "./SSHFP.js"
+export type { SSHFPVerificationResult } from "./SSHFP.js"
 export { default as SecurityKeyAttestation } from "./SecurityKeyAttestation.js"
 export type { SecurityKeyAttestationFormat } from "./SecurityKeyAttestation.js"
 export type {

@@ -7,7 +7,7 @@ description: Exact public TypeScript declarations shipped by modernssh.
 
 # API reference
 
-This reference is generated from the declarations shipped by the package. It covers all 435 exports available from `@bunkerch/modernssh`. Class sections contain every public constructor, property, accessor, and method declared by that class; inherited Node.js stream and EventEmitter members remain documented by Node.js.
+This reference is generated from the declarations shipped by the package. It covers all 440 exports available from `@bunkerch/modernssh`. Class sections contain every public constructor, property, accessor, and method declared by that class; inherited Node.js stream and EventEmitter members remain documented by Node.js.
 
 Regenerate it with `pnpm docs:api`. CI runs `pnpm docs:api:check` to prevent the reference from drifting from `dist/*.d.ts`.
 
@@ -424,6 +424,10 @@ Regenerate it with `pnpm docs:api`. CI runs `pnpm docs:api:check` to prevent the
 | [`SSHED25519SecurityKeyPublicKeyData`](keys.md#sshed25519securitykeypublickeydata) | Interface | Keys, trust, and signatures |
 | [`SSHExtendedDataTypes`](transport.md#sshextendeddatatypes) | Enum | Transport and protocol types |
 | [`SSHExtension`](transport.md#sshextension) | Interface | Transport and protocol types |
+| [`SSHFPAlgorithm`](keys.md#sshfpalgorithm) | Enum | Keys, trust, and signatures |
+| [`SSHFPFingerprintType`](keys.md#sshfpfingerprinttype) | Enum | Keys, trust, and signatures |
+| [`SSHFPRecord`](keys.md#sshfprecord) | Class | Keys, trust, and signatures |
+| [`SSHFPVerificationResult`](keys.md#sshfpverificationresult) | Type | Keys, trust, and signatures |
 | [`SSHHTTPAgent`](connections.md#sshhttpagent) | Class | Connections and servers |
 | [`SSHHTTPAgentOptions`](connections.md#sshhttpagentoptions) | Type | Connections and servers |
 | [`SSHHTTPSAgent`](connections.md#sshhttpsagent) | Class | Connections and servers |
@@ -447,4 +451,5 @@ Regenerate it with `pnpm docs:api`. CI runs `pnpm docs:api:check` to prevent the
 | [`TunnelIPPacket`](channels.md#tunnelippacket) | Interface | Channels and forwarding |
 | [`TunnelMode`](channels.md#tunnelmode) | Enum | Channels and forwarding |
 | [`UserAuthPrompt`](transport.md#userauthprompt) | Interface | Transport and protocol types |
+| [`verifySSHFP`](keys.md#verifysshfp) | Function | Keys, trust, and signatures |
 | [`X11ConnectionDetails`](channels.md#x11connectiondetails) | Interface | Channels and forwarding |

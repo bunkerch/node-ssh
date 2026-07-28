@@ -13,6 +13,7 @@
         "global-requests",
         "---Identity and trust---",
         "known-hosts",
+        "sshfp",
         "agent-protocol",
         "public-key-subsystem",
         "key-revocation-lists",

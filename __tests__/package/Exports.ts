@@ -97,9 +97,13 @@ import {
     SSHAgentProtocolClient,
     SSHAgentProtocolError,
     SSHAgentProtocolServer,
+    SSHFPAlgorithm,
+    SSHFPFingerprintType,
+    SSHFPRecord,
     SSHHTTPAgent,
     SSHHTTPSAgent,
     SSHSignature,
+    verifySSHFP,
     SSHAuthenticationMethods,
     TerminalMode,
     TerminalModes,
@@ -282,10 +286,14 @@ describe("package exports", () => {
             SessionChannel,
             Shell,
             SSHAgent,
+            SSHFPAlgorithm,
+            SSHFPFingerprintType,
+            SSHFPRecord,
             SSHHTTPAgent,
             SSHHTTPSAgent,
             SSHSignature,
-        ]).toHaveLength(50)
+            verifySSHFP,
+        ]).toHaveLength(54)
         expect(
             new ChannelOpenError(
                 ChannelOpenFailureReasonCodes.SSH_OPEN_ADMINISTRATIVELY_PROHIBITED,
@@ -362,6 +370,10 @@ describe("package exports", () => {
         expect(PublicKeySubsystemClient).toBeFunction()
         expect(PublicKeySubsystemServer).toBeFunction()
         expect(PublicKeySubsystemStatusCode.Success).toBe(0)
+        expect(SSHFPRecord).toBeFunction()
+        expect(SSHFPAlgorithm.Ed25519).toBe(4)
+        expect(SSHFPFingerprintType.SHA256).toBe(2)
+        expect(verifySSHFP).toBeFunction()
     })
 
     test("compiled entry point provides the same side-effect-free API", async () => {
@@ -785,7 +797,7 @@ describe("package exports", () => {
                     const { tmpdir } = await import("node:os")
                     const { join } = await import("node:path")
                     const { PassThrough } = await import("node:stream")
-                    const { AllowedSigners, ChannelOpenError, ChannelOpenFailureReasonCodes, Client, ClientForwardedStreamLocalChannel, ClientForwardedTCPIPChannel, ClientSessionChannel, ClientX11Channel, createSocketAgent, CygwinAgent, CygwinAgentError, DELAY_COMPRESSION_EXTENSION, delayCompressionExtension, discoverPageantAgentSocket, DisconnectError, DisconnectReason, ELEVATION_EXTENSION, EncodedSignature, generateKeyPair, generateKeyPairSync, KeyRevocationList, KnownHosts, MAX_OPENSSH_AGENT_SESSION_BINDINGS, MAX_SSH_AGENT_MESSAGE_LENGTH, NO_FLOW_CONTROL_EXTENSION, OnePasswordAgent, OPENSSH_AGENT_SECURITY_KEY_PROVIDER, OPENSSH_AGENT_SESSION_BIND, OPENSSH_INFO_SIGNAL, PageantAgent, PageantAgentError, parseKey, parseRFC4716PublicKeyFile, PrivateKey, PrivateKeyAgent, ProtocolVersionExchange, PublicKey, PublicKeySubsystemClient, PublicKeySubsystemServer, PublicKeySubsystemStatusCode, SecurityKeyAttestation, serializeRFC4716PublicKey, Server, SessionChannel, SSH_ED25519_SECURITY_KEY_ALGORITHM, SSHAgentConstraintType, SSHAgentExtensionFailureError, SSHAgentMessageType, SSHAgentProtocolClient, SSHAgentProtocolError, SSHAgentProtocolServer, SSHED25519SecurityKeyPrivateKey, SSHED25519SecurityKeyPublicKey, SSHSignature } = await import("@bunkerch/modernssh")
+                    const { AllowedSigners, ChannelOpenError, ChannelOpenFailureReasonCodes, Client, ClientForwardedStreamLocalChannel, ClientForwardedTCPIPChannel, ClientSessionChannel, ClientX11Channel, createSocketAgent, CygwinAgent, CygwinAgentError, DELAY_COMPRESSION_EXTENSION, delayCompressionExtension, discoverPageantAgentSocket, DisconnectError, DisconnectReason, ELEVATION_EXTENSION, EncodedSignature, generateKeyPair, generateKeyPairSync, KeyRevocationList, KnownHosts, MAX_OPENSSH_AGENT_SESSION_BINDINGS, MAX_SSH_AGENT_MESSAGE_LENGTH, NO_FLOW_CONTROL_EXTENSION, OnePasswordAgent, OPENSSH_AGENT_SECURITY_KEY_PROVIDER, OPENSSH_AGENT_SESSION_BIND, OPENSSH_INFO_SIGNAL, PageantAgent, PageantAgentError, parseKey, parseRFC4716PublicKeyFile, PrivateKey, PrivateKeyAgent, ProtocolVersionExchange, PublicKey, PublicKeySubsystemClient, PublicKeySubsystemServer, PublicKeySubsystemStatusCode, SecurityKeyAttestation, serializeRFC4716PublicKey, Server, SessionChannel, SSH_ED25519_SECURITY_KEY_ALGORITHM, SSHAgentConstraintType, SSHAgentExtensionFailureError, SSHAgentMessageType, SSHAgentProtocolClient, SSHAgentProtocolError, SSHAgentProtocolServer, SSHED25519SecurityKeyPrivateKey, SSHED25519SecurityKeyPublicKey, SSHFPFingerprintType, SSHFPRecord, SSHSignature, verifySSHFP } = await import("@bunkerch/modernssh")
                     const { privateKey, publicKey } = await generateKeyPair("ed25519", {
                         comment: "packed@example.test",
                     })
@@ -809,6 +821,9 @@ describe("package exports", () => {
                     if (!parseKey(publicKey.toString()).equals(publicKey)) process.exit(4)
                     if (!PublicKey.fromPEM(publicKey.toPEM()).equals(publicKey)) process.exit(96)
                     if (!PrivateKey.fromPEM(privateKey.toPEM()).data.publicKey.equals(publicKey)) process.exit(97)
+                    const packedSSHFP = SSHFPRecord.fromPublicKey(publicKey, SSHFPFingerprintType.SHA256)
+                    if (SSHFPRecord.parseText(packedSSHFP.toString()).toString() !== packedSSHFP.toString()) process.exit(107)
+                    if (verifySSHFP(publicKey, [packedSSHFP]) !== "match") process.exit(108)
                     const packedKnownHosts = KnownHosts.parse("")
                     const packedKnownHostKey = Buffer.from(publicKey.toString())
                     const packedKnownHostKeys = [packedKnownHostKey]
