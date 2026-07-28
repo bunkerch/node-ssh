@@ -665,18 +665,22 @@ export default class SFTPClient extends EventEmitter<SFTPClientEvents> {
             },
             SFTPPacketType.Data,
         )
-        if (response.type !== SFTPPacketType.Data) throw new SFTPProtocolError("Expected DATA")
-        if (response.data.length === 0) {
-            throw new SFTPProtocolError(
-                "SFTP server returned empty data for a positive-length read",
-            )
-        }
-        if (response.data.length > length) {
-            throw new SFTPProtocolError("SFTP server returned more data than requested")
-        }
-        if (target === undefined) return response.data
-        response.data.copy(target, bufferOffset)
-        return { bytesRead: response.data.length, buffer: target }
+        return this.peerResponse(() => {
+            if (response.type !== SFTPPacketType.Data) {
+                throw new SFTPProtocolError("Expected DATA")
+            }
+            if (response.data.length === 0) {
+                throw new SFTPProtocolError(
+                    "SFTP server returned empty data for a positive-length read",
+                )
+            }
+            if (response.data.length > length) {
+                throw new SFTPProtocolError("SFTP server returned more data than requested")
+            }
+            if (target === undefined) return response.data
+            response.data.copy(target, bufferOffset)
+            return { bytesRead: response.data.length, buffer: target }
+        })
     }
 
     write(handle: Buffer, data: Buffer, position: SFTPPosition): Promise<void>
@@ -739,8 +743,12 @@ export default class SFTPClient extends EventEmitter<SFTPClientEvents> {
             },
             SFTPPacketType.Attrs,
         )
-        if (response.type !== SFTPPacketType.Attrs) throw new SFTPProtocolError("Expected ATTRS")
-        return sftpStats(response.attributes)
+        return this.peerResponse(() => {
+            if (response.type !== SFTPPacketType.Attrs) {
+                throw new SFTPProtocolError("Expected ATTRS")
+            }
+            return sftpStats(response.attributes)
+        })
     }
 
     async setstat(path: SFTPPath, attributes: SFTPAttributes): Promise<void> {
@@ -792,13 +800,17 @@ export default class SFTPClient extends EventEmitter<SFTPClientEvents> {
                 },
                 SFTPPacketType.Name,
             )
-            if (response.type !== SFTPPacketType.Name) throw new SFTPProtocolError("Expected NAME")
-            if (response.names.length === 0) {
-                throw new SFTPProtocolError(
-                    "SFTP directory response must contain at least one name",
-                )
-            }
-            return response.names.map(sftpNameEntry)
+            return this.peerResponse(() => {
+                if (response.type !== SFTPPacketType.Name) {
+                    throw new SFTPProtocolError("Expected NAME")
+                }
+                if (response.names.length === 0) {
+                    throw new SFTPProtocolError(
+                        "SFTP directory response must contain at least one name",
+                    )
+                }
+                return response.names.map(sftpNameEntry)
+            })
         } catch (error) {
             if (error instanceof SFTPStatusError && error.code === SFTPStatusCode.EOF) return null
             throw error
@@ -936,10 +948,12 @@ export default class SFTPClient extends EventEmitter<SFTPClientEvents> {
             encodeSFTPExtensionString(pathBuffer(path)),
             SFTPPacketType.ExtendedReply,
         )
-        if (response.type !== SFTPPacketType.ExtendedReply) {
-            throw new SFTPProtocolError("Expected EXTENDED_REPLY")
-        }
-        return decodeSFTPStatVFS(response.data)
+        return this.peerResponse(() => {
+            if (response.type !== SFTPPacketType.ExtendedReply) {
+                throw new SFTPProtocolError("Expected EXTENDED_REPLY")
+            }
+            return decodeSFTPStatVFS(response.data)
+        })
     }
 
     ext_openssh_statvfs(path: SFTPPath): Promise<Readonly<SFTPStatVFS>> {
@@ -955,10 +969,12 @@ export default class SFTPClient extends EventEmitter<SFTPClientEvents> {
             encodeSFTPExtensionString(ownedHandle),
             SFTPPacketType.ExtendedReply,
         )
-        if (response.type !== SFTPPacketType.ExtendedReply) {
-            throw new SFTPProtocolError("Expected EXTENDED_REPLY")
-        }
-        return decodeSFTPStatVFS(response.data)
+        return this.peerResponse(() => {
+            if (response.type !== SFTPPacketType.ExtendedReply) {
+                throw new SFTPProtocolError("Expected EXTENDED_REPLY")
+            }
+            return decodeSFTPStatVFS(response.data)
+        })
     }
 
     ext_openssh_fstatvfs(handle: Buffer): Promise<Readonly<SFTPStatVFS>> {
@@ -1101,10 +1117,12 @@ export default class SFTPClient extends EventEmitter<SFTPClientEvents> {
             encodeSFTPUsersGroupsExtension(uids, gids),
             SFTPPacketType.ExtendedReply,
         )
-        if (response.type !== SFTPPacketType.ExtendedReply) {
-            throw new SFTPProtocolError("Expected EXTENDED_REPLY")
-        }
-        return decodeSFTPUsersGroups(response.data)
+        return this.peerResponse(() => {
+            if (response.type !== SFTPPacketType.ExtendedReply) {
+                throw new SFTPProtocolError("Expected EXTENDED_REPLY")
+            }
+            return decodeSFTPUsersGroups(response.data)
+        })
     }
 
     ext_users_groups(
@@ -1121,10 +1139,12 @@ export default class SFTPClient extends EventEmitter<SFTPClientEvents> {
             Buffer.alloc(0),
             SFTPPacketType.ExtendedReply,
         )
-        if (response.type !== SFTPPacketType.ExtendedReply) {
-            throw new SFTPProtocolError("Expected EXTENDED_REPLY")
-        }
-        return decodeSFTPLimits(response.data)
+        return this.peerResponse(() => {
+            if (response.type !== SFTPPacketType.ExtendedReply) {
+                throw new SFTPProtocolError("Expected EXTENDED_REPLY")
+            }
+            return decodeSFTPLimits(response.data)
+        })
     }
 
     chmod(path: SFTPPath, mode: number | string): Promise<void> {
@@ -1201,8 +1221,12 @@ export default class SFTPClient extends EventEmitter<SFTPClientEvents> {
             { type, requestId: this.allocateRequestId(), path: pathBuffer(path) },
             SFTPPacketType.Attrs,
         )
-        if (response.type !== SFTPPacketType.Attrs) throw new SFTPProtocolError("Expected ATTRS")
-        return sftpStats(response.attributes)
+        return this.peerResponse(() => {
+            if (response.type !== SFTPPacketType.Attrs) {
+                throw new SFTPProtocolError("Expected ATTRS")
+            }
+            return sftpStats(response.attributes)
+        })
     }
 
     private async pathStatus(
@@ -1225,10 +1249,12 @@ export default class SFTPClient extends EventEmitter<SFTPClientEvents> {
             { type, requestId: this.allocateRequestId(), path: pathBuffer(path) },
             SFTPPacketType.Name,
         )
-        if (response.type !== SFTPPacketType.Name || response.names.length !== 1) {
-            throw new SFTPProtocolError("SFTP response must contain exactly one name")
-        }
-        return decodeSFTPName(response.names[0]!.filename, encoding)
+        return this.peerResponse(() => {
+            if (response.type !== SFTPPacketType.Name || response.names.length !== 1) {
+                throw new SFTPProtocolError("SFTP response must contain exactly one name")
+            }
+            return decodeSFTPName(response.names[0]!.filename, encoding)
+        })
     }
 
     private async extensionSingleName(
@@ -1238,10 +1264,12 @@ export default class SFTPClient extends EventEmitter<SFTPClientEvents> {
         encoding: SFTPNameEncoding,
     ): Promise<string | Buffer> {
         const response = await this.extensionRequest(name, version, data, SFTPPacketType.Name)
-        if (response.type !== SFTPPacketType.Name || response.names.length !== 1) {
-            throw new SFTPProtocolError("SFTP extension response must contain exactly one name")
-        }
-        return decodeSFTPName(response.names[0]!.filename, encoding)
+        return this.peerResponse(() => {
+            if (response.type !== SFTPPacketType.Name || response.names.length !== 1) {
+                throw new SFTPProtocolError("SFTP extension response must contain exactly one name")
+            }
+            return decodeSFTPName(response.names[0]!.filename, encoding)
+        })
     }
 
     private async extensionStatus(name: string, version: string, data: Buffer): Promise<void> {
@@ -1302,14 +1330,16 @@ export default class SFTPClient extends EventEmitter<SFTPClientEvents> {
         this.reserveHandle()
         try {
             const response = await this.request(packet, SFTPPacketType.Handle)
-            if (response.type !== SFTPPacketType.Handle) {
-                throw new SFTPProtocolError("Expected HANDLE")
-            }
-            this.trackHandle(
-                response.handle,
-                packet.type === SFTPPacketType.Open ? "file" : "directory",
-            )
-            return response.handle
+            return this.peerResponse(() => {
+                if (response.type !== SFTPPacketType.Handle) {
+                    throw new SFTPProtocolError("Expected HANDLE")
+                }
+                this.trackHandle(
+                    response.handle,
+                    packet.type === SFTPPacketType.Open ? "file" : "directory",
+                )
+                return response.handle
+            })
         } finally {
             this.pendingHandleRequests--
         }
@@ -1323,7 +1353,7 @@ export default class SFTPClient extends EventEmitter<SFTPClientEvents> {
         try {
             const response = await this.request(packet, ...expectedTypes)
             if (response.type === SFTPPacketType.Handle) {
-                this.trackHandle(response.handle, "extension")
+                this.peerResponse(() => this.trackHandle(response.handle, "extension"))
             }
             return response
         } finally {
@@ -1350,11 +1380,20 @@ export default class SFTPClient extends EventEmitter<SFTPClientEvents> {
     private trackHandle(handle: Buffer, type: SFTPHandleType): void {
         const key = handle.toString("base64")
         if (this.activeHandles.has(key)) {
-            const error = new SFTPProtocolError("SFTP server reused an active handle")
-            this.destroy(error)
-            throw error
+            throw new SFTPProtocolError("SFTP server reused an active handle")
         }
         this.activeHandles.set(key, type)
+    }
+
+    private peerResponse<T>(decode: () => T): T {
+        try {
+            return decode()
+        } catch (error) {
+            const protocolError =
+                error instanceof Error ? error : new SFTPProtocolError(String(error))
+            this.destroy(protocolError)
+            throw protocolError
+        }
     }
 
     private releaseHandle(handle: Buffer): void {

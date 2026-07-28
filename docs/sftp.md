@@ -222,20 +222,23 @@ Remote failure statuses reject with `SFTPStatusError`. Its numeric `code`, `requ
 example `SFTPStatusCode.NoSuchFile` or `SFTPStatusCode.PermissionDenied`.
 
 Malformed frames, unexpected response identifiers, wrong response types, duplicate initialization,
-unsupported attribute flags, and status codes used outside their defined request context are fatal
-protocol errors. A server-sent `NoConnection` or `ConnectionLost` is also fatal because those two
-pseudo-statuses are local to clients and must never appear on the wire. A successful positive-length
-read must return at least one byte; end-of-file is reported with `SFTPStatusCode.EOF` only for
-`READ`, `READDIR`, or an extension that defines it. Baseline directory `NAME` responses must contain
-at least one entry. Rejecting these no-progress responses prevents silent file truncation and
-unbounded directory scans. Messages are bounded to OpenSSH's 256 KiB ceiling before allocation,
-handles to 256 bytes, and outstanding client requests to 1024. The initial read and write request
-size is 32 KiB, which every conforming server is expected to support. Status messages use fatal
-UTF-8 validation, status language tags use the protocol language-tag grammar, and extension
-identifiers are validated SSH names. Filenames, long names, paths, handles, and extension payloads
-remain opaque bytes and are never replacement-decoded by the wire codec. Decoded opaque fields are
-owned buffers rather than views into the input frame, and the streaming parser snapshots any
-incomplete chunk it must retain across calls.
+duplicate live handles, unsupported attribute flags, and status codes used outside their defined
+request context are fatal protocol errors. Semantic reply checks use the same fatal path as framing:
+empty or oversized `DATA`, empty baseline directory `NAME`, the wrong number of names for
+single-name operations, malformed negotiated-extension replies, and invalid returned UTF-8 all
+close the SFTP channel before rejecting the operation. A server-sent `NoConnection` or
+`ConnectionLost` is also fatal because those two pseudo-statuses are local to clients and must never
+appear on the wire. A successful positive-length read must return at least one byte; end-of-file is
+reported with `SFTPStatusCode.EOF` only for `READ`, `READDIR`, or an extension that defines it.
+Rejecting no-progress responses prevents silent file truncation and unbounded directory scans.
+Messages are bounded to OpenSSH's 256 KiB ceiling before allocation, handles to 256 bytes, and
+outstanding client requests to 1024. The initial read and write request size is 32 KiB, which every
+conforming server is expected to support. Status messages use fatal UTF-8 validation, status
+language tags use the protocol language-tag grammar, and extension identifiers are validated SSH
+names. Filenames, long names, paths, handles, and extension payloads remain opaque bytes and are
+never replacement-decoded by the wire codec. Decoded opaque fields are owned buffers rather than
+views into the input frame, and the streaming parser snapshots any incomplete chunk it must retain
+across calls.
 Fatal errors, including EOF in the middle of a frame, close the SFTP channel in both peer roles and
 reject pending client operations. They do not tear down an otherwise healthy SSH connection.
 Initialization and every tagged request reply are bounded by `requestTimeout`. Expiry rejects the

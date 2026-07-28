@@ -341,10 +341,12 @@ describe("SFTP client request engine", () => {
         await expect(client.read(handle, 1, 0)).rejects.toThrow(
             "SFTP server returned empty data for a positive-length read",
         )
+        expect(fixture.destroyed).toBe(true)
+        await expect(client.stat("after protocol error")).rejects.toThrow("SFTP session is closed")
         fixture.destroy()
     })
 
-    test("rejects empty directory batches and still closes the handle", async () => {
+    test("rejects empty directory batches and closes the malformed session", async () => {
         const requests: SFTPPacketType[] = []
         let readDirectoryRequests = 0
         const fixture = new SFTPServerFixture((packet) => {
@@ -392,11 +394,8 @@ describe("SFTP client request engine", () => {
         await expect(client.readDirectory("remote")).rejects.toThrow(
             "SFTP directory response must contain at least one name",
         )
-        expect(requests).toEqual([
-            SFTPPacketType.OpenDir,
-            SFTPPacketType.ReadDir,
-            SFTPPacketType.Close,
-        ])
+        expect(requests).toEqual([SFTPPacketType.OpenDir, SFTPPacketType.ReadDir])
+        expect(fixture.destroyed).toBe(true)
         fixture.destroy()
     })
 
@@ -1400,36 +1399,72 @@ describe("SFTP client request engine", () => {
     })
 
     test("preserves opaque canonical paths and symlink targets on request", async () => {
+        const operations = [
+            {
+                type: SFTPPacketType.RealPath,
+                buffer: (client: SFTPClient) => client.realpath(Buffer.from("."), "buffer"),
+                text: (client: SFTPClient) => client.realpath("."),
+            },
+            {
+                type: SFTPPacketType.ReadLink,
+                buffer: (client: SFTPClient) => client.readlink(Buffer.from("link"), "buffer"),
+                text: (client: SFTPClient) => client.readlink("link"),
+            },
+        ] as const
+
+        for (const operation of operations) {
+            const fixture = new SFTPServerFixture((packet) => {
+                if (packet.type === SFTPPacketType.Init) {
+                    fixture.send({ type: SFTPPacketType.Version, version: 3, extensions: [] })
+                } else if (packet.type === operation.type) {
+                    fixture.send({
+                        type: SFTPPacketType.Name,
+                        requestId: packet.requestId,
+                        names: [
+                            {
+                                filename: Buffer.from([0xff]),
+                                longname: Buffer.alloc(0),
+                                attributes: {},
+                            },
+                        ],
+                    })
+                }
+            })
+            const client = await SFTPClient.connect(asClientChannel(fixture))
+
+            expect(await operation.buffer(client)).toEqual(Buffer.from([0xff]))
+            await expect(operation.text(client)).rejects.toThrow(
+                "SFTP returned filename is not valid UTF-8 text",
+            )
+            expect(fixture.destroyed).toBe(true)
+        }
+    })
+
+    test("closes on malformed decoded extension replies", async () => {
         const fixture = new SFTPServerFixture((packet) => {
             if (packet.type === SFTPPacketType.Init) {
-                fixture.send({ type: SFTPPacketType.Version, version: 3, extensions: [] })
-                return
+                fixture.send({
+                    type: SFTPPacketType.Version,
+                    version: 3,
+                    extensions: [{ name: "statvfs@openssh.com", data: Buffer.from("2") }],
+                })
+            } else if (packet.type === SFTPPacketType.Extended) {
+                fixture.send({
+                    type: SFTPPacketType.ExtendedReply,
+                    requestId: packet.requestId,
+                    data: Buffer.alloc(87),
+                })
             }
-            if (
-                packet.type !== SFTPPacketType.RealPath &&
-                packet.type !== SFTPPacketType.ReadLink
-            ) {
-                return
-            }
-            fixture.send({
-                type: SFTPPacketType.Name,
-                requestId: packet.requestId,
-                names: [
-                    { filename: Buffer.from([0xff]), longname: Buffer.alloc(0), attributes: {} },
-                ],
-            })
         })
-
         const client = await SFTPClient.connect(asClientChannel(fixture))
-        await expect(client.realpath(".")).rejects.toThrow(
-            "SFTP returned filename is not valid UTF-8 text",
+
+        await expect(client.opensshStatVFS(".")).rejects.toThrow(
+            "Truncated statvfs maximum filename length",
         )
-        expect(await client.realpath(Buffer.from("."), "buffer")).toEqual(Buffer.from([0xff]))
-        await expect(client.readlink("link")).rejects.toThrow(
-            "SFTP returned filename is not valid UTF-8 text",
+        expect(fixture.destroyed).toBe(true)
+        await expect(client.stat("after malformed extension")).rejects.toThrow(
+            "SFTP session is closed",
         )
-        expect(await client.readlink(Buffer.from("link"), "buffer")).toEqual(Buffer.from([0xff]))
-        fixture.destroy()
     })
 
     test("rejects malformed advertised limits instead of silently downgrading", async () => {
