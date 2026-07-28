@@ -301,6 +301,9 @@ const client = new Client({
 })
 ```
 
+All three standalone methods are exercised against a pinned independent peer in both SSH roles,
+including authenticated channel traffic and rekey.
+
 RFC 9941 `sntrup761x25519-sha512` and its wire-equivalent
 `sntrup761x25519-sha512@openssh.com` alias follow the ML-KEM methods. This hybrid combines a
 Streamlined NTRU Prime sntrup761 KEM secret with an X25519 secret through SHA-512. The client sends

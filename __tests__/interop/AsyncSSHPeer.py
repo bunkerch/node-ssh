@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+from __future__ import annotations
+
 import argparse
 import asyncio
 import base64
@@ -8,10 +10,17 @@ import logging
 import os
 import struct
 import sys
+from hashlib import sha256, sha384
+from typing import Callable, Mapping
 
 import asyncssh
 from asyncssh.encryption import GCMEncryption, register_encryption_alg
+from asyncssh.kex import register_kex_alg
+from asyncssh.kex_dh import _KexDHBase
 from asyncssh.mac import MAC, register_mac_alg
+from asyncssh.misc import ProtocolError
+from asyncssh.packet import MPInt, SSHPacket, String
+from kyber_py.ml_kem import ML_KEM_1024, ML_KEM_512, ML_KEM_768
 
 if os.environ.get("MODERNSSH_PEER_DEBUG"):
     logging.basicConfig(level=logging.DEBUG)
@@ -43,6 +52,105 @@ for algorithm, cipher in (
 ):
     register_encryption_alg(algorithm, GCMEncryption, cipher, False)
     register_mac_alg(algorithm, 0, 16, True, RegisteredAEADMAC, (), False)
+
+
+class StandaloneMLKEMKeyExchange(_KexDHBase):
+    """FIPS 203 key exchange framing from the standalone SSH ML-KEM draft."""
+
+    _init_type = 30
+    _reply_type = 31
+
+    def __init__(
+        self,
+        alg: bytes,
+        conn: asyncssh.SSHConnection,
+        hash_alg: Callable,
+        kem: object,
+        public_key_bytes: int,
+        ciphertext_bytes: int,
+    ):
+        super().__init__(alg, conn, hash_alg)
+        self._kem = kem
+        self._public_key_bytes = public_key_bytes
+        self._ciphertext_bytes = ciphertext_bytes
+        self._client_public_key = b""
+        self._server_ciphertext = b""
+        self._secret_key = b""
+        self._shared_secret = b""
+
+        if conn.is_client():
+            self._client_public_key, self._secret_key = self._kem.keygen()
+
+    def _parse_client_key(self, packet: SSHPacket) -> None:
+        self._client_public_key = packet.get_string()
+
+    def _parse_server_key(self, packet: SSHPacket) -> None:
+        self._server_ciphertext = packet.get_string()
+
+    def _format_client_key(self) -> bytes:
+        return String(self._client_public_key)
+
+    def _format_server_key(self) -> bytes:
+        return String(self._server_ciphertext)
+
+    def _compute_hash(self, host_key_data: bytes, _key: bytes) -> bytes:
+        hash_obj = self._hash_alg()
+        hash_obj.update(self._conn.get_hash_prefix())
+        hash_obj.update(String(host_key_data))
+        hash_obj.update(self._format_client_key())
+        hash_obj.update(self._format_server_key())
+        hash_obj.update(String(self._shared_secret))
+        return hash_obj.digest()
+
+    def _compute_client_shared(self) -> bytes:
+        if len(self._server_ciphertext) != self._ciphertext_bytes:
+            raise ProtocolError("Invalid ML-KEM server ciphertext length")
+
+        try:
+            self._shared_secret = self._kem.decaps(
+                self._secret_key,
+                self._server_ciphertext,
+            )
+        except ValueError:
+            raise ProtocolError("Invalid ML-KEM server ciphertext") from None
+
+        return MPInt(int.from_bytes(self._shared_secret, "big"))
+
+    def _compute_server_shared(self) -> bytes:
+        if len(self._client_public_key) != self._public_key_bytes:
+            raise ProtocolError("Invalid ML-KEM client public key length")
+
+        try:
+            self._shared_secret, self._server_ciphertext = self._kem.encaps(
+                self._client_public_key
+            )
+        except ValueError:
+            raise ProtocolError("Invalid ML-KEM client public key") from None
+
+        return MPInt(int.from_bytes(self._shared_secret, "big"))
+
+    async def start(self) -> None:
+        if self._conn.is_client():
+            self._send_init()
+
+    _packet_handlers: Mapping[int, Callable] = {
+        30: _KexDHBase._process_init,
+        31: _KexDHBase._process_reply,
+    }
+
+
+for algorithm, hash_alg, kem, public_key_bytes, ciphertext_bytes in (
+    (b"mlkem512-sha256", sha256, ML_KEM_512, 800, 768),
+    (b"mlkem768-sha256", sha256, ML_KEM_768, 1184, 1088),
+    (b"mlkem1024-sha384", sha384, ML_KEM_1024, 1568, 1568),
+):
+    register_kex_alg(
+        algorithm,
+        StandaloneMLKEMKeyExchange,
+        hash_alg,
+        (kem, public_key_bytes, ciphertext_bytes),
+        False,
+    )
 
 
 def ssh_string(value: bytes) -> bytes:

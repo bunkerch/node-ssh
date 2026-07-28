@@ -232,7 +232,9 @@ vectors and checks the SHA-256 digest of each published encapsulation key. It ve
 rejection, same-length ciphertext implicit rejection, and the specification's distinct raw-string
 exchange-hash encoding. In-process client/server tests force each IANA name through authenticated
 traffic and rekeys initiated by both roles; SHA-256 and SHA-384 exchange-hash lengths are checked
-separately.
+separately. The pinned independent peer implements the draft framing over a separate FIPS 203
+primitive and forces all three methods through authenticated command traffic and rekey in both SSH
+roles.
 
 RFC 4250 name tests cover the 64-character boundary, extension-domain form, non-ASCII and control
 input, commas, empty entries, and duplicate name-list members. Packet tests separately prove that

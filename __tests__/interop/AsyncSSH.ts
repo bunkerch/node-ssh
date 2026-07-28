@@ -21,6 +21,9 @@ const publicKey = PublicKey.parse(
     ),
 )
 const transportProfiles = [
+    ["mlkem512-sha256", "mlkem512-sha256", "aes128-ctr", "hmac-sha2-256"],
+    ["mlkem768-sha256", "mlkem768-sha256", "aes128-ctr", "hmac-sha2-256"],
+    ["mlkem1024-sha384", "mlkem1024-sha384", "aes128-ctr", "hmac-sha2-256"],
     ["curve448-sha512", "curve448-sha512", "aes128-ctr", "hmac-sha2-256"],
     ["rsa2048-sha256", "rsa2048-sha256", "aes128-ctr", "hmac-sha2-256"],
     ["mlkem768nistp256-sha256", "mlkem768nistp256-sha256", "aes128-ctr", "hmac-sha2-256"],
