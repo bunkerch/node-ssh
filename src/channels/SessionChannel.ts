@@ -27,6 +27,10 @@ import {
     type AgentForwardingProtocol,
 } from "../AgentForwarding.js"
 import { serverConfigurationFor } from "../ConnectionConfiguration.js"
+import {
+    userCertificateForceCommand,
+    userCertificatePermits,
+} from "../UserCertificateAuthorization.js"
 
 export interface SessionPtyInfo {
     term: string
@@ -207,6 +211,9 @@ export default class SessionChannel extends Channel {
             case LEGACY_AGENT_REQUEST: {
                 assert(request.data.args.length === 0, "Agent forwarding request has trailing data")
                 this.assertNotConsumed()
+                if (!userCertificatePermits(this.client as ServerClient, "agent-forwarding")) {
+                    break
+                }
                 const protocol: AgentForwardingProtocol =
                     request.data.request_type === RFC9987_AGENT_REQUEST ? "rfc9987" : "legacy"
                 const controller: SessionChannelHookerAgentForwardRequestController = {
@@ -229,6 +236,7 @@ export default class SessionChannel extends Channel {
                 this.assertNotConsumed()
                 assert(!this.x11, "This SSH session channel already has X11 forwarding")
                 const context = Object.freeze(SessionChannel.parseX11Request(request.data.args))
+                if (!userCertificatePermits(this.client as ServerClient, "x11")) break
                 const controller: SessionChannelHookerX11RequestController = { success: false }
                 const policyCompleted = await this.hooker.triggerHookChecked(
                     "x11Request",
@@ -252,6 +260,7 @@ export default class SessionChannel extends Channel {
                 this.assertNotConsumed()
                 assert(!this.pty, "This SSH session channel already has a PTY")
                 const pty = Object.freeze(this.parsePtyRequest(request.data.args))
+                if (!userCertificatePermits(this.client as ServerClient, "pty")) break
                 const controller: SessionChannelHookerPtyRequestController = { success: false }
                 const policyCompleted = await this.hooker.triggerHookChecked(
                     "ptyRequest",
@@ -304,40 +313,26 @@ export default class SessionChannel extends Channel {
                 break
             }
             case "exec": {
-                const { command } = this.parseExecRequest(request.data.args)
+                const requested = this.parseExecRequest(request.data.args).command
+                const command = this.forcedCommand() ?? requested
                 this.debug("Received exec request:", {
                     commandBytes: Buffer.byteLength(command),
                     command: "<redacted>",
                 })
                 this.assertNotConsumed()
 
-                const controller: SessionChannelHookerExecRequestController = {
-                    success: false,
-                }
-                const context: SessionChannelHookerExecRequestContext = {
-                    command: command,
-                }
-                const policyCompleted = await this.hooker.triggerHookChecked(
-                    "execRequest",
-                    Object.freeze(context),
-                    controller,
-                )
-                if (!this.isOpen) return
-
-                if (policyCompleted && controller.success) {
-                    this.consumed = true
-                    const shell = this.activateShell()
-                    this.sendRequestSuccess(request)
-                    this.events.emit("exec", command, shell)
-                    return
-                }
-
+                if (await this.handleExecRequest(request, command)) return
                 break
             }
             case "shell": {
                 // no arguments, but still need to verify args.length === 0
                 this.parseShellRequest(request.data.args)
                 this.assertNotConsumed()
+                const forcedCommand = this.forcedCommand()
+                if (forcedCommand !== undefined) {
+                    if (await this.handleExecRequest(request, forcedCommand)) return
+                    break
+                }
 
                 const controller: SessionChannelHookerShellRequestController = {
                     success: false,
@@ -362,6 +357,11 @@ export default class SessionChannel extends Channel {
             case "subsystem": {
                 const { subsystem } = this.parseSubsystemRequest(request.data.args)
                 this.assertNotConsumed()
+                const forcedCommand = this.forcedCommand()
+                if (forcedCommand !== undefined) {
+                    if (await this.handleExecRequest(request, forcedCommand)) return
+                    break
+                }
                 const controller: SessionChannelHookerSubsystemRequestController = {
                     success: false,
                 }
@@ -448,6 +448,28 @@ export default class SessionChannel extends Channel {
         }
 
         await super.handleChannelRequest(request)
+    }
+
+    private forcedCommand(): string | undefined {
+        return userCertificateForceCommand(this.client as ServerClient)
+    }
+
+    private async handleExecRequest(request: ChannelRequest, command: string): Promise<boolean> {
+        const controller: SessionChannelHookerExecRequestController = { success: false }
+        const context: SessionChannelHookerExecRequestContext = { command }
+        const policyCompleted = await this.hooker.triggerHookChecked(
+            "execRequest",
+            Object.freeze(context),
+            controller,
+        )
+        if (!this.isOpen) return true
+        if (!policyCompleted || !controller.success) return false
+
+        this.consumed = true
+        const shell = this.activateShell()
+        this.sendRequestSuccess(request)
+        this.events.emit("exec", command, shell)
+        return true
     }
 
     parsePtyRequest(raw: Buffer) {

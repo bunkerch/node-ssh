@@ -223,6 +223,8 @@ export interface ServerHookerPublicKeyAuthenticationController
     extends ServerAuthenticationContinuation {
     requestSignature: boolean
     allowLogin: boolean
+    /** Vendor critical options which application policy fully enforced for this request. */
+    handledCertificateCriticalOptions?: readonly string[]
 }
 export type ServerHookerHostbasedAuthenticationContext = Readonly<{
     username: string

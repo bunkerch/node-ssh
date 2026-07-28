@@ -442,9 +442,47 @@ semantics for compatibility, so policy must handle that case deliberately.
 
 On the server, `context.certificate` contains the verified certificate when present. Before the
 awaited policy hook runs, the library checks its CA signature, user role, validity interval, and
-the request's possession signature. The hook must still trust the CA explicitly, authorize at
-least one principal for `context.username`, reject or implement every critical option, and compose
-certificate restrictions with application policy. Extensions grant nothing by themselves.
+the request's possession signature. It also validates `source-address`, security-key
+`verify-required` and `no-touch-required` assertions, and the shapes of recognized options and
+extensions. The hook must still trust the CA explicitly and authorize at least one principal for
+`context.username`.
+
+Unknown critical options fail closed. An application may support a vendor critical option by fully
+enforcing it in the awaited hook and then adding its exact name to
+`decision.handledCertificateCriticalOptions`. Listing a name is an enforcement claim, not a request
+to ignore the option:
+
+```ts
+server.hooker.hook("publicKeyAuthentication", async (_hook, context, decision) => {
+    const certificate = context.certificate
+    if (!certificate || !context.signature) {
+        decision.requestSignature = certificate !== undefined
+        return
+    }
+
+    const tenant = certificate.data.criticalOptions.find(
+        (option) => option.name === "tenant@example.com",
+    )
+    if (tenant) {
+        await requireTenantAccess(context.username, tenant.data)
+        decision.handledCertificateCriticalOptions = ["tenant@example.com"]
+    }
+
+    decision.allowLogin = await trustCertificateAuthority(
+        certificate.data.signatureKey,
+        context.username,
+        certificate.data.principals,
+    )
+})
+```
+
+Certificate permissions are deny-by-default. Agent forwarding, TCP forwarding, PTY allocation, and
+X11 forwarding require their matching `permit-*` extension; denied requests are rejected before
+their application policy hook. `force-command` replaces exec commands and routes shell and
+subsystem requests through the awaited `execRequest` hook and the synchronous `exec` observation
+event using the forced command. When certificate authentication is one factor of a multi-factor
+login, restrictions from every accepted certificate are intersected. Conflicting forced commands
+reject authentication.
 
 Host-based authentication proves possession of a client machine's private host key and sends the
 claimed client hostname and local username for authorization. Configure all three explicitly and

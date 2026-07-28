@@ -1123,6 +1123,8 @@ Interface. Declared in [`src/Server.ts`](https://github.com/bunkerch/node-ssh/bl
 export interface ServerHookerPublicKeyAuthenticationController extends ServerAuthenticationContinuation {
     requestSignature: boolean;
     allowLogin: boolean;
+    /** Vendor critical options which application policy fully enforced for this request. */
+    handledCertificateCriticalOptions?: readonly string[];
 }
 ```
 

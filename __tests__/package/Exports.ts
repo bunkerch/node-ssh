@@ -701,6 +701,7 @@ describe("package exports", () => {
         expect(server).toContain("[Symbol.asyncDispose](): Promise<void>")
         expect(server).toContain("delayCompression?: DelayCompressionConfiguration")
         expect(server).toContain("bannerLanguageTag?: string")
+        expect(server).toContain("handledCertificateCriticalOptions?: readonly string[]")
         expect(server).toContain("rejection?: ChannelOpenError")
         expect(server).toContain("replyTimeout?: number")
         expect(server).toContain("maxPendingChannelOpens?: number")

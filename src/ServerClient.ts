@@ -192,6 +192,15 @@ import {
     UserAuthGSSAPIToken,
 } from "./packets/UserAuthGSSAPI.js"
 import {
+    evaluateUserCertificateAuthorization,
+    mergeUserCertificateAuthorization,
+    setUserCertificateAuthorization,
+    userCertificateCriticalOptionsPermitted,
+    userCertificatePermits,
+    userCertificateSignaturePermitted,
+    type UserCertificateAuthorization,
+} from "./UserCertificateAuthorization.js"
+import {
     findNoFlowControlValue,
     negotiateNoFlowControl,
     noFlowControlExtension,
@@ -1383,6 +1392,15 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 )
                 return
             }
+            if (
+                packet.data.channel_type === "direct-tcpip" &&
+                !userCertificatePermits(this, "port-forwarding")
+            ) {
+                throw new ChannelOpenError(
+                    ChannelOpenFailureReasonCodes.SSH_OPEN_ADMINISTRATIVELY_PROHIBITED,
+                    "The authenticated SSH certificate does not permit TCP forwarding.",
+                )
+            }
             const channel = channelFromChannelOpenPacket(packet, this)
             const controller: ServerHookerChannelOpenRequestController = {
                 allowOpen: false,
@@ -1613,6 +1631,10 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     private async handleTCPIPForward(packet: GlobalRequest): Promise<void> {
         try {
             const context = this.parseTCPIPForwardArgs(packet.data.args)
+            if (!userCertificatePermits(this, "port-forwarding")) {
+                if (packet.data.want_reply) this.sendPacket(new RequestFailure({}))
+                return
+            }
             if (!this.hasRemoteForwardingCapacity()) {
                 if (packet.data.want_reply) this.sendPacket(new RequestFailure({}))
                 return
@@ -1980,6 +2002,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
 
     async handleAuthentication() {
         let allowLogin = false
+        let certificateAuthorization: Readonly<UserCertificateAuthorization> | undefined
         let authRequest: UserAuthRequest | undefined
         let pendingAuthRequest: UserAuthRequest | undefined
         let failedAttempts = 0
@@ -2125,6 +2148,9 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                             certificateAlgorithm instanceof SSHCertificatePublicKey
                                 ? certificateAlgorithm
                                 : undefined
+                        let proposedCertificateAuthorization:
+                            | Readonly<UserCertificateAuthorization>
+                            | undefined
                         if (certificate) {
                             const now = BigInt(Math.floor(Date.now() / 1000))
                             if (
@@ -2132,6 +2158,21 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                                 now < certificate.data.validAfter ||
                                 now >= certificate.data.validBefore ||
                                 !certificate.verifyCertificateSignature()
+                            ) {
+                                sendAuthenticationFailure({}, SSHAuthenticationMethods.PublicKey)
+                                break
+                            }
+                            proposedCertificateAuthorization = evaluateUserCertificateAuthorization(
+                                certificate,
+                                this.socket.remoteAddress,
+                            )
+                            if (
+                                proposedCertificateAuthorization === undefined ||
+                                (method.data.signature !== undefined &&
+                                    !userCertificateSignaturePermitted(
+                                        proposedCertificateAuthorization,
+                                        method.data.signature,
+                                    ))
                             ) {
                                 sendAuthenticationFailure({}, SSHAuthenticationMethods.PublicKey)
                                 break
@@ -2172,12 +2213,42 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                                 controller.allowLogin = false
                             }
                         }
-                        if (controller.allowLogin && !method.data.signature) {
+                        if (
+                            (controller.allowLogin || controller.partialSuccess) &&
+                            !method.data.signature
+                        ) {
                             controller.allowLogin = false
+                            controller.partialSuccess = false
                             controller.requestSignature = true
                         }
                         if (controller.requestSignature && method.data.signature) {
                             controller.requestSignature = false
+                        }
+                        if (
+                            proposedCertificateAuthorization !== undefined &&
+                            method.data.signature !== undefined &&
+                            (controller.allowLogin || controller.partialSuccess)
+                        ) {
+                            if (
+                                !userCertificateCriticalOptionsPermitted(
+                                    proposedCertificateAuthorization,
+                                    controller.handledCertificateCriticalOptions,
+                                )
+                            ) {
+                                controller.allowLogin = false
+                                controller.partialSuccess = false
+                            } else {
+                                const merged = mergeUserCertificateAuthorization(
+                                    certificateAuthorization,
+                                    proposedCertificateAuthorization,
+                                )
+                                if (merged === undefined) {
+                                    controller.allowLogin = false
+                                    controller.partialSuccess = false
+                                } else {
+                                    certificateAuthorization = merged
+                                }
+                            }
                         }
                         if (controller.allowLogin) {
                             allowLogin = true
@@ -2454,6 +2525,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             this.sendPacket(new UserAuthSuccess({}))
             this.#authenticatedUsername = authRequest.data.username
             this.#authenticatedMethod = authRequest.data.method.method_name
+            setUserCertificateAuthorization(this, certificateAuthorization)
             this.hasAuthenticated = true
             this.activateAuthenticatedServerCompression()
             this.prepareAuthenticatedClientCompression()
