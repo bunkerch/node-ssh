@@ -63,6 +63,31 @@ release from its SHA-256-pinned source archive with two compiler jobs. Besides c
 the server's exact `agent-forward` version `0` advertisement before forwarding a real agent through
 `agent-req` and `agent-connect`.
 
+## Independent standards peer
+
+OpenSSH does not implement every registered SSH algorithm. A separate digest-pinned Debian
+fixture installs AsyncSSH 2.24.0 and its complete dependency set from version- and SHA-256-pinned
+wheels. It is test-only and does not enter the published dependency graph. Fixed RFC and NIST
+vectors remain the authority for wire and cryptographic behavior; this peer adds evidence that the
+independently implemented state machines interoperate.
+
+The fixture connects in both directions and transfers command, stdin, stdout, stderr, and a
+non-zero exit status while forcing each of:
+
+- RFC 4432 `rsa2048-sha256`
+- RFC 8731 `curve448-sha512`
+- `mlkem768nistp256-sha256`
+- `mlkem1024nistp384-sha384`
+
+Every exchange also forces an RFC 8709 `ssh-ed448` server host key. The library-client cases
+initiate a rekey before opening the session, proving that the peer accepts a fresh exchange and
+retains working higher-layer state.
+
+This peer also provides a regression for packet scheduling across implementation boundaries. It
+sends `EXT_INFO` immediately followed by `SERVICE_REQUEST`; the server must retain both packets
+while filtering the transport-level extension message. A focused in-process test sends `IGNORE`
+in the same position so the queue-lifetime rule remains isolated and deterministic.
+
 ## Deterministic protocol vectors
 
 RFC 4462 GSS-API authentication is covered by literal packet bytes for mechanism negotiation, every

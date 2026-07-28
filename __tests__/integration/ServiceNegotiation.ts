@@ -3,6 +3,7 @@ import Client from "../../src/Client.js"
 import { SSHAuthenticationMethods } from "../../src/constants.js"
 import Packet from "../../src/packet.js"
 import { DisconnectReason, type PeerDisconnectInfo } from "../../src/packets/Disconnect.js"
+import Ignore from "../../src/packets/Ignore.js"
 import ServiceAccept from "../../src/packets/ServiceAccept.js"
 import ServiceRequest from "../../src/packets/ServiceRequest.js"
 import Server from "../../src/Server.js"
@@ -16,6 +17,15 @@ class UnavailableServiceClient extends Client {
                 ? new ServiceRequest({ service_name: "unavailable@example.test" })
                 : packet,
         )
+    }
+}
+
+class PrefixedServiceClient extends Client {
+    sendPacket(packet: Packet): number {
+        if (packet instanceof ServiceRequest) {
+            super.sendPacket(new Ignore({ data: Buffer.from("adjacent-service-request") }))
+        }
+        return super.sendPacket(packet)
     }
 }
 
@@ -52,6 +62,26 @@ async function close(server: Server, ...clients: Client[]): Promise<void> {
 }
 
 describe("RFC 4253 service negotiation state", () => {
+    test("retains a service request adjacent to a filtered transport packet", async () => {
+        const server = await createServer()
+        const client = new PrefixedServiceClient({
+            hostname: "127.0.0.1",
+            port: (server.server!.address() as AddressInfo).port,
+            username: "service-test",
+            authenticationMethodsOrder: [SSHAuthenticationMethods.None],
+        })
+        client.hooker.hook("hostKey", (_hook, decision) => {
+            decision.allowHostKey = true
+        })
+
+        try {
+            await client.connect()
+            expect(client.isConnected).toBe(true)
+        } finally {
+            await close(server, client)
+        }
+    }, 15_000)
+
     test("disconnects with service-not-available for an unsupported request", async () => {
         const server = await createServer()
         const client = new UnavailableServiceClient({

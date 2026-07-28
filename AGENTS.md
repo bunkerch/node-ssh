@@ -18,8 +18,8 @@ relevant file under `docs/`.
   `src/auth/`, algorithms in `src/algorithms/`, SFTP in `src/sftp/`, and shared primitives in
   `src/utils/`.
 - Public exports are assembled in `src/index.ts`.
-- Tests mirror the implementation under `__tests__/`, including `integration/`, `openssh/`,
-  `packets/`, `transport/`, `utils/`, and `package/`.
+- Tests mirror the implementation under `__tests__/`, including `integration/`, `interop/`,
+  `openssh/`, `packets/`, `transport/`, `utils/`, and `package/`.
 - User-facing and protocol documentation lives in `docs/`.
 - `dist/` is generated. Never edit it directly.
 
@@ -126,6 +126,9 @@ Before committing, run the focused tests for the change, then `pnpm build`, `pnp
   plus negative cases. Do not use another JavaScript SSH implementation as an oracle.
 - Cross-implementation tests use the system OpenSSH tools or the digest-pinned Docker fixture in
   `__tests__/openssh/Dockerfile`. Exercise both peer roles when behavior differs by role.
+- When OpenSSH does not implement a standardized feature, supplement its fixed RFC vectors with a
+  digest-pinned independent-peer fixture. Pin downloaded packages by version and SHA-256, keep the
+  fixture out of runtime dependencies, and exercise both SSH roles.
 - Use real `ssh`, `sshd`, `ssh-keygen`, `ssh-agent`, SFTP, OpenSSL, or other authoritative
   tools when they materially validate interoperability. Keep external-process assertions
   deterministic and suppress incidental logging.

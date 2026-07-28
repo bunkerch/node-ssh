@@ -1,0 +1,19 @@
+FROM debian:bookworm-slim@sha256:60eac759739651111db372c07be67863818726f754804b8707c90979bda511df
+
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends ca-certificates python3 python3-venv \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements-asyncssh.txt /tmp/requirements.txt
+RUN python3 -m venv /opt/peer \
+    && /opt/peer/bin/pip install \
+        --disable-pip-version-check \
+        --no-cache-dir \
+        --only-binary=:all: \
+        --require-hashes \
+        --requirement /tmp/requirements.txt \
+    && rm /tmp/requirements.txt
+
+COPY AsyncSSHPeer.py /opt/peer/peer.py
+
+ENTRYPOINT ["/opt/peer/bin/python", "/opt/peer/peer.py"]

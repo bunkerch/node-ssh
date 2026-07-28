@@ -34,14 +34,6 @@ export function offPacketEvent(source: object, listener: PacketListener): void {
     if (listeners.size === 0) packetListeners.delete(source)
 }
 
-export function waitForPacketEvent(
-    source: PacketEventSource,
-    closedError: () => Error,
-): Promise<Packet> {
-    const packets = new PacketEventQueue(source, closedError)
-    return packets.next().finally(() => packets.close())
-}
-
 export async function waitForMatchingPacket(
     source: PacketEventSource,
     predicate: (packet: Packet) => boolean,

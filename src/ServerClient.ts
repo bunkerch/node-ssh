@@ -192,11 +192,7 @@ import {
     noFlowControlValue,
     type NoFlowControlValue,
 } from "./NoFlowControl.js"
-import PacketEventQueue, {
-    emitPacketEvent,
-    onPacketEvent,
-    waitForPacketEvent,
-} from "./utils/PacketEventQueue.js"
+import PacketEventQueue, { emitPacketEvent, onPacketEvent } from "./utils/PacketEventQueue.js"
 import packetDiagnostic from "./utils/PacketDiagnostic.js"
 import {
     AGENT_FORWARDING_EXTENSION,
@@ -2635,19 +2631,24 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     }
 
     private async waitForHigherLayerPacket(): Promise<Packet> {
-        while (true) {
-            const packet = await waitForPacketEvent(this, () =>
-                this.connectionClosedError("SSH connection closed while waiting for packet"),
-            )
-            const type = (packet.constructor as typeof Packet).type
-            if (
-                type <= PacketNameToType.SSH_MSG_DEBUG ||
-                type === PacketNameToType.SSH_MSG_EXT_INFO ||
-                (type >= PacketNameToType.SSH_MSG_KEXINIT && type < 50)
-            ) {
-                continue
+        const packets = new PacketEventQueue(this, () =>
+            this.connectionClosedError("SSH connection closed while waiting for packet"),
+        )
+        try {
+            while (true) {
+                const packet = await packets.next()
+                const type = (packet.constructor as typeof Packet).type
+                if (
+                    type <= PacketNameToType.SSH_MSG_DEBUG ||
+                    type === PacketNameToType.SSH_MSG_EXT_INFO ||
+                    (type >= PacketNameToType.SSH_MSG_KEXINIT && type < 50)
+                ) {
+                    continue
+                }
+                return packet
             }
-            return packet
+        } finally {
+            packets.close()
         }
     }
 
