@@ -22,8 +22,54 @@ import UserAuthInfoResponse from "../../src/packets/UserAuthInfoResponse.js"
 import UserAuthPasswordChangeRequest from "../../src/packets/UserAuthPasswordChangeRequest.js"
 import PasswordAuthMethod from "../../src/auth/password.js"
 import UserAuthPKOK from "../../src/packets/UserAuthPKOK.js"
+import UserAuthFailure from "../../src/packets/UserAuthFailure.js"
 
 describe("RFC 4252 multi-method authentication", () => {
+    test("never sends a public-key probe reply for a signed request", async () => {
+        const userKey = await PrivateKey.generate("ssh-ed25519")
+        const server = new Server({
+            hostKeys: [await PrivateKey.generate("ssh-ed25519")],
+            sendAllHostKeys: false,
+        })
+        const signatures: boolean[] = []
+        server.hooker.hook("publicKeyAuthentication", (_hook, context, decision) => {
+            signatures.push(context.signature !== undefined)
+            decision.requestSignature = true
+        })
+        const replies: string[] = []
+        server.once("connection", (peer) => {
+            const sendPacket = peer.sendPacket.bind(peer)
+            peer.sendPacket = (packet: Packet) => {
+                if (packet instanceof UserAuthPKOK) replies.push("probe")
+                if (packet instanceof UserAuthFailure) replies.push("failure")
+                return sendPacket(packet)
+            }
+        })
+        server.listen({ host: "127.0.0.1", port: 0 })
+        await once(server, "listening")
+
+        const client = new Client({
+            hostname: "127.0.0.1",
+            port: (server.address() as AddressInfo).port,
+            username: "signed-public-key-request",
+            privateKey: userKey,
+            authenticationMethodsOrder: [SSHAuthenticationMethods.PublicKey],
+        })
+        client.hooker.hook("hostKey", (_hook, decision) => {
+            decision.allowHostKey = true
+        })
+
+        try {
+            await expect(client.connect()).rejects.toThrow("All authentication methods failed")
+            expect(signatures).toEqual([true])
+            expect(replies).toEqual(["failure"])
+        } finally {
+            client.destroy()
+            for (const connection of server.clients) connection.terminate()
+            await server.close()
+        }
+    }, 15_000)
+
     test("fails public-key authentication when its unsigned probe reply is unimplemented", async () => {
         const userKey = await PrivateKey.generate("ssh-ed25519")
         const server = new Server({

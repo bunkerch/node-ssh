@@ -2167,6 +2167,9 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                             controller.allowLogin = false
                             controller.requestSignature = true
                         }
+                        if (controller.requestSignature && method.data.signature) {
+                            controller.requestSignature = false
+                        }
                         if (controller.allowLogin) {
                             allowLogin = true
                             break authentication

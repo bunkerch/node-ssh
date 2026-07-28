@@ -590,7 +590,10 @@ an RSA SHA-2 request these are, for example, `rsa-sha2-512` and `ssh-rsa`. When 
 signature, set `requestSignature` after authorizing the key and algorithm. On the signed retry,
 verify `context.signatureMessage` with
 `context.publicKey.verifySignature(context.signatureMessage, context.signature)` before setting
-`allowLogin`. Hook handlers may be async and are awaited before the protocol reply is sent.
+`allowLogin`. `requestSignature` is honored only for an unsigned probe. Setting it without
+`allowLogin` on an already-signed request denies that request with `SSH_MSG_USERAUTH_FAILURE`; the
+server never sends `SSH_MSG_USERAUTH_PK_OK` for a signed request. Hook handlers may be async and are
+awaited before the protocol reply is sent.
 
 The `hostbasedAuthentication` hook runs only after the library has cryptographically verified the
 RFC 4252 signature. It receives the target username, claimed client hostname and username, host
