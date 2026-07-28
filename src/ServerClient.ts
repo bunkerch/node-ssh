@@ -2164,7 +2164,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                         }
                         if (controller.allowLogin && controller.requestSignature) {
                             console.warn(
-                                `[node-ssh] Hook "publicKeyAuthentication" returned "allowLogin" and "requestSignature" to true at the same time. You should not set both to true, but rather the correct one, depending if the request is signed.`,
+                                `[modernssh] Hook "publicKeyAuthentication" returned "allowLogin" and "requestSignature" to true at the same time. You should not set both to true, but rather the correct one, depending if the request is signed.`,
                             )
                             if (method.data.signature) {
                                 controller.requestSignature = false

@@ -58,8 +58,10 @@ completion callback, and listeners must not be `async` functions.
 Policy and credential decisions use `Hooker`, whose handlers may be asynchronous and are awaited
 in registration order. Observe contained handler failures through the Hooker's
 `uncaughtException` event; it always supplies an `Error`, including when JavaScript code rejects
-with a primitive value. Ordinary `Client`, `Server`, and channel EventEmitter listeners are
-synchronous notifications, so do not put authorization work in an async event listener.
+with a primitive value. Without an `uncaughtException` observer, Hooker writes a `[modernssh]`
+warning and continues with the failed policy result. Ordinary `Client`, `Server`, and channel
+EventEmitter listeners are synchronous notifications, so do not put authorization work in an
+async event listener.
 
 Client configuration is validated when the client is constructed. Only `undefined` selects an
 option's documented default; `null` is rejected instead of silently enabling a default. The root

@@ -680,7 +680,7 @@ export default class Server extends EventEmitter<ServerEvents> {
             this.algorithmOffer.serverHostKey[0] !== "null"
         ) {
             console.warn(
-                "[node-ssh] No host key supplied. Generating a temporary Ed25519 host key.",
+                "[modernssh] No host key supplied. Generating a temporary Ed25519 host key.",
             )
             this.hostKeysReady = PrivateKey.generate("ssh-ed25519").then((key) => {
                 this.#options.hostKeys.push(key)

@@ -512,6 +512,19 @@ describe("package exports", () => {
         expect("waitEvent" in ServerClient.prototype).toBe(false)
     })
 
+    test("compiled runtime diagnostics use the modernssh identity", async () => {
+        const diagnosticModules = await Promise.all(
+            ["Server.js", "ServerClient.js", "utils/Hooker.js"].map((path) =>
+                readFile(join("dist", path), "utf8"),
+            ),
+        )
+
+        for (const source of diagnosticModules) {
+            expect(source).not.toContain("[node-ssh]")
+        }
+        expect(diagnosticModules.every((source) => source.includes("[modernssh]"))).toBe(true)
+    })
+
     test("compiled declarations expose Promise-only completion APIs", async () => {
         const client = await readFile("dist/Client.d.ts", "utf8")
         const clientChannel = await readFile("dist/channels/ClientChannel.d.ts", "utf8")

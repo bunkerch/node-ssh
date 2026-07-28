@@ -86,7 +86,7 @@ export class Hooker<types extends Record<string, unknown[]>> extends EventEmitte
                     // on the process or something, this makes the process
                     // crash if you don't catch it. I'd rather log it
                     console.warn(
-                        `[node-ssh] Uncaught exception in hook for event ${event.toString()}:`,
+                        `[modernssh] Uncaught exception in hook for event ${event.toString()}:`,
                         error,
                     )
                 }
