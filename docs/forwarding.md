@@ -199,6 +199,11 @@ listener runs. Cancellation recovers the slot after stopping acceptance, and set
 zero disables both forms of remote forwarding while leaving direct forwarding available for its
 separate channel-open policy.
 
+Listener setup remains transactional through submission of the success reply. If that reply cannot
+be emitted, the provisional TCP or stream-local listener is removed and closed, and its shared
+capacity slot is released. A failed request therefore cannot leave an unacknowledged listener
+accepting connections.
+
 An application may also represent an incoming connection explicitly after the client has requested
 and the server has accepted the exact bind. `ServerClient.forwardOut()` checks that authorization,
 opens the RFC 4254 `forwarded-tcpip` channel, and returns its flow-controlled channel:

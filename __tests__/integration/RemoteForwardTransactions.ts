@@ -24,7 +24,7 @@ function within<T>(operation: Promise<T>, label: string): Promise<T> {
     })
 }
 
-async function createPeers(): Promise<{
+async function createPeers(options: { maxRemoteForwardings?: number } = {}): Promise<{
     client: Client
     server: Server
     connection: ServerClient
@@ -36,6 +36,7 @@ async function createPeers(): Promise<{
     const server = new Server({
         hostKeys: [await PrivateKey.generate("ssh-ed25519")],
         sendAllHostKeys: false,
+        maxRemoteForwardings: options.maxRemoteForwardings,
     })
     server.hooker.hook("noneAuthentication", (_hook, _context, decision) => {
         decision.allowLogin = true
@@ -168,6 +169,55 @@ test("rejects active and pending stream-local forwarding duplicates locally", as
         await client.openssh_unforwardInStreamLocal(socketPath)
     } finally {
         releasePolicy()
+        await closePeers(client, server)
+        await rm(directory, { recursive: true, force: true })
+    }
+}, 15_000)
+
+test("rolls back a TCP listener when its success response cannot be emitted", async () => {
+    const { client, server } = await createPeers({ maxRemoteForwardings: 1 })
+    let failResponse = true
+    server.hooker.hook("tcpipForward", (_hook, _context, decision) => {
+        if (!failResponse) return
+        failResponse = false
+        server.once("debug", () => {
+            throw new Error("forwarding response observer failed")
+        })
+        decision.allow = true
+    })
+
+    try {
+        await expect(client.forwardIn("127.0.0.1", 0)).rejects.toThrow("failed")
+
+        const recoveredPort = await client.forwardIn("127.0.0.1", 0)
+        expect(recoveredPort).toBeGreaterThan(0)
+        await client.unforwardIn("127.0.0.1", recoveredPort)
+    } finally {
+        await closePeers(client, server)
+    }
+}, 15_000)
+
+test("rolls back a stream-local listener when its success response cannot be emitted", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "modernssh-forward-rollback-"))
+    const failedPath = join(directory, "failed.sock")
+    const recoveredPath = join(directory, "recovered.sock")
+    const { client, server } = await createPeers({ maxRemoteForwardings: 1 })
+    let failResponse = true
+    server.hooker.hook("streamLocalForward", (_hook, _context, decision) => {
+        if (!failResponse) return
+        failResponse = false
+        server.once("debug", () => {
+            throw new Error("forwarding response observer failed")
+        })
+        decision.allow = true
+    })
+
+    try {
+        await expect(client.openssh_forwardInStreamLocal(failedPath)).rejects.toThrow("failed")
+
+        await client.openssh_forwardInStreamLocal(recoveredPath)
+        await client.openssh_unforwardInStreamLocal(recoveredPath)
+    } finally {
         await closePeers(client, server)
         await rm(directory, { recursive: true, force: true })
     }

@@ -1714,6 +1714,12 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     }
 
     private async handleTCPIPForward(packet: GlobalRequest): Promise<void> {
+        let installed:
+            | {
+                  key: string
+                  forwarding: RemoteForwardListener
+              }
+            | undefined
         try {
             const context = this.parseTCPIPForwardArgs(packet.data.args)
             if (!userCertificatePermits(this, "port-forwarding")) {
@@ -1764,7 +1770,9 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             }
 
             const key = this.remoteForwardingKey(context.bindAddress, actualPort)
-            this.remoteForwardListeners.set(key, { server: listener })
+            const forwarding = { server: listener }
+            installed = { key, forwarding }
+            this.remoteForwardListeners.set(key, forwarding)
             listener.once("close", () => {
                 if (this.remoteForwardListeners.get(key)?.server === listener) {
                     this.remoteForwardListeners.delete(key)
@@ -1779,6 +1787,13 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 )
             }
         } catch (error) {
+            if (
+                installed !== undefined &&
+                this.remoteForwardListeners.get(installed.key) === installed.forwarding
+            ) {
+                this.remoteForwardListeners.delete(installed.key)
+                installed.forwarding.server.close()
+            }
             this.debug(`Could not establish remote forwarding listener:`, error)
             if (packet.data.want_reply && this.isConnected) {
                 this.sendPacket(new RequestFailure({}))
@@ -1818,6 +1833,12 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     }
 
     private async handleStreamLocalForward(packet: GlobalRequest): Promise<void> {
+        let installed:
+            | {
+                  socketPath: string
+                  forwarding: RemoteForwardListener
+              }
+            | undefined
         try {
             const context = this.parseStreamLocalForwardArgs(packet.data.args)
             if (!this.hasRemoteForwardingCapacity()) {
@@ -1859,7 +1880,9 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 return
             }
 
-            this.remoteStreamLocalListeners.set(context.socketPath, { server: listener })
+            const forwarding = { server: listener }
+            installed = { socketPath: context.socketPath, forwarding }
+            this.remoteStreamLocalListeners.set(context.socketPath, forwarding)
             listener.once("close", () => {
                 if (this.remoteStreamLocalListeners.get(context.socketPath)?.server === listener) {
                     this.remoteStreamLocalListeners.delete(context.socketPath)
@@ -1869,6 +1892,13 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 this.sendPacket(new RequestSuccess({ args: Buffer.alloc(0) }))
             }
         } catch (error) {
+            if (
+                installed !== undefined &&
+                this.remoteStreamLocalListeners.get(installed.socketPath) === installed.forwarding
+            ) {
+                this.remoteStreamLocalListeners.delete(installed.socketPath)
+                installed.forwarding.server.close()
+            }
             this.debug(`Could not establish remote stream-local forwarding listener:`, error)
             if (packet.data.want_reply && this.isConnected) {
                 this.sendPacket(new RequestFailure({}))
