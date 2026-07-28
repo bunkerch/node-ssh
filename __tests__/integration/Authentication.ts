@@ -1165,6 +1165,44 @@ describe("RFC 4252 multi-method authentication", () => {
         }
     }, 15_000)
 
+    test("rejects a non-ASCII server signature algorithm advertisement", async () => {
+        const server = new Server({
+            hostKeys: [await PrivateKey.generate("ssh-ed25519")],
+            sendAllHostKeys: false,
+        })
+        server.hooker.hook("noneAuthentication", (_hook, _context, decision, connection) => {
+            const malformed = Buffer.from("ssh-ed25519", "ascii")
+            malformed[0] |= 0x80
+            connection.sendPacket(
+                new ExtInfo({
+                    extensions: [{ name: "server-sig-algs", value: malformed }],
+                }),
+            )
+            decision.allowLogin = true
+        })
+        server.listen({ host: "127.0.0.1", port: 0 })
+        await once(server, "listening")
+
+        const client = new Client({
+            hostname: "127.0.0.1",
+            port: (server.address() as AddressInfo).port,
+            username: "malformed-extension",
+            authenticationMethodsOrder: [SSHAuthenticationMethods.None],
+        })
+        client.hooker.hook("hostKey", (_hook, decision) => {
+            decision.allowHostKey = true
+        })
+
+        try {
+            await expect(client.connect()).rejects.toThrow()
+            expect(client.serverSignatureAlgorithms).toBeUndefined()
+        } finally {
+            client.destroy()
+            for (const connection of server.clients) connection.terminate()
+            await server.close()
+        }
+    }, 15_000)
+
     test("replaces extension information between negotiated authentication requests", async () => {
         const hostKey = await PrivateKey.generate("ssh-ed25519")
         const server = new Server({ hostKeys: [hostKey], sendAllHostKeys: false })

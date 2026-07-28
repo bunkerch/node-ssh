@@ -462,7 +462,8 @@ OpenSSH client forces `rsa-sha2-512`, authenticates with an RSA key, and initiat
 the modern server. The modern client uses a real OpenSSH RSA agent and an explicitly forced RSA
 SHA-512 host key against the containerized server; an invalid password prevents fallback. Fixed
 vectors independently cover the RFC 8308 `server-sig-algs` message and the distinct RSA signature
-algorithm and `ssh-rsa` key-format fields.
+algorithm and `ssh-rsa` key-format fields. A fixed high-bit name-list and encrypted malformed
+advertisement verify strict rejection before signature selection.
 
 Host-key rotation interoperability verifies the server's `hostkeys-00@openssh.com` announcement by
 requesting `hostkeys-prove-00@openssh.com`, checking each signature against the session-bound proof

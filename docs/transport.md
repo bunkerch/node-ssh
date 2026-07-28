@@ -619,7 +619,9 @@ server.hooker.hook("passwordAuthentication", async (_hook, context, decision, co
 request is active, authentication already completed, or an update was already sent. Every valid
 later message replaces the complete first set, so capabilities omitted from it stop being active.
 In particular, a replacement `server-sig-algs` value supersedes the initial value. Messages outside
-these opportunities terminate the connection. A replacement set that omits `hostkeys=0` also
+these opportunities terminate the connection. Each signature-algorithm value is a strict SSH
+name-list; invalid entries and non-ASCII bytes also terminate the connection. A replacement set
+that omits `hostkeys=0` also
 clears standard host-key-update negotiation, so a later compatibility advertisement uses its
 compatibility proof domain. Include `GLOBAL_REQUESTS_OK_EXTENSION` with an empty value when a
 replacement should preserve the library's initial global-request handling advertisement.

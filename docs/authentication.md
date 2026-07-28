@@ -320,7 +320,9 @@ the EventEmitter handler.
 RSA identities use RFC 8332 SHA-2 signatures by preference: `rsa-sha2-512`, then
 `rsa-sha2-256`. The public key blob remains in the `ssh-rsa` format. When a server supplies the RFC
 8308 `server-sig-algs` extension, the client restricts its attempts to the advertised signature
-algorithms. Direct private keys, `PrivateKeyAgent`, and `DiskAgent` select the requested hash
+algorithms. Its value is decoded as a strict RFC 4251 name-list; malformed or non-ASCII
+advertisements fail the connection instead of influencing signature selection through text
+normalization. Direct private keys, `PrivateKeyAgent`, and `DiskAgent` select the requested hash
 locally, while `SSHAgent` sends the corresponding RFC 9987 RSA SHA-2 flag to the external agent.
 Ordinary and host-bound requests encode these identifiers with the shared RFC 4250 SSH-name codec;
 malformed, non-ASCII, overlong, or comma-containing names are rejected before key policy.

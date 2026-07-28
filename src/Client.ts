@@ -176,6 +176,7 @@ import { createSocketAgent } from "./publickey/SocketAgent.js"
 import { parseKey } from "./KeyParsing.js"
 import { decodeSSHUTF8, encodeSSHUTF8 } from "./utils/SSHText.js"
 import { encodeSSHName, validateSSHName } from "./utils/SSHName.js"
+import { decodeSSHNameList } from "./utils/NameList.js"
 import {
     registerUnimplementedRejection,
     rejectUnimplementedPacket,
@@ -3762,10 +3763,7 @@ export default class Client extends EventEmitter<ClientEvents> {
         const signatureAlgorithms = extensions.find(({ name }) => name === "server-sig-algs")
         if (signatureAlgorithms) {
             this.serverSignatureAlgorithms = Object.freeze(
-                signatureAlgorithms.value
-                    .toString("ascii")
-                    .split(",")
-                    .filter((name) => name.length > 0),
+                decodeSSHNameList(signatureAlgorithms.value),
             )
         }
         const ping = extensions.find(({ name }) => name === "ping@openssh.com")

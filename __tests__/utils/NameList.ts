@@ -36,6 +36,9 @@ describe("Utils", () => {
 
         test("rejects empty and malformed name-list entries", () => {
             expect(() => readNextNameList(Buffer.from("00000002612c", "hex"))).toThrow("1 to 64")
+            expect(() => readNextNameList(Buffer.from("00000001f3", "hex"))).toThrow(
+                "SSH name-list must be US-ASCII",
+            )
             expect(() => serializeNameList(["invalid name"])).toThrow("printable")
         })
     })
