@@ -445,6 +445,8 @@ partial success do not consume the failure ceiling, and holds an async policy ho
 deadline to ensure its late approval cannot authenticate the connection. Encrypted adversarial
 clients verify that an unavailable target service never reaches credential policy and that a
 username change after partial success disconnects before the next factor.
+An interactive-agent flow additionally proves that an unsigned public-key probe cannot become a
+partial factor: the server requests and verifies possession before continuing to a password.
 Separate encrypted client/server cases prove that contained later failures stop authentication
 method selection and discard earlier password, password-change, and keyboard-interactive values
 before those values cross the wire.

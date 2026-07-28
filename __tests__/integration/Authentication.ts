@@ -237,6 +237,66 @@ describe("RFC 4252 multi-method authentication", () => {
         }
     }, 15_000)
 
+    test("requires a possession signature before public-key partial success", async () => {
+        const userKey = await PrivateKey.generate("ssh-ed25519")
+        const server = new Server({
+            hostKeys: [await PrivateKey.generate("ssh-ed25519")],
+            sendAllHostKeys: false,
+        })
+        const signatures: boolean[] = []
+        server.hooker.hook("publicKeyAuthentication", (_hook, context, decision) => {
+            signatures.push(context.signature !== undefined)
+            decision.partialSuccess = true
+            decision.authenticationMethods = [SSHAuthenticationMethods.Password]
+        })
+        let passwordPolicyCalls = 0
+        server.hooker.hook("passwordAuthentication", (_hook, context, decision) => {
+            passwordPolicyCalls++
+            decision.allowLogin = context.password === "second-factor"
+        })
+        server.listen({ host: "127.0.0.1", port: 0 })
+        await once(server, "listening")
+
+        const keyId = "partial-public-key"
+        const agent: Agent = {
+            type: AgentType.Interactive,
+            async getPublicKeys() {
+                return [[keyId, userKey.data.publicKey]]
+            },
+            async getPublicKey() {
+                return userKey.data.publicKey
+            },
+            async sign(_id, data, algorithm) {
+                return userKey.sign(data, algorithm)
+            },
+        }
+        const client = new Client({
+            hostname: "127.0.0.1",
+            port: (server.address() as AddressInfo).port,
+            username: "signed-partial-factor",
+            agent,
+            password: "second-factor",
+            authenticationMethodsOrder: [
+                SSHAuthenticationMethods.PublicKey,
+                SSHAuthenticationMethods.Password,
+            ],
+        })
+        client.hooker.hook("hostKey", (_hook, decision) => {
+            decision.allowHostKey = true
+        })
+
+        try {
+            await client.connect()
+            expect(signatures).toEqual([false, true])
+            expect(passwordPolicyCalls).toBe(1)
+            expect(client.isConnected).toBe(true)
+        } finally {
+            client.destroy()
+            for (const connection of server.clients) connection.terminate()
+            await server.close()
+        }
+    }, 15_000)
+
     test("rejects a non-ASCII ECDSA curve identifier before public-key policy", async () => {
         const userKey = await PrivateKey.generate("ecdsa-sha2-nistp256")
         const server = new Server({

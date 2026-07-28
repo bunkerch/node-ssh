@@ -619,6 +619,10 @@ server.hooker.hook("passwordAuthentication", (_hook, context, decision) => {
 })
 ```
 
+Public-key possession is mandatory for both final and partial success. If policy marks an unsigned
+key probe as successful, the server clears that decision and requests a signature; only the
+verified signed request can complete the factor.
+
 The server accepts authentication only for the `ssh-connection` target service. An unavailable
 service is rejected before any credential policy hook runs. Once a hook reports partial success,
 the username and target service are fixed for the rest of that authentication exchange; a peer
