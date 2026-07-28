@@ -420,6 +420,8 @@ families.
 OpenSSH private-key tests also generate every required ECDSA curve and prove parsing, public-key
 matching, signing, and verification. The signer reproduces RFC 6979's P-256/SHA-256,
 P-384/SHA-384, and P-521/SHA-512 signatures, independently encoded as RFC 5656 pairs of SSH mpints.
+Fixed public and generated private containers reject high-bit curve identifiers, and an encrypted
+authentication request proves malformed ECDSA identity bytes never reach key policy.
 
 Generated-key interoperability creates Ed25519, 2048-bit RSA, and every required ECDSA curve through
 the public `generateKeyPair()` API. OpenSSH `ssh-keygen` derives and fingerprints each generated

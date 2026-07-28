@@ -1668,7 +1668,10 @@ function registerECDSAPrivateKey(curve: ECDSACurve): void {
             ;[identifier, raw] = readNextBuffer(raw)
             ;[publicKey, raw] = readNextBuffer(raw)
             ;[privateKey, raw] = readNextBuffer(raw)
-            assert(identifier.toString("ascii") === curve.identifier)
+            assert(
+                identifier.equals(Buffer.from(curve.identifier, "ascii")),
+                `Invalid ECDSA curve identifier ${curve.identifier}`,
+            )
             return [
                 new CurvePrivateKey({ publicKey, privateKey: parsePositiveMpint(privateKey) }),
                 raw,

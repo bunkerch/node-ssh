@@ -1080,7 +1080,10 @@ function registerECDSAPublicKey(curve: ECDSACurve): void {
             ;[identifier, raw] = readNextBuffer(raw)
             ;[publicKey, raw] = readNextBuffer(raw)
             assert(raw.length === 0)
-            assert(identifier.toString("ascii") === curve.identifier)
+            assert(
+                identifier.equals(Buffer.from(curve.identifier, "ascii")),
+                `Invalid ECDSA curve identifier ${curve.identifier}`,
+            )
             return new CurvePublicKey({ publicKey })
         }
     }

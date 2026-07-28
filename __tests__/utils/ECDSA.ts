@@ -23,6 +23,8 @@ const rfc6979P256PrivateKey = Buffer.from(
     "hex",
 )
 const rfc6979P256Point = Buffer.from(rfc6979P256PublicKey.subarray(-65))
+const OPENSSH_PRIVATE_KEY_BEGIN = "-----BEGIN OPENSSH PRIVATE KEY-----"
+const OPENSSH_PRIVATE_KEY_END = "-----END OPENSSH PRIVATE KEY-----"
 
 function hex(value: string): Buffer {
     const normalized = value.replace(/\s/g, "")
@@ -116,6 +118,32 @@ const additionalRFC6979Vectors = [
 ]
 
 describe("RFC 5656 ECDSA keys and signatures", () => {
+    test("rejects non-ASCII ECDSA curve identifiers without lossy normalization", async () => {
+        const malformedPublic = Buffer.from(rfc6979P256PublicKey)
+        const publicIdentifierOffset = malformedPublic.lastIndexOf("nistp256")
+        expect(publicIdentifierOffset).toBeGreaterThanOrEqual(0)
+        malformedPublic[publicIdentifierOffset] |= 0x80
+        expect(() => PublicKey.parse(malformedPublic)).toThrow(
+            "Invalid ECDSA curve identifier nistp256",
+        )
+
+        const privateKey = await PrivateKey.generate("ecdsa-sha2-nistp256")
+        const encoded = privateKey.toString()
+        const lines = encoded.split("\n")
+        const raw = Buffer.from(lines.slice(1, -1).join(""), "base64")
+        const privateIdentifierOffset = raw.lastIndexOf("nistp256")
+        expect(privateIdentifierOffset).toBeGreaterThanOrEqual(0)
+        raw[privateIdentifierOffset] |= 0x80
+        const malformedPrivate = [
+            OPENSSH_PRIVATE_KEY_BEGIN,
+            ...(raw.toString("base64").match(/.{1,70}/gu) ?? []),
+            OPENSSH_PRIVATE_KEY_END,
+        ].join("\n")
+        expect(() => PrivateKey.fromString(malformedPrivate)).toThrow(
+            "Invalid ECDSA curve identifier nistp256",
+        )
+    })
+
     test("signs the RFC 6979 P-256 SHA-256 signature in SSH mpint encoding", () => {
         const publicKey = PublicKey.parse(rfc6979P256PublicKey)
         const privateAlgorithm = new SSHECDSAPrivateKey(ECDSA_CURVES[0], {

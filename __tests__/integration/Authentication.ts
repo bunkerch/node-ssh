@@ -72,6 +72,27 @@ class MalformedHostbasedHostnameClient extends Client {
     }
 }
 
+class MalformedECDSAPublicKeyClient extends Client {
+    override sendPacket(packet: Packet): number {
+        if (
+            packet instanceof UserAuthRequest &&
+            packet.data.method instanceof PublicKeyAuthMethod &&
+            packet.data.method.data.publicKey.data.alg === "ecdsa-sha2-nistp256"
+        ) {
+            const serialize = packet.serialize.bind(packet)
+            packet.serialize = () => {
+                const raw = serialize()
+                const marker = Buffer.from("000000086e697374703235360000004104", "hex")
+                const offset = raw.indexOf(marker)
+                if (offset < 0) throw new Error("ECDSA curve identifier is absent from its request")
+                raw[offset + 4] |= 0x80
+                return raw
+            }
+        }
+        return super.sendPacket(packet)
+    }
+}
+
 describe("RFC 4252 multi-method authentication", () => {
     test("never authenticates an unavailable target service", async () => {
         const server = new Server({
@@ -209,6 +230,41 @@ describe("RFC 4252 multi-method authentication", () => {
             await expect(client.connect()).rejects.toThrow("All authentication methods failed")
             expect(signatures).toEqual([true])
             expect(replies).toEqual(["failure"])
+        } finally {
+            client.destroy()
+            for (const connection of server.clients) connection.terminate()
+            await server.close()
+        }
+    }, 15_000)
+
+    test("rejects a non-ASCII ECDSA curve identifier before public-key policy", async () => {
+        const userKey = await PrivateKey.generate("ecdsa-sha2-nistp256")
+        const server = new Server({
+            hostKeys: [await PrivateKey.generate("ssh-ed25519")],
+            sendAllHostKeys: false,
+        })
+        let policyCalls = 0
+        server.hooker.hook("publicKeyAuthentication", (_hook, context, decision) => {
+            policyCalls++
+            decision.allowLogin = context.signature !== undefined
+        })
+        server.listen({ host: "127.0.0.1", port: 0 })
+        await once(server, "listening")
+
+        const client = new MalformedECDSAPublicKeyClient({
+            hostname: "127.0.0.1",
+            port: (server.address() as AddressInfo).port,
+            username: "malformed-ecdsa",
+            privateKey: userKey,
+            authenticationMethodsOrder: [SSHAuthenticationMethods.PublicKey],
+        })
+        client.hooker.hook("hostKey", (_hook, decision) => {
+            decision.allowHostKey = true
+        })
+
+        try {
+            await expect(client.connect()).rejects.toThrow()
+            expect(policyCalls).toBe(0)
         } finally {
             client.destroy()
             for (const connection of server.clients) connection.terminate()

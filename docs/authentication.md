@@ -327,7 +327,9 @@ malformed, non-ASCII, overlong, or comma-containing names are rejected before ke
 
 ECDSA identities on `nistp256`, `nistp384`, and `nistp521` use the matching RFC 5656 algorithm name
 and SHA-2 hash. Disk-backed OpenSSH ECDSA keys and delegated agent signatures use the same public-key
-authentication path as Ed25519 and RSA identities.
+authentication path as Ed25519 and RSA identities. Public and private key parsers require the
+curve identifier to match its algorithm as exact ASCII bytes; non-canonical key blobs are rejected
+before authentication policy.
 
 ### Security-key identities
 
