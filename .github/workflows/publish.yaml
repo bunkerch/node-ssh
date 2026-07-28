@@ -6,7 +6,6 @@ on:
 
 permissions:
     contents: read
-    id-token: write
 
 concurrency:
     group: npm-publish-${{ github.event.release.tag_name }}
@@ -40,7 +39,7 @@ jobs:
                   registry-url: https://registry.npmjs.org
                   package-manager-cache: false
 
-            - name: Install a trusted-publishing-compatible npm CLI
+            - name: Install current npm CLI
               run: npm install --global npm@latest
 
             - name: Validate release metadata
