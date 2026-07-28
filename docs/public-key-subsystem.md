@@ -42,7 +42,7 @@ for (const entry of await publicKeys.list({ namespace: "users" })) {
 }
 
 await publicKeys.remove(key, { namespace: "users" })
-publicKeys.end()
+await publicKeys.close()
 ```
 
 `add()`, `remove()`, and `list()` use the optional `namespace` and `attributes` request options.
@@ -101,9 +101,13 @@ codes are `CertificateNotFound` (192), `CertificateNotSupported` (193),
 `CertificateAlreadyPresent` (194), `ActionNotAuthorized` (195), and
 `CannotCreateNamespace` (196).
 
-Only one request may be unacknowledged, so concurrent calls are queued in call order. `end()`
-gracefully ends the subsystem channel. `destroy(error?)` aborts it. Pending and queued operations
-reject on a timeout, channel close, SSH disconnect, or transport failure.
+Only one request may be unacknowledged, so concurrent calls are queued in call order.
+`await publicKeys.close()` rejects pending and queued work, closes the subsystem channel, and
+settles after its terminal `close` event. Concurrent calls share one Promise; `await using` invokes
+the same operation through `Symbol.asyncDispose`. The request timeout also bounds shutdown, and an
+unresponsive peer causes only this channel to be destroyed. `end()` remains available for an
+intentional write-side EOF, while `destroy(error?)` aborts immediately. Operations reject on a
+timeout, channel close, SSH disconnect, or transport failure.
 
 `requestTimeout` bounds negotiation and every serialized request. It defaults to the connection's
 `replyTimeout`, or 30 seconds when using `PublicKeySubsystemClient.connect()` directly. A timeout

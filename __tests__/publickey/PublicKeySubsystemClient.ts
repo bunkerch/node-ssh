@@ -64,6 +64,19 @@ class BlockedPublicKeySubsystemChannel extends Duplex {
     }
 }
 
+class ClosablePublicKeySubsystemChannel extends PublicKeySubsystemServerFixture {
+    closeCalls = 0
+
+    close(): this {
+        this.closeCalls++
+        return this
+    }
+
+    finishClose(error?: Error): void {
+        this.destroy(error)
+    }
+}
+
 function asClientChannel(channel: Duplex): ClientSessionChannel {
     return channel as unknown as ClientSessionChannel
 }
@@ -116,6 +129,63 @@ describe("RFC 4819 and RFC 7076 public-key subsystem client", () => {
             "Timed out waiting for public-key subsystem request reply",
         )
         expect(fixture.destroyed).toBe(true)
+    })
+
+    test("shares graceful shutdown and awaits the subsystem channel close", async () => {
+        const channel = new ClosablePublicKeySubsystemChannel((packet) => {
+            if (packet.type === "version") channel.send({ type: "version", version: 2 })
+        })
+        const client = await PublicKeySubsystemClient.connect(asClientChannel(channel))
+        const pending = client.list()
+        const queued = client.list()
+        await Promise.resolve()
+
+        const firstClose = client.close()
+        const secondClose = client.close()
+        expect(secondClose).toBe(firstClose)
+        expect(channel.closeCalls).toBe(1)
+        await expect(pending).rejects.toThrow("Public-key subsystem session closed")
+        await expect(queued).rejects.toThrow("Public-key subsystem session is closed")
+
+        let settled = false
+        void firstClose.then(() => {
+            settled = true
+        })
+        await Promise.resolve()
+        expect(settled).toBe(false)
+
+        channel.finishClose()
+        await firstClose
+        expect(settled).toBe(true)
+        await client[Symbol.asyncDispose]()
+        expect(channel.closeCalls).toBe(1)
+    })
+
+    test("propagates errors and bounds an unresponsive subsystem close", async () => {
+        const failingChannel = new ClosablePublicKeySubsystemChannel((packet) => {
+            if (packet.type === "version") {
+                failingChannel.send({ type: "version", version: 2 })
+            }
+        })
+        const failing = await PublicKeySubsystemClient.connect(asClientChannel(failingChannel))
+        const failure = new Error("public-key channel close failed")
+        const failedClose = failing[Symbol.asyncDispose]()
+        failingChannel.finishClose(failure)
+        await expect(failedClose).rejects.toBe(failure)
+
+        const ignoredChannel = new ClosablePublicKeySubsystemChannel((packet) => {
+            if (packet.type === "version") {
+                ignoredChannel.send({ type: "version", version: 2 })
+            }
+        })
+        const ignored = await PublicKeySubsystemClient.connect(asClientChannel(ignoredChannel), {
+            requestTimeout: 20,
+        })
+        await expect(ignored.close()).rejects.toThrow(
+            "Timed out waiting for public-key subsystem channel close",
+        )
+        expect(ignoredChannel.closeCalls).toBe(1)
+        expect(ignoredChannel.destroyed).toBe(true)
     })
 
     test("advertises RFC 7076 version 3 and negotiates an RFC 4819 version-2 peer", async () => {

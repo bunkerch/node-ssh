@@ -579,6 +579,9 @@ export default class PublicKeySubsystemClient {
     listNamespaces(): Promise<readonly string[]>;
     listAttributes(): Promise<readonly PublicKeySubsystemSupportedAttribute[]>;
     end(): void;
+    /** Close the subsystem and settle after its SSH channel closes. */
+    close(): Promise<void>;
+    [Symbol.asyncDispose](): Promise<void>;
     destroy(error?: Error): void;
 }
 ```

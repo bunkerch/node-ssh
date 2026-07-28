@@ -155,6 +155,9 @@ describe("RFC 4819 and RFC 7076 public-key subsystem integration", () => {
             expect(await subsystem.listNamespaces()).toEqual(["ssh", "ssl"])
             await subsystem.removeCertificate("X509", certificate, { namespace: "ssh" })
             expect(await subsystem.listCertificates()).toEqual([])
+            await subsystem.close()
+            expect(subsystem.channel.destroyed).toBe(true)
+            expect(client.isConnected).toBe(true)
             expect(errors).toEqual([])
         } finally {
             client.destroy()

@@ -1,4 +1,5 @@
 import type ClientSessionChannel from "../channels/ClientSessionChannel.js"
+import { once } from "node:events"
 import {
     encodePublicKeySubsystemPacket,
     MAX_PUBLIC_KEY_SUBSYSTEM_RESPONSES,
@@ -187,6 +188,7 @@ export default class PublicKeySubsystemClient {
     #negotiatedProtocolVersion: number | undefined
     private initialized = false
     private closed = false
+    private closePromise: Promise<void> | undefined
     private readyResolve!: () => void
     private readyReject!: (error: Error) => void
     private readonly ready: Promise<void>
@@ -518,6 +520,28 @@ export default class PublicKeySubsystemClient {
 
     end(): void {
         if (!this.closed) this.channel.end()
+    }
+
+    /** Close the subsystem and settle after its SSH channel closes. */
+    close(): Promise<void> {
+        if (this.closePromise !== undefined) return this.closePromise
+        if (this.channel.destroyed) return Promise.resolve()
+
+        this.closePromise = this.waitForResponse(
+            once(this.channel, "close").then(() => undefined),
+            "channel close",
+        )
+        this.fail(new Error("Public-key subsystem session closed"))
+        try {
+            this.channel.close()
+        } catch (error) {
+            this.channel.destroy(error instanceof Error ? error : new Error(String(error)))
+        }
+        return this.closePromise
+    }
+
+    [Symbol.asyncDispose](): Promise<void> {
+        return this.close()
     }
 
     destroy(error?: Error): void {

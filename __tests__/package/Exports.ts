@@ -412,6 +412,8 @@ describe("package exports", () => {
         expect(PublicKeySubsystemClient.prototype.removeCertificate).toBeFunction()
         expect(PublicKeySubsystemClient.prototype.listCertificates).toBeFunction()
         expect(PublicKeySubsystemClient.prototype.listNamespaces).toBeFunction()
+        expect(PublicKeySubsystemClient.prototype.close).toBeFunction()
+        expect(PublicKeySubsystemClient.prototype[Symbol.asyncDispose]).toBeFunction()
         expect(publicKeyCertificateOptions.namespace).toBe("users")
         expect(publicKeyRemoveCertificateOptions.namespace).toBe("users")
         expect(ProtocolVersionExchange.defaultValue.protocol_software).toBe("modernssh_1.0.0")
@@ -454,6 +456,8 @@ describe("package exports", () => {
         expect(entry.PublicKeySubsystemClient.prototype.removeCertificate).toBeFunction()
         expect(entry.PublicKeySubsystemClient.prototype.listCertificates).toBeFunction()
         expect(entry.PublicKeySubsystemClient.prototype.listNamespaces).toBeFunction()
+        expect(entry.PublicKeySubsystemClient.prototype.close).toBeFunction()
+        expect(entry.PublicKeySubsystemClient.prototype[Symbol.asyncDispose]).toBeFunction()
         expect(entry.ProtocolVersionExchange.defaultValue.protocol_software).toBe("modernssh_1.0.0")
         expect(entry.KeyRevocationList).toBeFunction()
         expect(entry.SecurityKeyAttestation).toBeFunction()
@@ -858,6 +862,8 @@ describe("package exports", () => {
         expect(publicKeySubsystemClient).toContain("readonly requestTimeout: number")
         expect(publicKeySubsystemClient).toContain("listAttributes(): Promise<")
         expect(publicKeySubsystemClient).toContain("end(): void")
+        expect(publicKeySubsystemClient).toContain("close(): Promise<void>")
+        expect(publicKeySubsystemClient).toContain("[Symbol.asyncDispose](): Promise<void>")
         expect(publicKeySubsystemClient).not.toContain("callback")
         expect(channelOpenFailure).toContain(
             "constructor(reasonCode: number, message: string, languageTag?: string)",
