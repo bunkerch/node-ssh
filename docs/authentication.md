@@ -159,8 +159,10 @@ cannot silently change the advertised identity or reach server authentication po
 path for an RFC 9987 agent. The client normalizes a string through `createSocketAgent()` during
 construction; omitting or passing an empty path does not implicitly enable `$SSH_AUTH_SOCK`. On
 Windows, `agent: "pageant"` discovers Pageant 0.75 or newer through its protected per-user named
-pipe. See [Socket agent authentication](getting-started.md#socket-agent-authentication) for explicit
-pipe paths and discovery errors.
+pipe after the application installs the optional `koffi` peer. Explicit Pageant pipe paths and all
+other agents remain pure Node and do not load or require that package. See
+[Socket agent authentication](getting-started.md#socket-agent-authentication) for explicit pipe
+paths and discovery errors.
 
 Keyboard-interactive may contain zero, one, or several prompts and may use several rounds. Supply
 exactly one response per prompt. The `echo` flag tells a user interface whether an answer may be

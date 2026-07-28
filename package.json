@@ -70,6 +70,7 @@
         "fumadocs-mdx": "15.1.1",
         "fumadocs-ui": "16.11.4",
         "husky": "^9.1.7",
+        "koffi": "3.1.1",
         "lint-staged": "^16.4.0",
         "next": "16.2.10",
         "postcss": "^8.5.19",
@@ -81,13 +82,20 @@
         "typescript-eslint": "^8.46.2",
         "zod": "^4.4.3"
     },
+    "peerDependencies": {
+        "koffi": "3.1.1"
+    },
+    "peerDependenciesMeta": {
+        "koffi": {
+            "optional": true
+        }
+    },
     "dependencies": {
         "@noble/curves": "^2.2.0",
         "@noble/hashes": "^2.2.0",
         "@noble/post-quantum": "^0.6.1",
         "asn1js": "^3.0.10",
         "bcrypt-pbkdf": "^1.0.2",
-        "koffi": "3.1.1",
         "pako": "^3.0.1",
         "tweetnacl": "^1.0.3"
     },

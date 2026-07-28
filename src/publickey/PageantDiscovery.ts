@@ -16,7 +16,14 @@ type NativeFunction = (...args: unknown[]) => unknown
 
 function loadKoffi(): Koffi {
     // Keep the native FFI binding out of non-Windows import and startup paths.
-    return require("koffi") as Koffi
+    try {
+        return require("koffi") as Koffi
+    } catch (cause) {
+        throw new PageantAgentError(
+            'Automatic Pageant discovery requires the optional "koffi" package',
+            { cause },
+        )
+    }
 }
 
 function readWindowsName(

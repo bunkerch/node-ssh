@@ -639,8 +639,15 @@ forwarding.
 On Windows, the special value `"pageant"` constructs `PageantAgent`. Pageant 0.75 and newer speaks
 the standard agent protocol over a per-user named pipe whose protected name is derived through the
 Windows cryptography API. Discovery happens during construction; importing the package or using a
-different agent does not load the Windows FFI binding. Pageant may prompt before allowing a
-signature, so the agent is marked interactive.
+different agent does not load the Windows FFI binding. The binding is an optional peer so ordinary
+library installs contain no native dependency. Install it only when automatic Pageant discovery is
+needed:
+
+```sh
+pnpm add koffi@3.1.1
+```
+
+Pageant may prompt before allowing a signature, so the agent is marked interactive.
 
 ```ts
 const client = new Client({
@@ -651,8 +658,9 @@ const client = new Client({
 ```
 
 `new PageantAgent(pipePath)` bypasses discovery when an application already has the `IdentityAgent`
-path emitted by Pageant's `--openssh-config` option. Automatic discovery is Windows-only and throws
-`PageantAgentError` on unsupported platforms or when the native pipe name cannot be derived.
+path emitted by Pageant's `--openssh-config` option and does not require `koffi`. Automatic discovery
+is Windows-only and throws `PageantAgentError` when the optional peer is absent, on unsupported
+platforms, or when the native pipe name cannot be derived.
 
 The agent messages follow [RFC 9987](https://www.rfc-editor.org/rfc/rfc9987.html), are bounded to
 256 KiB, handle fragmented socket reads, and treat identity IDs as opaque values. Identity comments

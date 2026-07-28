@@ -4,7 +4,8 @@ A typed, ESM-native SSH client and server library for Node.js.
 
 The project implements SSH from its standards and includes typed client, server, channel,
 forwarding, agent, key-management, and SFTP APIs. Public asynchronous operations return Promises;
-awaited application policy is handled through `Hooker`.
+awaited application policy is handled through `Hooker`. Normal installs use no native dependency;
+automatic Pageant discovery on Windows is the only optional FFI integration.
 
 Install the package from the public npm registry:
 

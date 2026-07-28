@@ -90,6 +90,8 @@ Before committing, run the focused tests for the change, then `pnpm build`, `pnp
 - New public APIs and types must be exported from `src/index.ts`, documented in `docs/`, covered
   through the source API, and exercised through the packed ESM entry point when relevant.
 - Public modules must be free of import-time side effects.
+- Keep ordinary installs free of native add-ons. Platform-only FFI integrations must be optional,
+  loaded on demand, and retain a non-FFI path when the application can provide the endpoint.
 
 ## Protocol Implementation
 

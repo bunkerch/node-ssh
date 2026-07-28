@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process"
-import { mkdir, mkdtemp, readFile, readdir, rm } from "node:fs/promises"
+import { access, mkdir, mkdtemp, readFile, readdir, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
@@ -786,6 +786,20 @@ describe("package exports", () => {
                 consumer,
                 join(directory, archive!),
             ])
+            const installedManifest = JSON.parse(
+                await readFile(
+                    join(consumer, "node_modules", "@bunkerch", "modernssh", "package.json"),
+                    "utf8",
+                ),
+            ) as {
+                dependencies?: Record<string, string>
+                peerDependencies?: Record<string, string>
+                peerDependenciesMeta?: Record<string, { optional?: boolean }>
+            }
+            expect(installedManifest.dependencies?.koffi).toBeUndefined()
+            expect(installedManifest.peerDependencies?.koffi).toBe("3.1.1")
+            expect(installedManifest.peerDependenciesMeta?.koffi?.optional).toBe(true)
+            await expect(access(join(consumer, "node_modules", "koffi"))).rejects.toThrow()
             const { stdout, stderr } = await execFileAsync(
                 "node",
                 [
@@ -930,6 +944,9 @@ describe("package exports", () => {
                     if (typeof PageantAgent !== "function" || typeof PageantAgentError !== "function" || typeof discoverPageantAgentSocket !== "function") process.exit(35)
                     const explicitPageant = new PageantAgent("explicit-pageant.sock")
                     if (explicitPageant.socketPath !== "explicit-pageant.sock") process.exit(36)
+                    Object.defineProperty(process, "platform", { configurable: true, value: "win32" })
+                    try { discoverPageantAgentSocket(); process.exit(109) } catch (error) { if (!String(error).includes('requires the optional "koffi" package')) process.exit(110) }
+                    Object.defineProperty(process, "platform", { configurable: true, value: originalPlatform })
                     const standaloneMLKEM = new Client({ algorithms: { kex: ["mlkem512-sha256", "mlkem768-sha256", "mlkem1024-sha384"] } })
                     if (standaloneMLKEM.algorithmOffer.kex.join(",") !== "mlkem512-sha256,mlkem768-sha256,mlkem1024-sha384") process.exit(37)
                     if (typeof PublicKeySubsystemClient !== "function" || typeof PublicKeySubsystemServer !== "function" || PublicKeySubsystemStatusCode.Success !== 0) process.exit(38)
