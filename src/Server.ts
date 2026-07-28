@@ -92,6 +92,8 @@ export interface ServerOptions {
     maxPendingChannelOpens?: number
     /** Maximum simultaneous active and pending SSH channels per connection. */
     maxChannels?: number
+    /** Readable and writable stream buffer threshold for server-owned accepted TCP sockets. */
+    highWaterMark?: number
     /** Maximum active TCP and stream-local remote forwarding listeners per connection. */
     maxRemoteForwardings?: number
     /** Maximum environment variables retained by one server session channel. */
@@ -146,11 +148,15 @@ export interface ServerTransport extends Duplex {
 
 export interface ServerOptionsRequired
     extends Required<
-        Omit<ServerOptions, "ident" | "algorithms" | "hostKeys" | "hostCertificates">
+        Omit<
+            ServerOptions,
+            "ident" | "algorithms" | "hostKeys" | "hostCertificates" | "highWaterMark"
+        >
     > {
     ident?: string | Buffer
     algorithms?: ServerAlgorithmOptions
     hostKeys: PrivateKey[]
+    highWaterMark?: number
     delayCompression: NormalizedDelayCompression
     hostCertificates?: (PublicKey | string | Buffer)[]
 }
@@ -675,7 +681,16 @@ export default class Server extends EventEmitter<ServerEvents> {
                 "SSH server requires at least one host key unless RFC 4462 null host-key KEX is configured",
             )
         }
-        this.server = net.createServer((socket) => void this.acceptSocket(socket))
+        if (
+            this.#options.highWaterMark !== undefined &&
+            (!Number.isSafeInteger(this.#options.highWaterMark) || this.#options.highWaterMark < 0)
+        ) {
+            throw new RangeError("SSH server high-water mark must be a non-negative safe integer")
+        }
+        this.server = net.createServer(
+            { highWaterMark: this.#options.highWaterMark },
+            (socket) => void this.acceptSocket(socket),
+        )
         this.server.on("error", (error) => this.emit("error", error))
         this.server.on("listening", () => this.emit("listening"))
         this.server.on("close", () => {

@@ -1260,6 +1260,8 @@ export interface ServerOptions {
     maxPendingChannelOpens?: number;
     /** Maximum simultaneous active and pending SSH channels per connection. */
     maxChannels?: number;
+    /** Readable and writable stream buffer threshold for server-owned accepted TCP sockets. */
+    highWaterMark?: number;
     /** Maximum active TCP and stream-local remote forwarding listeners per connection. */
     maxRemoteForwardings?: number;
     /** Maximum environment variables retained by one server session channel. */

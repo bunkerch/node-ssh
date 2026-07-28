@@ -110,6 +110,18 @@ describe("server configuration normalization", () => {
                 "SSH maximum session environment variables must be a non-negative safe integer",
             ],
             [
+                { hostKeys: [hostKey], highWaterMark: null as never },
+                "SSH server high-water mark must be a non-negative safe integer",
+            ],
+            [
+                { hostKeys: [hostKey], highWaterMark: -1 },
+                "SSH server high-water mark must be a non-negative safe integer",
+            ],
+            [
+                { hostKeys: [hostKey], highWaterMark: 1.5 },
+                "SSH server high-water mark must be a non-negative safe integer",
+            ],
+            [
                 { hostKeys: [hostKey], maxRemoteForwardings: -1 },
                 "SSH maximum remote forwardings must be a non-negative safe integer",
             ],

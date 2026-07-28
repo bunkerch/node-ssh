@@ -373,6 +373,12 @@ is safe. A new `listen()` call is rejected until that Promise settles; the same 
 again afterward. Injected transports are not owned by the TCP listener and retain their
 application-managed lifecycle. `await server[Symbol.asyncDispose]()` provides the same active
 listener shutdown and also permits `await using`.
+Set `highWaterMark` to a non-negative safe integer when server-owned accepted TCP sockets need an
+explicit readable and writable stream buffer threshold. It is applied before SSH parsing begins.
+Smaller values make transport backpressure engage sooner; larger values may improve throughput
+while allowing more bytes to be buffered per connection. When omitted, Node's runtime default is
+preserved. The option does not modify sockets passed to `injectSocket()`, because their buffering
+and lifecycle remain owned by the embedding application.
 The optional second constructor argument is registered as a synchronous `connection` EventEmitter
 listener and receives the same `ServerClient` and immutable endpoint snapshot as `server.on()`; it
 is not an operation-completion callback.
