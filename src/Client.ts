@@ -2875,22 +2875,19 @@ export default class Client extends EventEmitter<ClientEvents> {
                 ),
             )
 
-            serviceAnswer = await this.#waitForPackets(
-                {
-                    SSH_MSG_SERVICE_ACCEPT: {
-                        predicate: (packet) => {
-                            if (packet.data.service_name !== SSHServiceNames.UserAuth) {
-                                throw new DisconnectError(
-                                    DisconnectReason.SSH_DISCONNECT_PROTOCOL_ERROR,
-                                    `SSH server accepted unexpected service ${packet.data.service_name}`,
-                                )
-                            }
-                            return true
-                        },
+            serviceAnswer = await this.#waitForPackets({
+                SSH_MSG_SERVICE_ACCEPT: {
+                    predicate: (packet) => {
+                        if (packet.data.service_name !== SSHServiceNames.UserAuth) {
+                            throw new DisconnectError(
+                                DisconnectReason.SSH_DISCONNECT_PROTOCOL_ERROR,
+                                `SSH server accepted unexpected service ${packet.data.service_name}`,
+                            )
+                        }
+                        return true
                     },
                 },
-                10_000,
-            )
+            })
             this.assertConnectionGeneration(generation, "authentication")
         } finally {
             unregisterServiceRequest?.()
@@ -3212,7 +3209,6 @@ export default class Client extends EventEmitter<ClientEvents> {
         },
     >(
         Predicates: Predicates,
-        timeout: number,
     ): Promise<InstanceType<(typeof packets)[Extract<keyof Predicates, keyof typeof packets>]>> {
         return new Promise((resolve, reject) => {
             if (
@@ -3229,7 +3225,6 @@ export default class Client extends EventEmitter<ClientEvents> {
                 offPacketEvent(this, onPacket)
                 this.off("error", onError)
                 this.off("close", onClose)
-                clearTimeout(timer)
             }
             // Run protocol predicates in the receive path. A predicate may detect a protocol
             // violation and throw; that must reach the transport error handler synchronously so
@@ -3266,11 +3261,6 @@ export default class Client extends EventEmitter<ClientEvents> {
                     this.connectionClosedError("SSH connection closed while waiting for message"),
                 )
             }
-            const timer = setTimeout(() => {
-                cleanup()
-                reject(new Error("Timed out waiting for message"))
-            }, timeout)
-            timer.unref()
             onPacketEvent(this, onPacket)
             this.once("error", onError)
             this.once("close", onClose)

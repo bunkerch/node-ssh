@@ -54,6 +54,27 @@ function createClient(server: Server): Client {
     return client
 }
 
+function delayServiceAcceptance(server: Server, milliseconds: number): () => void {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    server.once("connection", (peer) => {
+        const sendPacket = peer.sendPacket.bind(peer)
+        peer.sendPacket = (packet: Packet): number => {
+            if (!(packet instanceof ServiceAccept)) return sendPacket(packet)
+            timer = setTimeout(() => {
+                try {
+                    sendPacket(packet)
+                } catch {
+                    // The configured client setup deadline may close the transport first.
+                }
+            }, milliseconds)
+            return 0
+        }
+    })
+    return () => {
+        if (timer !== undefined) clearTimeout(timer)
+    }
+}
+
 async function close(server: Server, ...clients: Client[]): Promise<void> {
     for (const client of clients) client.destroy()
     for (const connection of server.clients) connection.terminate()
@@ -63,6 +84,51 @@ async function close(server: Server, ...clients: Client[]): Promise<void> {
 }
 
 describe("RFC 4253 service negotiation state", () => {
+    test("lets the setup deadline own a delayed service acceptance", async () => {
+        const server = await createServer()
+        const cancelDelay = delayServiceAcceptance(server, 400)
+        const client = new Client({
+            hostname: "127.0.0.1",
+            port: (server.server!.address() as AddressInfo).port,
+            username: "service-deadline",
+            readyTimeout: 200,
+            authenticationMethodsOrder: [SSHAuthenticationMethods.None],
+        })
+        client.hooker.hook("hostKey", (_hook, decision) => {
+            decision.allowHostKey = true
+        })
+
+        try {
+            await expect(client.connect()).rejects.toThrow("Timed out while waiting for handshake")
+        } finally {
+            cancelDelay()
+            await close(server, client)
+        }
+    }, 15_000)
+
+    test("accepts a delayed service response when the setup deadline is disabled", async () => {
+        const server = await createServer()
+        const cancelDelay = delayServiceAcceptance(server, 100)
+        const client = new Client({
+            hostname: "127.0.0.1",
+            port: (server.server!.address() as AddressInfo).port,
+            username: "service-without-deadline",
+            readyTimeout: 0,
+            authenticationMethodsOrder: [SSHAuthenticationMethods.None],
+        })
+        client.hooker.hook("hostKey", (_hook, decision) => {
+            decision.allowHostKey = true
+        })
+
+        try {
+            await client.connect()
+            expect(client.isConnected).toBe(true)
+        } finally {
+            cancelDelay()
+            await close(server, client)
+        }
+    }, 15_000)
+
     test("retains a service request adjacent to a filtered transport packet", async () => {
         const server = await createServer()
         const client = new PrefixedServiceClient({
