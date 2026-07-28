@@ -43,6 +43,7 @@ describe("SSH-backed HTTP agents", () => {
 
     test("owns credentials and multiplexes HTTP channels over a recoverable connection", async () => {
         const destination = createHTTPServer((request, response) => {
+            if (request.url === "/idle") return
             response.setHeader("content-type", "text/plain")
             response.end(`${request.method} ${request.url} via ${request.headers.host}`)
         })
@@ -96,6 +97,7 @@ describe("SSH-backed HTTP agents", () => {
         const sshPort = (server.server!.address() as AddressInfo).port
         const authenticationMethodsOrder = [SSHAuthenticationMethods.PublicKey]
         const encodedUserKey = userKey.serialize()
+        const encodedUserKeyBase64 = encodedUserKey.toString("base64")
         const clientOptions = {
             hostname: "127.0.0.1",
             port: sshPort,
@@ -147,6 +149,61 @@ describe("SSH-backed HTTP agents", () => {
                 sourcePort: 42_424,
             })
             expect(errors).toEqual([])
+
+            let timeouts = 0
+            socket.setTimeout(20, () => timeouts++)
+            await once(socket, "timeout")
+            expect(timeouts).toBe(1)
+            expect(socket.destroyed).toBe(false)
+            socket.setTimeout(0)
+            await new Promise<void>((resolve) => setTimeout(resolve, 40))
+            expect(timeouts).toBe(1)
+            expect(() => socket.setTimeout(-1)).toThrow("non-negative")
+
+            const timeoutScript = String.raw`
+                import { get } from "node:http"
+                import {
+                    SSHHTTPAgent,
+                    SSHAuthenticationMethods,
+                } from "./dist/index.js"
+
+                const agent = new SSHHTTPAgent({
+                    hostname: "127.0.0.1",
+                    port: ${sshPort},
+                    username: "interop",
+                    privateKey: Buffer.from("${encodedUserKeyBase64}", "base64"),
+                    authenticationMethodsOrder: [SSHAuthenticationMethods.PublicKey],
+                })
+                try {
+                    const timedOut = await new Promise((resolve, reject) => {
+                        let timeoutObserved = false
+                        const request = get({
+                            hostname: "127.0.0.1",
+                            port: ${destinationPort},
+                            path: "/idle",
+                            agent,
+                        })
+                        request.once("error", (error) => {
+                            if (!timeoutObserved) reject(error)
+                        })
+                        request.setTimeout(20, () => {
+                            timeoutObserved = true
+                            request.destroy()
+                            resolve(true)
+                        })
+                    })
+                    process.stdout.write(JSON.stringify({ timedOut }))
+                } finally {
+                    agent.destroy()
+                }
+            `
+            const timeoutProcess = await execFileAsync("node", [
+                "--input-type=module",
+                "--eval",
+                timeoutScript,
+            ])
+            expect(timeoutProcess.stderr).toBe("")
+            expect(JSON.parse(timeoutProcess.stdout)).toEqual({ timedOut: true })
 
             let callbacks = 0
             await new Promise<void>((resolve) => {

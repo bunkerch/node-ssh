@@ -113,9 +113,45 @@ function snapshotClientOptions(options: Readonly<ClientOptions>): Readonly<Clien
 
 function socketCompatible(channel: ClientTCPIPChannel): SocketCompatibleChannel {
     const socket = channel as SocketCompatibleChannel
+    let timeout: NodeJS.Timeout | undefined
+    let timeoutMilliseconds = 0
+
+    const clearSocketTimeout = () => {
+        if (timeout !== undefined) clearTimeout(timeout)
+        timeout = undefined
+    }
+    const armSocketTimeout = () => {
+        clearSocketTimeout()
+        if (timeoutMilliseconds === 0 || socket.destroyed) return
+        timeout = setTimeout(() => {
+            timeout = undefined
+            socket.emit("timeout")
+        }, timeoutMilliseconds)
+        timeout.unref()
+    }
+    const originalWrite = socket._write.bind(socket)
+    socket._write = (data, encoding, callback) => {
+        armSocketTimeout()
+        originalWrite(data, encoding, callback)
+    }
+
+    socket.on("data", armSocketTimeout)
+    socket.once("close", clearSocketTimeout)
     socket.setKeepAlive = () => socket
     socket.setNoDelay = () => socket
-    socket.setTimeout = () => socket
+    socket.setTimeout = (milliseconds = 0, callback) => {
+        if (
+            typeof milliseconds !== "number" ||
+            !Number.isFinite(milliseconds) ||
+            milliseconds < 0
+        ) {
+            throw new RangeError("SSH HTTP socket timeout must be a non-negative number")
+        }
+        if (callback !== undefined) socket.once("timeout", callback)
+        timeoutMilliseconds = milliseconds
+        armSocketTimeout()
+        return socket
+    }
     socket.ref = () => socket
     socket.unref = () => socket
     socket.destroySoon = () => {

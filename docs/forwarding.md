@@ -41,6 +41,12 @@ lazily establishes one authenticated SSH connection, and each HTTP socket opens 
 over one SSH transport. Standard HTTP agent pooling can also retain and reuse each destination
 channel for later requests.
 
+The HTTP channel adapter implements Node's socket inactivity timeout contract. Request and socket
+timeouts refresh on inbound and outbound activity, emit `timeout` without implicitly closing the
+channel, and release their timer when the channel closes. Calling `setTimeout(0)` disables the
+timer. TCP keepalive and Nagle controls remain no-ops at the individual channel layer because those
+settings belong to the shared SSH transport.
+
 ```ts
 import { once } from "node:events"
 import https from "node:https"
