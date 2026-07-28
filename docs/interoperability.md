@@ -252,7 +252,10 @@ certificate, and rejects a mismatched certificate envelope before application po
 integration test starts the system OpenSSH `ssh-agent`, loads an independently generated Ed25519
 key with `ssh-add`, lists it through `modernssh`, and verifies a delegated signature
 cryptographically. That real agent also accepts a generated certificate-backed identity directly
-from the library, lists its certificate, and signs through its matching private key.
+from the library, lists its certificate, and signs through its matching private key. A separate
+SoftHSM fixture imports an isolated RSA key, then the library asks the system agent to add that
+provider with a lifetime constraint, list its identity, produce a verified RSA-SHA2-512 signature,
+remove the provider, and prove that its identity disappeared.
 
 Security-key coverage uses fixed Ed25519, P-256, and WebAuthn wire values derived independently from
 the published FIDO/U2F format. Negative cases change the signed counter, WebAuthn challenge,

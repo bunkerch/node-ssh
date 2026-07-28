@@ -82,6 +82,8 @@ pnpm docs:build
 ```
 
 `pnpm test` builds the distributable entry point before running unit and integration tests.
+CI installs `putty-tools` and SoftHSM alongside the system OpenSSH and Docker tools used by the
+interoperability suite. The SoftHSM token fixture is skipped locally when its provider is absent.
 `pnpm docs:api` rebuilds the package and regenerates the complete declaration reference under
 `docs/api/`. `pnpm docs:dev` starts the local Fumadocs site, and `pnpm docs:build` verifies the
 production documentation build. The documentation toolchain requires Node.js 22 or newer; the

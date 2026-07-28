@@ -68,6 +68,12 @@ The management methods are:
 - `queryExtensions()` uses the standard `query` extension and returns its advertised extension
   names.
 
+The system interoperability suite starts a real `ssh-agent`, initializes an isolated SoftHSM token,
+and sends a constrained `addToken()` request through `SSHAgentProtocolClient`. The agent discovers
+the token's RSA identity, produces a verified RSA-SHA2-512 signature, removes the provider through
+`removeToken()`, and reports an empty identity set afterward. This exercises the standard agent
+token operations without physical hardware or an in-process agent implementation.
+
 Create a certificate-backed identity by attaching a parsed certificate to its matching private
 key. The certificate, its embedded public key, and the private material are checked for an exact
 match before the request is sent.

@@ -22,7 +22,9 @@ jobs:
                   persist-credentials: false
 
             - name: Install system test tools
-              run: sudo apt-get update && sudo apt-get install --yes libatomic1 putty-tools
+              run: >-
+                  sudo apt-get update &&
+                  sudo apt-get install --yes libatomic1 putty-tools softhsm2
 
             - name: Install pnpm
               uses: pnpm/action-setup@v4
