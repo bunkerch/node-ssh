@@ -41,6 +41,19 @@ class SFTPClientFixture extends Duplex {
     }
 }
 
+class ClosableSFTPServerShell extends SFTPClientFixture {
+    closeCalls = 0
+
+    close(): this {
+        this.closeCalls++
+        return this
+    }
+
+    finishClose(error?: Error): void {
+        this.destroy(error)
+    }
+}
+
 function asShell(client: SFTPClientFixture): Shell {
     return client as unknown as Shell
 }
@@ -328,6 +341,9 @@ describe("SFTP server request engine", () => {
             expect(
                 () => new SFTPServer(asShell(fixture), { maxOpenHandles: null as never }),
             ).toThrow("SFTP maximum open handles must be a non-negative safe integer")
+            expect(() => new SFTPServer(asShell(fixture), { closeTimeout: null as never })).toThrow(
+                "SFTP server close timeout must be a positive number",
+            )
             expect(
                 () => new SFTPServer(asShell(fixture), { maxReadLength: null as never }),
             ).toThrow("SFTP maximum read length must be between")
@@ -1790,5 +1806,41 @@ describe("SFTP server request engine", () => {
             },
         ])
         fixture.destroy()
+    })
+
+    test("coalesces close calls and awaits the underlying channel", async () => {
+        const fixture = new ClosableSFTPServerShell()
+        const server = new SFTPServer(asShell(fixture))
+        let closeEvents = 0
+        server.on("close", () => closeEvents++)
+
+        const closing = server.close()
+        expect(server.close()).toBe(closing)
+        expect(server[Symbol.asyncDispose]()).toBe(closing)
+        expect(fixture.closeCalls).toBe(1)
+        expect(closeEvents).toBe(1)
+
+        let settled = false
+        void closing.then(() => {
+            settled = true
+        })
+        await flush()
+        expect(settled).toBe(false)
+
+        fixture.finishClose()
+        await closing
+        expect(settled).toBe(true)
+        expect(closeEvents).toBe(1)
+    })
+
+    test("bounds server shutdown when the peer does not close its channel", async () => {
+        const fixture = new ClosableSFTPServerShell()
+        const server = new SFTPServer(asShell(fixture), { closeTimeout: 20 })
+
+        await expect(server.close()).rejects.toThrow(
+            "Timed out waiting for SFTP server channel to close",
+        )
+        expect(fixture.destroyed).toBe(true)
+        expect(fixture.closeCalls).toBe(1)
     })
 })

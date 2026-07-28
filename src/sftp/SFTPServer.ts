@@ -3,6 +3,7 @@ import type Shell from "../channels/Session/Shell.js"
 import { Hooker } from "../utils/Hooker.js"
 import { validateSSHName } from "../utils/SSHName.js"
 import { isPlainConfigurationObject } from "../utils/Configuration.js"
+import { closeStream, normalizeStreamCloseTimeout } from "../utils/StreamClose.js"
 import { encodeSFTPPacket, SFTPPacketParser, SFTPProtocolError } from "./codec.js"
 import {
     MAX_SFTP_HANDLE_LENGTH,
@@ -90,6 +91,8 @@ export interface SFTPServerOptions {
     maxWriteLength?: number
     /** Advertise and answer the limits extension. Defaults to true when handles are enabled. */
     advertiseLimits?: boolean
+    /** Maximum milliseconds to wait for the channel to close. Defaults to 30 seconds. */
+    closeTimeout?: number
 }
 
 export interface SFTPSymlinkPaths {
@@ -141,6 +144,7 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
 
     private readonly parser = new SFTPPacketParser()
     private readonly advertisedExtensions: readonly SFTPExtension[]
+    readonly #closeTimeout: number
     readonly #maxConcurrentRequests: number
     readonly #maxOpenHandles: number
     readonly #maxReadLength: number
@@ -160,6 +164,7 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
     private initialized = false
     private closed = false
     private dispatchScheduled = false
+    private closePromise: Promise<void> | undefined
 
     constructor(stream: Shell, options: SFTPServerOptions = {}) {
         super()
@@ -176,6 +181,7 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
             throw new TypeError("SFTP OpenSSH symlink argument option must be a boolean")
         }
         this.stream = stream
+        this.#closeTimeout = normalizeStreamCloseTimeout(options.closeTimeout, "SFTP server")
         this.openSSHSymlinkArguments =
             options.openSSHSymlinkArguments === undefined ? false : options.openSSHSymlinkArguments
         this.#maxConcurrentRequests =
@@ -455,6 +461,18 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
         if (!this.stream.writableEnded) this.stream.end()
         if (!this.stream.destroyed) this.stream.destroy(error)
         this.fail(error ?? new Error("SFTP server session closed"))
+    }
+
+    /** Close the subsystem and settle after its SSH channel closes. */
+    close(): Promise<void> {
+        if (this.closePromise !== undefined) return this.closePromise
+        this.finish()
+        this.closePromise = closeStream(this.stream, this.#closeTimeout, "SFTP server channel")
+        return this.closePromise
+    }
+
+    [Symbol.asyncDispose](): Promise<void> {
+        return this.close()
     }
 
     private receive(data: Buffer): void {
@@ -827,22 +845,11 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
             this.destroy(error instanceof Error ? error : new Error(String(error)))
             return
         }
-        this.closed = true
-        this.active.clear()
-        this.activeRequestIds.clear()
-        this.activeResources.clear()
-        this.handlePathResources.clear()
-        this.activeHandleTypes.clear()
-        this.pendingHandleKeys.clear()
-        this.activeOrderingBarriers = 0
-        this.awaitingResponse.clear()
-        this.queued.length = 0
-        this.requestIds.clear()
-        this.emit("close")
+        this.finish()
         if (!this.stream.destroyed && !this.stream.writableEnded) this.stream.end()
     }
 
-    private fail(error: Error): void {
+    private finish(): void {
         if (this.closed) return
         this.closed = true
         this.active.clear()
@@ -855,8 +862,13 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
         this.awaitingResponse.clear()
         this.queued.length = 0
         this.requestIds.clear()
-        if (this.listenerCount("error") > 0) this.emit("error", error)
         this.emit("close")
+    }
+
+    private fail(error: Error): void {
+        if (this.closed) return
+        if (this.listenerCount("error") > 0) this.emit("error", error)
+        this.finish()
     }
 }
 

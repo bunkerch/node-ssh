@@ -192,6 +192,13 @@ appropriate version-2 failure for a downgraded peer. Missing list handlers repor
 unsupported. Hook rejections are contained by `Hooker` and become `GeneralFailure`, never an
 unhandled EventEmitter rejection.
 
+Call `await publicKeys.close()` when the application owns the server session lifecycle. It stops
+request dispatch immediately, asks the SSH channel to close, and settles after the channel's
+terminal `close` event. Concurrent calls share one Promise, and `Symbol.asyncDispose` provides the
+same operation for `await using`. `PublicKeySubsystemServerOptions.closeTimeout` bounds peer
+acknowledgement and defaults to 30 seconds; expiry force-aborts the channel and rejects the close
+operation. `publicKeys.destroy(error?)` remains the immediate abort path.
+
 The server automatically advertises the standard `namespace` capability. Additional advertised
 attributes are configured through `decision.publicKey.attributes`. A critical attribute absent
 from that list is rejected before application policy runs. Advertising an attribute means the

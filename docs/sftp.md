@@ -439,6 +439,13 @@ request retains its concurrency slot until both the handler and response write c
 response values are validated as Buffers and snapshotted before encoding; response handles also
 enforce the 256-byte protocol limit.
 
+Call `await sftp.close()` when the application owns the server session lifecycle. It stops new
+request dispatch immediately, asks the SSH channel to close, and settles after the channel's
+terminal `close` event. Concurrent calls share one Promise, and `Symbol.asyncDispose` provides the
+same operation for `await using`. `SFTPServerOptions.closeTimeout` bounds peer acknowledgement and
+defaults to 30 seconds; expiry force-aborts the channel and rejects the close operation.
+`sftp.destroy(error?)` remains the immediate abort path.
+
 The implementation rejects duplicate outstanding identifiers, invalid response types,
 out-of-context status codes, oversized read results, empty baseline name responses, server use of
 client-only connection status codes, and a second response. A hook rejection becomes an SFTP

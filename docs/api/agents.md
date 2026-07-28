@@ -776,6 +776,9 @@ export default class PublicKeySubsystemServer extends EventEmitter<PublicKeySubs
     get negotiatedProtocolVersion(): number | undefined;
     constructor(stream: Shell, options?: PublicKeySubsystemServerOptions);
     destroy(error?: Error): void;
+    /** Close the subsystem and settle after its SSH channel closes. */
+    close(): Promise<void>;
+    [Symbol.asyncDispose](): Promise<void>;
 }
 ```
 
@@ -941,6 +944,8 @@ Interface. Declared in [`src/publickey/PublicKeySubsystemServer.ts`](https://git
 ```ts
 export interface PublicKeySubsystemServerOptions {
     readonly attributes?: readonly PublicKeySubsystemSupportedAttribute[];
+    /** Maximum milliseconds to wait for the channel to close. Defaults to 30 seconds. */
+    readonly closeTimeout?: number;
 }
 ```
 

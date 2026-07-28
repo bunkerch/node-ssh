@@ -892,6 +892,9 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
     extendedReply(requestId: number, data: Buffer): Promise<void>;
     symlinkPaths(request: SFTPRequestOf<SFTPPacketType.SymLink>): Readonly<SFTPSymlinkPaths>;
     destroy(error?: Error): void;
+    /** Close the subsystem and settle after its SSH channel closes. */
+    close(): Promise<void>;
+    [Symbol.asyncDispose](): Promise<void>;
 }
 ```
 
@@ -1002,6 +1005,8 @@ export interface SFTPServerOptions {
     maxWriteLength?: number;
     /** Advertise and answer the limits extension. Defaults to true when handles are enabled. */
     advertiseLimits?: boolean;
+    /** Maximum milliseconds to wait for the channel to close. Defaults to 30 seconds. */
+    closeTimeout?: number;
 }
 ```
 

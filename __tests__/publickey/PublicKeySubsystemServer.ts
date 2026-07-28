@@ -44,6 +44,19 @@ class PublicKeySubsystemClientFixture extends Duplex {
     }
 }
 
+class ClosablePublicKeySubsystemServerShell extends PublicKeySubsystemClientFixture {
+    closeCalls = 0
+
+    close(): this {
+        this.closeCalls++
+        return this
+    }
+
+    finishClose(error?: Error): void {
+        this.destroy(error)
+    }
+}
+
 function asShell(stream: PublicKeySubsystemClientFixture): Shell {
     return stream as unknown as Shell
 }
@@ -80,6 +93,10 @@ describe("RFC 4819 and RFC 7076 public-key subsystem server", () => {
             [
                 { attributes: [{ name: "shell", compulsory: null }] },
                 "Public-key subsystem compulsory attribute flag must be a boolean",
+            ],
+            [
+                { closeTimeout: null },
+                "Public-key subsystem server close timeout must be a positive number",
             ],
         ]
 
@@ -739,5 +756,83 @@ describe("RFC 4819 and RFC 7076 public-key subsystem server", () => {
 
         expect(error.message).toContain("request before acknowledgement")
         expect(fixture.destroyed).toBe(true)
+    })
+
+    test("coalesces close calls and awaits the underlying channel", async () => {
+        const fixture = new ClosablePublicKeySubsystemServerShell(() => undefined)
+        const server = new PublicKeySubsystemServer(asShell(fixture))
+        let closeEvents = 0
+        server.on("close", () => closeEvents++)
+
+        const closing = server.close()
+        expect(server.close()).toBe(closing)
+        expect(server[Symbol.asyncDispose]()).toBe(closing)
+        expect(fixture.closeCalls).toBe(1)
+        expect(closeEvents).toBe(1)
+
+        let settled = false
+        void closing.then(() => {
+            settled = true
+        })
+        await Promise.resolve()
+        expect(settled).toBe(false)
+
+        fixture.finishClose()
+        await closing
+        expect(settled).toBe(true)
+        expect(closeEvents).toBe(1)
+    })
+
+    test("does not write a late policy response after graceful close starts", async () => {
+        const packets: PublicKeySubsystemPacket[] = []
+        const fixture = new ClosablePublicKeySubsystemServerShell((packet) => {
+            packets.push(packet)
+            if (packet.type === "version") {
+                queueMicrotask(() => fixture.send({ type: "version", version: 2 }))
+            }
+        })
+        const server = new PublicKeySubsystemServer(asShell(fixture))
+        let release!: () => void
+        const policy = new Promise<void>((resolve) => {
+            release = resolve
+        })
+        let startedResolve!: () => void
+        const started = new Promise<void>((resolve) => {
+            startedResolve = resolve
+        })
+        server.hooker.hook("remove", async (_hook, _context, controller) => {
+            startedResolve()
+            await policy
+            controller.success = true
+        })
+
+        await once(server, "ready")
+        fixture.send({
+            type: "remove",
+            algorithm: "ssh-ed25519",
+            keyBlob: RFC_8709_KEY,
+        })
+        await started
+
+        const closing = server.close()
+        release()
+        await Promise.resolve()
+        await Promise.resolve()
+
+        expect(packets).toEqual([{ type: "version", version: 3 }])
+        expect(fixture.destroyed).toBe(false)
+        fixture.finishClose()
+        await closing
+    })
+
+    test("bounds server shutdown when the peer does not close its channel", async () => {
+        const fixture = new ClosablePublicKeySubsystemServerShell(() => undefined)
+        const server = new PublicKeySubsystemServer(asShell(fixture), { closeTimeout: 20 })
+
+        await expect(server.close()).rejects.toThrow(
+            "Timed out waiting for public-key subsystem server channel to close",
+        )
+        expect(fixture.destroyed).toBe(true)
+        expect(fixture.closeCalls).toBe(1)
     })
 })

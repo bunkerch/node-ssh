@@ -5,6 +5,7 @@ import PublicKey from "../utils/PublicKey.js"
 import { isPlainConfigurationObject } from "../utils/Configuration.js"
 import { encodeSSHName } from "../utils/SSHName.js"
 import { encodeSSHUTF8 } from "../utils/SSHText.js"
+import { closeStream, normalizeStreamCloseTimeout } from "../utils/StreamClose.js"
 import {
     encodePublicKeySubsystemPacket,
     MAX_PUBLIC_KEY_SUBSYSTEM_RESPONSES,
@@ -30,6 +31,8 @@ export interface PublicKeySubsystemSupportedAttribute {
 
 export interface PublicKeySubsystemServerOptions {
     readonly attributes?: readonly PublicKeySubsystemSupportedAttribute[]
+    /** Maximum milliseconds to wait for the channel to close. Defaults to 30 seconds. */
+    readonly closeTimeout?: number
 }
 
 export interface PublicKeySubsystemServerAddContext {
@@ -144,6 +147,7 @@ export default class PublicKeySubsystemServer extends EventEmitter<PublicKeySubs
     readonly attributes: readonly Readonly<Required<PublicKeySubsystemSupportedAttribute>>[]
 
     private readonly parser = new PublicKeySubsystemPacketParser()
+    readonly #closeTimeout: number
     #negotiatedProtocolVersion: number | undefined
     private readonly supportedAttributeNames: ReadonlySet<string>
     private initialized = false
@@ -151,6 +155,7 @@ export default class PublicKeySubsystemServer extends EventEmitter<PublicKeySubs
     private active: Exclude<PublicKeySubsystemPacket, { type: "version" }> | undefined
     private dispatchScheduled = false
     private hookError: Error | undefined
+    private closePromise: Promise<void> | undefined
 
     get negotiatedProtocolVersion(): number | undefined {
         return this.#negotiatedProtocolVersion
@@ -189,6 +194,10 @@ export default class PublicKeySubsystemServer extends EventEmitter<PublicKeySubs
             normalizedAttributes.push(Object.freeze({ name: "namespace", compulsory: false }))
         }
         this.stream = stream
+        this.#closeTimeout = normalizeStreamCloseTimeout(
+            options.closeTimeout,
+            "Public-key subsystem server",
+        )
         this.attributes = Object.freeze(normalizedAttributes)
         this.supportedAttributeNames = new Set(this.attributes.map(({ name }) => name))
         this.hooker.on("uncaughtException", (_event, error) => {
@@ -211,6 +220,22 @@ export default class PublicKeySubsystemServer extends EventEmitter<PublicKeySubs
         if (!this.stream.writableEnded) this.stream.end()
         if (!this.stream.destroyed) this.stream.destroy(error)
         this.fail(error ?? new Error("Public-key subsystem server session closed"))
+    }
+
+    /** Close the subsystem and settle after its SSH channel closes. */
+    close(): Promise<void> {
+        if (this.closePromise !== undefined) return this.closePromise
+        this.finish()
+        this.closePromise = closeStream(
+            this.stream,
+            this.#closeTimeout,
+            "public-key subsystem server channel",
+        )
+        return this.closePromise
+    }
+
+    [Symbol.asyncDispose](): Promise<void> {
+        return this.close()
     }
 
     private receive(data: Buffer): void {
@@ -590,6 +615,7 @@ export default class PublicKeySubsystemServer extends EventEmitter<PublicKeySubs
 
     private async respond(code: number, description = "", languageTag = ""): Promise<void> {
         if (!this.active) {
+            if (this.closed) return
             throw new Error("No public-key subsystem request is awaiting a response")
         }
         this.active = undefined
@@ -814,6 +840,7 @@ export default class PublicKeySubsystemServer extends EventEmitter<PublicKeySubs
     }
 
     private writePacket(packet: PublicKeySubsystemPacket): Promise<void> {
+        if (this.closed) return Promise.resolve()
         const frame = encodePublicKeySubsystemPacket(packet)
         return new Promise<void>((resolve, reject) => {
             this.stream.write(frame, (error) => (error ? reject(error) : resolve()))
@@ -828,17 +855,20 @@ export default class PublicKeySubsystemServer extends EventEmitter<PublicKeySubs
             this.destroy(error instanceof Error ? error : new Error(String(error)))
             return
         }
+        this.finish()
+        if (!this.stream.destroyed && !this.stream.writableEnded) this.stream.end()
+    }
+
+    private finish(): void {
+        if (this.closed) return
         this.closed = true
         this.active = undefined
         this.emit("close")
-        if (!this.stream.destroyed && !this.stream.writableEnded) this.stream.end()
     }
 
     private fail(error: Error): void {
         if (this.closed) return
-        this.closed = true
-        this.active = undefined
         if (this.listenerCount("error") > 0) this.emit("error", error)
-        this.emit("close")
+        this.finish()
     }
 }

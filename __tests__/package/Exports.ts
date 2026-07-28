@@ -206,6 +206,7 @@ describe("package exports", () => {
         }
         const publicKeyServerOptions: PublicKeySubsystemServerOptions = {
             attributes: [{ name: "comment" }],
+            closeTimeout: 10_000,
         }
         const sftpServerOptions: SFTPServerOptions = {
             maxConcurrentRequests: 32,
@@ -213,6 +214,7 @@ describe("package exports", () => {
             maxReadLength: 32_768,
             maxWriteLength: 32_768,
             advertiseLimits: true,
+            closeTimeout: 10_000,
         }
         const sftpReadResult: SFTPReadResult = { bytesRead: 0, buffer: Buffer.alloc(0) }
         const copyRequest: SFTPCopyDataExtension = {
@@ -583,6 +585,10 @@ describe("package exports", () => {
             "dist/publickey/PublicKeySubsystemClient.d.ts",
             "utf8",
         )
+        const publicKeySubsystemServer = await readFile(
+            "dist/publickey/PublicKeySubsystemServer.d.ts",
+            "utf8",
+        )
         const channelOpenFailure = await readFile("dist/packets/ChannelOpenFailure.d.ts", "utf8")
 
         expect(client).not.toContain("ClientSessionCallback")
@@ -605,6 +611,10 @@ describe("package exports", () => {
         expect(client).toContain("/** Remote SSH account name. */\n    username: string")
         expect(server).not.toContain("options: ServerOptionsRequired")
         expect(client).toContain("globalRequest(name: string, args?: Buffer): Promise<Buffer>")
+        expect(sftpServer).toContain("close(): Promise<void>")
+        expect(sftpServer).toContain("[Symbol.asyncDispose](): Promise<void>")
+        expect(publicKeySubsystemServer).toContain("close(): Promise<void>")
+        expect(publicKeySubsystemServer).toContain("[Symbol.asyncDispose](): Promise<void>")
         expect(client).toContain(
             "forwardOutStreamLocal(socketPath: string): Promise<ClientDirectStreamLocalChannel>",
         )
