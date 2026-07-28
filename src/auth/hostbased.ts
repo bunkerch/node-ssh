@@ -99,7 +99,14 @@ export default class HostbasedAuthMethod implements AuthMethod {
         if (!options) return false
 
         const publicKey = options.key.data.publicKey
-        const algorithm = options.algorithm ?? publicKey.signatureAlgorithms[0]
+        const configuredAlgorithms =
+            clientAuthenticationConfigurationFor(client).authenticationSignatureAlgorithms
+        const algorithm =
+            options.algorithm ??
+            publicKey.signatureAlgorithms.find((candidate) =>
+                configuredAlgorithms.includes(candidate),
+            )
+        if (algorithm === undefined || !configuredAlgorithms.includes(algorithm)) return false
         assert(
             publicKey.supportsSignatureAlgorithm(algorithm),
             `Signature algorithm ${algorithm} is incompatible with ${publicKey.data.alg}`,

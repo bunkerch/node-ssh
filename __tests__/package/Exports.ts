@@ -672,6 +672,7 @@ describe("package exports", () => {
             expect(serverClient).not.toContain(secret)
         }
         expect(clientChannel).toContain("sendData(data: Buffer | string")
+        expect(client).toContain("authenticationSignatureAlgorithms?: readonly string[]")
         expect(clientSession).toContain("forwardAgent(): Promise<void>")
         expect(clientSession).toContain("sendInfoSignal(): Promise<void>")
         expect(index).toContain('export { OPENSSH_INFO_SIGNAL } from "./utils/Signal.js"')
@@ -933,6 +934,8 @@ describe("package exports", () => {
                     try { new Client({ username: "packed", agentForward: "false" }); process.exit(62) } catch (error) { if (!String(error).includes("agentForward option must be a boolean")) process.exit(63) }
                     try { new Client({ username: "packed", hostVerifier: true }); process.exit(64) } catch (error) { if (!String(error).includes("hostVerifier option must be a function")) process.exit(65) }
                     try { new Client({ username: "packed", timeout: null }); process.exit(105) } catch (error) { if (!String(error).includes("transport inactivity timeout must be an integer")) process.exit(106) }
+                    try { new Client({ username: "packed", authenticationSignatureAlgorithms: null }); process.exit(125) } catch (error) { if (!String(error).includes("signature algorithms must be an array")) process.exit(126) }
+                    new Client({ username: "packed", authenticationSignatureAlgorithms: ["ssh-ed25519"] })
                     try { new Client({}); process.exit(117) } catch (error) { if (!String(error).includes("username option is required")) process.exit(118) }
                     const invalidSession = new Client({ username: "packed" }).exec("true", { agentForward: "false" })
                     if (!(invalidSession instanceof Promise)) process.exit(66)

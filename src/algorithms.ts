@@ -234,6 +234,29 @@ export const default_public_key_signature_algorithms: readonly string[] = Object
     ),
 )
 
+export function normalizeAuthenticationSignatureAlgorithms(value: unknown): readonly string[] {
+    const algorithms = value === undefined ? default_public_key_signature_algorithms : value
+    if (!Array.isArray(algorithms)) {
+        throw new TypeError("SSH authentication signature algorithms must be an array")
+    }
+    if (algorithms.length === 0) {
+        throw new RangeError("SSH authentication signature algorithm list must not be empty")
+    }
+    const unique = new Set<string>()
+    for (const algorithm of algorithms) {
+        if (typeof algorithm !== "string" || !public_key_signature_algorithms.includes(algorithm)) {
+            throw new TypeError(
+                `Unsupported SSH authentication signature algorithm: ${String(algorithm)}`,
+            )
+        }
+        if (unique.has(algorithm)) {
+            throw new TypeError(`Duplicate SSH authentication signature algorithm: ${algorithm}`)
+        }
+        unique.add(algorithm)
+    }
+    return Object.freeze([...algorithms])
+}
+
 export abstract class KexAlgorithm {
     static alg_name: string
     static requires_encryption: boolean

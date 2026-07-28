@@ -479,6 +479,8 @@ export interface ClientOptions {
     gssapiKeyExchangeAuthentication?: boolean;
     protocolVersionExchange?: ProtocolVersionExchange;
     authenticationMethodsOrder?: readonly SSHAuthenticationMethods[];
+    /** Public-key and host-based user-authentication signature algorithms the client may use. */
+    authenticationSignatureAlgorithms?: readonly string[];
     keepaliveInterval?: number;
     keepaliveCountMax?: number;
     /** Protected wire bytes allowed per key in either direction. Zero disables this limit. */

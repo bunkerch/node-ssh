@@ -633,24 +633,31 @@ client-side identity guard.
 The server advertises only methods with registered policy hooks. Unknown methods are rejected, and
 `none` is omitted from every continuation list as required by RFC 4252.
 
-`authenticationSignatureAlgorithms` controls the public-key and host-based signature names which
-the server advertises and accepts. Its default contains every implemented modern signature but
-excludes the SHA-1 `ssh-rsa` forms and the DSS forms. Configure an exact non-empty list to narrow
-the policy further or to opt into a legacy peer:
+`authenticationSignatureAlgorithms` independently controls the public-key and host-based
+signature names a client may use and a server may advertise and accept. The client enforces its
+policy even when an older server omits `server-sig-algs`. The server enforces its policy before
+invoking an authentication hook, including when a client ignores the advertisement.
+
+The default for both roles contains every implemented modern signature but excludes the SHA-1
+`ssh-rsa` forms and the DSS forms. Configure an exact non-empty list to narrow the policy further
+or to opt into a legacy peer:
 
 ```ts
+const client = new Client({
+    username: "deploy",
+    authenticationSignatureAlgorithms: ["rsa-sha2-512", "rsa-sha2-256"],
+})
+
 const server = new Server({
     hostKeys,
     authenticationSignatureAlgorithms: ["rsa-sha2-512", "rsa-sha2-256"],
 })
 ```
 
-The allowlist is enforced before the authentication policy hook, including for a client which
-ignores `server-sig-algs`. Enabling a legacy name is therefore an explicit server decision in
-addition to the hook's per-key authorization. Prefer RSA SHA-2 over `ssh-rsa`; do not enable DSS
-for new deployments. A pre-authentication `sendAuthenticationExtensions()` update may narrow the
-advertised list for an account, but it cannot advertise a signature disabled by the server
-allowlist.
+Enabling a legacy name is an explicit decision at each endpoint in addition to the server hook's
+per-key authorization. Prefer RSA SHA-2 over `ssh-rsa`; do not enable DSS for new deployments. A
+pre-authentication `sendAuthenticationExtensions()` update may narrow the advertised list for an
+account, but it cannot advertise a signature disabled by the server allowlist.
 
 After success, `ServerClient.username` and `ServerClient.authenticationMethod` expose only the
 authenticated principal and the method that completed authentication. Both are `undefined` before

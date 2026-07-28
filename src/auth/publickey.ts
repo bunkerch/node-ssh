@@ -174,12 +174,16 @@ export default class PublicKeyAuthMethod implements AuthMethod {
         const keys = snapshotAgentIdentities(await agent.getPublicKeys())
         assertCurrent()
         for (const key of keys) {
+            const configuredAlgorithms =
+                clientAuthenticationConfigurationFor(client).authenticationSignatureAlgorithms
             const algorithms = key.publicKey.signatureAlgorithms.filter(
                 (algorithm) =>
-                    !client.serverSignatureAlgorithms ||
-                    client.serverSignatureAlgorithms.includes(
-                        key.publicKey.signatureAlgorithmFor(algorithm),
-                    ),
+                    configuredAlgorithms.includes(algorithm) &&
+                    (!client.serverSignatureAlgorithms ||
+                        client.serverSignatureAlgorithms.includes(algorithm) ||
+                        client.serverSignatureAlgorithms.includes(
+                            key.publicKey.signatureAlgorithmFor(algorithm),
+                        )),
             )
             for (const algorithm of algorithms) {
                 try {

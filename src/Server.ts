@@ -28,8 +28,7 @@ import {
     kex_algorithms,
     mac_algorithm_names,
     default_algorithm_names,
-    default_public_key_signature_algorithms,
-    public_key_signature_algorithms,
+    normalizeAuthenticationSignatureAlgorithms,
 } from "./algorithms.js"
 import { registerKeyExchanges } from "./KeyExchangeRegistry.js"
 import { registerServerConfiguration } from "./ConnectionConfiguration.js"
@@ -528,36 +527,10 @@ export default class Server extends EventEmitter<ServerEvents> {
         )
         this.#options.noFlowControl = normalizeNoFlowControlPreference(this.#options.noFlowControl)
         this.#options.delayCompression = normalizeDelayCompression(this.#options.delayCompression)
-        const authenticationSignatureAlgorithms =
-            this.#options.authenticationSignatureAlgorithms === undefined
-                ? default_public_key_signature_algorithms
-                : this.#options.authenticationSignatureAlgorithms
-        if (!Array.isArray(authenticationSignatureAlgorithms)) {
-            throw new TypeError("SSH authentication signature algorithms must be an array")
-        }
-        if (authenticationSignatureAlgorithms.length === 0) {
-            throw new RangeError("SSH authentication signature algorithm list must not be empty")
-        }
-        const uniqueAuthenticationSignatureAlgorithms = new Set<string>()
-        for (const algorithm of authenticationSignatureAlgorithms) {
-            if (
-                typeof algorithm !== "string" ||
-                !public_key_signature_algorithms.includes(algorithm)
-            ) {
-                throw new TypeError(
-                    `Unsupported SSH authentication signature algorithm: ${String(algorithm)}`,
-                )
-            }
-            if (uniqueAuthenticationSignatureAlgorithms.has(algorithm)) {
-                throw new TypeError(
-                    `Duplicate SSH authentication signature algorithm: ${algorithm}`,
-                )
-            }
-            uniqueAuthenticationSignatureAlgorithms.add(algorithm)
-        }
-        this.#options.authenticationSignatureAlgorithms = Object.freeze([
-            ...authenticationSignatureAlgorithms,
-        ])
+        this.#options.authenticationSignatureAlgorithms =
+            normalizeAuthenticationSignatureAlgorithms(
+                this.#options.authenticationSignatureAlgorithms,
+            )
         if (this.#options.banner === undefined) this.#options.banner = ""
         if (this.#options.bannerLanguageTag === undefined) this.#options.bannerLanguageTag = ""
         if (typeof this.#options.banner !== "string") {

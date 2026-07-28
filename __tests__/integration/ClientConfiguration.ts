@@ -22,6 +22,22 @@ describe("client configuration normalization", () => {
                 { authenticationMethodsOrder: null as never },
                 "SSH authentication method order must be an array",
             ],
+            [
+                { authenticationSignatureAlgorithms: null as never },
+                "SSH authentication signature algorithms must be an array",
+            ],
+            [
+                { authenticationSignatureAlgorithms: [] },
+                "SSH authentication signature algorithm list must not be empty",
+            ],
+            [
+                { authenticationSignatureAlgorithms: ["unsupported@example.test"] },
+                "Unsupported SSH authentication signature algorithm",
+            ],
+            [
+                { authenticationSignatureAlgorithms: ["ssh-ed25519", "ssh-ed25519"] },
+                "Duplicate SSH authentication signature algorithm",
+            ],
             [{ readyTimeout: null as never }, "SSH ready timeout must be a non-negative number"],
             [
                 { timeout: null as never },

@@ -96,6 +96,7 @@ describe("SSH-backed HTTP agents", () => {
         await new Promise<void>((resolve) => server.server!.once("listening", resolve))
         const sshPort = (server.server!.address() as AddressInfo).port
         const authenticationMethodsOrder = [SSHAuthenticationMethods.PublicKey]
+        const authenticationSignatureAlgorithms = ["ssh-ed25519"]
         const encodedUserKey = userKey.serialize()
         const encodedUserKeyBase64 = encodedUserKey.toString("base64")
         const clientOptions = {
@@ -104,6 +105,7 @@ describe("SSH-backed HTTP agents", () => {
             username: "interop",
             privateKey: encodedUserKey,
             authenticationMethodsOrder,
+            authenticationSignatureAlgorithms,
         }
         const agent = new SSHHTTPAgent(clientOptions, {
             sourceHost: "agent.example",
@@ -111,6 +113,7 @@ describe("SSH-backed HTTP agents", () => {
         })
         clientOptions.username = "mutated"
         authenticationMethodsOrder[0] = SSHAuthenticationMethods.Password
+        authenticationSignatureAlgorithms[0] = "ssh-rsa"
         encodedUserKey.fill(0)
 
         try {

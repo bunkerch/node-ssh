@@ -35,6 +35,7 @@ import {
     type KexAlgorithmFactory,
     type CompressionAlgorithm,
     default_algorithm_names,
+    normalizeAuthenticationSignatureAlgorithms,
 } from "./algorithms.js"
 import KexDHInit from "./packets/KexDHInit.js"
 import KexDHReply from "./packets/KexDHReply.js"
@@ -328,6 +329,8 @@ export interface ClientOptions {
     gssapiKeyExchangeAuthentication?: boolean
     protocolVersionExchange?: ProtocolVersionExchange
     authenticationMethodsOrder?: readonly SSHAuthenticationMethods[]
+    /** Public-key and host-based user-authentication signature algorithms the client may use. */
+    authenticationSignatureAlgorithms?: readonly string[]
     keepaliveInterval?: number
     keepaliveCountMax?: number
     /** Protected wire bytes allowed per key in either direction. Zero disables this limit. */
@@ -864,6 +867,10 @@ export default class Client extends EventEmitter<ClientEvents> {
         this.#options.noFlowControl = normalizeNoFlowControlPreference(this.#options.noFlowControl)
         this.#options.elevation = normalizeElevationPreference(this.#options.elevation)
         this.#options.delayCompression = normalizeDelayCompression(this.#options.delayCompression)
+        this.#options.authenticationSignatureAlgorithms =
+            normalizeAuthenticationSignatureAlgorithms(
+                this.#options.authenticationSignatureAlgorithms,
+            )
         this.#options.gssapi = normalizeGSSAPIClientMechanisms(
             this.#options.gssapi === undefined ? [] : this.#options.gssapi,
         )
@@ -879,6 +886,16 @@ export default class Client extends EventEmitter<ClientEvents> {
         )
         if (this.#options.hostbased !== undefined) {
             this.#options.hostbased = normalizeClientHostbasedOptions(this.#options.hostbased)
+            if (
+                this.#options.hostbased.algorithm !== undefined &&
+                !this.#options.authenticationSignatureAlgorithms.includes(
+                    this.#options.hostbased.algorithm,
+                )
+            ) {
+                throw new TypeError(
+                    `SSH hostbased signature algorithm is disabled by client policy: ${this.#options.hostbased.algorithm}`,
+                )
+            }
         }
         this.#options.agent = normalizeClientAuthenticationAgent(this.#options)
         this.#options.privateKey = undefined
@@ -2974,6 +2991,14 @@ export default class Client extends EventEmitter<ClientEvents> {
                     selection.hostbased === undefined
                         ? this.#options.hostbased
                         : normalizeClientHostbasedOptions(selection.hostbased)
+                if (
+                    hostbased?.algorithm !== undefined &&
+                    !this.#options.authenticationSignatureAlgorithms.includes(hostbased.algorithm)
+                ) {
+                    throw new TypeError(
+                        `SSH hostbased signature algorithm is disabled by client policy: ${hostbased.algorithm}`,
+                    )
+                }
                 const authenticationConfiguration: ClientOptionsRequired = {
                     ...this.#options,
                     username,

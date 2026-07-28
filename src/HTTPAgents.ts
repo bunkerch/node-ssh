@@ -103,6 +103,10 @@ function snapshotClientOptions(options: Readonly<ClientOptions>): Readonly<Clien
             options.authenticationMethodsOrder === undefined
                 ? undefined
                 : Object.freeze([...options.authenticationMethodsOrder]),
+        authenticationSignatureAlgorithms:
+            options.authenticationSignatureAlgorithms === undefined
+                ? undefined
+                : Object.freeze([...options.authenticationSignatureAlgorithms]),
         delayCompression:
             options.delayCompression === undefined
                 ? undefined
