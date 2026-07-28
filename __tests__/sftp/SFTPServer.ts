@@ -340,6 +340,12 @@ describe("SFTP server request engine", () => {
                 () => new SFTPServer(asShell(fixture), { maxConcurrentRequests: null as never }),
             ).toThrow("SFTP maximum concurrent requests must be between")
             expect(
+                () =>
+                    new SFTPServer(asShell(fixture), {
+                        maxOutstandingRequestBytes: null as never,
+                    }),
+            ).toThrow("SFTP maximum outstanding request bytes must be between")
+            expect(
                 () => new SFTPServer(asShell(fixture), { maxOpenHandles: null as never }),
             ).toThrow("SFTP maximum open handles must be a non-negative safe integer")
             expect(() => new SFTPServer(asShell(fixture), { closeTimeout: null as never })).toThrow(
@@ -1764,6 +1770,68 @@ describe("SFTP server request engine", () => {
             "SFTP outstanding requests exceed 1024",
         ])
         expect(fixture.destroyed).toBe(true)
+    })
+
+    test("bounds the total decoded bytes retained by active and queued requests", async () => {
+        const fixture = new SFTPClientFixture()
+        const server = new SFTPServer(asShell(fixture), {
+            maxConcurrentRequests: 1,
+            maxOutstandingRequestBytes: 32,
+        })
+        const errors: Error[] = []
+        server.on("error", (error) => errors.push(error))
+        server.hooker.hook("STAT", async () => new Promise<void>(() => undefined))
+
+        fixture.send({ type: SFTPPacketType.Init, version: 3, extensions: [] })
+        fixture.send({
+            type: SFTPPacketType.Stat,
+            requestId: 1,
+            path: Buffer.from("file"),
+        })
+        await flush()
+        expect(fixture.destroyed).toBe(false)
+
+        fixture.send({
+            type: SFTPPacketType.Stat,
+            requestId: 2,
+            path: Buffer.from("file"),
+        })
+        await flush()
+
+        expect(errors.map((error) => error.message)).toEqual([
+            "SFTP outstanding request bytes exceed 32",
+        ])
+        expect(fixture.destroyed).toBe(true)
+    })
+
+    test("releases retained request bytes after the response is written", async () => {
+        const fixture = new SFTPClientFixture()
+        const server = new SFTPServer(asShell(fixture), {
+            maxConcurrentRequests: 1,
+            maxOutstandingRequestBytes: 17,
+        })
+        server.hooker.hook("STAT", async (_hook, request) => {
+            await server.attributes(request.requestId, {})
+        })
+
+        fixture.send({ type: SFTPPacketType.Init, version: 3, extensions: [] })
+        for (const requestId of [1, 2]) {
+            fixture.send({
+                type: SFTPPacketType.Stat,
+                requestId,
+                path: Buffer.from("file"),
+            })
+            await flush()
+        }
+
+        expect(server.maxOutstandingRequestBytes).toBe(17)
+        expect(
+            fixture.responses
+                .filter((packet) => packet.type === SFTPPacketType.Attrs)
+                .map((packet) => packet.requestId),
+        ).toEqual([1, 2])
+        expect(fixture.destroyed).toBe(false)
+        fixture.destroy()
     })
 
     test("awaits handlers and converts rejected or missing responses to failures", async () => {

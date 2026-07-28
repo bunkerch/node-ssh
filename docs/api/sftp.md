@@ -880,6 +880,7 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
     readonly openSSHSymlinkArguments: boolean;
     constructor(stream: Shell, options?: SFTPServerOptions);
     get maxConcurrentRequests(): number;
+    get maxOutstandingRequestBytes(): number;
     get maxOpenHandles(): number;
     get maxReadLength(): number;
     get maxWriteLength(): number;
@@ -1028,6 +1029,8 @@ export interface SFTPServerOptions {
     openSSHSymlinkArguments?: boolean;
     /** Maximum request hooks allowed to run concurrently. */
     maxConcurrentRequests?: number;
+    /** Maximum decoded wire bytes retained by active and queued requests. */
+    maxOutstandingRequestBytes?: number;
     /** Maximum active and pending baseline file or directory handles. */
     maxOpenHandles?: number;
     /** Largest READ length passed to application policy. */

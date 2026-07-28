@@ -236,6 +236,13 @@ function requestId(reader: Reader): number {
     return reader.uint32("request id")
 }
 
+const decodedFrameLengths = new WeakMap<SFTPPacket, number>()
+
+/** Exact wire bytes retained by a packet returned from the decoder. */
+export function decodedSFTPPacketFrameLength(packet: SFTPPacket): number | undefined {
+    return decodedFrameLengths.get(packet)
+}
+
 export function decodeSFTPPacket(frame: Buffer): SFTPPacket {
     if (frame.length < 5) throw new SFTPProtocolError("Truncated SFTP packet")
     const packetLength = frame.readUInt32BE(0)
@@ -393,6 +400,7 @@ export function decodeSFTPPacket(frame: Buffer): SFTPPacket {
             throw new SFTPProtocolError(`Unknown SFTP packet type ${type}`)
     }
     reader.done()
+    decodedFrameLengths.set(packet, frame.length)
     return packet
 }
 

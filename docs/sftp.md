@@ -476,7 +476,11 @@ therefore runs up to 64 request hooks concurrently by default while keeping each
 contained hook failure associated with its own request identifier. Set `maxConcurrentRequests` in
 the session's `decision.sftp` options to a safe integer from 1 through 1024 when backend capacity
 requires another bound; setting it to 1 deliberately restores serial dispatch. At most 1024 total
-queued and active requests are accepted.
+queued and active requests are accepted. Their decoded wire sizes are also bounded to 32 MiB by
+default. Set `maxOutstandingRequestBytes` to a positive safe integer, up to 268439552, to lower or
+raise that budget. A request consumes the exact size of its length-prefixed SFTP frame until its
+response write is accepted. Exceeding either outstanding-request bound aborts the SFTP subsystem
+channel while leaving the authenticated SSH connection and its other channels usable.
 
 The scheduler preserves SFTP v3's same-file receive order. Requests sharing an opaque handle or an
 exact path wait for the earlier handler and response write, while unrelated handles and paths may
@@ -531,6 +535,7 @@ decision.success = true
 decision.sftp = {
     extensions: [{ name: "example@example.com", data: Buffer.from("1") }],
     maxConcurrentRequests: 32,
+    maxOutstandingRequestBytes: 16 * 1024 * 1024,
     maxOpenHandles: 128,
     maxReadLength: 64 * 1024,
     maxWriteLength: 64 * 1024,

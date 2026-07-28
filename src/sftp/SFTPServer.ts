@@ -6,7 +6,12 @@ import { isPlainConfigurationObject } from "../utils/Configuration.js"
 import { closeStream, normalizeStreamCloseTimeout } from "../utils/StreamClose.js"
 import { DEFAULT_OPERATION_TIMEOUT, normalizeTimeout, waitWithTimeout } from "../utils/Timeout.js"
 import { makePromise } from "../utils/promise.js"
-import { encodeSFTPPacket, SFTPPacketParser, SFTPProtocolError } from "./codec.js"
+import {
+    decodedSFTPPacketFrameLength,
+    encodeSFTPPacket,
+    SFTPPacketParser,
+    SFTPProtocolError,
+} from "./codec.js"
 import {
     MAX_SFTP_HANDLE_LENGTH,
     MAX_SFTP_PACKET_LENGTH,
@@ -27,6 +32,8 @@ import { encodeSFTPLimits } from "./openssh.js"
 import { validateSFTPDirectoryEntryName, validateSFTPRealPath } from "./names.js"
 
 const MAX_OUTSTANDING_REQUESTS = 1024
+const MAX_OUTSTANDING_REQUEST_BYTES = MAX_OUTSTANDING_REQUESTS * (MAX_SFTP_PACKET_LENGTH + 4)
+const DEFAULT_MAX_OUTSTANDING_REQUEST_BYTES = 32 * 1024 * 1024
 const DEFAULT_MAX_CONCURRENT_REQUESTS = 64
 const DEFAULT_MAX_OPEN_HANDLES = 256
 const DEFAULT_MAX_READ_LENGTH = MAX_SFTP_PACKET_LENGTH - 2048
@@ -147,6 +154,8 @@ export interface SFTPServerOptions {
     openSSHSymlinkArguments?: boolean
     /** Maximum request hooks allowed to run concurrently. */
     maxConcurrentRequests?: number
+    /** Maximum decoded wire bytes retained by active and queued requests. */
+    maxOutstandingRequestBytes?: number
     /** Maximum active and pending baseline file or directory handles. */
     maxOpenHandles?: number
     /** Largest READ length passed to application policy. */
@@ -218,12 +227,15 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
     readonly #closeTimeout: number
     readonly #requestTimeout: number
     readonly #maxConcurrentRequests: number
+    readonly #maxOutstandingRequestBytes: number
     readonly #maxOpenHandles: number
     readonly #maxReadLength: number
     readonly #maxWriteLength: number
     readonly #advertiseLimits: boolean
     private readonly queued: SFTPRequestPacket[] = []
     private readonly requestIds = new Set<number>()
+    private readonly requestByteLengths = new Map<number, number>()
+    private outstandingRequestBytes = 0
     private readonly active = new Set<ActiveSFTPRequest>()
     private readonly activeRequestIds = new Set<number>()
     private readonly awaitingResponse = new Map<number, ActiveSFTPRequest>()
@@ -272,6 +284,19 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
         ) {
             throw new RangeError(
                 `SFTP maximum concurrent requests must be between 1 and ${MAX_OUTSTANDING_REQUESTS}`,
+            )
+        }
+        this.#maxOutstandingRequestBytes =
+            options.maxOutstandingRequestBytes === undefined
+                ? DEFAULT_MAX_OUTSTANDING_REQUEST_BYTES
+                : options.maxOutstandingRequestBytes
+        if (
+            !Number.isSafeInteger(this.#maxOutstandingRequestBytes) ||
+            this.#maxOutstandingRequestBytes < 1 ||
+            this.#maxOutstandingRequestBytes > MAX_OUTSTANDING_REQUEST_BYTES
+        ) {
+            throw new RangeError(
+                `SFTP maximum outstanding request bytes must be between 1 and ${MAX_OUTSTANDING_REQUEST_BYTES}`,
             )
         }
         this.#maxOpenHandles =
@@ -324,6 +349,10 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
 
     get maxConcurrentRequests(): number {
         return this.#maxConcurrentRequests
+    }
+
+    get maxOutstandingRequestBytes(): number {
+        return this.#maxOutstandingRequestBytes
     }
 
     get maxOpenHandles(): number {
@@ -601,7 +630,18 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
                 `SFTP outstanding requests exceed ${MAX_OUTSTANDING_REQUESTS}`,
             )
         }
+        const frameLength = decodedSFTPPacketFrameLength(packet)
+        if (frameLength === undefined) {
+            throw new Error("SFTP request is missing its decoded frame length")
+        }
+        if (this.outstandingRequestBytes + frameLength > this.#maxOutstandingRequestBytes) {
+            throw new SFTPProtocolError(
+                `SFTP outstanding request bytes exceed ${this.#maxOutstandingRequestBytes}`,
+            )
+        }
         this.requestIds.add(packet.requestId)
+        this.requestByteLengths.set(packet.requestId, frameLength)
+        this.outstandingRequestBytes += frameLength
         this.queued.push(packet)
         if (this.listenerCount("requestReceived") > 0) {
             this.emit("requestReceived", snapshotRequest(packet))
@@ -913,6 +953,11 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
                 if (this.awaitingResponse.get(packet.requestId) === active) {
                     this.awaitingResponse.delete(packet.requestId)
                     this.requestIds.delete(packet.requestId)
+                    const frameLength = this.requestByteLengths.get(packet.requestId)
+                    if (frameLength !== undefined) {
+                        this.requestByteLengths.delete(packet.requestId)
+                        this.outstandingRequestBytes -= frameLength
+                    }
                 }
             },
             (error: unknown) => {
@@ -977,6 +1022,8 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
         this.awaitingResponse.clear()
         this.queued.length = 0
         this.requestIds.clear()
+        this.requestByteLengths.clear()
+        this.outstandingRequestBytes = 0
         this.emit("close")
     }
 
