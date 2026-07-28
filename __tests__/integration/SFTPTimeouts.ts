@@ -83,6 +83,11 @@ describe("SFTP request deadlines", () => {
         const timedOut = new Promise<Error>((resolve) => {
             timeoutResolve = resolve
         })
+        let policySignal: AbortSignal | undefined
+        let policyAbortResolve!: () => void
+        const policyAborted = new Promise<void>((resolve) => {
+            policyAbortResolve = resolve
+        })
         server.on("connection", (connection) => {
             connection.on("channel", (channel) => {
                 if (!(channel instanceof SessionChannel)) return
@@ -93,7 +98,13 @@ describe("SFTP request deadlines", () => {
                 })
                 channel.events.on("sftp", (sftp) => {
                     sftp.on("error", timeoutResolve)
-                    sftp.hooker.hook("STAT", async () => neverSettles())
+                    sftp.hooker.hook("STAT", async (_hook, _request, operation) => {
+                        policySignal = operation.signal
+                        operation.signal.addEventListener("abort", policyAbortResolve, {
+                            once: true,
+                        })
+                        await neverSettles()
+                    })
                 })
             })
         })
@@ -115,6 +126,11 @@ describe("SFTP request deadlines", () => {
             const sftp = await client.sftp({}, { requestTimeout: 1_000 })
             await expect(sftp.stat("unanswered")).rejects.toBeInstanceOf(Error)
             expect((await timedOut).message).toBe("Timed out waiting for SFTP server request 1")
+            await policyAborted
+            expect(policySignal?.aborted).toBe(true)
+            expect((policySignal?.reason as Error).message).toBe(
+                "Timed out waiting for SFTP server request 1",
+            )
 
             expect(sftp.channel.destroyed).toBe(true)
             expect(client.isConnected).toBe(true)

@@ -806,6 +806,9 @@ describe("package exports", () => {
         expect(sftpServer).toContain("maxReadLength?: number")
         expect(sftpServer).toContain("maxWriteLength?: number")
         expect(sftpServer).toContain("advertiseLimits?: boolean")
+        expect(sftpServer).toContain("export interface SFTPServerOperationContext")
+        expect(sftpServer).toContain("readonly signal: AbortSignal")
+        expect(index).toContain("SFTPServerOperationContext")
         expect(sftpServer).toContain("get maxReadLength(): number")
         expect(sftpServer).toContain("get maxWriteLength(): number")
         for (const response of ["handle", "data", "name", "attributes", "extendedReply"]) {

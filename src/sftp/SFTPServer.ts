@@ -5,6 +5,7 @@ import { validateSSHName } from "../utils/SSHName.js"
 import { isPlainConfigurationObject } from "../utils/Configuration.js"
 import { closeStream, normalizeStreamCloseTimeout } from "../utils/StreamClose.js"
 import { DEFAULT_OPERATION_TIMEOUT, normalizeTimeout, waitWithTimeout } from "../utils/Timeout.js"
+import { makePromise } from "../utils/promise.js"
 import { encodeSFTPPacket, SFTPPacketParser, SFTPProtocolError } from "./codec.js"
 import {
     MAX_SFTP_HANDLE_LENGTH,
@@ -47,6 +48,11 @@ const STATUS_MESSAGES: Readonly<Record<number, string>> = {
 
 export type SFTPRequestOf<T extends SFTPPacketType> = Readonly<SFTPRequestPacket & { type: T }>
 
+export interface SFTPServerOperationContext {
+    /** Aborted when this request expires or its SFTP channel closes. */
+    readonly signal: AbortSignal
+}
+
 // eslint-disable-next-line @typescript-eslint/consistent-type-definitions
 export type SFTPServerEvents = {
     ready: [clientVersion: number]
@@ -57,26 +63,83 @@ export type SFTPServerEvents = {
 
 // eslint-disable-next-line @typescript-eslint/consistent-type-definitions
 export type SFTPServerHooker = {
-    request: [request: Readonly<SFTPRequestPacket>]
-    OPEN: [request: SFTPRequestOf<SFTPPacketType.Open>]
-    CLOSE: [request: SFTPRequestOf<SFTPPacketType.Close>]
-    READ: [request: SFTPRequestOf<SFTPPacketType.Read>]
-    WRITE: [request: SFTPRequestOf<SFTPPacketType.Write>]
-    LSTAT: [request: SFTPRequestOf<SFTPPacketType.LStat>]
-    FSTAT: [request: SFTPRequestOf<SFTPPacketType.FStat>]
-    SETSTAT: [request: SFTPRequestOf<SFTPPacketType.SetStat>]
-    FSETSTAT: [request: SFTPRequestOf<SFTPPacketType.FSetStat>]
-    OPENDIR: [request: SFTPRequestOf<SFTPPacketType.OpenDir>]
-    READDIR: [request: SFTPRequestOf<SFTPPacketType.ReadDir>]
-    REMOVE: [request: SFTPRequestOf<SFTPPacketType.Remove>]
-    MKDIR: [request: SFTPRequestOf<SFTPPacketType.MkDir>]
-    RMDIR: [request: SFTPRequestOf<SFTPPacketType.RmDir>]
-    REALPATH: [request: SFTPRequestOf<SFTPPacketType.RealPath>]
-    STAT: [request: SFTPRequestOf<SFTPPacketType.Stat>]
-    RENAME: [request: SFTPRequestOf<SFTPPacketType.Rename>]
-    READLINK: [request: SFTPRequestOf<SFTPPacketType.ReadLink>]
-    SYMLINK: [request: SFTPRequestOf<SFTPPacketType.SymLink>]
-    EXTENDED: [request: SFTPRequestOf<SFTPPacketType.Extended>]
+    request: [request: Readonly<SFTPRequestPacket>, operation: Readonly<SFTPServerOperationContext>]
+    OPEN: [
+        request: SFTPRequestOf<SFTPPacketType.Open>,
+        operation: Readonly<SFTPServerOperationContext>,
+    ]
+    CLOSE: [
+        request: SFTPRequestOf<SFTPPacketType.Close>,
+        operation: Readonly<SFTPServerOperationContext>,
+    ]
+    READ: [
+        request: SFTPRequestOf<SFTPPacketType.Read>,
+        operation: Readonly<SFTPServerOperationContext>,
+    ]
+    WRITE: [
+        request: SFTPRequestOf<SFTPPacketType.Write>,
+        operation: Readonly<SFTPServerOperationContext>,
+    ]
+    LSTAT: [
+        request: SFTPRequestOf<SFTPPacketType.LStat>,
+        operation: Readonly<SFTPServerOperationContext>,
+    ]
+    FSTAT: [
+        request: SFTPRequestOf<SFTPPacketType.FStat>,
+        operation: Readonly<SFTPServerOperationContext>,
+    ]
+    SETSTAT: [
+        request: SFTPRequestOf<SFTPPacketType.SetStat>,
+        operation: Readonly<SFTPServerOperationContext>,
+    ]
+    FSETSTAT: [
+        request: SFTPRequestOf<SFTPPacketType.FSetStat>,
+        operation: Readonly<SFTPServerOperationContext>,
+    ]
+    OPENDIR: [
+        request: SFTPRequestOf<SFTPPacketType.OpenDir>,
+        operation: Readonly<SFTPServerOperationContext>,
+    ]
+    READDIR: [
+        request: SFTPRequestOf<SFTPPacketType.ReadDir>,
+        operation: Readonly<SFTPServerOperationContext>,
+    ]
+    REMOVE: [
+        request: SFTPRequestOf<SFTPPacketType.Remove>,
+        operation: Readonly<SFTPServerOperationContext>,
+    ]
+    MKDIR: [
+        request: SFTPRequestOf<SFTPPacketType.MkDir>,
+        operation: Readonly<SFTPServerOperationContext>,
+    ]
+    RMDIR: [
+        request: SFTPRequestOf<SFTPPacketType.RmDir>,
+        operation: Readonly<SFTPServerOperationContext>,
+    ]
+    REALPATH: [
+        request: SFTPRequestOf<SFTPPacketType.RealPath>,
+        operation: Readonly<SFTPServerOperationContext>,
+    ]
+    STAT: [
+        request: SFTPRequestOf<SFTPPacketType.Stat>,
+        operation: Readonly<SFTPServerOperationContext>,
+    ]
+    RENAME: [
+        request: SFTPRequestOf<SFTPPacketType.Rename>,
+        operation: Readonly<SFTPServerOperationContext>,
+    ]
+    READLINK: [
+        request: SFTPRequestOf<SFTPPacketType.ReadLink>,
+        operation: Readonly<SFTPServerOperationContext>,
+    ]
+    SYMLINK: [
+        request: SFTPRequestOf<SFTPPacketType.SymLink>,
+        operation: Readonly<SFTPServerOperationContext>,
+    ]
+    EXTENDED: [
+        request: SFTPRequestOf<SFTPPacketType.Extended>,
+        operation: Readonly<SFTPServerOperationContext>,
+    ]
 }
 
 export interface SFTPServerOptions {
@@ -106,6 +169,8 @@ export interface SFTPSymlinkPaths {
 interface ActiveSFTPRequest {
     readonly request: SFTPRequestPacket
     readonly ordering: SFTPRequestOrdering
+    readonly abortController: AbortController
+    readonly operation: Readonly<SFTPServerOperationContext>
     reservesHandle?: boolean
     response?: Promise<void>
 }
@@ -364,9 +429,11 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
         const tracked = response.then(
             () => {
                 this.pendingHandleKeys.delete(handleKey)
-                this.activeHandleTypes.set(handleKey, handleType)
-                if (pathKey !== undefined) {
-                    this.handlePathResources.set(handleKey, new Set([pathKey]))
+                if (!active.operation.signal.aborted && !this.closed) {
+                    this.activeHandleTypes.set(handleKey, handleType)
+                    if (pathKey !== undefined) {
+                        this.handlePathResources.set(handleKey, new Set([pathKey]))
+                    }
                 }
                 this.releaseHandleReservation(active)
             },
@@ -475,9 +542,14 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
     /** Close the subsystem and settle after its SSH channel closes. */
     close(): Promise<void> {
         if (this.closePromise !== undefined) return this.closePromise
+        const [closing, resolve, reject] = makePromise<void>()
+        this.closePromise = closing
         this.finish()
-        this.closePromise = closeStream(this.stream, this.#closeTimeout, "SFTP server channel")
-        return this.closePromise
+        void closeStream(this.stream, this.#closeTimeout, "SFTP server channel").then(
+            resolve,
+            reject,
+        )
+        return closing
     }
 
     [Symbol.asyncDispose](): Promise<void> {
@@ -553,7 +625,13 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
             if (queuedIndex === -1) return
             const [request] = this.queued.splice(queuedIndex, 1)
             const ordering = this.requestOrdering(request)
-            const active: ActiveSFTPRequest = { request, ordering }
+            const abortController = new AbortController()
+            const active: ActiveSFTPRequest = {
+                request,
+                ordering,
+                abortController,
+                operation: Object.freeze({ signal: abortController.signal }),
+            }
             this.active.add(active)
             this.activeRequestIds.add(request.requestId)
             this.acquireOrdering(ordering)
@@ -561,6 +639,7 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
             void this.waitForRequest(
                 this.dispatch(active),
                 `SFTP server request ${request.requestId}`,
+                abortController,
             ).then(
                 () => {
                     this.releaseHandleReservation(active)
@@ -735,9 +814,9 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
         if (!hookName) throw new SFTPProtocolError(`Unsupported SFTP request type ${request.type}`)
         let successful = true
         if (this.hooker.hasHooks(hookName)) {
-            successful = await this.triggerRequestHook(hookName, request)
+            successful = await this.triggerRequestHook(hookName, request, active.operation)
         } else if (this.hooker.hasHooks("request")) {
-            successful = await this.hooker.triggerHookChecked("request", request)
+            successful = await this.hooker.triggerHookChecked("request", request, active.operation)
         } else {
             await this.status(request.requestId, SFTPStatusCode.OperationUnsupported)
             return
@@ -796,11 +875,13 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
     private triggerRequestHook(
         hookName: keyof SFTPServerHooker,
         request: Readonly<SFTPRequestPacket>,
+        operation: Readonly<SFTPServerOperationContext>,
     ): Promise<boolean> {
         // REQUEST_HOOK_NAMES is the single mapping between each discriminated packet and hook.
         return this.hooker.triggerHookChecked(
             hookName,
             request as SFTPServerHooker[typeof hookName][0],
+            operation,
         )
     }
 
@@ -852,10 +933,15 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
         })
     }
 
-    private waitForRequest<T>(operation: PromiseLike<T>, description: string): Promise<T> {
-        return waitWithTimeout(operation, this.#requestTimeout, description, (error) =>
-            this.destroy(error),
-        )
+    private waitForRequest<T>(
+        operation: PromiseLike<T>,
+        description: string,
+        abortController?: AbortController,
+    ): Promise<T> {
+        return waitWithTimeout(operation, this.#requestTimeout, description, (error) => {
+            if (abortController && !abortController.signal.aborted) abortController.abort(error)
+            this.destroy(error)
+        })
     }
 
     private handleEnd(): void {
@@ -866,13 +952,18 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
             this.destroy(error instanceof Error ? error : new Error(String(error)))
             return
         }
-        this.finish()
+        this.finish(new SFTPProtocolError("SFTP channel ended"))
         if (!this.stream.destroyed && !this.stream.writableEnded) this.stream.end()
     }
 
-    private finish(): void {
+    private finish(reason: Error = new SFTPProtocolError("SFTP server session closed")): void {
         if (this.closed) return
         this.closed = true
+        for (const active of this.active) {
+            if (!active.abortController.signal.aborted) active.abortController.abort(reason)
+            active.reservesHandle = false
+        }
+        this.pendingHandleRequests = 0
         this.active.clear()
         this.activeRequestIds.clear()
         this.activeResources.clear()
@@ -889,7 +980,7 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
     private fail(error: Error): void {
         if (this.closed) return
         if (this.listenerCount("error") > 0) this.emit("error", error)
-        this.finish()
+        this.finish(error)
     }
 }
 

@@ -121,6 +121,7 @@ export type {
     SFTPRequestOf,
     SFTPServerEvents,
     SFTPServerHooker,
+    SFTPServerOperationContext,
     SFTPServerOptions,
     SFTPSymlinkPaths,
 } from "./sftp/SFTPServer.js"

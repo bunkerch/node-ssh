@@ -380,9 +380,12 @@ server.on("connection", (connection) => {
             decision.success = context.subsystem === "sftp"
         })
         channel.events.on("sftp", (sftp) => {
-            sftp.hooker.hook("STAT", async (_hook, request) => {
+            sftp.hooker.hook("STAT", async (_hook, request, operation) => {
                 try {
-                    const attributes = await lookupAuthorizedAttributes(request.path)
+                    const attributes = await lookupAuthorizedAttributes(
+                        request.path,
+                        operation.signal,
+                    )
                     await sftp.attributes(request.requestId, attributes)
                 } catch {
                     await sftp.status(request.requestId, SFTPStatusCode.NoSuchFile)
@@ -403,14 +406,14 @@ const sftp = new SFTPServer(shell, {
     extensions: [{ name: "posix-rename@openssh.com", data: Buffer.from("1") }],
 })
 
-sftp.hooker.hook("EXTENDED", async (_hook, request) => {
+sftp.hooker.hook("EXTENDED", async (_hook, request, operation) => {
     if (request.request !== "posix-rename@openssh.com") {
         await sftp.status(request.requestId, SFTPStatusCode.OperationUnsupported)
         return
     }
 
     const { firstPath, secondPath } = decodeSFTPTwoPathExtension(request.data)
-    await renameWithinAuthorizedRoot(firstPath, secondPath)
+    await renameWithinAuthorizedRoot(firstPath, secondPath, operation.signal)
     await sftp.status(request.requestId, SFTPStatusCode.Ok)
 })
 ```
@@ -423,7 +426,9 @@ awaited by the request that triggered them. When no specific hook is registered,
 `SFTPStatusCode.OperationUnsupported`. The EventEmitter `requestReceived` event is passive
 observation and does not take ownership of the response. Its request object and nested metadata are
 frozen, and its buffers are owned copies: changing observed bytes cannot alter the request later
-delivered to an awaited Hooker handler.
+delivered to an awaited Hooker handler. Every Hooker also receives a final
+`SFTPServerOperationContext`; pass its `signal` to cancellable filesystem, database, and
+authorization operations.
 
 Complete each request exactly once with the appropriate method:
 
@@ -444,7 +449,10 @@ start of its awaited Hooker policy through completion of its response write. It 
 seconds. Expiry aborts only that subsystem channel, rejects an in-progress response write, and
 releases all queued request state; the authenticated SSH connection and its other multiplexed
 channels remain usable. This deadline starts when a request reaches a concurrency slot, while the
-separate 1024-request bound limits work waiting in the scheduler.
+separate 1024-request bound limits work waiting in the scheduler. The request signal aborts with
+the failure when its deadline expires or the SFTP channel closes. Cancellation cannot undo a
+filesystem mutation which already completed, so handlers should honor the signal before committing
+state.
 
 Call `await sftp.close()` when the application owns the server session lifecycle. It stops new
 request dispatch immediately, asks the SSH channel to close, and settles after the channel's

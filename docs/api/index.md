@@ -7,7 +7,7 @@ description: Exact public TypeScript declarations shipped by modernssh.
 
 # API reference
 
-This reference is generated from the declarations shipped by the package. It covers all 461 exports available from `@bunkerch/modernssh`. Class sections contain every public constructor, property, accessor, and method declared by that class; inherited Node.js stream and EventEmitter members remain documented by Node.js.
+This reference is generated from the declarations shipped by the package. It covers all 462 exports available from `@bunkerch/modernssh`. Class sections contain every public constructor, property, accessor, and method declared by that class; inherited Node.js stream and EventEmitter members remain documented by Node.js.
 
 Regenerate it with `pnpm docs:api`. CI runs `pnpm docs:api:check` to prevent the reference from drifting from `dist/*.d.ts`.
 
@@ -374,6 +374,7 @@ Regenerate it with `pnpm docs:api`. CI runs `pnpm docs:api:check` to prevent the
 | [`SFTPServer`](sftp.md#sftpserver) | Class | SFTP |
 | [`SFTPServerEvents`](sftp.md#sftpserverevents) | Type | SFTP |
 | [`SFTPServerHooker`](sftp.md#sftpserverhooker) | Type | SFTP |
+| [`SFTPServerOperationContext`](sftp.md#sftpserveroperationcontext) | Interface | SFTP |
 | [`SFTPServerOptions`](sftp.md#sftpserveroptions) | Interface | SFTP |
 | [`SFTPSetStatPacket`](sftp.md#sftpsetstatpacket) | Interface | SFTP |
 | [`SFTPStats`](sftp.md#sftpstats) | Class | SFTP |

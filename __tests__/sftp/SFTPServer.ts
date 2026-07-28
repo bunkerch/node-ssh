@@ -1816,9 +1816,14 @@ describe("SFTP server request engine", () => {
         const fixture = new ClosableSFTPServerShell()
         const server = new SFTPServer(asShell(fixture))
         let closeEvents = 0
-        server.on("close", () => closeEvents++)
+        let reentrantClose: Promise<void> | undefined
+        server.on("close", () => {
+            closeEvents++
+            reentrantClose = server.close()
+        })
 
         const closing = server.close()
+        expect(reentrantClose).toBe(closing)
         expect(server.close()).toBe(closing)
         expect(server[Symbol.asyncDispose]()).toBe(closing)
         expect(fixture.closeCalls).toBe(1)
@@ -1837,6 +1842,31 @@ describe("SFTP server request engine", () => {
         expect(closeEvents).toBe(1)
     })
 
+    test("aborts every concurrent policy operation when the server closes", async () => {
+        const fixture = new ClosableSFTPServerShell()
+        const server = new SFTPServer(asShell(fixture))
+        const signals: AbortSignal[] = []
+        server.hooker.hook("request", async (_hook, _request, operation) => {
+            signals.push(operation.signal)
+            await new Promise<void>(() => undefined)
+        })
+
+        fixture.send({ type: SFTPPacketType.Init, version: 3, extensions: [] })
+        fixture.send({ type: SFTPPacketType.Stat, requestId: 21, path: Buffer.from("one") })
+        fixture.send({ type: SFTPPacketType.LStat, requestId: 22, path: Buffer.from("two") })
+        await flush()
+        expect(signals).toHaveLength(2)
+
+        const closing = server.close()
+        for (const signal of signals) {
+            expect(signal.aborted).toBe(true)
+            expect((signal.reason as Error).message).toBe("SFTP server session closed")
+        }
+
+        fixture.finishClose()
+        await closing
+    })
+
     test("bounds server shutdown when the peer does not close its channel", async () => {
         const fixture = new ClosableSFTPServerShell()
         const server = new SFTPServer(asShell(fixture), { closeTimeout: 20 })
@@ -1851,7 +1881,11 @@ describe("SFTP server request engine", () => {
     test("aborts a request whose awaited policy does not settle", async () => {
         const fixture = new SFTPClientFixture()
         const server = new SFTPServer(asShell(fixture), { requestTimeout: 20 })
-        server.hooker.hook("STAT", async () => new Promise<void>(() => undefined))
+        let policySignal: AbortSignal | undefined
+        server.hooker.hook("STAT", async (_hook, _request, operation) => {
+            policySignal = operation.signal
+            await new Promise<void>(() => undefined)
+        })
         const failed = once(server, "error")
 
         fixture.send({ type: SFTPPacketType.Init, version: 3, extensions: [] })
@@ -1860,6 +1894,8 @@ describe("SFTP server request engine", () => {
 
         const [error] = await failed
         expect(error.message).toBe("Timed out waiting for SFTP server request 17")
+        expect(policySignal?.aborted).toBe(true)
+        expect((policySignal?.reason as Error).message).toBe(error.message)
         expect(fixture.destroyed).toBe(true)
     })
 })
