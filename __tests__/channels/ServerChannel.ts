@@ -12,6 +12,7 @@ import SessionChannel from "../../src/channels/SessionChannel.js"
 import type ServerClient from "../../src/ServerClient.js"
 import { serializeBuffer, serializeUint32 } from "../../src/utils/Buffer.js"
 import Shell from "../../src/channels/Session/Shell.js"
+import { rejectUnimplementedPacket } from "../../src/utils/UnimplementedRegistry.js"
 
 function createChannel(remoteWindow = 5, remotePacketSize = 3) {
     const client = new Client({ hostname: "unused" })
@@ -226,6 +227,21 @@ describe("server Channel", () => {
             "extension domain is invalid",
         )
         expect(sent).toEqual([])
+    })
+
+    test("rejects the exact request named by an unimplemented sequence", async () => {
+        const { channel } = createChannel()
+        const first = channel.request("first")
+        const second = channel.request("second").catch((error: Error) => error)
+
+        expect(rejectUnimplementedPacket(channel.client, 1)).toBe(true)
+        expect((await second).message).toContain(
+            "channel 0 request second (outbound packet sequence 1)",
+        )
+
+        channel.receiveRequestSuccess()
+        await expect(first).resolves.toBeUndefined()
+        expect(rejectUnimplementedPacket(channel.client, 1)).toBe(false)
     })
 
     test("stops outbound data after end-of-write without closing the channel", async () => {

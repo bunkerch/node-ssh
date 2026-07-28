@@ -177,6 +177,11 @@ import { parseKey } from "./KeyParsing.js"
 import { decodeSSHUTF8, encodeSSHUTF8 } from "./utils/SSHText.js"
 import { encodeSSHName, validateSSHName } from "./utils/SSHName.js"
 import {
+    registerUnimplementedRejection,
+    rejectUnimplementedPacket,
+    unimplementedPacketError,
+} from "./utils/UnimplementedRegistry.js"
+import {
     closeGSSAPIContext,
     buildGSSAPIKeyExchangeUserAuthMIC,
     GSSAPIError,
@@ -745,12 +750,14 @@ interface PendingGlobalRequest {
     name: string
     resolve: (args: Buffer) => void
     reject: (error: Error) => void
+    unregisterUnimplemented?: () => void
 }
 
 interface PendingPing {
     data: Buffer
     resolve: (data: Buffer) => void
     reject: (error: Error) => void
+    unregisterUnimplemented?: () => void
 }
 
 interface RemoteForwarding {
@@ -1420,10 +1427,22 @@ export default class Client extends EventEmitter<ClientEvents> {
             return Promise.reject(new TypeError("SSH transport ping data must be a buffer"))
         }
         const sent = Buffer.from(data)
+        let pending!: PendingPing
         const response = new Promise<Buffer>((resolve, reject) => {
-            this.pendingPings.push({ data: sent, resolve, reject })
+            pending = { data: sent, resolve, reject }
+            this.pendingPings.push(pending)
             try {
-                this.sendPacket(new Ping({ data: sent }))
+                const sequenceNumber = this.sendPacket(new Ping({ data: sent }))
+                pending.unregisterUnimplemented = registerUnimplementedRejection(
+                    this,
+                    sequenceNumber,
+                    () => {
+                        const index = this.pendingPings.indexOf(pending)
+                        if (index === -1) return
+                        this.pendingPings.splice(index, 1)
+                        pending.reject(unimplementedPacketError(sequenceNumber, "transport ping"))
+                    },
+                )
             } catch (error) {
                 this.pendingPings.pop()
                 reject(error as Error)
@@ -1672,8 +1691,17 @@ export default class Client extends EventEmitter<ClientEvents> {
 
         this.channels.set(channel.localId, channel)
         try {
-            this.sendPacket(channel.getOpenPacket())
-            await waitForReply(this, channel.waitUntilOpen(), `channel ${channel.localId} open`)
+            const sequenceNumber = this.sendPacket(channel.getOpenPacket())
+            const unregister = registerUnimplementedRejection(this, sequenceNumber, () =>
+                channel.abort(
+                    unimplementedPacketError(sequenceNumber, `channel ${channel.localId} open`),
+                ),
+            )
+            try {
+                await waitForReply(this, channel.waitUntilOpen(), `channel ${channel.localId} open`)
+            } finally {
+                unregister()
+            }
             return channel
         } catch (error) {
             this.channels.delete(channel.localId)
@@ -1975,11 +2003,32 @@ export default class Client extends EventEmitter<ClientEvents> {
                 new Error("Cannot send an SSH global request before authentication"),
             )
         }
+        let pending!: PendingGlobalRequest
         const response = new Promise<Buffer>((resolve, reject) => {
-            this.pendingGlobalRequests.push({ name, resolve, reject })
+            pending = { name, resolve, reject }
+            this.pendingGlobalRequests.push(pending)
         })
         try {
-            this.sendPacket(new GlobalRequest({ request_name: name, want_reply: true, args }))
+            const sequenceNumber = this.sendPacket(
+                new GlobalRequest({ request_name: name, want_reply: true, args }),
+            )
+            pending.unregisterUnimplemented = registerUnimplementedRejection(
+                this,
+                sequenceNumber,
+                () => {
+                    const index = this.pendingGlobalRequests.indexOf(pending)
+                    if (index === -1) return
+                    this.pendingGlobalRequests.splice(index, 1)
+                    pending.reject(
+                        new GlobalRequestError(
+                            unimplementedPacketError(
+                                sequenceNumber,
+                                `global request ${name}`,
+                            ).message,
+                        ),
+                    )
+                },
+            )
         } catch (error) {
             this.pendingGlobalRequests.pop()
             return Promise.reject(error)
@@ -2722,6 +2771,7 @@ export default class Client extends EventEmitter<ClientEvents> {
                 this.pendingRemoteChannelOpens.clear()
                 while (this.pendingGlobalRequests.length > 0) {
                     const request = this.pendingGlobalRequests.shift()!
+                    request.unregisterUnimplemented?.()
                     request.reject(
                         this.connectionClosedError(
                             `SSH connection closed during global request ${request.name}`,
@@ -2729,13 +2779,11 @@ export default class Client extends EventEmitter<ClientEvents> {
                     )
                 }
                 while (this.pendingPings.length > 0) {
-                    this.pendingPings
-                        .shift()!
-                        .reject(
-                            this.connectionClosedError(
-                                "SSH connection closed during transport ping",
-                            ),
-                        )
+                    const ping = this.pendingPings.shift()!
+                    ping.unregisterUnimplemented?.()
+                    ping.reject(
+                        this.connectionClosedError("SSH connection closed during transport ping"),
+                    )
                 }
                 this.remoteForwardings.clear()
                 this.pendingRemoteForwardings.clear()
@@ -3336,7 +3384,10 @@ export default class Client extends EventEmitter<ClientEvents> {
         }
 
         emitPacketEvent(this, p)
-        if (p instanceof Unimplemented) this.emit("unimplemented", p.data.sequence_number)
+        if (p instanceof Unimplemented) {
+            rejectUnimplementedPacket(this, p.data.sequence_number)
+            this.emit("unimplemented", p.data.sequence_number)
+        }
 
         if (p instanceof GlobalRequest) {
             const generation = this.connectionGeneration
@@ -3426,6 +3477,7 @@ export default class Client extends EventEmitter<ClientEvents> {
                 const pong = p as Pong
                 const pending = this.pendingPings.shift()
                 if (!pending) break
+                pending.unregisterUnimplemented?.()
                 if (!pong.data.data.equals(pending.data)) {
                     const error = new Error("SSH transport pong did not echo the ping data")
                     pending.reject(error)
@@ -3769,6 +3821,7 @@ export default class Client extends EventEmitter<ClientEvents> {
         if (!request) {
             throw new ProtocolError("Received an unexpected SSH global request response")
         }
+        request.unregisterUnimplemented?.()
         if (packet instanceof RequestSuccess) {
             request.resolve(packet.data.args)
         } else {

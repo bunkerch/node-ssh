@@ -5,7 +5,10 @@ import Client from "../../src/Client.js"
 import { SSHAuthenticationMethods } from "../../src/constants.js"
 import Packet from "../../src/packet.js"
 import KexInit from "../../src/packets/KexInit.js"
+import ChannelOpenFailure from "../../src/packets/ChannelOpenFailure.js"
 import Pong from "../../src/packets/Pong.js"
+import RequestFailure from "../../src/packets/RequestFailure.js"
+import Unimplemented from "../../src/packets/Unimplemented.js"
 import Server from "../../src/Server.js"
 import type ServerClient from "../../src/ServerClient.js"
 import SessionChannel from "../../src/channels/SessionChannel.js"
@@ -96,6 +99,87 @@ describe("ordered SSH reply deadlines", () => {
         }
     })
 
+    test("rejects an unimplemented transport ping immediately without closing", async () => {
+        const peers = await connectedPeers({ clientReplyTimeout: 1_000 })
+        let pingSequence: number | undefined
+        peers.peer.on("packet", (metadata) => {
+            if (metadata.name === "SSH_MSG_PING") pingSequence = metadata.sequenceNumber
+        })
+        const sendPacket = peers.peer.sendPacket.bind(peers.peer)
+        peers.peer.sendPacket = (packet: Packet) =>
+            packet instanceof Pong && pingSequence !== undefined
+                ? sendPacket(new Unimplemented({ sequence_number: pingSequence }))
+                : sendPacket(packet)
+
+        try {
+            await expect(peers.client.ping(Buffer.from("unsupported"))).rejects.toThrow(
+                "SSH peer did not implement transport ping",
+            )
+            expect(peers.client.isConnected).toBe(true)
+        } finally {
+            await closePeers(peers)
+        }
+    })
+
+    test("rejects an unimplemented client global request without disturbing reply order", async () => {
+        const peers = await connectedPeers({ clientReplyTimeout: 1_000 })
+        let requestSequence: number | undefined
+        peers.peer.on("packet", (metadata) => {
+            if (metadata.name === "SSH_MSG_GLOBAL_REQUEST") {
+                requestSequence = metadata.sequenceNumber
+            }
+        })
+        const sendPacket = peers.peer.sendPacket.bind(peers.peer)
+        peers.peer.sendPacket = (packet: Packet) =>
+            packet instanceof RequestFailure && requestSequence !== undefined
+                ? sendPacket(new Unimplemented({ sequence_number: requestSequence }))
+                : sendPacket(packet)
+
+        try {
+            await expect(peers.client.globalRequest("unsupported@example.test")).rejects.toThrow(
+                "outbound packet sequence",
+            )
+            peers.peer.sendPacket = sendPacket
+            await expect(peers.client.globalRequest("denied@example.test")).rejects.toThrow(
+                "SSH global request denied@example.test failed",
+            )
+            expect(peers.client.isConnected).toBe(true)
+        } finally {
+            await closePeers(peers)
+        }
+    })
+
+    test("rejects an unimplemented server global request without disturbing reply order", async () => {
+        const peers = await connectedPeers({
+            clientReplyTimeout: 1_000,
+            serverReplyTimeout: 1_000,
+        })
+        let requestSequence: number | undefined
+        peers.client.on("packet", (metadata) => {
+            if (metadata.name === "SSH_MSG_GLOBAL_REQUEST") {
+                requestSequence = metadata.sequenceNumber
+            }
+        })
+        const sendPacket = peers.client.sendPacket.bind(peers.client)
+        peers.client.sendPacket = (packet: Packet) =>
+            packet instanceof RequestFailure && requestSequence !== undefined
+                ? sendPacket(new Unimplemented({ sequence_number: requestSequence }))
+                : sendPacket(packet)
+
+        try {
+            await expect(peers.peer.globalRequest("unsupported@example.test")).rejects.toThrow(
+                "outbound packet sequence",
+            )
+            peers.client.sendPacket = sendPacket
+            await expect(peers.peer.globalRequest("denied@example.test")).rejects.toThrow(
+                "SSH global request denied@example.test failed",
+            )
+            expect(peers.peer.isConnected).toBe(true)
+        } finally {
+            await closePeers(peers)
+        }
+    })
+
     test("closes after an unanswered client global request", async () => {
         const never = neverSettles<void>()
         const peers = await connectedPeers({
@@ -150,6 +234,30 @@ describe("ordered SSH reply deadlines", () => {
                 "Timed out waiting for SSH channel 0 open",
             )
             await closed
+        } finally {
+            await closePeers(peers)
+        }
+    })
+
+    test("rejects an unimplemented channel open immediately without closing", async () => {
+        const peers = await connectedPeers({ clientReplyTimeout: 1_000 })
+        let openSequence: number | undefined
+        peers.peer.on("packet", (metadata) => {
+            if (metadata.name === "SSH_MSG_CHANNEL_OPEN") {
+                openSequence = metadata.sequenceNumber
+            }
+        })
+        const sendPacket = peers.peer.sendPacket.bind(peers.peer)
+        peers.peer.sendPacket = (packet: Packet) =>
+            packet instanceof ChannelOpenFailure && openSequence !== undefined
+                ? sendPacket(new Unimplemented({ sequence_number: openSequence }))
+                : sendPacket(packet)
+
+        try {
+            await expect(peers.client.openSession()).rejects.toThrow(
+                "SSH peer did not implement channel 0 open",
+            )
+            expect(peers.client.isConnected).toBe(true)
         } finally {
             await closePeers(peers)
         }

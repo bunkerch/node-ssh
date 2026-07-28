@@ -322,10 +322,13 @@ The implementation follows RFC 4254 channel rules:
 - Inbound stdout and stderr share the advertised receive window. Window adjustments are sent as
   stream consumers make room. A zero adjustment is a valid no-op; an adjustment that would raise
   the current window above `2^32 - 1` causes an RFC protocol-error disconnect.
-- Request success and failure replies are matched in request order.
+- Request success and failure replies are matched in request order. An RFC 4253
+  `SSH_MSG_UNIMPLEMENTED` rejects the exact request identified by its outbound packet sequence and
+  removes it without shifting another request's reply.
 - Outbound channel opens and reply-requesting channel requests use the connection's `replyTimeout`.
   Expiry rejects the operation and closes the connection so a late ordered reply cannot be
-  misattributed.
+  misattributed. `SSH_MSG_UNIMPLEMENTED` rejects the identified open or request immediately without
+  closing the otherwise usable connection.
 - Local channel numbers span the complete RFC 4254 `uint32` range, wrap after `0xffffffff`, and
   skip identifiers that are still active. An identifier becomes reusable only after its channel
   has closed.

@@ -12,6 +12,7 @@ import { serializeBuffer } from "../../src/utils/Buffer.js"
 import { ProtocolError } from "../../src/packets/Disconnect.js"
 import { TerminalMode } from "../../src/TerminalModes.js"
 import { AgentType } from "../../src/publickey/Agent.js"
+import { rejectUnimplementedPacket } from "../../src/utils/UnimplementedRegistry.js"
 
 function createChannel(options: { initialWindowSize?: number; maximumPacketSize?: number } = {}) {
     const client = new Client({ hostname: "unused" })
@@ -365,6 +366,22 @@ describe("ClientChannel", () => {
         channel.receiveRequestFailure()
         await expect(first).resolves.toBeUndefined()
         expect(await secondResult).toBeInstanceOf(Error)
+        channel.destroy()
+    })
+
+    test("rejects the exact request named by an unimplemented sequence", async () => {
+        const { channel } = createChannel()
+        const first = channel.request("first")
+        const second = channel.request("second").catch((error: Error) => error)
+
+        expect(rejectUnimplementedPacket(channel.client, 1)).toBe(true)
+        expect((await second).message).toContain(
+            "channel 0 request second (outbound packet sequence 1)",
+        )
+
+        channel.receiveRequestSuccess()
+        await expect(first).resolves.toBeUndefined()
+        expect(rejectUnimplementedPacket(channel.client, 1)).toBe(false)
         channel.destroy()
     })
 

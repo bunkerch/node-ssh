@@ -17,6 +17,10 @@ import { normalizeSSHSignal } from "../utils/Signal.js"
 import { decodeSSHLanguageTag, decodeSSHUTF8 } from "../utils/SSHText.js"
 import { ProtocolError } from "../packets/Disconnect.js"
 import { waitForReply } from "../ReplyTimeout.js"
+import {
+    registerUnimplementedRejection,
+    unimplementedPacketError,
+} from "../utils/UnimplementedRegistry.js"
 import allocateChannelIdentifier from "../utils/ChannelIdentifier.js"
 import { deferApplicationTraffic } from "../utils/RekeyQueue.js"
 import { validateSSHName } from "../utils/SSHName.js"
@@ -39,6 +43,7 @@ interface PendingRequest {
     type: string
     resolve: () => void
     reject: (error: Error) => void
+    unregisterUnimplemented?: () => void
 }
 
 export type ClientChannelRequestContext = Readonly<{
@@ -255,7 +260,7 @@ export default class ClientChannel extends Duplex {
             : Promise.resolve()
 
         try {
-            this.client.sendPacket(
+            const sequenceNumber = this.client.sendPacket(
                 new ChannelRequest({
                     recipient_channel_id: this.remoteId,
                     request_type: type,
@@ -263,6 +268,24 @@ export default class ClientChannel extends Duplex {
                     args: Buffer.from(args),
                 }),
             )
+            if (wantReply) {
+                const pending = this.pendingRequests.at(-1)!
+                pending.unregisterUnimplemented = registerUnimplementedRejection(
+                    this.client,
+                    sequenceNumber,
+                    () => {
+                        const index = this.pendingRequests.indexOf(pending)
+                        if (index === -1) return
+                        this.pendingRequests.splice(index, 1)
+                        pending.reject(
+                            unimplementedPacketError(
+                                sequenceNumber,
+                                `channel ${this.localId} request ${type}`,
+                            ),
+                        )
+                    },
+                )
+            }
         } catch (error) {
             if (wantReply) this.pendingRequests.pop()
             return Promise.reject(error)
@@ -278,6 +301,7 @@ export default class ClientChannel extends Duplex {
         if (!request) {
             throw new ProtocolError(`Unexpected success response for SSH channel ${this.localId}`)
         }
+        request.unregisterUnimplemented?.()
         request.resolve()
     }
 
@@ -286,6 +310,7 @@ export default class ClientChannel extends Duplex {
         if (!request) {
             throw new ProtocolError(`Unexpected failure response for SSH channel ${this.localId}`)
         }
+        request.unregisterUnimplemented?.()
         request.reject(new Error(`SSH channel ${this.localId} request failed (${request.type})`))
     }
 
@@ -471,11 +496,11 @@ export default class ClientChannel extends Duplex {
             closeError ?? new Error(`SSH channel ${this.localId} closed during write`)
         while (this.pendingWrites.length > 0) this.pendingWrites.shift()!.reject(writeError)
         while (this.pendingRequests.length > 0) {
-            this.pendingRequests
-                .shift()!
-                .reject(
-                    closeError ?? new Error(`SSH channel ${this.localId} closed during request`),
-                )
+            const request = this.pendingRequests.shift()!
+            request.unregisterUnimplemented?.()
+            request.reject(
+                closeError ?? new Error(`SSH channel ${this.localId} closed during request`),
+            )
         }
         callback(error)
     }
@@ -620,7 +645,9 @@ export default class ClientChannel extends Duplex {
         } finally {
             const requestError = new Error(`SSH channel ${this.localId} closed during request`)
             while (this.pendingRequests.length > 0) {
-                this.pendingRequests.shift()!.reject(requestError)
+                const request = this.pendingRequests.shift()!
+                request.unregisterUnimplemented?.()
+                request.reject(requestError)
             }
         }
     }

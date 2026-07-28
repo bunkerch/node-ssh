@@ -37,6 +37,9 @@ rejects the call and closes the connection because a late untagged response cann
 matched to later work. A success or failure response without a pending request is a protocol error
 and closes the connection. Request and successful-response packet boundaries copy their opaque
 bytes, so caller buffers and received transport frames cannot mutate an in-flight exchange.
+If a peer instead sends RFC 4253 `SSH_MSG_UNIMPLEMENTED`, its packet sequence number rejects the
+exact matching call immediately with `GlobalRequestError`. That request is removed from the FIFO
+reply queue, later requests remain correctly matched, and the connection stays open.
 
 Accepted server connections expose the same API on `ServerClient`, for connection-wide requests
 directed at an SSH client:
@@ -88,8 +91,9 @@ The per-connection action scheduler retains at most 1024 operations waiting behi
 or channel work. The operation currently executing does not consume that waiting allowance, and
 independent channel keys may continue concurrently. Exceeding the bound terminates the connection:
 one-way requests have no failure response with which to apply backpressure safely. Transport close
-rejects and removes every queued operation, and a later reconnect uses a fresh scheduler so old
-work cannot run against new connection state.
+rejects both active and queued operation Promises, and a later reconnect uses a fresh scheduler so
+old work cannot run against new connection state. A handler already executing cannot be cancelled,
+but its eventual decision is discarded by the connection-generation checks above.
 
 Built-in protocol requests are processed by their dedicated validation and policy paths before the
 generic hook. Do not treat an unrecognized request name as trusted merely because the SSH peer was

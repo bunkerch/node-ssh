@@ -108,6 +108,11 @@ import GlobalRequest from "./packets/GlobalRequest.js"
 import { readNextBuffer, readNextUint32, serializeBuffer, serializeUint32 } from "./utils/Buffer.js"
 import { decodeSSHUTF8, encodeSSHUTF8 } from "./utils/SSHText.js"
 import { validateSSHName } from "./utils/SSHName.js"
+import {
+    registerUnimplementedRejection,
+    rejectUnimplementedPacket,
+    unimplementedPacketError,
+} from "./utils/UnimplementedRegistry.js"
 import RequestFailure from "./packets/RequestFailure.js"
 import RequestSuccess from "./packets/RequestSuccess.js"
 import ChannelOpen from "./packets/ChannelOpen.js"
@@ -231,6 +236,7 @@ interface PendingGlobalRequest {
     name: string
     resolve: (response: Buffer) => void
     reject: (error: Error) => void
+    unregisterUnimplemented?: () => void
 }
 
 const MAX_MESSAGES_BEFORE_NEWCOMPRESS = 32
@@ -339,6 +345,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             this.pendingRemoteChannelOpens.clear()
             while (this.pendingGlobalRequests.length > 0) {
                 const request = this.pendingGlobalRequests.shift()!
+                request.unregisterUnimplemented?.()
                 request.reject(
                     this.connectionClosedError(
                         `SSH connection closed during global request ${request.name}`,
@@ -586,8 +593,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         const channel = new ForwardedAgentChannel(this, protocol)
         this.channels.set(channel.localId, channel)
         try {
-            this.sendPacket(channel.getChannelOpenPacket())
-            await waitForReply(this, channel.waitUntilOpen(), `channel ${channel.localId} open`)
+            await this.sendChannelOpen(channel)
             return channel
         } catch (error) {
             this.channels.delete(channel.localId)
@@ -641,8 +647,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         if (authorization[1].single) this.x11Forwardings.delete(authorization[0])
         this.channels.set(channel.localId, channel)
         try {
-            this.sendPacket(channel.getChannelOpenPacket())
-            await waitForReply(this, channel.waitUntilOpen(), `channel ${channel.localId} open`)
+            await this.sendChannelOpen(channel)
             return channel
         } catch (error) {
             this.channels.delete(channel.localId)
@@ -778,10 +783,31 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 new Error("Cannot send an SSH global request before authentication"),
             )
         }
+        let pending!: PendingGlobalRequest
         const response = new Promise<Buffer>((resolve, reject) => {
-            this.pendingGlobalRequests.push({ name, resolve, reject })
+            pending = { name, resolve, reject }
+            this.pendingGlobalRequests.push(pending)
             try {
-                this.sendPacket(new GlobalRequest({ request_name: name, want_reply: true, args }))
+                const sequenceNumber = this.sendPacket(
+                    new GlobalRequest({ request_name: name, want_reply: true, args }),
+                )
+                pending.unregisterUnimplemented = registerUnimplementedRejection(
+                    this,
+                    sequenceNumber,
+                    () => {
+                        const index = this.pendingGlobalRequests.indexOf(pending)
+                        if (index === -1) return
+                        this.pendingGlobalRequests.splice(index, 1)
+                        pending.reject(
+                            new ServerGlobalRequestError(
+                                unimplementedPacketError(
+                                    sequenceNumber,
+                                    `global request ${name}`,
+                                ).message,
+                            ),
+                        )
+                    },
+                )
             } catch (error) {
                 this.pendingGlobalRequests.pop()
                 reject(error as Error)
@@ -803,6 +829,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         if (!request) {
             throw new ProtocolError("Received an unexpected SSH global request response")
         }
+        request.unregisterUnimplemented?.()
         if (packet instanceof RequestSuccess) {
             request.resolve(Buffer.from(packet.data.args))
         } else {
@@ -1830,8 +1857,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         this.assertChannelCapacity()
         this.channels.set(channel.localId, channel)
         try {
-            this.sendPacket(channel.getChannelOpenPacket())
-            await waitForReply(this, channel.waitUntilOpen(), `channel ${channel.localId} open`)
+            await this.sendChannelOpen(channel)
             return channel
         } catch (error) {
             this.channels.delete(channel.localId)
@@ -1871,8 +1897,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         try {
             this.assertChannelCapacity()
             this.channels.set(channel.localId, channel)
-            this.sendPacket(channel.getChannelOpenPacket())
-            await waitForReply(this, channel.waitUntilOpen(), `channel ${channel.localId} open`)
+            await this.sendChannelOpen(channel)
             if (socket.destroyed) {
                 pendingInput.destroy()
                 channel.close()
@@ -1887,6 +1912,20 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             channel.abort(error as Error)
             pendingInput.destroy()
             socket.destroy(error as Error)
+        }
+    }
+
+    private async sendChannelOpen(channel: Channel): Promise<void> {
+        const sequenceNumber = this.sendPacket(channel.getChannelOpenPacket())
+        const unregister = registerUnimplementedRejection(this, sequenceNumber, () =>
+            channel.abort(
+                unimplementedPacketError(sequenceNumber, `channel ${channel.localId} open`),
+            ),
+        )
+        try {
+            await waitForReply(this, channel.waitUntilOpen(), `channel ${channel.localId} open`)
+        } finally {
+            unregister()
         }
     }
 
@@ -2947,7 +2986,10 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             this.strictInitialPackets.add(packetType)
         }
         emitPacketEvent(this, p)
-        if (p instanceof Unimplemented) this.emit("unimplemented", p.data.sequence_number)
+        if (p instanceof Unimplemented) {
+            rejectUnimplementedPacket(this, p.data.sequence_number)
+            this.emit("unimplemented", p.data.sequence_number)
+        }
         this.routeGlobalRequestReply(p)
         this.debug("Parsing packet:", this.packetForDebug(p))
 

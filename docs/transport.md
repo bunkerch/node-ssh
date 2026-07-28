@@ -195,7 +195,10 @@ the transport. Both peer roles send RFC 4253 `SSH_MSG_UNIMPLEMENTED` with the ex
 sequence number and continue processing subsequent buffered packets. Malformed known packets still
 fail explicitly. During negotiated strict initial key exchange, an unknown non-KEX message remains
 a key-exchange violation and terminates the connection instead of receiving this recovery response.
-The `unimplemented` event reports only the rejected outbound sequence number.
+The `unimplemented` event reports only the rejected outbound sequence number. When that sequence
+identifies a pending channel open, reply-requesting channel or global request, or transport ping,
+the matching Promise rejects immediately and is removed from its ordered reply queue. The
+connection remains usable; unrelated pending operations keep their original ordering.
 
 The connection-level `packet` event exposes immutable inbound metadata: packet type, registered
 name when known, and sequence number. It never exposes decrypted payload bytes or parsed packet
@@ -702,8 +705,10 @@ Transport PING and PONG use opcodes 192 and 193 and carry one opaque SSH string;
 copy that string exactly. Client `ping()` calls are matched in FIFO order, reject mismatched data,
 and are available only after the advertisement is received. Pings and replies created during a
 rekey are queued until NEWKEYS completes, while server replies otherwise require no application
-event handler. Client pings and rekeys use the connection's `replyTimeout`; expiry closes the
-transport because subsequent ordered traffic cannot safely overtake the missing reply.
+event handler. An `SSH_MSG_UNIMPLEMENTED` naming a ping's outbound packet rejects that exact call
+without waiting for its deadline. Client pings and rekeys use the connection's `replyTimeout`;
+expiry closes the transport because subsequent ordered traffic cannot safely overtake the missing
+reply.
 
 ECDSA host keys support all three curves required by RFC 5656: `ecdsa-sha2-nistp256`,
 `ecdsa-sha2-nistp384`, and `ecdsa-sha2-nistp521`. Received SEC1 points are validated before use,

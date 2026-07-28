@@ -19,6 +19,10 @@ import { waitForReply } from "./ReplyTimeout.js"
 import allocateChannelIdentifier from "./utils/ChannelIdentifier.js"
 import { deferApplicationTraffic } from "./utils/RekeyQueue.js"
 import { validateSSHName } from "./utils/SSHName.js"
+import {
+    registerUnimplementedRejection,
+    unimplementedPacketError,
+} from "./utils/UnimplementedRegistry.js"
 
 export const DEFAULT_SERVER_CHANNEL_WINDOW_SIZE = 2 ** 21
 export const DEFAULT_SERVER_CHANNEL_PACKET_SIZE = 2 ** 15
@@ -35,6 +39,7 @@ interface PendingChannelRequest {
     type: string
     resolve: () => void
     reject: (error: Error) => void
+    unregisterUnimplemented?: () => void
 }
 
 export default class Channel {
@@ -235,6 +240,10 @@ export default class Channel {
     }
 
     sendRequest(type: string, args: Buffer = Buffer.alloc(0), wantReply = false): void {
+        this.sendRequestPacket(type, args, wantReply)
+    }
+
+    private sendRequestPacket(type: string, args: Buffer, wantReply: boolean): number {
         if (!this.isOpen || this.remoteId === undefined) {
             throw new Error(`SSH channel ${this.localId} is not open`)
         }
@@ -242,7 +251,7 @@ export default class Channel {
         if (!Buffer.isBuffer(args)) {
             throw new TypeError("SSH channel request arguments must be a buffer")
         }
-        this.client.sendPacket(
+        return this.client.sendPacket(
             new ChannelRequest({
                 recipient_channel_id: this.remoteId,
                 request_type: type,
@@ -270,7 +279,25 @@ export default class Channel {
               })
             : Promise.resolve()
         try {
-            this.sendRequest(type, Buffer.from(args), wantReply)
+            const sequenceNumber = this.sendRequestPacket(type, Buffer.from(args), wantReply)
+            if (wantReply) {
+                const pending = this.pendingRequests.at(-1)!
+                pending.unregisterUnimplemented = registerUnimplementedRejection(
+                    this.client,
+                    sequenceNumber,
+                    () => {
+                        const index = this.pendingRequests.indexOf(pending)
+                        if (index === -1) return
+                        this.pendingRequests.splice(index, 1)
+                        pending.reject(
+                            unimplementedPacketError(
+                                sequenceNumber,
+                                `channel ${this.localId} request ${type}`,
+                            ),
+                        )
+                    },
+                )
+            }
         } catch (error) {
             if (wantReply) this.pendingRequests.pop()
             return Promise.reject(error)
@@ -285,6 +312,7 @@ export default class Channel {
         if (!request) {
             throw new ProtocolError(`Unexpected success response for SSH channel ${this.localId}`)
         }
+        request.unregisterUnimplemented?.()
         request.resolve()
     }
 
@@ -293,6 +321,7 @@ export default class Channel {
         if (!request) {
             throw new ProtocolError(`Unexpected failure response for SSH channel ${this.localId}`)
         }
+        request.unregisterUnimplemented?.()
         request.reject(new Error(`SSH channel ${this.localId} request failed (${request.type})`))
     }
 
@@ -564,6 +593,10 @@ export default class Channel {
     }
 
     private failPendingRequests(error: Error): void {
-        while (this.pendingRequests.length > 0) this.pendingRequests.shift()!.reject(error)
+        while (this.pendingRequests.length > 0) {
+            const request = this.pendingRequests.shift()!
+            request.unregisterUnimplemented?.()
+            request.reject(error)
+        }
     }
 }
