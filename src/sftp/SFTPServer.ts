@@ -21,6 +21,7 @@ import type {
     SFTPRequestPacket,
 } from "./types.js"
 import { encodeSFTPLimits } from "./openssh.js"
+import { validateSFTPDirectoryEntryName, validateSFTPRealPath } from "./names.js"
 
 const MAX_OUTSTANDING_REQUESTS = 1024
 const DEFAULT_MAX_CONCURRENT_REQUESTS = 64
@@ -398,6 +399,11 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
             entries.length !== 1
         ) {
             throw new Error("SFTP REALPATH and READLINK require exactly one name")
+        }
+        if (request.type === SFTPPacketType.ReadDir) {
+            for (const entry of entries) validateSFTPDirectoryEntryName(entry.filename)
+        } else if (request.type === SFTPPacketType.RealPath) {
+            validateSFTPRealPath(entries[0]!.filename)
         }
         return this.respond({ type: SFTPPacketType.Name, requestId, names: entries })
     }

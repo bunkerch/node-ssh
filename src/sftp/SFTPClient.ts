@@ -43,6 +43,7 @@ import type {
 } from "./types.js"
 import { decodeSSHUTF8, encodeSSHUTF8 } from "../utils/SSHText.js"
 import { isPlainConfigurationObject } from "../utils/Configuration.js"
+import { validateSFTPDirectoryEntryName, validateSFTPRealPath } from "./names.js"
 
 export interface SFTPExtendedRequestOptions {
     /** Require this exact advertised extension version. */
@@ -809,6 +810,9 @@ export default class SFTPClient extends EventEmitter<SFTPClientEvents> {
                         "SFTP directory response must contain at least one name",
                     )
                 }
+                for (const entry of response.names) {
+                    validateSFTPDirectoryEntryName(entry.filename)
+                }
                 return response.names.map(sftpNameEntry)
             })
         } catch (error) {
@@ -1252,6 +1256,9 @@ export default class SFTPClient extends EventEmitter<SFTPClientEvents> {
         return this.peerResponse(() => {
             if (response.type !== SFTPPacketType.Name || response.names.length !== 1) {
                 throw new SFTPProtocolError("SFTP response must contain exactly one name")
+            }
+            if (type === SFTPPacketType.RealPath) {
+                validateSFTPRealPath(response.names[0]!.filename)
             }
             return decodeSFTPName(response.names[0]!.filename, encoding)
         })

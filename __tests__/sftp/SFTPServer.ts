@@ -1246,6 +1246,63 @@ describe("SFTP server request engine", () => {
         fixture.destroy()
     })
 
+    test("rejects invalid baseline NAME semantics before writing a response", async () => {
+        const fixture = new SFTPClientFixture()
+        const server = new SFTPServer(asShell(fixture))
+        fixture.send({ type: SFTPPacketType.Init, version: 3, extensions: [] })
+        await flush()
+        await issueExtensionHandle(server, fixture, Buffer.from("directory"))
+        const errors: string[] = []
+        const rejectName = async (
+            requestId: number,
+            filename: Buffer,
+            message: string,
+        ): Promise<void> => {
+            try {
+                await server.name(requestId, {
+                    filename,
+                    longname: Buffer.alloc(0),
+                    attributes: {},
+                })
+            } catch (error) {
+                errors.push(error instanceof Error ? error.message : String(error))
+            }
+            await server.status(requestId, SFTPStatusCode.Failure, message)
+        }
+        server.hooker.hook("READDIR", (_hook, request) =>
+            rejectName(request.requestId, Buffer.from("nested/entry"), "invalid directory entry"),
+        )
+        server.hooker.hook("REALPATH", (_hook, request) =>
+            rejectName(request.requestId, Buffer.from("relative"), "invalid canonical path"),
+        )
+
+        fixture.send({
+            type: SFTPPacketType.ReadDir,
+            requestId: 30,
+            handle: Buffer.from("directory"),
+        })
+        fixture.send({
+            type: SFTPPacketType.RealPath,
+            requestId: 31,
+            path: Buffer.from("."),
+        })
+        await flush()
+
+        expect(errors).toEqual([
+            "SFTP READDIR filename must not contain path separators",
+            "SFTP REALPATH response must be absolute",
+        ])
+        expect(
+            fixture.responses
+                .filter((packet) => "requestId" in packet)
+                .map((packet) => ({ type: packet.type, requestId: packet.requestId })),
+        ).toEqual([
+            { type: SFTPPacketType.Status, requestId: 30 },
+            { type: SFTPPacketType.Status, requestId: 31 },
+        ])
+        fixture.destroy()
+    })
+
     test("awaits a SETSTAT handler with an exact uint64 size", async () => {
         const fixture = new SFTPClientFixture()
         const server = new SFTPServer(asShell(fixture))

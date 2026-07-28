@@ -400,6 +400,66 @@ describe("SFTP client request engine", () => {
     })
 
     test.each([
+        {
+            name: "zero-length READDIR filename",
+            filename: Buffer.alloc(0),
+            message: "SFTP READDIR filename must not be empty",
+            operation: async (client: SFTPClient) => {
+                const handle = await client.opendir("remote")
+                await client.readdir(handle)
+            },
+        },
+        {
+            name: "slash-containing READDIR filename",
+            filename: Buffer.from("nested/entry"),
+            message: "SFTP READDIR filename must not contain path separators",
+            operation: async (client: SFTPClient) => {
+                const handle = await client.opendir("remote")
+                await client.readdir(handle)
+            },
+        },
+        {
+            name: "relative REALPATH result",
+            filename: Buffer.from("relative"),
+            message: "SFTP REALPATH response must be absolute",
+            operation: async (client: SFTPClient) => {
+                await client.realpath(".")
+            },
+        },
+    ])(
+        "rejects a $name and closes the malformed session",
+        async ({ filename, message, operation }) => {
+            const fixture = new SFTPServerFixture((packet) => {
+                if (packet.type === SFTPPacketType.Init) {
+                    fixture.send({ type: SFTPPacketType.Version, version: 3, extensions: [] })
+                } else if (packet.type === SFTPPacketType.OpenDir) {
+                    fixture.send({
+                        type: SFTPPacketType.Handle,
+                        requestId: packet.requestId,
+                        handle: Buffer.from("directory"),
+                    })
+                } else if (
+                    packet.type === SFTPPacketType.ReadDir ||
+                    packet.type === SFTPPacketType.RealPath
+                ) {
+                    fixture.send({
+                        type: SFTPPacketType.Name,
+                        requestId: packet.requestId,
+                        names: [{ filename, longname: Buffer.alloc(0), attributes: {} }],
+                    })
+                }
+            })
+            const client = await SFTPClient.connect(asClientChannel(fixture))
+
+            await expect(operation(client)).rejects.toThrow(message)
+            expect(fixture.destroyed).toBe(true)
+            await expect(client.stat("after protocol error")).rejects.toThrow(
+                "SFTP session is closed",
+            )
+        },
+    )
+
+    test.each([
         ["entry count", { maxEntries: 1 }, "SFTP directory exceeds the 1-entry collection limit"],
         [
             "retained bytes",
@@ -1402,11 +1462,13 @@ describe("SFTP client request engine", () => {
         const operations = [
             {
                 type: SFTPPacketType.RealPath,
+                filename: Buffer.from([0x2f, 0xff]),
                 buffer: (client: SFTPClient) => client.realpath(Buffer.from("."), "buffer"),
                 text: (client: SFTPClient) => client.realpath("."),
             },
             {
                 type: SFTPPacketType.ReadLink,
+                filename: Buffer.from([0xff]),
                 buffer: (client: SFTPClient) => client.readlink(Buffer.from("link"), "buffer"),
                 text: (client: SFTPClient) => client.readlink("link"),
             },
@@ -1422,7 +1484,7 @@ describe("SFTP client request engine", () => {
                         requestId: packet.requestId,
                         names: [
                             {
-                                filename: Buffer.from([0xff]),
+                                filename: operation.filename,
                                 longname: Buffer.alloc(0),
                                 attributes: {},
                             },
@@ -1432,7 +1494,7 @@ describe("SFTP client request engine", () => {
             })
             const client = await SFTPClient.connect(asClientChannel(fixture))
 
-            expect(await operation.buffer(client)).toEqual(Buffer.from([0xff]))
+            expect(await operation.buffer(client)).toEqual(operation.filename)
             await expect(operation.text(client)).rejects.toThrow(
                 "SFTP returned filename is not valid UTF-8 text",
             )

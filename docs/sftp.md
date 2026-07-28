@@ -225,8 +225,9 @@ Malformed frames, unexpected response identifiers, wrong response types, duplica
 duplicate live handles, unsupported attribute flags, and status codes used outside their defined
 request context are fatal protocol errors. Semantic reply checks use the same fatal path as framing:
 empty or oversized `DATA`, empty baseline directory `NAME`, the wrong number of names for
-single-name operations, malformed negotiated-extension replies, and invalid returned UTF-8 all
-close the SFTP channel before rejecting the operation. A server-sent `NoConnection` or
+single-name operations, empty or slash-containing `READDIR` filenames, non-absolute `REALPATH`
+results, malformed negotiated-extension replies, and invalid returned UTF-8 all close the SFTP
+channel before rejecting the operation. A server-sent `NoConnection` or
 `ConnectionLost` is also fatal because those two pseudo-statuses are local to clients and must never
 appear on the wire. A successful positive-length read must return at least one byte; end-of-file is
 reported with `SFTPStatusCode.EOF` only for `READ`, `READDIR`, or an extension that defines it.
@@ -469,6 +470,9 @@ handler runs, so no backend handle should be allocated for it. An extension hand
 return another handle receives a local error and can return an appropriate status instead. A
 successful handle value must remain unique within the session until the corresponding `CLOSE`
 response has been written; that response releases the capacity even when it reports failure.
+Baseline `READDIR` responses accept only non-empty relative entry names without `/`, and
+`REALPATH` responses must contain one absolute name. Invalid application responses are rejected
+locally before serialization, mirroring the client-side peer checks.
 
 An `OPEN` request with unknown flag bits, or with `EXCL` but no `CREAT`, receives
 `SFTPStatusCode.BadMessage` before the `OPEN` Hooker handler runs. `TRUNC` without `CREAT` remains
