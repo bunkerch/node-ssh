@@ -54,6 +54,11 @@ to 8192
 bytes and a preamble is limited to 1024 lines. RFC 4253 prohibits clients from sending equivalent
 preamble lines, so `ServerClient` rejects them.
 
+Identification input is scanned incrementally. Each byte is copied at most once into a bounded
+line workspace, so byte-at-a-time delivery of a permitted preamble does not repeatedly copy the
+accumulated prefix. Complete preamble lines, the identification, and following binary packet bytes
+are returned as parser-owned buffers.
+
 Malformed identification input terminates processing through the connection's normal error path.
 
 ## Human-readable protocol fields

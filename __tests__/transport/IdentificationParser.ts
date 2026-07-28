@@ -35,6 +35,44 @@ describe("IdentificationParser", () => {
         expect(result.remainder).toEqual(Buffer.from("packet"))
     })
 
+    test("owns fragmented input and returned identification bytes", () => {
+        const parser = new IdentificationParser({ allowPreamble: true })
+        const first = Buffer.from("maintenance")
+        parser.push(first)
+        first.fill(0x78)
+
+        const final = Buffer.from(" window\r\nSSH-2.0-owned\r\npacket")
+        const result = parser.push(final)
+        final.fill(0x79)
+
+        expect(result.preamble).toEqual([Buffer.from("maintenance window\r\n")])
+        expect(result.identification).toEqual(Buffer.from("SSH-2.0-owned\r\n"))
+        expect(result.remainder).toEqual(Buffer.from("packet"))
+    })
+
+    test("parses a bounded preamble fragmented one byte at a time", () => {
+        const parser = new IdentificationParser({ allowPreamble: true })
+        const line = Buffer.concat([
+            Buffer.alloc(MAX_PREAMBLE_LINE_LENGTH - 2, 0x61),
+            Buffer.from("\r\n"),
+        ])
+        const wire = Buffer.concat([
+            ...Array.from({ length: 64 }, () => line),
+            Buffer.from("SSH-2.0-fragmented_server\r\n"),
+        ])
+        let preambleLines = 0
+        let result
+
+        for (const byte of wire) {
+            result = parser.push(Buffer.from([byte]))
+            preambleLines += result.preamble.length
+        }
+
+        expect(preambleLines).toBe(64)
+        expect(result?.identification).toEqual(Buffer.from("SSH-2.0-fragmented_server\r\n"))
+        expect(result?.remainder).toEqual(Buffer.alloc(0))
+    }, 1_000)
+
     test("rejects preamble lines from an SSH client", () => {
         const parser = new IdentificationParser({ allowPreamble: false })
 
