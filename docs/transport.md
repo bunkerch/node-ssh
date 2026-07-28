@@ -880,6 +880,10 @@ mode already rejects that non-KEX reply as forbidden traffic during an exchange.
 Packets already in flight before the peer's `KEXINIT` remain processable as RFC 4253 requires.
 After that `KEXINIT` arrives, service, authentication, connection, and vendor transport messages
 are rejected until the peer's `NEWKEYS`; generic diagnostics and key-exchange packets remain valid.
+When handling a key-exchange packet must await cryptographic work or host-key policy, both roles
+pause their readable transport as well as packet parsing. Node stream backpressure then prevents a
+peer from continuously growing the encrypted input buffer during that wait. Parsing resumes in
+wire order after the awaited transition has installed the required state.
 
 Both methods emit `rekey` after the new inbound and outbound protection is active. A re-exchange
 generates a fresh ephemeral key pair,

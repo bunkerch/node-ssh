@@ -3055,8 +3055,15 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         this.emit("error", error)
     }
 
+    private pausePacketProcessing(): void {
+        if (this.packetProcessingPaused) return
+        this.packetProcessingPaused = true
+        this.socket.pause()
+    }
+
     private resumePacketProcessing(): void {
         this.packetProcessingPaused = false
+        this.socket.resume()
         if (this.packetDecoder.bufferedLength > 0) {
             this.scheduleMessageProcessing(Buffer.alloc(0))
         }
@@ -3266,7 +3273,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             p = packet.parse(payload)
         }
         if (p instanceof KexGSSAPIInit || p instanceof KexGSSAPIContinue) {
-            this.packetProcessingPaused = true
+            this.pausePacketProcessing()
         }
         if (p instanceof UserAuthRequest) {
             this.activeAuthenticationMethod = p.data.method.method_name
@@ -3397,8 +3404,8 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 } else if (p instanceof KexDHGexRequestOld) {
                     this.emit("clientKexDHGexRequest", p)
                 } else {
+                    this.pausePacketProcessing()
                     this.emit("clientKexDHInit", p as KexDHInit)
-                    this.packetProcessingPaused = true
                 }
                 break
 
@@ -3407,8 +3414,8 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 if (!(this.#kexAlgorithm instanceof RSA2048SHA256)) {
                     throw new Error("Received an RSA secret for another key exchange")
                 }
+                this.pausePacketProcessing()
                 this.emit("clientKexRSASecret", p as KexRSASecret)
-                this.packetProcessingPaused = true
                 break
 
             case PacketNameToType.SSH_MSG_KEX_DH_GEX_REQUEST:
@@ -3422,8 +3429,8 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 if (!(this.#kexAlgorithm instanceof DiffieHellmanGroupExchange)) {
                     throw new Error("Received a group-exchange init for another key exchange")
                 }
+                this.pausePacketProcessing()
                 this.emit("clientKexDHGexInit", p as KexDHGexInit)
-                this.packetProcessingPaused = true
                 break
 
             case PacketNameToType.SSH_MSG_NEWKEYS:

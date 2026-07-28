@@ -2095,8 +2095,15 @@ export default class Client extends EventEmitter<ClientEvents> {
         this.socket?.destroy(error)
     }
 
+    private pausePacketProcessing(): void {
+        if (this.packetProcessingPaused) return
+        this.packetProcessingPaused = true
+        this.socket?.pause()
+    }
+
     private resumePacketProcessing(): void {
         this.packetProcessingPaused = false
+        this.socket?.resume()
         if (this.packetDecoder.bufferedLength > 0) {
             this.scheduleMessageProcessing(Buffer.alloc(0))
         }
@@ -3441,7 +3448,7 @@ export default class Client extends EventEmitter<ClientEvents> {
             p instanceof KexGSSAPIHostKey ||
             p instanceof KexGSSAPIError
         ) {
-            this.packetProcessingPaused = true
+            this.pausePacketProcessing()
         }
         if (p instanceof KexInit) this.#serverKexInitPayload = Buffer.from(payload)
         if (p instanceof KexInit) this.peerKexInitReceived = true
@@ -3632,7 +3639,7 @@ export default class Client extends EventEmitter<ClientEvents> {
                 } else if (p instanceof KexDHGexGroup) {
                     this.emit("serverKexDHGexGroup", p)
                 } else {
-                    this.packetProcessingPaused = true
+                    this.pausePacketProcessing()
                     this.emit("serverKexDHReply", p as KexDHReply)
                 }
                 break
@@ -3642,7 +3649,7 @@ export default class Client extends EventEmitter<ClientEvents> {
                 if (!(this.#kexAlgorithm instanceof DiffieHellmanGroupExchange)) {
                     throw new Error("Received a group-exchange reply for another key exchange")
                 }
-                this.packetProcessingPaused = true
+                this.pausePacketProcessing()
                 this.emit("serverKexDHGexReply", p as KexDHGexReply)
                 break
 
@@ -3651,7 +3658,7 @@ export default class Client extends EventEmitter<ClientEvents> {
                 if (!(this.#kexAlgorithm instanceof RSA2048SHA256)) {
                     throw new Error("Received RSA key-exchange completion for another key exchange")
                 }
-                this.packetProcessingPaused = true
+                this.pausePacketProcessing()
                 this.emit("serverKexRSADone", p as KexRSADone)
                 break
         }
