@@ -165,6 +165,8 @@ interface PendingRequest {
     reject: (error: Error) => void
 }
 
+type SFTPHandleType = "file" | "directory" | "extension"
+
 export type SFTPPath = string | Buffer
 export type SFTPPosition = number | bigint
 export type SFTPNameEncoding = "utf8" | "buffer"
@@ -268,8 +270,7 @@ export default class SFTPClient extends EventEmitter<SFTPClientEvents> {
     private readonly parser = new SFTPPacketParser()
     private negotiatedExtensions: readonly SFTPExtension[] = Object.freeze([])
     private readonly pending = new Map<number, PendingRequest>()
-    private readonly activeHandles = new Map<string, number>()
-    private activeHandleCount = 0
+    private readonly activeHandles = new Map<string, SFTPHandleType>()
     private pendingHandleRequests = 0
     private nextRequestId = 0
     private initialized = false
@@ -375,14 +376,17 @@ export default class SFTPClient extends EventEmitter<SFTPClientEvents> {
         if (expectedTypes.some((type) => !allowed.has(type))) {
             return Promise.reject(new TypeError("Invalid SFTP extension response type"))
         }
-        return this.request(
-            {
-                type: SFTPPacketType.Extended,
-                requestId: this.allocateRequestId(),
-                request: name,
-                data: Buffer.from(data),
-            },
-            ...new Set(expectedTypes),
+        const request = {
+            type: SFTPPacketType.Extended,
+            requestId: this.allocateRequestId(),
+            request: name,
+            data: Buffer.from(data),
+        } as const
+        const responseTypes = [...new Set(expectedTypes)]
+        return (
+            responseTypes.includes(SFTPPacketType.Handle)
+                ? this.extensionHandle(request, responseTypes)
+                : this.request(request, ...responseTypes)
         ) as Promise<SFTPExtensionResponsePacket>
     }
 
@@ -593,19 +597,16 @@ export default class SFTPClient extends EventEmitter<SFTPClientEvents> {
     }
 
     async close(handle: Buffer): Promise<void> {
-        const ownedHandle = ownHandle(handle)
-        try {
-            await this.statusRequest({
+        const ownedHandle = this.activeHandle(handle)
+        await this.requestPacket(
+            {
                 type: SFTPPacketType.Close,
                 requestId: this.allocateRequestId(),
                 handle: ownedHandle,
-            })
-        } catch (error) {
-            if (!(error instanceof SFTPStatusError)) throw error
-            this.releaseHandle(ownedHandle)
-            throw error
-        }
-        this.releaseHandle(ownedHandle)
+            },
+            [SFTPPacketType.Status],
+            () => this.releaseHandle(ownedHandle),
+        )
     }
 
     read(handle: Buffer, length: number, position: SFTPPosition): Promise<Buffer>
@@ -650,6 +651,7 @@ export default class SFTPClient extends EventEmitter<SFTPClientEvents> {
         if (!Number.isSafeInteger(length) || length < 0 || length > maximumReadLength) {
             throw new RangeError(`SFTP read length must be between 0 and ${maximumReadLength}`)
         }
+        this.requireHandleType(ownedHandle, "file")
         if (length === 0) {
             return target === undefined ? Buffer.alloc(0) : { bytesRead: 0, buffer: target }
         }
@@ -703,6 +705,7 @@ export default class SFTPClient extends EventEmitter<SFTPClientEvents> {
         if (!Number.isSafeInteger(maximumWriteLength) || maximumWriteLength < 1) {
             throw new RangeError("SFTP maximum write length must be a positive safe integer")
         }
+        this.requireHandleType(ownedHandle, "file")
         let offset = positionBigInt(writesBufferRange ? bufferPosition : positionOrBufferOffset)
         for (let start = 0; start < ownedData.length; start += maximumWriteLength) {
             const chunk = ownedData.subarray(start, start + maximumWriteLength)
@@ -727,7 +730,7 @@ export default class SFTPClient extends EventEmitter<SFTPClientEvents> {
     }
 
     async fstat(handle: Buffer): Promise<SFTPStats> {
-        const ownedHandle = ownHandle(handle)
+        const ownedHandle = this.activeHandle(handle)
         const response = await this.request(
             {
                 type: SFTPPacketType.FStat,
@@ -750,7 +753,7 @@ export default class SFTPClient extends EventEmitter<SFTPClientEvents> {
     }
 
     async fsetstat(handle: Buffer, attributes: SFTPAttributes): Promise<void> {
-        const ownedHandle = ownHandle(handle)
+        const ownedHandle = this.activeHandle(handle)
         await this.statusRequest({
             type: SFTPPacketType.FSetStat,
             requestId: this.allocateRequestId(),
@@ -779,6 +782,7 @@ export default class SFTPClient extends EventEmitter<SFTPClientEvents> {
 
     async readdir(handle: Buffer): Promise<readonly SFTPClientNameEntry[] | null> {
         const ownedHandle = ownHandle(handle)
+        this.requireHandleType(ownedHandle, "directory")
         try {
             const response = await this.request(
                 {
@@ -943,7 +947,8 @@ export default class SFTPClient extends EventEmitter<SFTPClientEvents> {
     }
 
     async opensshFStatVFS(handle: Buffer): Promise<Readonly<SFTPStatVFS>> {
-        const ownedHandle = ownHandle(handle)
+        this.requireExtension("fstatvfs@openssh.com", "2")
+        const ownedHandle = this.activeHandle(handle)
         const response = await this.extensionRequest(
             "fstatvfs@openssh.com",
             "2",
@@ -972,13 +977,11 @@ export default class SFTPClient extends EventEmitter<SFTPClientEvents> {
         return this.opensshHardlink(oldPath, newPath)
     }
 
-    opensshFSync(handle: Buffer): Promise<void> {
-        const ownedHandle = ownHandle(handle)
-        return this.extensionStatus(
-            "fsync@openssh.com",
-            "1",
-            encodeSFTPExtensionString(ownedHandle),
-        )
+    async opensshFSync(handle: Buffer): Promise<void> {
+        this.requireExtension("fsync@openssh.com", "1")
+        const ownedHandle = this.activeHandle(handle)
+        this.requireHandleType(ownedHandle, "file")
+        await this.extensionStatus("fsync@openssh.com", "1", encodeSFTPExtensionString(ownedHandle))
     }
 
     ext_openssh_fsync(handle: Buffer): Promise<void> {
@@ -1022,16 +1025,19 @@ export default class SFTPClient extends EventEmitter<SFTPClientEvents> {
             : this.opensshExpandPath(path, "utf8")
     }
 
-    copyData(
+    async copyData(
         sourceHandle: Buffer,
         sourceOffset: SFTPPosition,
         length: SFTPPosition,
         destinationHandle: Buffer,
         destinationOffset: SFTPPosition,
     ): Promise<void> {
-        const ownedSourceHandle = ownHandle(sourceHandle)
-        const ownedDestinationHandle = ownHandle(destinationHandle)
-        return this.extensionStatus(
+        this.requireExtension("copy-data", "1")
+        const ownedSourceHandle = this.activeHandle(sourceHandle)
+        this.requireHandleType(ownedSourceHandle, "file")
+        const ownedDestinationHandle = this.activeHandle(destinationHandle)
+        this.requireHandleType(ownedDestinationHandle, "file")
+        await this.extensionStatus(
             "copy-data",
             "1",
             encodeSFTPCopyDataExtension(
@@ -1299,8 +1305,27 @@ export default class SFTPClient extends EventEmitter<SFTPClientEvents> {
             if (response.type !== SFTPPacketType.Handle) {
                 throw new SFTPProtocolError("Expected HANDLE")
             }
-            this.trackHandle(response.handle)
+            this.trackHandle(
+                response.handle,
+                packet.type === SFTPPacketType.Open ? "file" : "directory",
+            )
             return response.handle
+        } finally {
+            this.pendingHandleRequests--
+        }
+    }
+
+    private async extensionHandle(
+        packet: SFTPPacket & SFTPRequestPacketBase,
+        expectedTypes: readonly SFTPPacketType[],
+    ): Promise<SFTPPacket> {
+        this.reserveHandle()
+        try {
+            const response = await this.request(packet, ...expectedTypes)
+            if (response.type === SFTPPacketType.Handle) {
+                this.trackHandle(response.handle, "extension")
+            }
+            return response
         } finally {
             this.pendingHandleRequests--
         }
@@ -1314,7 +1339,7 @@ export default class SFTPClient extends EventEmitter<SFTPClientEvents> {
                     "SFTP maximum open handles must be a positive safe integer or Infinity",
                 )
             }
-            if (this.activeHandleCount + this.pendingHandleRequests >= maximum) {
+            if (this.activeHandles.size + this.pendingHandleRequests >= maximum) {
                 const noun = maximum === 1 ? "handle" : "handles"
                 throw new Error(`SFTP server permits at most ${maximum} active ${noun}`)
             }
@@ -1322,24 +1347,52 @@ export default class SFTPClient extends EventEmitter<SFTPClientEvents> {
         this.pendingHandleRequests++
     }
 
-    private trackHandle(handle: Buffer): void {
+    private trackHandle(handle: Buffer, type: SFTPHandleType): void {
         const key = handle.toString("base64")
-        this.activeHandles.set(key, (this.activeHandles.get(key) ?? 0) + 1)
-        this.activeHandleCount++
+        if (this.activeHandles.has(key)) {
+            const error = new SFTPProtocolError("SFTP server reused an active handle")
+            this.destroy(error)
+            throw error
+        }
+        this.activeHandles.set(key, type)
     }
 
     private releaseHandle(handle: Buffer): void {
-        const key = handle.toString("base64")
-        const count = this.activeHandles.get(key)
-        if (count === undefined) return
-        if (count === 1) this.activeHandles.delete(key)
-        else this.activeHandles.set(key, count - 1)
-        this.activeHandleCount--
+        this.activeHandles.delete(handle.toString("base64"))
+    }
+
+    private activeHandle(handle: Buffer): Buffer {
+        const ownedHandle = ownHandle(handle)
+        if (!this.activeHandles.has(ownedHandle.toString("base64"))) {
+            throw new Error("SFTP handle is not active")
+        }
+        return ownedHandle
+    }
+
+    private requireHandleType(handle: Buffer, expected: "file" | "directory"): void {
+        const type = this.activeHandles.get(handle.toString("base64"))
+        if (type === undefined) throw new Error("SFTP handle is not active")
+        if (type === "extension") return
+        if (type !== expected) {
+            throw new Error(
+                expected === "file"
+                    ? "SFTP handle is not a file"
+                    : "SFTP handle is not a directory",
+            )
+        }
     }
 
     private request(
         packet: SFTPPacket & SFTPRequestPacketBase,
         ...expectedTypes: SFTPPacketType[]
+    ): Promise<SFTPPacket> {
+        return this.requestPacket(packet, expectedTypes)
+    }
+
+    private requestPacket(
+        packet: SFTPPacket & SFTPRequestPacketBase,
+        expectedTypes: readonly SFTPPacketType[],
+        onWrite?: () => void,
     ): Promise<SFTPPacket> {
         if (!this.initialized) return Promise.reject(new Error("SFTP client is not initialized"))
         if (this.closed) return Promise.reject(new Error("SFTP session is closed"))
@@ -1363,7 +1416,9 @@ export default class SFTPClient extends EventEmitter<SFTPClientEvents> {
                 reject,
             })
         })
-        void this.writeFrame(frame).catch((error: unknown) => {
+        const writing = this.writeFrame(frame)
+        onWrite?.()
+        void writing.catch((error: unknown) => {
             const pending = this.pending.get(packet.requestId)
             if (!pending) return
             this.pending.delete(packet.requestId)
@@ -1488,7 +1543,6 @@ export default class SFTPClient extends EventEmitter<SFTPClientEvents> {
         for (const request of this.pending.values()) request.reject(error)
         this.pending.clear()
         this.activeHandles.clear()
-        this.activeHandleCount = 0
     }
 }
 

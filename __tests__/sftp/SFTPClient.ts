@@ -186,6 +186,12 @@ describe("SFTP client request engine", () => {
         const fixture = new SFTPServerFixture((packet) => {
             if (packet.type === SFTPPacketType.Init) {
                 fixture.send({ type: SFTPPacketType.Version, version: 3, extensions: [] })
+            } else if (packet.type === SFTPPacketType.Open) {
+                fixture.send({
+                    type: SFTPPacketType.Handle,
+                    requestId: packet.requestId,
+                    handle: Buffer.from("file"),
+                })
             } else if (packet.type === SFTPPacketType.Read) {
                 reads.push({
                     handle: Buffer.from(packet.handle),
@@ -197,16 +203,26 @@ describe("SFTP client request engine", () => {
                     requestId: packet.requestId,
                     data: Buffer.from("abc"),
                 })
+            } else if (packet.type === SFTPPacketType.Close) {
+                fixture.send({
+                    type: SFTPPacketType.Status,
+                    requestId: packet.requestId,
+                    code: SFTPStatusCode.Ok,
+                    message: "",
+                    languageTag: "",
+                })
             }
         })
 
         const client = await SFTPClient.connect(asClientChannel(fixture))
+        const handle = await client.open("remote", "r")
         const buffer = Buffer.from("--------")
-        const result = await client.read(Buffer.from("file"), buffer, 2, 4, 9n)
+        const result = await client.read(handle, buffer, 2, 4, 9n)
 
         expect(result).toEqual({ bytesRead: 3, buffer: Buffer.from("--abc---") })
         expect(result.buffer).toBe(buffer)
         expect(reads).toEqual([{ handle: Buffer.from("file"), offset: 9n, length: 4 }])
+        await client.close(handle)
         fixture.destroy()
     })
 
@@ -216,6 +232,12 @@ describe("SFTP client request engine", () => {
         const fixture = new SFTPServerFixture((packet) => {
             if (packet.type === SFTPPacketType.Init) {
                 fixture.send({ type: SFTPPacketType.Version, version: 3, extensions: [] })
+            } else if (packet.type === SFTPPacketType.Open) {
+                fixture.send({
+                    type: SFTPPacketType.Handle,
+                    requestId: packet.requestId,
+                    handle: Buffer.from("file"),
+                })
             } else if (packet.type === SFTPPacketType.Write) {
                 writes.push({ data: Buffer.from(packet.data), offset: packet.offset })
                 if (firstRequestId === undefined) {
@@ -229,13 +251,22 @@ describe("SFTP client request engine", () => {
                         languageTag: "",
                     })
                 }
+            } else if (packet.type === SFTPPacketType.Close) {
+                fixture.send({
+                    type: SFTPPacketType.Status,
+                    requestId: packet.requestId,
+                    code: SFTPStatusCode.Ok,
+                    message: "",
+                    languageTag: "",
+                })
             }
         })
 
         const client = await SFTPClient.connect(asClientChannel(fixture))
+        const handle = await client.open("remote", "w")
         client.maxWriteLength = 2
         const buffer = Buffer.from("--abcde--")
-        const resultPromise = client.write(Buffer.from("file"), buffer, 2, 5, 11n)
+        const resultPromise = client.write(handle, buffer, 2, 5, 11n)
         buffer.fill(0x78)
         if (firstRequestId === undefined) throw new Error("First WRITE was not sent")
         fixture.send({
@@ -254,6 +285,7 @@ describe("SFTP client request engine", () => {
             { data: Buffer.from("cd"), offset: 13n },
             { data: Buffer.from("e"), offset: 15n },
         ])
+        await client.close(handle)
         fixture.destroy()
     })
 
@@ -289,6 +321,12 @@ describe("SFTP client request engine", () => {
         const fixture = new SFTPServerFixture((packet) => {
             if (packet.type === SFTPPacketType.Init) {
                 fixture.send({ type: SFTPPacketType.Version, version: 3, extensions: [] })
+            } else if (packet.type === SFTPPacketType.Open) {
+                fixture.send({
+                    type: SFTPPacketType.Handle,
+                    requestId: packet.requestId,
+                    handle: Buffer.from("file"),
+                })
             } else if (packet.type === SFTPPacketType.Read) {
                 fixture.send({
                     type: SFTPPacketType.Data,
@@ -299,7 +337,8 @@ describe("SFTP client request engine", () => {
         })
 
         const client = await SFTPClient.connect(asClientChannel(fixture))
-        await expect(client.read(Buffer.from("file"), 1, 0)).rejects.toThrow(
+        const handle = await client.open("remote", "r")
+        await expect(client.read(handle, 1, 0)).rejects.toThrow(
             "SFTP server returned empty data for a positive-length read",
         )
         fixture.destroy()
@@ -708,7 +747,13 @@ describe("SFTP client request engine", () => {
                 return
             }
             requests.push(packet.type)
-            if ("requestId" in packet) {
+            if (packet.type === SFTPPacketType.Open) {
+                fixture.send({
+                    type: SFTPPacketType.Handle,
+                    requestId: packet.requestId,
+                    handle: Buffer.from("handle"),
+                })
+            } else if ("requestId" in packet) {
                 fixture.send({
                     type: SFTPPacketType.Status,
                     requestId: packet.requestId,
@@ -719,8 +764,9 @@ describe("SFTP client request engine", () => {
             }
         })
         const client = await SFTPClient.connect(asClientChannel(fixture))
+        const valid = await client.open("file", "r+")
+        requests.length = 0
         const oversized = Buffer.alloc(257)
-        const valid = Buffer.from("handle")
         const operations: readonly [string, () => Promise<unknown>][] = [
             ["close", () => client.close(oversized)],
             ["zero-length read", () => client.read(oversized, 0, 0)],
@@ -783,7 +829,163 @@ describe("SFTP client request engine", () => {
                 "Numeric SFTP position must be a non-negative safe integer",
         })
         expect(requests).toEqual([])
+        await client.close(valid)
         fixture.destroy()
+    })
+
+    test("owns issued handle lifecycle and rejects fabricated or wrongly typed use", async () => {
+        const requests: SFTPPacketType[] = []
+        let delayedCloseRequestId: number | undefined
+        const fixture = new SFTPServerFixture((packet) => {
+            if (packet.type === SFTPPacketType.Init) {
+                fixture.send({
+                    type: SFTPPacketType.Version,
+                    version: 3,
+                    extensions: [{ name: "open-resource@example.test", data: Buffer.from("1") }],
+                })
+                return
+            }
+            requests.push(packet.type)
+            if (packet.type === SFTPPacketType.Open) {
+                fixture.send({
+                    type: SFTPPacketType.Handle,
+                    requestId: packet.requestId,
+                    handle: Buffer.from("file"),
+                })
+            } else if (packet.type === SFTPPacketType.OpenDir) {
+                fixture.send({
+                    type: SFTPPacketType.Handle,
+                    requestId: packet.requestId,
+                    handle: Buffer.from("directory"),
+                })
+            } else if (packet.type === SFTPPacketType.Extended) {
+                fixture.send({
+                    type: SFTPPacketType.Handle,
+                    requestId: packet.requestId,
+                    handle: Buffer.from("extension"),
+                })
+            } else if (packet.type === SFTPPacketType.Read) {
+                fixture.send({
+                    type: SFTPPacketType.Data,
+                    requestId: packet.requestId,
+                    data: Buffer.from("x"),
+                })
+            } else if (packet.type === SFTPPacketType.ReadDir) {
+                fixture.send({
+                    type: SFTPPacketType.Status,
+                    requestId: packet.requestId,
+                    code: SFTPStatusCode.EOF,
+                    message: "",
+                    languageTag: "",
+                })
+            } else if (
+                packet.type === SFTPPacketType.Close &&
+                packet.handle.equals(Buffer.from("file"))
+            ) {
+                delayedCloseRequestId = packet.requestId
+            } else if (packet.type === SFTPPacketType.Close) {
+                fixture.send({
+                    type: SFTPPacketType.Status,
+                    requestId: packet.requestId,
+                    code: SFTPStatusCode.Ok,
+                    message: "",
+                    languageTag: "",
+                })
+            }
+        })
+        const client = await SFTPClient.connect(asClientChannel(fixture))
+        const file = await client.open("file", "r")
+        const directory = await client.opendir("directory")
+        const extensionResponse = await client.extended(
+            "open-resource@example.test",
+            Buffer.alloc(0),
+            { expectedTypes: [SFTPPacketType.Handle] },
+        )
+        if (extensionResponse.type !== SFTPPacketType.Handle) {
+            throw new Error("Expected extension handle")
+        }
+        const extension = extensionResponse.handle
+
+        await expect(client.read(directory, 1, 0)).rejects.toThrow("handle is not a file")
+        await expect(client.readdir(file)).rejects.toThrow("handle is not a directory")
+        await expect(client.read(Buffer.from("fabricated"), 0, 0)).rejects.toThrow(
+            "handle is not active",
+        )
+        expect(await client.read(extension, 1, 0)).toEqual(Buffer.from("x"))
+        expect(await client.readdir(extension)).toBeNull()
+
+        const close = client.close(file)
+        if (delayedCloseRequestId === undefined) throw new Error("CLOSE was not sent")
+        await expect(client.read(file, 0, 0)).rejects.toThrow("handle is not active")
+        await expect(client.close(file)).rejects.toThrow("handle is not active")
+        fixture.send({
+            type: SFTPPacketType.Status,
+            requestId: delayedCloseRequestId,
+            code: SFTPStatusCode.Ok,
+            message: "",
+            languageTag: "",
+        })
+        await close
+        await client.close(directory)
+        await client.close(extension)
+
+        expect(requests.filter((type) => type === SFTPPacketType.Read)).toHaveLength(1)
+        expect(requests.filter((type) => type === SFTPPacketType.ReadDir)).toHaveLength(1)
+        expect(requests.filter((type) => type === SFTPPacketType.Close)).toHaveLength(3)
+        fixture.destroy()
+    })
+
+    test("counts extension handles and rejects duplicate active handles", async () => {
+        const openedPaths: string[] = []
+        const fixture = new SFTPServerFixture((packet) => {
+            if (packet.type === SFTPPacketType.Init) {
+                fixture.send({
+                    type: SFTPPacketType.Version,
+                    version: 3,
+                    extensions: [{ name: "open-resource@example.test", data: Buffer.from("1") }],
+                })
+            } else if (packet.type === SFTPPacketType.Extended) {
+                fixture.send({
+                    type: SFTPPacketType.Handle,
+                    requestId: packet.requestId,
+                    handle: Buffer.from("shared"),
+                })
+            } else if (packet.type === SFTPPacketType.Open) {
+                openedPaths.push(packet.filename.toString())
+                fixture.send({
+                    type: SFTPPacketType.Handle,
+                    requestId: packet.requestId,
+                    handle: Buffer.from("shared"),
+                })
+            } else if (packet.type === SFTPPacketType.Close) {
+                fixture.send({
+                    type: SFTPPacketType.Status,
+                    requestId: packet.requestId,
+                    code: SFTPStatusCode.Ok,
+                    message: "",
+                    languageTag: "",
+                })
+            }
+        })
+        const client = await SFTPClient.connect(asClientChannel(fixture))
+        client.maxOpenHandles = 1
+        const response = await client.extended("open-resource@example.test", Buffer.alloc(0), {
+            expectedTypes: [SFTPPacketType.Handle],
+        })
+        if (response.type !== SFTPPacketType.Handle) throw new Error("Expected extension handle")
+
+        await expect(client.open("blocked", "r")).rejects.toThrow(
+            "server permits at most 1 active handle",
+        )
+        expect(openedPaths).toEqual([])
+        await client.close(response.handle)
+        const handle = await client.open("allowed", "r")
+        expect(handle).toEqual(Buffer.from("shared"))
+        client.maxOpenHandles = 2
+        await expect(client.open("duplicate", "r")).rejects.toThrow(
+            "server reused an active handle",
+        )
+        expect(fixture.destroyed).toBe(true)
     })
 
     test("rejects invalid UTF-8 string paths before writing a request", async () => {
@@ -1414,7 +1616,13 @@ describe("SFTP client request engine", () => {
                 return
             }
             requests.push(packet)
-            if ("requestId" in packet) {
+            if (packet.type === SFTPPacketType.Open) {
+                fixture.send({
+                    type: SFTPPacketType.Handle,
+                    requestId: packet.requestId,
+                    handle: Buffer.from([0x00, 0xff]),
+                })
+            } else if ("requestId" in packet) {
                 fixture.send({
                     type: SFTPPacketType.Status,
                     requestId: packet.requestId,
@@ -1425,20 +1633,27 @@ describe("SFTP client request engine", () => {
             }
         })
         const client = await SFTPClient.connect(asClientChannel(fixture))
+        const handle = await client.open("handle-file", "w")
 
         await client.truncate(Buffer.from("file"), 4_294_967_297n)
-        await client.ftruncate(Buffer.from([0x00, 0xff]), Number.MAX_SAFE_INTEGER)
+        await client.ftruncate(handle, Number.MAX_SAFE_INTEGER)
 
-        expect(requests).toEqual([
+        expect(
+            requests.filter(
+                (packet) =>
+                    packet.type === SFTPPacketType.SetStat ||
+                    packet.type === SFTPPacketType.FSetStat,
+            ),
+        ).toEqual([
             {
                 type: SFTPPacketType.SetStat,
-                requestId: 0,
+                requestId: 1,
                 path: Buffer.from("file"),
                 attributes: { size: 4_294_967_297n },
             },
             {
                 type: SFTPPacketType.FSetStat,
-                requestId: 1,
+                requestId: 2,
                 handle: Buffer.from([0x00, 0xff]),
                 attributes: { size: BigInt(Number.MAX_SAFE_INTEGER) },
             },

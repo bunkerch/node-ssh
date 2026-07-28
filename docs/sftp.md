@@ -153,8 +153,9 @@ only after the corresponding SFTP write has completed.
 
 Buffer paths and already-open handles are snapshotted when the stream is constructed. The `path`
 and `handle` properties and the handle passed to the `open` event are defensive copies as well, so
-mutating them cannot redirect later reads, writes, or close operations. Supplied handles must be at
-most 256 bytes, matching the protocol boundary enforced by the rest of the SFTP API.
+mutating them cannot redirect later reads, writes, or close operations. A supplied handle must be
+active and issued by the same `SFTPClient`, in addition to satisfying the protocol's 256-byte
+maximum.
 
 Call `sftp.end()` to send EOF to the subsystem once no requests remain. `sftp.destroy(error?)`
 aborts it. An abort rejects every pending request and handle allocation with the supplied error;
@@ -169,10 +170,12 @@ values and are limited to the protocol's
 strict UTF-8 string by default; pass `"buffer"` as their final argument to receive the returned name
 as an owned `Buffer` without decoding it.
 
-Every handle-taking client method validates the Buffer type and 256-byte limit before allocating or
-writing a request, including zero-length reads, empty writes, attribute helpers, and extensions.
-The method snapshots a valid handle before retaining it across asynchronous work, so later caller
-mutation cannot change the request.
+Every handle-taking client method validates the Buffer type, 256-byte limit, and live session
+ownership before allocating or writing a request, including zero-length reads, empty writes,
+attribute helpers, and extensions. Fabricated and closed handles reject locally. `READ` and `WRITE`
+also reject directory handles, while `READDIR` rejects file handles; an extension-issued handle is
+type-agnostic because its extension defines the resource. The method snapshots a valid handle
+before retaining it across asynchronous work, so later caller mutation cannot change the request.
 
 Text arguments to extensions receive the same strict encoding. OpenSSH user/group lookup names are
 strictly decoded as UTF-8; malformed replies fail instead of exposing replacement characters.
@@ -275,11 +278,14 @@ await sftp.extended("notify@example.com", payload, {
 
 A non-success status becomes `SFTPStatusError`. A successful response type outside the declared
 set is a protocol error and closes the SFTP session, preventing a malformed response from being
-interpreted as another extension's layout. On the server, advertise application extensions through
-`SFTPServerOptions.extensions` and handle them with the awaited `EXTENDED` hook; reply with
-`extendedReply()`, `status()`, or the response method specified by that extension. Generic extension
-responses may use empty `DATA` or `NAME` payloads when their own protocol defines that meaning;
-baseline positive-length `READ` and `READDIR` responses retain their progress requirements.
+interpreted as another extension's layout. When `expectedTypes` includes `SFTPPacketType.Handle`, a
+returned handle is registered as active, counts against the negotiated handle limit, and remains
+valid for extension-defined operations until `close()`. On the server, advertise application
+extensions through `SFTPServerOptions.extensions` and handle them with the awaited `EXTENDED` hook;
+reply with `extendedReply()`, `status()`, or the response method specified by that extension.
+Generic extension responses may use empty `DATA` or `NAME` payloads when their own protocol defines
+that meaning; baseline positive-length `READ` and `READDIR` responses retain their progress
+requirements.
 
 ## OpenSSH extensions
 
@@ -314,13 +320,14 @@ requests retain the v3 status-code set.
 When `limits@openssh.com` version 1 is advertised, session setup requests it automatically. The
 exact unsigned 64-bit reply remains available as `sftp.limits`; safe request sizes are reflected in
 `maxReadLength` and `maxWriteLength`, and `maxOpenHandles` is `Infinity` when the server reports no
-fixed handle limit. Pending `open` and `opendir` operations count toward a finite handle limit;
-attempts beyond it reject locally without sending a request. Once the server responds to `close`,
-the client releases the tracked handle even when the response reports a close or flush failure:
-the SFTP protocol makes the handle invalid when the request is sent. A local failure that prevents
-the request from being sent keeps the handle tracked. A server status failure while negotiating
-limits leaves the conservative 32 KiB defaults in place, but a malformed successful reply aborts
-setup as a protocol error.
+fixed handle limit. Pending `open`, `opendir`, and extension requests that may return a handle count
+toward a finite handle limit; attempts beyond it reject locally without sending a request. The
+client invalidates a handle as soon as its `CLOSE` frame is accepted for writing, before the reply,
+so concurrent reuse or a second close rejects locally. A close or flush failure does not revive the
+handle. A local failure before the frame is accepted keeps it tracked. Reuse of an active opaque
+value by the server is a fatal protocol error. A server status failure while negotiating limits
+leaves the conservative 32 KiB defaults in place, but a malformed successful reply aborts setup as
+a protocol error.
 
 A `modernssh` server advertises version 1 of this extension by default and answers it internally;
 the request does not enter the application `EXTENDED` hook. Its default reply reports a 256 KiB
