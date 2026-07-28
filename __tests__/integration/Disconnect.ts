@@ -232,6 +232,23 @@ describe("RFC 4253 peer disconnects", () => {
         }
     }, 15_000)
 
+    test("awaits an idempotent server connection close", async () => {
+        const { server, peer, client } = await createConnectedPeers()
+        const clientClosed = once(client, "close")
+
+        try {
+            const firstClose = peer.close()
+            expect(peer.close()).toBe(firstClose)
+            await firstClose
+            await clientClosed
+            expect(peer.isConnected).toBe(false)
+            expect(server.clients.has(peer)).toBe(false)
+            await peer[Symbol.asyncDispose]()
+        } finally {
+            await closePeers(server, client)
+        }
+    }, 15_000)
+
     test("publishes peer EOF to the client before close", async () => {
         const { server, peer, client } = await createConnectedPeers()
         const lifecycle: string[] = []

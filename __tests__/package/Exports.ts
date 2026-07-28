@@ -362,6 +362,8 @@ describe("package exports", () => {
         expect(Client.prototype.unforwardInStreamLocal).toBeFunction()
         expect(Client.prototype.openTunnel).toBeFunction()
         expect(ServerClient.prototype.forwardOutStreamLocal).toBeFunction()
+        expect(ServerClient.prototype.close).toBeFunction()
+        expect(ServerClient.prototype[Symbol.asyncDispose]).toBeFunction()
         expect(stringToFlags("r")).toBe(OPEN_MODE.READ)
         expect(flagsToString(OPEN_MODE.READ)).toBe("r")
         expect(STATUS_CODE.OK).toBe(0)
@@ -682,6 +684,8 @@ describe("package exports", () => {
         expect(channel).toContain("sendExtendedData(dataType: number, data: Buffer): Promise<void>")
         expect(serverClient).not.toContain("ServerGlobalRequestCallback")
         expect(serverClient).toContain("rekey(): Promise<void>")
+        expect(serverClient).toContain("close(): Promise<void>")
+        expect(serverClient).toContain("[Symbol.asyncDispose](): Promise<void>")
         expect(serverClient).toContain("disconnect(error?: DisconnectError): this")
         expect(serverClient).toContain("forwardAgent(): Promise<ForwardedAgentChannel>")
         expect(serverClient).toContain(

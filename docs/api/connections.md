@@ -671,6 +671,13 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     get remoteAddress(): string | undefined;
     /** Gracefully close the connection with an application disconnect. */
     end(): this;
+    /**
+     * Gracefully disconnect and settle after terminal transport cleanup.
+     *
+     * Concurrent calls share the same Promise.
+     */
+    close(): Promise<void>;
+    [Symbol.asyncDispose](): Promise<void>;
     disconnect(error?: DisconnectError): this;
     terminate(): this;
     setNoDelay(noDelay?: boolean): this;

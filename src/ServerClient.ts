@@ -330,6 +330,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         })
 
         this.socket.on("close", () => {
+            this.transportClosed = true
             this.clearHandshakeTimeout()
             this.clearKeepalive()
             this.clearRekeyTimer()
@@ -372,6 +373,9 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
     }
 
     private buffering: Buffer = Buffer.alloc(0)
+    private transportClosed = false
+    private closeOperation?: Promise<void>
+    private serverIdentificationSent = false
     private identificationParser = new IdentificationParser({ allowPreamble: false })
     private packetDecoder = new BinaryPacketDecoder()
     private packetEncoder = new BinaryPacketEncoder()
@@ -684,9 +688,55 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         )
     }
 
+    /**
+     * Gracefully disconnect and settle after terminal transport cleanup.
+     *
+     * Concurrent calls share the same Promise.
+     */
+    close(): Promise<void> {
+        if (this.transportClosed) return Promise.resolve()
+        if (this.closeOperation) return this.closeOperation
+
+        let resolve!: () => void
+        let reject!: (error: Error) => void
+        const promise = new Promise<void>((resolvePromise, rejectPromise) => {
+            resolve = resolvePromise
+            reject = rejectPromise
+        })
+        this.closeOperation = promise
+
+        let transportError: Error | undefined
+        const onError = (error: Error) => {
+            transportError ??= error
+        }
+        const onClose = () => {
+            this.off("error", onError)
+            if (this.closeOperation === promise) this.closeOperation = undefined
+            if (transportError) reject(transportError)
+            else resolve()
+        }
+        this.on("error", onError)
+        this.once("close", onClose)
+
+        try {
+            this.end()
+        } catch (error) {
+            transportError =
+                error instanceof Error
+                    ? error
+                    : new Error(`SSH server connection close failed: ${String(error)}`)
+            this.terminate()
+        }
+        return promise
+    }
+
+    [Symbol.asyncDispose](): Promise<void> {
+        return this.close()
+    }
+
     disconnect(error?: DisconnectError): this {
         this.clearRekeyTimer()
-        if (error && this.socket.writable) {
+        if (error && this.serverIdentificationSent && this.socket.writable) {
             this.sendPacket(
                 new Disconnect({
                     reason_code: error.reason_code,
@@ -1279,6 +1329,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         this.socket.write(
             this.#configuration.greeting + this.#configuration.protocolVersionExchange.toString(),
         )
+        this.serverIdentificationSent = true
         if (this.buffering.length > 0) {
             this.onMessage(Buffer.alloc(0))
         }

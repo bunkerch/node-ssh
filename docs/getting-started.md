@@ -393,11 +393,16 @@ The `connection` event's immutable endpoint snapshot retains the remote and loca
 and port after the socket closes. Fields may be undefined for an injected or non-IP transport that
 does not expose them.
 `ServerClient.setNoDelay()` controls Nagle's algorithm when the transport exposes that TCP
-capability and is a safe no-op for other duplex transports. Call `ServerClient.end()` for a
-graceful application shutdown: it sends an RFC 4253 `BY_APPLICATION` disconnect before ending the
-transport. `terminate()` destroys the transport immediately, while `disconnect(error)` sends a
+capability and is a safe no-op for other duplex transports. `await connection.close()` performs a
+graceful application shutdown: it sends an RFC 4253 `BY_APPLICATION` disconnect, ends the
+transport, and settles after terminal cleanup. Concurrent calls share one Promise, and
+`connection[Symbol.asyncDispose]()` exposes the same lifecycle for `await using`. A transport error
+during shutdown rejects only after cleanup. Use `end()` when close is observed separately,
+`terminate()` to destroy the transport immediately, or `disconnect(error)` to send a
 caller-selected protocol reason, UTF-8 description, and optional RFC 3066 language tag. The
-`DisconnectError` and `DisconnectReason` values are exported from the package root.
+`DisconnectError` and `DisconnectReason` values are exported from the package root. Closing an
+accepted connection before the server identification is sent ends the transport without writing a
+binary disconnect packet outside the RFC 4253 packet phase.
 
 An application that already owns an accepted `net.Socket`, SSH channel, or custom connected
 `Duplex` can pass it through the same admission and handshake path with
