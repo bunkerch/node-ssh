@@ -102,7 +102,7 @@ import { randomBase36 } from "./utils/base36.js"
 import Debug, { protocolDebugMessage, type ProtocolDebugMessage } from "./packets/Debug.js"
 import Ignore from "./packets/Ignore.js"
 import Unimplemented from "./packets/Unimplemented.js"
-import Channel from "./Channel.js"
+import Channel, { channelRequestReplyWasCommitted } from "./Channel.js"
 import GlobalRequest from "./packets/GlobalRequest.js"
 import { readNextBuffer, readNextUint32, serializeBuffer, serializeUint32 } from "./utils/Buffer.js"
 import { decodeSSHUTF8, encodeSSHUTF8 } from "./utils/SSHText.js"
@@ -1574,6 +1574,7 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 `An error occured in the Channel Request handler. This could be due to a faulty request or an implementation bug.`,
                 err,
             )
+            if (channelRequestReplyWasCommitted(channel, packet)) throw err
             // The base method sends channel failure for an otherwise unhandled request.
             await Channel.prototype.handleChannelRequest.call(channel, packet)
         } finally {

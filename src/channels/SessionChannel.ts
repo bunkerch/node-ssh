@@ -8,7 +8,6 @@ import {
     readNextUint32,
     readNextUint8,
 } from "../utils/Buffer.js"
-import ChannelSuccess from "../packets/ChannelSuccess.js"
 import assert from "assert"
 import { Hooker } from "../utils/Hooker.js"
 import EventEmitter from "events"
@@ -676,8 +675,6 @@ export default class SessionChannel extends Channel {
     }
 
     private sendRequestSuccess(request: ChannelRequest): void {
-        if (request.data.want_reply && this.isOpen) {
-            this.client.sendPacket(new ChannelSuccess({ recipient_channel_id: this.remoteId! }))
-        }
+        this.sendRequestReply(request, true)
     }
 }

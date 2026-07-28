@@ -42,6 +42,15 @@ interface PendingChannelRequest {
     unregisterUnimplemented?: () => void
 }
 
+const committedRequestReplies = new WeakMap<Channel, WeakSet<ChannelRequest>>()
+
+export function channelRequestReplyWasCommitted(
+    channel: Channel,
+    request: ChannelRequest,
+): boolean {
+    return committedRequestReplies.get(channel)?.has(request) ?? false
+}
+
 export default class Channel {
     client: Client | ServerClient
 
@@ -89,6 +98,7 @@ export default class Channel {
         this.channel_type = channel_type
         this.localId = allocateChannelIdentifier(client)
         this.#clientArgs = Buffer.from(clientArgs)
+        committedRequestReplies.set(this, new WeakSet())
         this.openPromise = new Promise<void>((resolve, reject) => {
             this.openResolve = resolve
             this.openReject = reject
@@ -227,13 +237,7 @@ export default class Channel {
             return true
         }
         if (!controller.handled) return false
-        if (request.data.want_reply && this.isOpen && this.remoteId !== undefined) {
-            this.client.sendPacket(
-                controller.success
-                    ? new ChannelSuccess({ recipient_channel_id: this.remoteId })
-                    : new ChannelFailure({ recipient_channel_id: this.remoteId }),
-            )
-        }
+        this.sendRequestReply(request, controller.success ?? false)
         return true
     }
 
@@ -242,9 +246,17 @@ export default class Channel {
             this.remoteId !== undefined,
             "handleChannelRequest was demanded, but remoteId was not set.",
         )
-        if (request.data.want_reply && this.isOpen) {
-            this.client.sendPacket(new ChannelFailure({ recipient_channel_id: this.remoteId }))
-        }
+        this.sendRequestReply(request, false)
+    }
+
+    protected sendRequestReply(request: ChannelRequest, success: boolean): void {
+        if (!request.data.want_reply || !this.isOpen || this.remoteId === undefined) return
+        this.client.sendPacket(
+            success
+                ? new ChannelSuccess({ recipient_channel_id: this.remoteId })
+                : new ChannelFailure({ recipient_channel_id: this.remoteId }),
+        )
+        committedRequestReplies.get(this)!.add(request)
     }
 
     sendData(data: Buffer): Promise<void> {

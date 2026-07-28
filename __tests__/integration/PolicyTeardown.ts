@@ -191,3 +191,65 @@ test("server never sends channel failure after publishing confirmation", async (
         await server.close()
     }
 })
+
+test("server never sends channel failure after publishing request success", async () => {
+    const server = new Server({
+        hostKeys: [await PrivateKey.generate("ssh-ed25519")],
+        sendAllHostKeys: false,
+    })
+    server.hooker.hook("noneAuthentication", (_hook, _context, controller) => {
+        controller.allowLogin = true
+    })
+    server.hooker.hook("channelOpenRequest", (_hook, channel, controller) => {
+        controller.allowOpen = channel instanceof SessionChannel
+    })
+
+    const peerErrors: Error[] = []
+    let peer: ServerClient | undefined
+    server.on("connection", (connection) => {
+        peer = connection
+        connection.on("error", (error) => peerErrors.push(error))
+        connection.on("channel", (channel) => {
+            if (!(channel instanceof SessionChannel)) return
+            channel.hooker.hook("execRequest", (_hook, _context, controller) => {
+                controller.success = true
+            })
+            channel.events.on("exec", () => {
+                throw new Error("exec observer failed")
+            })
+        })
+    })
+    server.listen({ host: "127.0.0.1", port: 0 })
+    await once(server, "listening")
+
+    const client = new Client({
+        hostname: "127.0.0.1",
+        port: (server.address() as AddressInfo).port,
+        username: "request-publication-test",
+        authenticationMethodsOrder: [SSHAuthenticationMethods.None],
+    })
+    client.hooker.hook("hostKey", (_hook, controller) => {
+        controller.allowHostKey = true
+    })
+    client.on("error", () => undefined)
+    const receivedPackets: string[] = []
+    client.on("packet", ({ name }) => {
+        if (name !== undefined) receivedPackets.push(name)
+    })
+
+    try {
+        await client.connect()
+        const channel = await client.openSession()
+        const closed = new Promise<void>((resolve) => client.once("close", resolve))
+        await channel.exec("true").catch(() => undefined)
+        await closed
+
+        expect(receivedPackets.filter((name) => name === "SSH_MSG_CHANNEL_SUCCESS")).toHaveLength(1)
+        expect(receivedPackets).not.toContain("SSH_MSG_CHANNEL_FAILURE")
+        expect(peerErrors.map((error) => error.message)).toEqual(["exec observer failed"])
+    } finally {
+        client.destroy()
+        peer?.terminate()
+        await server.close()
+    }
+})

@@ -388,6 +388,10 @@ before that write removes and aborts the proposal before returning `CHANNEL_OPEN
 confirmation is written, an exception from a synchronous `channel` observer terminates the
 connection through its error path; the server never sends a contradictory failure for the same
 proposal.
+The same single-outcome rule applies to reply-bearing channel requests. Once `CHANNEL_SUCCESS` or
+`CHANNEL_FAILURE` is submitted, that request is committed. A later synchronous session observer
+exception follows connection error handling without sending a second response, while a failure
+before reply submission can still produce the one RFC 4254 failure response.
 Generic `Channel` instances snapshot their opaque open and confirmation arguments.
 Mutating a constructor buffer, a buffer assigned to `serverArgs`, or a defensive buffer returned by
 either accessor cannot alter a later channel-open or confirmation packet.
