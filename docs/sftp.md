@@ -439,6 +439,13 @@ request retains its concurrency slot until both the handler and response write c
 response values are validated as Buffers and snapshotted before encoding; response handles also
 enforce the 256-byte protocol limit.
 
+`SFTPServerOptions.requestTimeout` bounds the version response and each dispatched request from the
+start of its awaited Hooker policy through completion of its response write. It defaults to 30
+seconds. Expiry aborts only that subsystem channel, rejects an in-progress response write, and
+releases all queued request state; the authenticated SSH connection and its other multiplexed
+channels remain usable. This deadline starts when a request reaches a concurrency slot, while the
+separate 1024-request bound limits work waiting in the scheduler.
+
 Call `await sftp.close()` when the application owns the server session lifecycle. It stops new
 request dispatch immediately, asks the SSH channel to close, and settles after the channel's
 terminal `close` event. Concurrent calls share one Promise, and `Symbol.asyncDispose` provides the

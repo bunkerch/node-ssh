@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+import { once } from "node:events"
 import { Duplex } from "node:stream"
 import type Shell from "../../src/channels/Session/Shell.js"
 import { decodeSFTPPacket, encodeSFTPPacket } from "../../src/sftp/codec.js"
@@ -344,6 +345,9 @@ describe("SFTP server request engine", () => {
             expect(() => new SFTPServer(asShell(fixture), { closeTimeout: null as never })).toThrow(
                 "SFTP server close timeout must be a positive number",
             )
+            expect(
+                () => new SFTPServer(asShell(fixture), { requestTimeout: null as never }),
+            ).toThrow("SFTP server request timeout must be a positive number")
             expect(
                 () => new SFTPServer(asShell(fixture), { maxReadLength: null as never }),
             ).toThrow("SFTP maximum read length must be between")
@@ -1842,5 +1846,20 @@ describe("SFTP server request engine", () => {
         )
         expect(fixture.destroyed).toBe(true)
         expect(fixture.closeCalls).toBe(1)
+    })
+
+    test("aborts a request whose awaited policy does not settle", async () => {
+        const fixture = new SFTPClientFixture()
+        const server = new SFTPServer(asShell(fixture), { requestTimeout: 20 })
+        server.hooker.hook("STAT", async () => new Promise<void>(() => undefined))
+        const failed = once(server, "error")
+
+        fixture.send({ type: SFTPPacketType.Init, version: 3, extensions: [] })
+        await flush()
+        fixture.send({ type: SFTPPacketType.Stat, requestId: 17, path: Buffer.from("blocked") })
+
+        const [error] = await failed
+        expect(error.message).toBe("Timed out waiting for SFTP server request 17")
+        expect(fixture.destroyed).toBe(true)
     })
 })

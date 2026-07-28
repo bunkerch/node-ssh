@@ -1,17 +1,14 @@
 import { once } from "node:events"
 import type { Duplex } from "node:stream"
+import { DEFAULT_OPERATION_TIMEOUT, normalizeTimeout } from "./Timeout.js"
 
-export const DEFAULT_STREAM_CLOSE_TIMEOUT = 30_000
+export const DEFAULT_STREAM_CLOSE_TIMEOUT = DEFAULT_OPERATION_TIMEOUT
 
 export function normalizeStreamCloseTimeout(
     value: number | undefined,
     description: string,
 ): number {
-    const timeout = value === undefined ? DEFAULT_STREAM_CLOSE_TIMEOUT : value
-    if (!Number.isFinite(timeout) || timeout <= 0) {
-        throw new RangeError(`${description} close timeout must be a positive number`)
-    }
-    return timeout
+    return normalizeTimeout(value, DEFAULT_STREAM_CLOSE_TIMEOUT, `${description} close timeout`)
 }
 
 export function closeStream(

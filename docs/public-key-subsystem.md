@@ -192,6 +192,11 @@ appropriate version-2 failure for a downgraded peer. Missing list handlers repor
 unsupported. Hook rejections are contained by `Hooker` and become `GeneralFailure`, never an
 unhandled EventEmitter rejection.
 
+`PublicKeySubsystemServerOptions.requestTimeout` bounds the initial version write and each request
+from the start of its awaited Hooker policy through completion of its final response write. It
+defaults to 30 seconds. Expiry aborts only that subsystem channel and clears its pending request;
+the authenticated SSH connection and its other multiplexed channels remain usable.
+
 Call `await publicKeys.close()` when the application owns the server session lifecycle. It stops
 request dispatch immediately, asks the SSH channel to close, and settles after the channel's
 terminal `close` event. Concurrent calls share one Promise, and `Symbol.asyncDispose` provides the

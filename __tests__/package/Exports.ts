@@ -207,6 +207,7 @@ describe("package exports", () => {
         const publicKeyServerOptions: PublicKeySubsystemServerOptions = {
             attributes: [{ name: "comment" }],
             closeTimeout: 10_000,
+            requestTimeout: 20_000,
         }
         const sftpServerOptions: SFTPServerOptions = {
             maxConcurrentRequests: 32,
@@ -215,6 +216,7 @@ describe("package exports", () => {
             maxWriteLength: 32_768,
             advertiseLimits: true,
             closeTimeout: 10_000,
+            requestTimeout: 20_000,
         }
         const sftpReadResult: SFTPReadResult = { bytesRead: 0, buffer: Buffer.alloc(0) }
         const copyRequest: SFTPCopyDataExtension = {

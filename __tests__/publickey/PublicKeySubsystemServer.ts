@@ -57,6 +57,20 @@ class ClosablePublicKeySubsystemServerShell extends PublicKeySubsystemClientFixt
     }
 }
 
+class BlockedPublicKeySubsystemServerShell extends Duplex {
+    _read(): void {
+        void this.readable
+    }
+
+    _write(
+        _chunk: Buffer,
+        _encoding: BufferEncoding,
+        _callback: (error?: Error | null) => void,
+    ): void {
+        void _callback
+    }
+}
+
 function asShell(stream: PublicKeySubsystemClientFixture): Shell {
     return stream as unknown as Shell
 }
@@ -97,6 +111,10 @@ describe("RFC 4819 and RFC 7076 public-key subsystem server", () => {
             [
                 { closeTimeout: null },
                 "Public-key subsystem server close timeout must be a positive number",
+            ],
+            [
+                { requestTimeout: null },
+                "Public-key subsystem server request timeout must be a positive number",
             ],
         ]
 
@@ -834,5 +852,19 @@ describe("RFC 4819 and RFC 7076 public-key subsystem server", () => {
         )
         expect(fixture.destroyed).toBe(true)
         expect(fixture.closeCalls).toBe(1)
+    })
+
+    test("bounds a version response blocked by channel flow control", async () => {
+        const fixture = new BlockedPublicKeySubsystemServerShell()
+        const server = new PublicKeySubsystemServer(fixture as unknown as Shell, {
+            requestTimeout: 20,
+        })
+        const failed = once(server, "error")
+
+        const [error] = await failed
+        expect(error.message).toBe(
+            "Timed out waiting for public-key subsystem server initialization response",
+        )
+        expect(fixture.destroyed).toBe(true)
     })
 })

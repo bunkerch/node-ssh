@@ -6,6 +6,7 @@ import { isPlainConfigurationObject } from "../utils/Configuration.js"
 import { encodeSSHName } from "../utils/SSHName.js"
 import { encodeSSHUTF8 } from "../utils/SSHText.js"
 import { closeStream, normalizeStreamCloseTimeout } from "../utils/StreamClose.js"
+import { DEFAULT_OPERATION_TIMEOUT, normalizeTimeout, waitWithTimeout } from "../utils/Timeout.js"
 import {
     encodePublicKeySubsystemPacket,
     MAX_PUBLIC_KEY_SUBSYSTEM_RESPONSES,
@@ -33,6 +34,8 @@ export interface PublicKeySubsystemServerOptions {
     readonly attributes?: readonly PublicKeySubsystemSupportedAttribute[]
     /** Maximum milliseconds to wait for the channel to close. Defaults to 30 seconds. */
     readonly closeTimeout?: number
+    /** Maximum milliseconds for initialization, policy, and response writes. Defaults to 30 seconds. */
+    readonly requestTimeout?: number
 }
 
 export interface PublicKeySubsystemServerAddContext {
@@ -148,6 +151,7 @@ export default class PublicKeySubsystemServer extends EventEmitter<PublicKeySubs
 
     private readonly parser = new PublicKeySubsystemPacketParser()
     readonly #closeTimeout: number
+    readonly #requestTimeout: number
     #negotiatedProtocolVersion: number | undefined
     private readonly supportedAttributeNames: ReadonlySet<string>
     private initialized = false
@@ -198,6 +202,11 @@ export default class PublicKeySubsystemServer extends EventEmitter<PublicKeySubs
             options.closeTimeout,
             "Public-key subsystem server",
         )
+        this.#requestTimeout = normalizeTimeout(
+            options.requestTimeout,
+            DEFAULT_OPERATION_TIMEOUT,
+            "Public-key subsystem server request timeout",
+        )
         this.attributes = Object.freeze(normalizedAttributes)
         this.supportedAttributeNames = new Set(this.attributes.map(({ name }) => name))
         this.hooker.on("uncaughtException", (_event, error) => {
@@ -207,10 +216,13 @@ export default class PublicKeySubsystemServer extends EventEmitter<PublicKeySubs
         stream.once("end", () => this.handleEnd())
         stream.once("close", () => this.handleEnd())
         stream.once("error", (error) => this.fail(error))
-        void this.writePacket({
-            type: "version",
-            version: PUBLIC_KEY_SUBSYSTEM_VERSION,
-        }).catch((error: unknown) => {
+        void this.waitForRequest(
+            this.writePacket({
+                type: "version",
+                version: PUBLIC_KEY_SUBSYSTEM_VERSION,
+            }),
+            "public-key subsystem server initialization response",
+        ).catch((error: unknown) => {
             const failure = error instanceof Error ? error : new Error(String(error))
             this.destroy(failure)
         })
@@ -298,9 +310,12 @@ export default class PublicKeySubsystemServer extends EventEmitter<PublicKeySubs
             packet.type === "list-namespaces"
         if (version3Request && this.negotiatedProtocolVersion! < 3) {
             this.active = packet
-            void this.respond(
-                PublicKeySubsystemStatusCode.RequestNotSupported,
-                `Public-key subsystem ${packet.type} requires protocol version 3`,
+            void this.waitForRequest(
+                this.respond(
+                    PublicKeySubsystemStatusCode.RequestNotSupported,
+                    `Public-key subsystem ${packet.type} requires protocol version 3`,
+                ),
+                `public-key subsystem server ${packet.type}`,
             ).catch((error: unknown) => {
                 this.destroy(error instanceof Error ? error : new Error(String(error)))
             })
@@ -326,9 +341,12 @@ export default class PublicKeySubsystemServer extends EventEmitter<PublicKeySubs
         ) {
             this.active = packet
             const requestName = packet.type === "unknown" ? packet.name : packet.type
-            void this.respond(
-                PublicKeySubsystemStatusCode.RequestNotSupported,
-                `Unsupported public-key subsystem request ${requestName}`,
+            void this.waitForRequest(
+                this.respond(
+                    PublicKeySubsystemStatusCode.RequestNotSupported,
+                    `Unsupported public-key subsystem request ${requestName}`,
+                ),
+                `public-key subsystem server ${requestName}`,
             ).catch((error: unknown) => {
                 const failure = error instanceof Error ? error : new Error(String(error))
                 this.destroy(failure)
@@ -344,7 +362,10 @@ export default class PublicKeySubsystemServer extends EventEmitter<PublicKeySubs
         this.dispatchScheduled = true
         queueMicrotask(() => {
             this.dispatchScheduled = false
-            void this.dispatch().catch((error: unknown) => {
+            void this.waitForRequest(
+                this.dispatch(),
+                `public-key subsystem server ${this.active?.type ?? "request"}`,
+            ).catch((error: unknown) => {
                 const failure = error instanceof Error ? error : new Error(String(error))
                 this.destroy(failure)
             })
@@ -845,6 +866,12 @@ export default class PublicKeySubsystemServer extends EventEmitter<PublicKeySubs
         return new Promise<void>((resolve, reject) => {
             this.stream.write(frame, (error) => (error ? reject(error) : resolve()))
         })
+    }
+
+    private waitForRequest<T>(operation: PromiseLike<T>, description: string): Promise<T> {
+        return waitWithTimeout(operation, this.#requestTimeout, description, (error) =>
+            this.destroy(error),
+        )
     }
 
     private handleEnd(): void {

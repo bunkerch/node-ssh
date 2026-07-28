@@ -4,6 +4,7 @@ import { Hooker } from "../utils/Hooker.js"
 import { validateSSHName } from "../utils/SSHName.js"
 import { isPlainConfigurationObject } from "../utils/Configuration.js"
 import { closeStream, normalizeStreamCloseTimeout } from "../utils/StreamClose.js"
+import { DEFAULT_OPERATION_TIMEOUT, normalizeTimeout, waitWithTimeout } from "../utils/Timeout.js"
 import { encodeSFTPPacket, SFTPPacketParser, SFTPProtocolError } from "./codec.js"
 import {
     MAX_SFTP_HANDLE_LENGTH,
@@ -93,6 +94,8 @@ export interface SFTPServerOptions {
     advertiseLimits?: boolean
     /** Maximum milliseconds to wait for the channel to close. Defaults to 30 seconds. */
     closeTimeout?: number
+    /** Maximum milliseconds for initialization, policy, and response writes. Defaults to 30 seconds. */
+    requestTimeout?: number
 }
 
 export interface SFTPSymlinkPaths {
@@ -145,6 +148,7 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
     private readonly parser = new SFTPPacketParser()
     private readonly advertisedExtensions: readonly SFTPExtension[]
     readonly #closeTimeout: number
+    readonly #requestTimeout: number
     readonly #maxConcurrentRequests: number
     readonly #maxOpenHandles: number
     readonly #maxReadLength: number
@@ -182,6 +186,11 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
         }
         this.stream = stream
         this.#closeTimeout = normalizeStreamCloseTimeout(options.closeTimeout, "SFTP server")
+        this.#requestTimeout = normalizeTimeout(
+            options.requestTimeout,
+            DEFAULT_OPERATION_TIMEOUT,
+            "SFTP server request timeout",
+        )
         this.openSSHSymlinkArguments =
             options.openSSHSymlinkArguments === undefined ? false : options.openSSHSymlinkArguments
         this.#maxConcurrentRequests =
@@ -493,11 +502,14 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
                 throw new SFTPProtocolError(`Unsupported SFTP client version ${packet.version}`)
             }
             this.initialized = true
-            void this.writePacket({
-                type: SFTPPacketType.Version,
-                version: SFTP_VERSION,
-                extensions: this.advertisedExtensions,
-            }).catch((error: unknown) => {
+            void this.waitForRequest(
+                this.writePacket({
+                    type: SFTPPacketType.Version,
+                    version: SFTP_VERSION,
+                    extensions: this.advertisedExtensions,
+                }),
+                "SFTP server initialization response",
+            ).catch((error: unknown) => {
                 this.destroy(error instanceof Error ? error : new Error(String(error)))
             })
             this.emit("ready", packet.version)
@@ -546,7 +558,10 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
             this.activeRequestIds.add(request.requestId)
             this.acquireOrdering(ordering)
             this.awaitingResponse.set(request.requestId, active)
-            void this.dispatch(active).then(
+            void this.waitForRequest(
+                this.dispatch(active),
+                `SFTP server request ${request.requestId}`,
+            ).then(
                 () => {
                     this.releaseHandleReservation(active)
                     this.active.delete(active)
@@ -835,6 +850,12 @@ export default class SFTPServer extends EventEmitter<SFTPServerEvents> {
         return new Promise<void>((resolve, reject) => {
             this.stream.write(frame, (error) => (error ? reject(error) : resolve()))
         })
+    }
+
+    private waitForRequest<T>(operation: PromiseLike<T>, description: string): Promise<T> {
+        return waitWithTimeout(operation, this.#requestTimeout, description, (error) =>
+            this.destroy(error),
+        )
     }
 
     private handleEnd(): void {
