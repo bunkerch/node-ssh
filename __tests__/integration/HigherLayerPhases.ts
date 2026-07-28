@@ -15,6 +15,7 @@ import KexDHGexRequest from "../../src/packets/KexDHGexRequest.js"
 import KexDHReply from "../../src/packets/KexDHReply.js"
 import RequestSuccess from "../../src/packets/RequestSuccess.js"
 import RequestFailure from "../../src/packets/RequestFailure.js"
+import type Packet from "../../src/packet.js"
 
 async function listen(server: Server): Promise<number> {
     server.listen({ host: "127.0.0.1", port: 0 })
@@ -149,6 +150,42 @@ describe("RFC higher-layer message phases", () => {
             server.once("connection", (peer) => {
                 peer.on("error", () => undefined)
                 if (sender === "server") appendWrongGuess(peer)
+            })
+
+            try {
+                await client.connect()
+                expect(client.isConnected).toBe(true)
+                expect(client.sessionID).toBeDefined()
+            } finally {
+                await close(server, client)
+            }
+        },
+        15_000,
+    )
+
+    test.each(["client", "server"] as const)(
+        "accepts and hashes a non-zero KEXINIT reserved field from the %s",
+        async (sender) => {
+            const hostKey = await PrivateKey.generate("ssh-ed25519")
+            const server = new Server({ hostKeys: [hostKey], sendAllHostKeys: false })
+            server.hooker.hook("noneAuthentication", (_hook, _context, decision) => {
+                decision.allowLogin = true
+            })
+            const client = clientFor(await listen(server))
+            const setReservedField = (peer: Client | ServerClient) => {
+                const transport = peer as unknown as {
+                    sendPacket: (packet: Packet) => number
+                }
+                const sendPacket = transport.sendPacket.bind(peer)
+                transport.sendPacket = (packet) => {
+                    if (packet instanceof KexInit) packet.data.reserved = 0x0102_0304
+                    return sendPacket(packet)
+                }
+            }
+            if (sender === "client") setReservedField(client)
+            server.once("connection", (peer) => {
+                peer.on("error", () => undefined)
+                if (sender === "server") setReservedField(peer)
             })
 
             try {

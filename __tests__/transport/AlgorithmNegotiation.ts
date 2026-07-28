@@ -27,6 +27,7 @@ function offer(overrides: Partial<KexInitData>): KexInit {
         languages_client_to_server: [],
         languages_server_to_client: [],
         first_kex_packet_follows: false,
+        reserved: 0,
         ...overrides,
     })
 }

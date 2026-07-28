@@ -9,6 +9,7 @@ import {
     readNextUint32,
     readNextUint8,
     serializeBuffer,
+    serializeUint32,
 } from "../utils/Buffer.js"
 import { decodeSSHLanguageTag, encodeSSHLanguageTag } from "../utils/SSHText.js"
 
@@ -25,6 +26,7 @@ export interface KexInitData {
     languages_client_to_server: string[]
     languages_server_to_client: string[]
     first_kex_packet_follows: boolean
+    reserved: number
 }
 
 function validateKexInitData(data: KexInitData): void {
@@ -45,6 +47,10 @@ function validateKexInitData(data: KexInitData): void {
         assert(tag.length > 0, "SSH KEXINIT language list must not contain an empty tag")
         encodeSSHLanguageTag(tag, "SSH KEXINIT language tag")
     }
+    assert(
+        Number.isSafeInteger(data.reserved) && data.reserved >= 0 && data.reserved <= 0xffff_ffff,
+        "SSH KEXINIT reserved field must be an unsigned 32-bit integer",
+    )
 }
 
 function serializeLanguageList(tags: readonly string[]): Buffer {
@@ -103,6 +109,7 @@ export default class KexInit implements Packet {
             languages_client_to_server: [...data.languages_client_to_server],
             languages_server_to_client: [...data.languages_server_to_client],
             first_kex_packet_follows: data.first_kex_packet_follows,
+            reserved: data.reserved,
         }
     }
 
@@ -126,7 +133,7 @@ export default class KexInit implements Packet {
         buffers.push(serializeLanguageList(this.data.languages_server_to_client))
 
         buffers.push(serializeBinaryBoolean(this.data.first_kex_packet_follows))
-        buffers.push(Buffer.alloc(4))
+        buffers.push(serializeUint32(this.data.reserved))
 
         return Buffer.concat(buffers)
     }
@@ -173,11 +180,8 @@ export default class KexInit implements Packet {
         let first_kex_packet_follows: boolean
         ;[first_kex_packet_follows, raw] = readNextBinaryBoolean(raw)
 
-        // according to the RFC, it is reserved and it should
-        // be 0 at all time
-        let reserved_future_extensions: number
-        ;[reserved_future_extensions, raw] = readNextUint32(raw)
-        assert(reserved_future_extensions == 0)
+        let reserved: number
+        ;[reserved, raw] = readNextUint32(raw)
         assert(raw.length === 0, "SSH KEXINIT has trailing data")
 
         return new KexInit({
@@ -193,6 +197,7 @@ export default class KexInit implements Packet {
             languages_client_to_server,
             languages_server_to_client,
             first_kex_packet_follows,
+            reserved,
         })
     }
 }

@@ -91,6 +91,16 @@ describe("Packets", () => {
             expect(serialized).toEqual(sample)
         })
 
+        test("preserves the verified RFC 4253 erratum reserved field without acting on it", () => {
+            const nonzeroReserved = Buffer.from(sample)
+            nonzeroReserved.writeUInt32BE(0x0102_0304, nonzeroReserved.length - 4)
+
+            const packet = KexInit.parse(nonzeroReserved)
+
+            expect(packet.data.reserved).toBe(0x0102_0304)
+            expect(packet.serialize()).toEqual(nonzeroReserved)
+        })
+
         test("rejects invalid fixed-layout framing and mandatory empty offers", () => {
             expect(() => KexInit.parse(Buffer.concat([sample, Buffer.from([0])]))).toThrow(
                 "trailing data",
@@ -115,6 +125,9 @@ describe("Packets", () => {
             const parsed = KexInit.parse(sample)
             expect(() => new KexInit({ ...parsed.data, cookie: Buffer.alloc(15) })).toThrow(
                 "cookie must be exactly 16 bytes",
+            )
+            expect(() => new KexInit({ ...parsed.data, reserved: -1 })).toThrow(
+                "reserved field must be an unsigned 32-bit integer",
             )
             parsed.data.compression_algorithms_server_to_client = []
             expect(() => parsed.serialize()).toThrow(
