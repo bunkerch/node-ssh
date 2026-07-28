@@ -137,6 +137,10 @@ export default class PrivateKey {
         return this.data.algorithm.sign(data, signatureAlgorithm)
     }
 
+    equals(other: PrivateKey): boolean {
+        return other instanceof PrivateKey && this.data.publicKey.equals(other.data.publicKey)
+    }
+
     withCertificate(certificate: PublicKey): PrivateKey {
         assert(
             certificate.data.algorithm instanceof SSHCertificatePublicKey,

@@ -295,6 +295,7 @@ export default class PrivateKey {
     data: PrivateKeyData;
     constructor(data: PrivateKeyData);
     sign(data: Buffer, algorithm?: string): EncodedSignature;
+    equals(other: PrivateKey): boolean;
     withCertificate(certificate: PublicKey): PrivateKey;
     serialize(options?: OpenSSHPrivateKeyEncryptionOptions): Buffer;
     static serializeMany(keys: readonly PrivateKey[], options?: OpenSSHPrivateKeyEncryptionOptions): Buffer;

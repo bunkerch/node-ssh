@@ -844,6 +844,7 @@ describe("package exports", () => {
         expect(privateKey).toContain(
             "fromPuTTY(data: string | Buffer, passphrase?: string | Buffer): PrivateKey",
         )
+        expect(privateKey).toContain("equals(other: PrivateKey): boolean")
         expect(privateKey).toContain("toPEM(): string")
         expect(publicKey).toContain("toPEM(): string")
         expect(publicKey).toContain("export declare abstract class PublicKeyAlgorithm")
@@ -990,6 +991,7 @@ describe("package exports", () => {
                     if (!allowed.verify(message, detached, { principal: "packed@example.test", namespace: "package" })) process.exit(53)
                     const encrypted = privateKey.toString({ passphrase: "packed-secret", rounds: 1 })
                     const parsed = PrivateKey.fromString(encrypted, "packed-secret")
+                    if (!parsed.equals(privateKey)) process.exit(168)
                     if (!parsed.data.publicKey.equals(publicKey)) process.exit(3)
                     if (!parseKey(publicKey.toString()).equals(publicKey)) process.exit(4)
                     if (!PublicKey.fromPEM(publicKey.toPEM()).equals(publicKey)) process.exit(96)

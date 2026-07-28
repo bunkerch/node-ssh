@@ -571,6 +571,10 @@ passphrase. They read the `openssh-key-v1` format produced by `ssh-keygen`, incl
 and ECDSA keys encrypted with any cipher accepted by current OpenSSH: 3DES-CBC, AES-CBC, AES-CTR,
 AES-GCM, and `chacha20-poly1305@openssh.com`.
 
+Use `privateKey.equals(other)` to compare cryptographic SSH identities without comparing comments
+or serialized encryption. Equality includes the complete public identity, so a plain key and a
+certificate for that key are distinct, as are certificates with different metadata.
+
 `PrivateKey.fromString()` also accepts standard unencrypted PKCS#8 PEM for Ed25519, Ed448, RSA,
 DSA, and the three supported ECDSA curves; traditional RSA and DSA PEM; and SEC1 EC PEM. Encrypted
 PKCS#8 and traditional PEM use the same optional passphrase argument and are decrypted by Node's

@@ -10,6 +10,17 @@ import PublicKey from "../../src/utils/PublicKey.js"
 const execFileAsync = promisify(execFile)
 
 describe("SSH key-pair generation", () => {
+    test("compares private-key identities independently of comments", () => {
+        const first = generateKeyPairSync("ed25519", { comment: "first@example.test" }).privateKey
+        const sameIdentity = PrivateKey.fromString(first.toString())
+        sameIdentity.data.comment = "relabelled@example.test"
+        const different = generateKeyPairSync("ed25519").privateKey
+
+        expect(first.equals(sameIdentity)).toBe(true)
+        expect(sameIdentity.equals(first)).toBe(true)
+        expect(first.equals(different)).toBe(false)
+    })
+
     test.each([
         ["ed25519", undefined, "ssh-ed25519"],
         ["ed448", undefined, "ssh-ed448"],
