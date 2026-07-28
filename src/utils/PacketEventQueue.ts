@@ -4,6 +4,7 @@ import type Packet from "../packet.js"
 type PacketListener = (packet: Packet) => void
 
 const packetListeners = new WeakMap<object, Set<PacketListener>>()
+const MAX_BUFFERED_PACKETS = 64
 
 interface PacketEventSource extends EventEmitter {
     on(event: "error", listener: (error: Error) => void): this
@@ -102,7 +103,16 @@ export default class PacketEventQueue {
     readonly #onPacket = (packet: Packet): void => {
         const waiter = this.#waiters.shift()
         if (waiter) waiter.resolve(packet)
-        else this.#packets.push(packet)
+        else {
+            if (this.#packets.length >= MAX_BUFFERED_PACKETS) {
+                const error = new Error(
+                    `SSH packet event queue exceeded ${MAX_BUFFERED_PACKETS} packets`,
+                )
+                this.#fail(error)
+                throw error
+            }
+            this.#packets.push(packet)
+        }
     }
 
     readonly #onError = (error: Error): void => {

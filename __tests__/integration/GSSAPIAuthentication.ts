@@ -18,12 +18,24 @@ import {
     UserAuthGSSAPIResponse,
     UserAuthGSSAPIToken,
 } from "../../src/packets/UserAuthGSSAPI.js"
+import Ignore from "../../src/packets/Ignore.js"
 import Unimplemented from "../../src/packets/Unimplemented.js"
 import Server, { type ServerHookerGSSAPIAuthenticationContext } from "../../src/Server.js"
 import type ServerClient from "../../src/ServerClient.js"
 import PrivateKey from "../../src/utils/PrivateKey.js"
 
 const mechanismSecret = Buffer.from("independent-gssapi-test-credential")
+
+function within<T>(operation: Promise<T>, label: string): Promise<T> {
+    let timer: NodeJS.Timeout | undefined
+    const timeout = new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error(`Timed out waiting for ${label}`)), 500)
+        timer.unref()
+    })
+    return Promise.race([operation, timeout]).finally(() => {
+        if (timer !== undefined) clearTimeout(timer)
+    })
+}
 
 function token(label: string, data = Buffer.alloc(0)): Buffer {
     return createHmac("sha256", mechanismSecret).update(label).update(data).digest()
@@ -530,6 +542,63 @@ describe("RFC 4462 GSS-API user authentication", () => {
             expect(output).not.toContain("server-gssapi-token-private-metadata")
             expect(output).not.toContain("server-gssapi-close-private-metadata")
         } finally {
+            await closePeers(client, server, peers)
+        }
+    }, 15_000)
+
+    test("closes when packets accumulate beyond the GSS context wait bound", async () => {
+        const observation: MechanismObservation = { clientClosed: 0, serverClosed: 0 }
+        const pair = mechanisms(true, observation)
+        let releaseServerStep!: () => void
+        const serverStepReleased = new Promise<void>((resolve) => {
+            releaseServerStep = resolve
+        })
+        let reportServerStepStarted!: () => void
+        const serverStepStarted = new Promise<void>((resolve) => {
+            reportServerStepStarted = resolve
+        })
+        const blockedServer: GSSAPIServerMechanism = {
+            oid: pair.server.oid,
+            async createContext(options) {
+                const context = await pair.server.createContext!(options)
+                let blocked = false
+                return {
+                    async step(inputToken) {
+                        if (!blocked) {
+                            blocked = true
+                            reportServerStepStarted()
+                            await serverStepReleased
+                        }
+                        return context.step(inputToken)
+                    },
+                    verifyMIC: (message, mic) => context.verifyMIC(message, mic),
+                    close: () => context.close?.(),
+                }
+            },
+        }
+        const { client, server, peers } = await createPeers(pair.client, blockedServer, () => true)
+        client.on("error", () => undefined)
+        const closed = once(client, "close")
+        let closeObserved = false
+        client.once("close", () => {
+            closeObserved = true
+        })
+        const connecting = client.connect()
+        void connecting.catch(() => undefined)
+
+        try {
+            await serverStepStarted
+            for (let index = 0; index < 64; index++) {
+                client.sendPacket(new Ignore({ data: Buffer.alloc(0) }))
+            }
+            await new Promise<void>((resolve) => setImmediate(resolve))
+            expect(closeObserved).toBe(false)
+
+            client.sendPacket(new Ignore({ data: Buffer.alloc(0) }))
+            await within(closed, "the overfull GSS packet queue to close the connection")
+            await expect(connecting).rejects.toThrow()
+        } finally {
+            releaseServerStep()
             await closePeers(client, server, peers)
         }
     }, 15_000)

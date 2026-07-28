@@ -270,6 +270,10 @@ client sends a MIC over the exact session identifier, username, service, and met
 integrity, it sends the RFC exchange-complete message instead. Any final output token is always sent
 before that acknowledgement.
 
+At most 64 adjacent SSH packets are retained while an asynchronous mechanism operation is pending.
+Exceeding that bound closes the connection instead of allowing peer-controlled diagnostics or
+out-of-order authentication traffic to grow an in-memory token queue without limit.
+
 Providing `createKeyExchangeContext` also offers the RFC 8732 GSS-API key-exchange families for
 that mechanism. Their SSH names are derived from the mechanism OID. Context establishment requests
 mutual authentication and integrity while disabling replay and sequence detection, as required by
