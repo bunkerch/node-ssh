@@ -414,6 +414,68 @@ async function writeFrame(
     }
 }
 
+class AgentResponseAccumulator {
+    readonly #header = Buffer.allocUnsafe(4)
+    #headerLength = 0
+    #payload: Buffer | undefined
+    #payloadLength = 0
+
+    constructor(readonly maximumPayloadLength: number) {}
+
+    push(chunk: Buffer): Buffer | undefined {
+        let offset = 0
+        if (this.#headerLength < this.#header.length) {
+            const copied = chunk.copy(
+                this.#header,
+                this.#headerLength,
+                0,
+                Math.min(chunk.length, this.#header.length - this.#headerLength),
+            )
+            this.#headerLength += copied
+            offset += copied
+            if (this.#headerLength < this.#header.length) return undefined
+        }
+
+        if (!this.#payload) {
+            const length = this.#header.readUInt32BE(0)
+            if (length < 1 || length > this.maximumPayloadLength) {
+                this.clear()
+                throw new SSHAgentProtocolError("SSH agent response has an invalid length")
+            }
+            this.#payload = Buffer.allocUnsafe(length)
+        }
+
+        const copied = chunk.copy(
+            this.#payload,
+            this.#payloadLength,
+            offset,
+            Math.min(chunk.length, offset + this.#payload.length - this.#payloadLength),
+        )
+        this.#payloadLength += copied
+        offset += copied
+        if (this.#payloadLength < this.#payload.length) return undefined
+
+        const payload = this.#payload
+        this.#payload = undefined
+        this.#payloadLength = 0
+        this.#header.fill(0)
+        this.#headerLength = 0
+        if (offset !== chunk.length) {
+            payload.fill(0)
+            throw new SSHAgentProtocolError("SSH agent sent unsolicited response data")
+        }
+        return payload
+    }
+
+    clear(): void {
+        this.#header.fill(0)
+        this.#headerLength = 0
+        this.#payload?.fill(0)
+        this.#payload = undefined
+        this.#payloadLength = 0
+    }
+}
+
 function encodeOpaqueString(value: string | Buffer, description: string): Buffer {
     if (typeof value === "string") return encodeSSHUTF8(value, description)
     if (!Buffer.isBuffer(value)) throw new TypeError(`${description} must be a string or buffer`)
@@ -814,7 +876,7 @@ export class SSHAgentProtocolClient extends Agent<string> {
     readonly stream: Duplex
     readonly options: Readonly<Required<SSHAgentProtocolOptions>>
     readonly #iterator: AsyncIterator<unknown>
-    #buffer = Buffer.alloc(0)
+    readonly #responses: AgentResponseAccumulator
     #queue: Promise<void> = Promise.resolve()
     #closePromise: Promise<void> | undefined
 
@@ -831,6 +893,7 @@ export class SSHAgentProtocolClient extends Agent<string> {
         this.stream = stream
         this.options = Object.freeze(normalizeClientOptions(options))
         this.#iterator = stream[Symbol.asyncIterator]()
+        this.#responses = new AgentResponseAccumulator(this.options.maxMessageLength)
     }
 
     getPublicKeys(): Promise<[string, PublicKey][]> {
@@ -1091,6 +1154,7 @@ export class SSHAgentProtocolClient extends Agent<string> {
     }
 
     destroy(error?: Error): void {
+        this.#responses.clear()
         this.stream.destroy(error)
     }
 
@@ -1144,7 +1208,7 @@ export class SSHAgentProtocolClient extends Agent<string> {
                 const error = new SSHAgentProtocolError(
                     `SSH agent stream did not close within ${this.options.requestTimeout} milliseconds`,
                 )
-                this.stream.destroy(error)
+                this.destroy(error)
                 reject(error)
             }, this.options.requestTimeout)
             timer.unref()
@@ -1169,7 +1233,7 @@ export class SSHAgentProtocolClient extends Agent<string> {
                     const error = new SSHAgentProtocolError(
                         `SSH agent did not reply within ${this.options.requestTimeout} milliseconds`,
                     )
-                    this.stream.destroy(error)
+                    this.destroy(error)
                     reject(error)
                 }, this.options.requestTimeout)
                 timer.unref()
@@ -1181,17 +1245,14 @@ export class SSHAgentProtocolClient extends Agent<string> {
     }
 
     async #readFrame(): Promise<Buffer> {
-        while (this.#buffer.length < 4) await this.#readChunk()
-        const length = this.#buffer.readUInt32BE(0)
-        if (length < 1 || length > this.options.maxMessageLength) {
-            throw this.#failProtocol("SSH agent response has an invalid length")
-        }
-        while (this.#buffer.length < length + 4) await this.#readChunk()
-        const payload = Buffer.from(this.#buffer.subarray(4, length + 4))
-        this.#buffer = this.#buffer.subarray(length + 4)
-        if (this.#buffer.length !== 0) {
-            payload.fill(0)
-            throw this.#failProtocol("SSH agent sent unsolicited response data")
+        let payload: Buffer | undefined
+        while (!payload) {
+            const chunk = await this.#readChunk()
+            try {
+                payload = this.#responses.push(chunk)
+            } catch (error) {
+                throw this.#failProtocol((error as Error).message)
+            }
         }
         if (payload[0] === SSHAgentMessageType.Failure) {
             if (payload.length !== 1) {
@@ -1203,22 +1264,27 @@ export class SSHAgentProtocolClient extends Agent<string> {
         return payload
     }
 
-    async #readChunk(): Promise<void> {
-        const result = await this.#iterator.next()
-        if (result.done) throw new SSHAgentProtocolError("SSH agent closed before replying")
+    async #readChunk(): Promise<Buffer> {
+        let result: IteratorResult<unknown>
+        try {
+            result = await this.#iterator.next()
+        } catch (error) {
+            this.#responses.clear()
+            throw error
+        }
+        if (result.done) {
+            this.#responses.clear()
+            throw new SSHAgentProtocolError("SSH agent closed before replying")
+        }
         if (!Buffer.isBuffer(result.value)) {
             throw this.#failProtocol("SSH agent stream returned non-buffer data")
         }
-        this.#buffer = Buffer.concat([this.#buffer, result.value])
-        if (this.#buffer.length > this.options.maxMessageLength + 4) {
-            throw this.#failProtocol("SSH agent response exceeds the configured limit")
-        }
+        return result.value
     }
 
     #failProtocol(message: string): SSHAgentProtocolError {
         const error = new SSHAgentProtocolError(message)
-        this.#buffer.fill(0)
-        this.#buffer = Buffer.alloc(0)
+        this.#responses.clear()
         this.stream.destroy(error)
         return error
     }

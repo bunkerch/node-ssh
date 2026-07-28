@@ -338,6 +338,11 @@ backing removal succeeds. The protocol server cannot delete application-owned ke
 Both roles default to a 256 KiB agent-message limit. Configure `maxMessageLength` on either role
 when a tighter bound is appropriate.
 
+After reading a response length, the client allocates that bounded payload once and copies each
+later fragment directly into it. Legal responses fragmented down to individual bytes therefore
+require linear copying. Partial response bytes are owned by the client and cleared on protocol
+failure or explicit destruction.
+
 Client and server requests default to a 10-second deadline. The client deadline covers its
 serialized request and reply. The server deadline separately bounds time in the global
 cross-stream queue plus awaited policy, and the resulting response write. If server policy or

@@ -169,6 +169,55 @@ describe("SSH agent protocol", () => {
         }
     })
 
+    test("client decodes a large fixed response fragmented one byte at a time", async () => {
+        const maximum = 128 * 1024
+        const extensionName = Buffer.from("large-response@example.test")
+        const response = Buffer.alloc(maximum + 4, 0xa5)
+        response.writeUInt32BE(maximum, 0)
+        response[4] = 29
+        response.writeUInt32BE(extensionName.length, 5)
+        extensionName.copy(response, 9)
+        const expectedContentsLength = maximum - 5 - extensionName.length
+
+        class OneByteResponseStream extends Duplex {
+            readonly requests: Buffer[] = []
+
+            _read(): void {
+                // The custom iterator below owns the readable side.
+            }
+
+            _write(
+                chunk: Buffer,
+                _encoding: BufferEncoding,
+                callback: (error?: Error | null) => void,
+            ): void {
+                this.requests.push(Buffer.from(chunk))
+                callback()
+            }
+
+            override async *[Symbol.asyncIterator](): AsyncGenerator<Buffer> {
+                for (const byte of response) yield Buffer.from([byte])
+            }
+        }
+
+        const clientStream = new OneByteResponseStream()
+        const client = new SSHAgentProtocolClient(clientStream, {
+            maxMessageLength: maximum,
+            requestTimeout: 0,
+        })
+
+        try {
+            const result = await client.extension("large-response@example.test")
+            expect(result).toEqual({
+                kind: "response",
+                contents: Buffer.alloc(expectedContentsLength, 0xa5),
+            })
+            expect(clientStream.requests).toHaveLength(1)
+        } finally {
+            client.destroy()
+        }
+    }, 300)
+
     test("client owns signing data before the asynchronous identity request", async () => {
         const [clientStream, fixtureStream] = streamPair()
         let releaseIdentity!: () => void
