@@ -11,14 +11,271 @@ import EncodedSignature from "../../src/utils/Signature.js"
 import PrivateKeyAgent from "../../src/publickey/PrivateKeyAgent.js"
 import Packet from "../../src/packet.js"
 import UserAuthRequest from "../../src/packets/UserAuthRequest.js"
-import { HostboundPublicKeyAuthMethod } from "../../src/auth/publickey.js"
+import PublicKeyAuthMethod, { HostboundPublicKeyAuthMethod } from "../../src/auth/publickey.js"
 import ExtInfo from "../../src/packets/ExtInfo.js"
 import type { ProtocolPacketMetadata } from "../../src/packet.js"
 import { AgentType, type Agent } from "../../src/publickey/Agent.js"
 import UserAuthSuccess from "../../src/packets/UserAuthSuccess.js"
 import Unimplemented from "../../src/packets/Unimplemented.js"
+import UserAuthInfoRequest from "../../src/packets/UserAuthInfoRequest.js"
+import UserAuthInfoResponse from "../../src/packets/UserAuthInfoResponse.js"
+import UserAuthPasswordChangeRequest from "../../src/packets/UserAuthPasswordChangeRequest.js"
+import PasswordAuthMethod from "../../src/auth/password.js"
+import UserAuthPKOK from "../../src/packets/UserAuthPKOK.js"
 
 describe("RFC 4252 multi-method authentication", () => {
+    test("fails public-key authentication when its unsigned probe reply is unimplemented", async () => {
+        const userKey = await PrivateKey.generate("ssh-ed25519")
+        const server = new Server({
+            hostKeys: [await PrivateKey.generate("ssh-ed25519")],
+            sendAllHostKeys: false,
+            authenticationTimeout: 500,
+        })
+        let policyCalls = 0
+        server.hooker.hook("publicKeyAuthentication", (_hook, _context, decision) => {
+            policyCalls++
+            decision.requestSignature = true
+        })
+        let probeSequence: number | undefined
+        const rejectedSequences: number[] = []
+        server.once("connection", (peer) => {
+            const sendPacket = peer.sendPacket.bind(peer)
+            peer.sendPacket = (packet: Packet) => {
+                const sequenceNumber = sendPacket(packet)
+                if (packet instanceof UserAuthPKOK) probeSequence = sequenceNumber
+                return sequenceNumber
+            }
+            peer.on("unimplemented", (sequenceNumber) => rejectedSequences.push(sequenceNumber))
+        })
+        server.listen({ host: "127.0.0.1", port: 0 })
+        await once(server, "listening")
+
+        const keyId = "interactive-public-key"
+        const agent: Agent = {
+            type: AgentType.Interactive,
+            async getPublicKeys() {
+                return [[keyId, userKey.data.publicKey]]
+            },
+            async getPublicKey() {
+                return userKey.data.publicKey
+            },
+            async sign(_id, data, algorithm) {
+                return userKey.sign(data, algorithm)
+            },
+        }
+        const client = new Client({
+            hostname: "127.0.0.1",
+            port: (server.address() as AddressInfo).port,
+            username: "unimplemented-public-key-probe",
+            agent,
+            authenticationMethodsOrder: [SSHAuthenticationMethods.PublicKey],
+        })
+        client.hooker.hook("hostKey", (_hook, decision) => {
+            decision.allowHostKey = true
+        })
+        const sendPacket = client.sendPacket.bind(client)
+        client.sendPacket = (packet: Packet) =>
+            packet instanceof UserAuthRequest &&
+            packet.data.method instanceof PublicKeyAuthMethod &&
+            packet.data.method.data.signature !== undefined
+                ? 0
+                : sendPacket(packet)
+        client.on("packet", (metadata) => {
+            if (metadata.name === "SSH_MSG_USERAUTH_PK_OK" && probeSequence !== undefined) {
+                setTimeout(
+                    () => sendPacket(new Unimplemented({ sequence_number: probeSequence! })),
+                    10,
+                )
+            }
+        })
+
+        try {
+            const result = await client.connect().catch((error: Error) => error)
+            expect(rejectedSequences).toEqual([probeSequence])
+            expect(String(result)).toContain("All authentication methods failed")
+            expect(policyCalls).toBe(1)
+        } finally {
+            client.destroy()
+            for (const connection of server.clients) connection.terminate()
+            await server.close()
+        }
+    }, 15_000)
+
+    test("fails password authentication when its change request is unimplemented", async () => {
+        const server = new Server({
+            hostKeys: [await PrivateKey.generate("ssh-ed25519")],
+            sendAllHostKeys: false,
+            authenticationTimeout: 100,
+        })
+        const attempts: { password: string; newPassword?: string }[] = []
+        server.hooker.hook("passwordAuthentication", (_hook, context, decision) => {
+            attempts.push({ password: context.password, newPassword: context.newPassword })
+            decision.requestPasswordChange = { prompt: "Choose a new password: " }
+        })
+        let challengeSequence: number | undefined
+        const rejectedSequences: number[] = []
+        server.once("connection", (peer) => {
+            const sendPacket = peer.sendPacket.bind(peer)
+            peer.sendPacket = (packet: Packet) => {
+                const sequenceNumber = sendPacket(packet)
+                if (packet instanceof UserAuthPasswordChangeRequest) {
+                    challengeSequence = sequenceNumber
+                }
+                return sequenceNumber
+            }
+            peer.on("unimplemented", (sequenceNumber) => rejectedSequences.push(sequenceNumber))
+        })
+        server.listen({ host: "127.0.0.1", port: 0 })
+        await once(server, "listening")
+
+        const client = new Client({
+            hostname: "127.0.0.1",
+            port: (server.address() as AddressInfo).port,
+            username: "unimplemented-password-change",
+            password: "current-password",
+            authenticationMethodsOrder: [SSHAuthenticationMethods.Password],
+        })
+        client.hooker.hook("hostKey", (_hook, decision) => {
+            decision.allowHostKey = true
+        })
+        const sendPacket = client.sendPacket.bind(client)
+        client.hooker.hook("passwordChange", (_hook, _context, decision) => {
+            decision.newPassword = "replacement-password"
+            expect(challengeSequence).toBeDefined()
+            sendPacket(new Unimplemented({ sequence_number: challengeSequence! }))
+        })
+        client.sendPacket = (packet: Packet) =>
+            packet instanceof UserAuthRequest &&
+            packet.data.method instanceof PasswordAuthMethod &&
+            packet.data.method.data.newPassword !== undefined
+                ? 0
+                : sendPacket(packet)
+
+        try {
+            const result = await client.connect().catch((error: Error) => error)
+            expect(rejectedSequences).toEqual([challengeSequence])
+            expect(String(result)).toContain("All authentication methods failed")
+            expect(attempts).toEqual([{ password: "current-password", newPassword: undefined }])
+        } finally {
+            client.destroy()
+            for (const connection of server.clients) connection.terminate()
+            await server.close()
+        }
+    }, 15_000)
+
+    test("fails keyboard-interactive when its exact challenge is unimplemented", async () => {
+        const server = new Server({
+            hostKeys: [await PrivateKey.generate("ssh-ed25519")],
+            sendAllHostKeys: false,
+            authenticationTimeout: 100,
+        })
+        const rounds: number[] = []
+        server.hooker.hook("keyboardInteractiveAuthentication", (_hook, context, decision) => {
+            rounds.push(context.round)
+            decision.prompts = [{ prompt: "Code: ", echo: false }]
+        })
+        let challengeSequence: number | undefined
+        const rejectedSequences: number[] = []
+        server.once("connection", (peer) => {
+            const sendPacket = peer.sendPacket.bind(peer)
+            peer.sendPacket = (packet: Packet) => {
+                const sequenceNumber = sendPacket(packet)
+                if (packet instanceof UserAuthInfoRequest) challengeSequence = sequenceNumber
+                return sequenceNumber
+            }
+            peer.on("unimplemented", (sequenceNumber) => rejectedSequences.push(sequenceNumber))
+        })
+        server.listen({ host: "127.0.0.1", port: 0 })
+        await once(server, "listening")
+
+        const client = new Client({
+            hostname: "127.0.0.1",
+            port: (server.address() as AddressInfo).port,
+            username: "unimplemented-interactive",
+            authenticationMethodsOrder: [SSHAuthenticationMethods.KeyboardInteractive],
+        })
+        client.hooker.hook("hostKey", (_hook, decision) => {
+            decision.allowHostKey = true
+        })
+        const sendPacket = client.sendPacket.bind(client)
+        client.hooker.hook("keyboardInteractive", (_hook, _context, decision) => {
+            decision.responses = ["123456"]
+            expect(challengeSequence).toBeDefined()
+            sendPacket(new Unimplemented({ sequence_number: challengeSequence! }))
+        })
+        client.sendPacket = (packet: Packet) =>
+            packet instanceof UserAuthInfoResponse ? 0 : sendPacket(packet)
+
+        try {
+            const result = await client.connect().catch((error: Error) => error)
+            expect(rejectedSequences).toEqual([challengeSequence])
+            expect(String(result)).toContain("All authentication methods failed")
+            expect(rounds).toEqual([0])
+        } finally {
+            client.destroy()
+            for (const connection of server.clients) connection.terminate()
+            await server.close()
+        }
+    }, 15_000)
+
+    test("ignores an unimplemented reply for another server authentication packet", async () => {
+        const server = new Server({
+            hostKeys: [await PrivateKey.generate("ssh-ed25519")],
+            sendAllHostKeys: false,
+            authenticationTimeout: 500,
+        })
+        server.hooker.hook("keyboardInteractiveAuthentication", (_hook, context, decision) => {
+            if (context.round === 0) {
+                decision.prompts = [{ prompt: "Code: ", echo: false }]
+            } else {
+                decision.allowLogin = context.responses?.[0] === "123456"
+            }
+        })
+        let challengeSequence: number | undefined
+        const rejectedSequences: number[] = []
+        server.once("connection", (peer) => {
+            const sendPacket = peer.sendPacket.bind(peer)
+            peer.sendPacket = (packet: Packet) => {
+                const sequenceNumber = sendPacket(packet)
+                if (packet instanceof UserAuthInfoRequest) challengeSequence = sequenceNumber
+                return sequenceNumber
+            }
+            peer.on("unimplemented", (sequenceNumber) => rejectedSequences.push(sequenceNumber))
+        })
+        server.listen({ host: "127.0.0.1", port: 0 })
+        await once(server, "listening")
+
+        const client = new Client({
+            hostname: "127.0.0.1",
+            port: (server.address() as AddressInfo).port,
+            username: "unrelated-server-auth-rejection",
+            authenticationMethodsOrder: [SSHAuthenticationMethods.KeyboardInteractive],
+        })
+        client.hooker.hook("hostKey", (_hook, decision) => {
+            decision.allowHostKey = true
+        })
+        const sendPacket = client.sendPacket.bind(client)
+        client.hooker.hook("keyboardInteractive", (_hook, _context, decision) => {
+            expect(challengeSequence).toBeDefined()
+            sendPacket(
+                new Unimplemented({
+                    sequence_number: (challengeSequence! + 1) >>> 0,
+                }),
+            )
+            decision.responses = ["123456"]
+        })
+
+        try {
+            await client.connect()
+            expect(client.isConnected).toBe(true)
+            expect(rejectedSequences).toEqual([(challengeSequence! + 1) >>> 0])
+        } finally {
+            client.destroy()
+            for (const connection of server.clients) connection.terminate()
+            await server.close()
+        }
+    }, 15_000)
+
     test("ignores an unimplemented reply for a different authentication packet", async () => {
         const server = new Server({
             hostKeys: [await PrivateKey.generate("ssh-ed25519")],

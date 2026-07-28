@@ -2171,12 +2171,19 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                             allowLogin = true
                             break authentication
                         } else if (controller.requestSignature) {
-                            this.sendPacket(
+                            const sequenceNumber = this.sendPacket(
                                 new UserAuthPKOK({
                                     publicKey: method.data.publicKey,
                                     algorithm: method.data.algorithm,
                                 }),
                             )
+                            const packet = await this.waitForHigherLayerPacket(sequenceNumber)
+                            if (packet instanceof Unimplemented) {
+                                sendAuthenticationFailure({}, SSHAuthenticationMethods.PublicKey)
+                                break
+                            }
+                            assert(packet instanceof UserAuthRequest, "Invalid packet type")
+                            pendingAuthRequest = packet
                             break
                         }
                         sendAuthenticationFailure(controller, SSHAuthenticationMethods.PublicKey)
@@ -2262,12 +2269,22 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                         }
 
                         if (controller.requestPasswordChange) {
-                            this.sendPacket(
+                            const sequenceNumber = this.sendPacket(
                                 new UserAuthPasswordChangeRequest({
                                     prompt: controller.requestPasswordChange.prompt,
                                     languageTag: controller.requestPasswordChange.languageTag ?? "",
                                 }),
                             )
+                            const packet = await this.waitForHigherLayerPacket(sequenceNumber)
+                            if (packet instanceof Unimplemented) {
+                                sendAuthenticationFailure(
+                                    controller,
+                                    SSHAuthenticationMethods.Password,
+                                )
+                                break
+                            }
+                            assert(packet instanceof UserAuthRequest, "Invalid packet type")
+                            pendingAuthRequest = packet
                             break
                         }
 
@@ -2332,8 +2349,15 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                                 languageTag: controller.languageTag ?? "",
                                 prompts: controller.prompts,
                             })
-                            this.sendPacket(request)
-                            const packet = await this.waitForHigherLayerPacket()
+                            const sequenceNumber = this.sendPacket(request)
+                            const packet = await this.waitForHigherLayerPacket(sequenceNumber)
+                            if (packet instanceof Unimplemented) {
+                                sendAuthenticationFailure(
+                                    {},
+                                    SSHAuthenticationMethods.KeyboardInteractive,
+                                )
+                                break keyboardInteractive
+                            }
                             if (packet instanceof UserAuthRequest) {
                                 pendingAuthRequest = packet
                                 break keyboardInteractive
@@ -2458,7 +2482,9 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             () => new Error("SSH connection closed during GSS-API authentication"),
         )
         let context: GSSAPIServerContext | undefined
-        this.sendPacket(new UserAuthGSSAPIResponse(mechanism.oid))
+        let unimplementedSequenceNumber: number | undefined = this.sendPacket(
+            new UserAuthGSSAPIResponse(mechanism.oid),
+        )
 
         try {
             context = await mechanism.createContext(
@@ -2471,7 +2497,12 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
             )
             assertServerGSSAPIContext(context)
             while (true) {
-                const packet = await waitForQueuedHigherLayerPacket(packets)
+                const packet = await waitForQueuedHigherLayerPacket(
+                    packets,
+                    unimplementedSequenceNumber,
+                )
+                unimplementedSequenceNumber = undefined
+                if (packet instanceof Unimplemented) return { allowLogin: false }
                 if (packet instanceof UserAuthRequest) {
                     return { allowLogin: false, abandoned: true, pendingRequest: packet }
                 }
@@ -2502,11 +2533,20 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
                 }
 
                 const step = normalizeGSSAPIContextStep(await context.step(packet.token))
-                if (step.token) this.sendPacket(new UserAuthGSSAPIToken(step.token))
+                if (step.token) {
+                    unimplementedSequenceNumber = this.sendPacket(
+                        new UserAuthGSSAPIToken(step.token),
+                    )
+                }
                 if (!step.complete) continue
                 const integrity = step.integrity!
 
-                const acknowledgement = await waitForQueuedHigherLayerPacket(packets)
+                const acknowledgement = await waitForQueuedHigherLayerPacket(
+                    packets,
+                    unimplementedSequenceNumber,
+                )
+                unimplementedSequenceNumber = undefined
+                if (acknowledgement instanceof Unimplemented) return { allowLogin: false }
                 if (acknowledgement instanceof UserAuthRequest) {
                     return {
                         allowLogin: false,
@@ -2673,13 +2713,17 @@ export default class ServerClient extends EventEmitter<ServerClientEvents> {
         })
     }
 
-    private async waitForHigherLayerPacket(): Promise<Packet> {
+    private async waitForHigherLayerPacket(unimplementedSequenceNumber?: number): Promise<Packet> {
         const packets = new PacketEventQueue(this, () =>
             this.connectionClosedError("SSH connection closed while waiting for packet"),
         )
         try {
             while (true) {
                 const packet = await packets.next()
+                if (packet instanceof Unimplemented) {
+                    if (packet.data.sequence_number === unimplementedSequenceNumber) return packet
+                    continue
+                }
                 const type = (packet.constructor as typeof Packet).type
                 if (
                     type <= PacketNameToType.SSH_MSG_DEBUG ||
@@ -3590,9 +3634,16 @@ function requireGSSAPIKeyExchangeToken(token: Buffer | undefined): Buffer {
     return normalizeGSSAPIToken(token)
 }
 
-async function waitForQueuedHigherLayerPacket(packets: PacketEventQueue): Promise<Packet> {
+async function waitForQueuedHigherLayerPacket(
+    packets: PacketEventQueue,
+    unimplementedSequenceNumber?: number,
+): Promise<Packet> {
     while (true) {
         const packet = await packets.next()
+        if (packet instanceof Unimplemented) {
+            if (packet.data.sequence_number === unimplementedSequenceNumber) return packet
+            continue
+        }
         const type = (packet.constructor as typeof Packet).type
         if (
             type <= PacketNameToType.SSH_MSG_DEBUG ||

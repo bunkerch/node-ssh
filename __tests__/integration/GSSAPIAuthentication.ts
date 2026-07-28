@@ -12,7 +12,12 @@ import {
     type GSSAPIServerMechanism,
 } from "../../src/GSSAPI.js"
 import type Packet from "../../src/packet.js"
-import { UserAuthGSSAPIResponse } from "../../src/packets/UserAuthGSSAPI.js"
+import {
+    UserAuthGSSAPIExchangeComplete,
+    UserAuthGSSAPIMIC,
+    UserAuthGSSAPIResponse,
+    UserAuthGSSAPIToken,
+} from "../../src/packets/UserAuthGSSAPI.js"
 import Unimplemented from "../../src/packets/Unimplemented.js"
 import Server, { type ServerHookerGSSAPIAuthenticationContext } from "../../src/Server.js"
 import type ServerClient from "../../src/ServerClient.js"
@@ -117,11 +122,13 @@ async function createPeers(
     authenticationMethodsOrder: readonly SSHAuthenticationMethods[] = [
         SSHAuthenticationMethods.GSSAPIWithMIC,
     ],
+    authenticationTimeout = 30_000,
 ): Promise<{ client: Client; server: Server; peers: ServerClient[] }> {
     const server = new Server({
         hostKeys: [await PrivateKey.generate("ssh-ed25519")],
         gssapi: [serverMechanism],
         sendAllHostKeys: false,
+        authenticationTimeout,
     })
     server.hooker.hook("gssapiAuthentication", (_hook, context, controller) => {
         controller.allowLogin = authorize(context)
@@ -155,6 +162,107 @@ async function closePeers(client: Client, server: Server, peers: ServerClient[])
 }
 
 describe("RFC 4462 GSS-API user authentication", () => {
+    test.each(["mechanism response", "context token"] as const)(
+        "fails when the server GSS-API %s is unimplemented",
+        async (rejectedPacket) => {
+            const observation: MechanismObservation = { clientClosed: 0, serverClosed: 0 }
+            const pair = mechanisms(true, observation)
+            const clientReference: { current?: Client } = {}
+            let rejectedSequence: number | undefined
+            let rejectionTimer: NodeJS.Timeout | undefined
+            const rejectedSequences: number[] = []
+            const clientMechanism: GSSAPIClientMechanism = {
+                oid: pair.client.oid,
+                async createContext(options) {
+                    const context = await pair.client.createContext!(options)
+                    if (rejectedPacket === "mechanism response") {
+                        expect(clientReference.current).toBeDefined()
+                        expect(rejectedSequence).toBeDefined()
+                        rejectionTimer = setTimeout(() => {
+                            rejectionTimer = undefined
+                            clientReference.current!.sendPacket(
+                                new Unimplemented({
+                                    sequence_number: rejectedSequence!,
+                                }),
+                            )
+                        }, 10)
+                    }
+                    return {
+                        async step(inputToken) {
+                            const step = await context.step(inputToken)
+                            if (rejectedPacket === "context token" && inputToken !== undefined) {
+                                expect(clientReference.current).toBeDefined()
+                                expect(rejectedSequence).toBeDefined()
+                                rejectionTimer = setTimeout(() => {
+                                    rejectionTimer = undefined
+                                    clientReference.current!.sendPacket(
+                                        new Unimplemented({
+                                            sequence_number: rejectedSequence!,
+                                        }),
+                                    )
+                                }, 10)
+                            }
+                            return step
+                        },
+                        getMIC: (message) => context.getMIC(message),
+                        close: () => context.close?.(),
+                    }
+                },
+            }
+            const peers = await createPeers(
+                clientMechanism,
+                pair.server,
+                () => true,
+                [SSHAuthenticationMethods.GSSAPIWithMIC],
+                500,
+            )
+            const client = peers.client
+            clientReference.current = client
+            peers.server.once("connection", (peer) => {
+                const sendPacket = peer.sendPacket.bind(peer)
+                peer.sendPacket = (packet: Packet) => {
+                    const sequenceNumber = sendPacket(packet)
+                    if (
+                        (rejectedPacket === "mechanism response" &&
+                            packet instanceof UserAuthGSSAPIResponse) ||
+                        (rejectedPacket === "context token" &&
+                            packet instanceof UserAuthGSSAPIToken)
+                    ) {
+                        rejectedSequence = sequenceNumber
+                    }
+                    return sequenceNumber
+                }
+                peer.on("unimplemented", (sequenceNumber) => rejectedSequences.push(sequenceNumber))
+            })
+            const sendPacket = client.sendPacket.bind(client)
+            let clientTokens = 0
+            client.sendPacket = (packet: Packet) => {
+                if (packet instanceof UserAuthGSSAPIToken) {
+                    clientTokens++
+                    if (rejectedPacket === "mechanism response" || clientTokens > 1) return 0
+                }
+                if (
+                    rejectedPacket === "context token" &&
+                    (packet instanceof UserAuthGSSAPIMIC ||
+                        packet instanceof UserAuthGSSAPIExchangeComplete)
+                ) {
+                    return 0
+                }
+                return sendPacket(packet)
+            }
+
+            try {
+                const result = await client.connect().catch((error: Error) => error)
+                expect(rejectedSequences).toEqual([rejectedSequence])
+                expect(String(result)).toContain("All authentication methods failed")
+            } finally {
+                if (rejectionTimer) clearTimeout(rejectionTimer)
+                await closePeers(client, peers.server, peers.peers)
+            }
+        },
+        15_000,
+    )
+
     test("treats an exact unimplemented reply as method failure", async () => {
         const observation: MechanismObservation = { clientClosed: 0, serverClosed: 0 }
         const pair = mechanisms(true, observation)

@@ -108,6 +108,13 @@ that exact packet. It then advances or ends the configured method strategy like 
 failure. A rejection naming some other packet is ignored by that method and cannot displace the
 eventual success, failure, challenge, or GSS-API response.
 
+The server applies the same exact correlation while awaiting a signed retry after
+`SSH_MSG_USERAUTH_PK_OK`, a changed password, a keyboard-interactive answer, or the next GSS-API
+mechanism message. An exact rejection produces the advertised method failure immediately instead
+of leaving authentication pending until its overall deadline. RFC 4462 diagnostic error and error
+token messages are not waits: as required by that RFC, the server ignores any
+`SSH_MSG_UNIMPLEMENTED` sent in response to those diagnostics.
+
 The `password` client option installs the same awaited credential policy for a fixed value. An
 explicit empty string is preserved and sent as an empty RFC 4252 password; omitting the option means
 that no automatic password credential is configured. Configured password text is validated as
