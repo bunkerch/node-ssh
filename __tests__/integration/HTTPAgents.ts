@@ -161,7 +161,11 @@ describe("SSH-backed HTTP agents", () => {
             socket.setTimeout(0)
             await new Promise<void>((resolve) => setTimeout(resolve, 40))
             expect(timeouts).toBe(1)
-            expect(() => socket.setTimeout(-1)).toThrow("non-negative")
+            for (const timeout of [-1, 1.5, 2_147_483_648]) {
+                expect(() => socket.setTimeout(timeout)).toThrow(
+                    "SSH HTTP socket timeout must be an integer between 0 and 2147483647",
+                )
+            }
 
             const timeoutScript = String.raw`
                 import { get } from "node:http"

@@ -110,11 +110,11 @@ describe("RFC 4819 and RFC 7076 public-key subsystem server", () => {
             ],
             [
                 { closeTimeout: null },
-                "Public-key subsystem server close timeout must be a positive number",
+                "Public-key subsystem server close timeout must be an integer between 1 and 2147483647",
             ],
             [
                 { requestTimeout: null },
-                "Public-key subsystem server request timeout must be a positive number",
+                "Public-key subsystem server request timeout must be an integer between 1 and 2147483647",
             ],
         ]
 

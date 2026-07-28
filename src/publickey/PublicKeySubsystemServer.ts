@@ -33,9 +33,12 @@ export interface PublicKeySubsystemSupportedAttribute {
 
 export interface PublicKeySubsystemServerOptions {
     readonly attributes?: readonly PublicKeySubsystemSupportedAttribute[]
-    /** Maximum milliseconds to wait for the channel to close. Defaults to 30 seconds. */
+    /** Integer milliseconds to wait for close. Defaults to 30000; range: 1 through 2147483647. */
     readonly closeTimeout?: number
-    /** Maximum milliseconds for initialization, policy, and response writes. Defaults to 30 seconds. */
+    /**
+     * Integer milliseconds for initialization, policy, and response writes.
+     * Defaults to 30000; range: 1 through 2147483647.
+     */
     readonly requestTimeout?: number
 }
 

@@ -489,17 +489,21 @@ export interface ClientOptions {
     authenticationMethodsOrder?: readonly SSHAuthenticationMethods[];
     /** Public-key and host-based user-authentication signature algorithms the client may use. */
     authenticationSignatureAlgorithms?: readonly string[];
+    /** Integer milliseconds between keepalive probes. Zero disables; maximum 2147483647. */
     keepaliveInterval?: number;
     keepaliveCountMax?: number;
     /** Protected wire bytes allowed per key in either direction. Zero disables this limit. */
     rekeyBytes?: number;
     /** Milliseconds a transport key may remain active. Zero disables this limit. */
     rekeyInterval?: number;
-    /** Maximum milliseconds for TCP connection, SSH handshake, and authentication. Zero disables. */
+    /**
+     * Maximum integer milliseconds for TCP connection, SSH handshake, and authentication.
+     * Zero disables; maximum 2147483647.
+     */
     readyTimeout?: number;
-    /** Milliseconds of direct TCP inactivity before emitting `timeout`. Zero disables. */
+    /** Integer milliseconds of direct TCP inactivity. Zero disables; maximum 2147483647. */
     timeout?: number;
-    /** Maximum milliseconds for an ordered peer reply before the connection is closed. */
+    /** Maximum integer milliseconds for an ordered peer reply. Range: 1 through 2147483647. */
     replyTimeout?: number;
     /** Maximum peer channel-open decisions allowed to remain pending. */
     maxPendingChannelOpens?: number;
@@ -1240,11 +1244,17 @@ export interface ServerOptions {
     bannerLanguageTag?: string;
     /** Public-key and host-based user-authentication signature algorithms accepted by the server. */
     authenticationSignatureAlgorithms?: readonly string[];
-    /** Milliseconds allowed through key exchange and user-auth service acceptance. Zero disables. */
+    /**
+     * Integer milliseconds through key exchange and user-auth service acceptance.
+     * Zero disables; maximum 2147483647.
+     */
     handshakeTimeout?: number;
-    /** Milliseconds allowed after accepting the user-authentication service. Zero disables. */
+    /**
+     * Integer milliseconds after accepting the user-authentication service.
+     * Zero disables; maximum 2147483647.
+     */
     authenticationTimeout?: number;
-    /** Maximum milliseconds for an ordered peer reply before the connection is closed. */
+    /** Maximum integer milliseconds for an ordered peer reply. Range: 1 through 2147483647. */
     replyTimeout?: number;
     /** Maximum peer channel-open decisions allowed to remain pending per connection. */
     maxPendingChannelOpens?: number;
@@ -1258,7 +1268,10 @@ export interface ServerOptions {
     maxSessionEnvironmentBytes?: number;
     /** Maximum rejected non-`none` authentication requests per connection. */
     maxAuthenticationAttempts?: number;
-    /** Milliseconds between authenticated per-connection SSH keepalive probes. Zero disables. */
+    /**
+     * Integer milliseconds between authenticated keepalive probes.
+     * Zero disables; maximum 2147483647.
+     */
     keepaliveInterval?: number;
     /** Consecutive unanswered probes allowed before terminating a connection. */
     keepaliveCountMax?: number;

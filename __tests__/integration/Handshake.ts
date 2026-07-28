@@ -1128,7 +1128,7 @@ describe("client/server integration", () => {
             silentPeer.close((error) => (error ? reject(error) : resolve()))
         })
         expect(() => new Client({ username: "test", readyTimeout: -1 })).toThrow(
-            "SSH ready timeout must be a non-negative number",
+            "SSH ready timeout must be an integer between 0 and 2147483647",
         )
     })
 

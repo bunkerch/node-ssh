@@ -112,6 +112,7 @@ timeout, channel close, SSH disconnect, or transport failure.
 `requestTimeout` bounds negotiation and every serialized request. It defaults to the connection's
 `replyTimeout`, or 30 seconds when using `PublicKeySubsystemClient.connect()` directly. A timeout
 closes only the subsystem channel so an untagged late response cannot satisfy a later operation.
+The value must be an integer from `1` through `2147483647`.
 
 ## Server
 
@@ -221,7 +222,8 @@ unhandled EventEmitter rejection.
 
 `PublicKeySubsystemServerOptions.requestTimeout` bounds the initial version write and each request
 from the start of its awaited Hooker policy through completion of its final response write. It
-defaults to 30 seconds. Expiry aborts only that subsystem channel and clears its pending request;
+defaults to 30 seconds and must be an integer from `1` through `2147483647`. Expiry aborts only that
+subsystem channel and clears its pending request;
 the authenticated SSH connection and its other multiplexed channels remain usable. Every policy
 Hooker receives a final `PublicKeySubsystemServerOperationContext`; pass its `signal` to
 cancellable authorization, storage, and hardware operations. The signal aborts with the request
@@ -233,8 +235,9 @@ Call `await publicKeys.close()` when the application owns the server session lif
 request dispatch immediately, asks the SSH channel to close, and settles after the channel's
 terminal `close` event. Concurrent calls share one Promise, and `Symbol.asyncDispose` provides the
 same operation for `await using`. `PublicKeySubsystemServerOptions.closeTimeout` bounds peer
-acknowledgement and defaults to 30 seconds; expiry force-aborts the channel and rejects the close
-operation. `publicKeys.destroy(error?)` remains the immediate abort path.
+acknowledgement and defaults to 30 seconds, with the same integer range; expiry force-aborts the
+channel and rejects the close operation. `publicKeys.destroy(error?)` remains the immediate abort
+path.
 
 The server automatically advertises the standard `namespace` capability. Additional advertised
 attributes are configured through `decision.publicKey.attributes`. A critical attribute absent

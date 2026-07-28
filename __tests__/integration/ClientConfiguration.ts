@@ -38,7 +38,18 @@ describe("client configuration normalization", () => {
                 { authenticationSignatureAlgorithms: ["ssh-ed25519", "ssh-ed25519"] },
                 "Duplicate SSH authentication signature algorithm",
             ],
-            [{ readyTimeout: null as never }, "SSH ready timeout must be a non-negative number"],
+            [
+                { readyTimeout: null as never },
+                "SSH ready timeout must be an integer between 0 and 2147483647",
+            ],
+            [
+                { readyTimeout: 1.5 },
+                "SSH ready timeout must be an integer between 0 and 2147483647",
+            ],
+            [
+                { readyTimeout: 2_147_483_648 },
+                "SSH ready timeout must be an integer between 0 and 2147483647",
+            ],
             [
                 { timeout: null as never },
                 "SSH transport inactivity timeout must be an integer between 0 and 2147483647",
@@ -55,10 +66,29 @@ describe("client configuration normalization", () => {
                 { timeout: 2_147_483_648 },
                 "SSH transport inactivity timeout must be an integer between 0 and 2147483647",
             ],
-            [{ replyTimeout: null as never }, "SSH reply timeout must be a positive number"],
+            [
+                { replyTimeout: null as never },
+                "SSH reply timeout must be an integer between 1 and 2147483647",
+            ],
+            [
+                { replyTimeout: 1.5 },
+                "SSH reply timeout must be an integer between 1 and 2147483647",
+            ],
+            [
+                { replyTimeout: 2_147_483_648 },
+                "SSH reply timeout must be an integer between 1 and 2147483647",
+            ],
             [
                 { keepaliveInterval: null as never },
-                "SSH keepalive interval must be a non-negative number",
+                "SSH keepalive interval must be an integer between 0 and 2147483647",
+            ],
+            [
+                { keepaliveInterval: 1.5 },
+                "SSH keepalive interval must be an integer between 0 and 2147483647",
+            ],
+            [
+                { keepaliveInterval: 2_147_483_648 },
+                "SSH keepalive interval must be an integer between 0 and 2147483647",
             ],
             [
                 { keepaliveCountMax: null as never },

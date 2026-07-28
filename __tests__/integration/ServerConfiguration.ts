@@ -41,7 +41,31 @@ describe("server configuration normalization", () => {
             ],
             [
                 { hostKeys: [hostKey], handshakeTimeout: null as never },
-                "SSH handshake timeout must be a non-negative number",
+                "SSH handshake timeout must be an integer between 0 and 2147483647",
+            ],
+            [
+                { hostKeys: [hostKey], handshakeTimeout: 1.5 },
+                "SSH handshake timeout must be an integer between 0 and 2147483647",
+            ],
+            [
+                { hostKeys: [hostKey], handshakeTimeout: 2_147_483_648 },
+                "SSH handshake timeout must be an integer between 0 and 2147483647",
+            ],
+            [
+                { hostKeys: [hostKey], authenticationTimeout: 1.5 },
+                "SSH authentication timeout must be an integer between 0 and 2147483647",
+            ],
+            [
+                { hostKeys: [hostKey], authenticationTimeout: 2_147_483_648 },
+                "SSH authentication timeout must be an integer between 0 and 2147483647",
+            ],
+            [
+                { hostKeys: [hostKey], keepaliveInterval: 1.5 },
+                "SSH keepalive interval must be an integer between 0 and 2147483647",
+            ],
+            [
+                { hostKeys: [hostKey], keepaliveInterval: 2_147_483_648 },
+                "SSH keepalive interval must be an integer between 0 and 2147483647",
             ],
             [
                 { hostKeys: [hostKey], gssapi: null as never },

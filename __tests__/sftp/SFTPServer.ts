@@ -343,11 +343,11 @@ describe("SFTP server request engine", () => {
                 () => new SFTPServer(asShell(fixture), { maxOpenHandles: null as never }),
             ).toThrow("SFTP maximum open handles must be a non-negative safe integer")
             expect(() => new SFTPServer(asShell(fixture), { closeTimeout: null as never })).toThrow(
-                "SFTP server close timeout must be a positive number",
+                "SFTP server close timeout must be an integer between 1 and 2147483647",
             )
             expect(
                 () => new SFTPServer(asShell(fixture), { requestTimeout: null as never }),
-            ).toThrow("SFTP server request timeout must be a positive number")
+            ).toThrow("SFTP server request timeout must be an integer between 1 and 2147483647")
             expect(
                 () => new SFTPServer(asShell(fixture), { maxReadLength: null as never }),
             ).toThrow("SFTP maximum read length must be between")

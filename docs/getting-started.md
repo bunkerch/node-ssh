@@ -154,6 +154,7 @@ It defaults to 20 seconds. Set it to `0` to disable the deadline. If the deadlin
 underlying transport. Service negotiation and authentication methods do not install a second
 hidden packet deadline: slow host-based signing, external policy, and key-exchange-bound
 authentication remain governed by this one setup deadline.
+The value must be an integer from `0` through `2147483647`.
 
 Clients and servers advertise `modernssh_<package version>` as their RFC 4253 software identifier
 by default. Set `ident` to a custom software identifier and optional comment, without the
@@ -180,8 +181,9 @@ requests, channel opens, channel requests, and `Client.close()` or `ServerClient
 replies have no independent request identifier and must remain ordered, so expiry closes the
 connection: accepting a late reply while continuing would risk matching it to later work. If a
 transport does not finish after graceful `end()`, close expiry force-destroys it, completes terminal
-cleanup, and rejects the shared close Promise. The value must be a positive number; choose it above
-the longest application hook that is expected to answer a reply-requesting operation.
+cleanup, and rejects the shared close Promise. The value must be an integer from `1` through
+`2147483647`; choose it above the longest application hook expected to answer a reply-requesting
+operation.
 New SFTP and public-key management sessions inherit this value as their `requestTimeout`, which can
 be overridden per session without changing the connection-wide deadline.
 

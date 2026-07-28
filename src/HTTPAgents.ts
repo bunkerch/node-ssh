@@ -12,6 +12,7 @@ import { normalizeDelayCompression } from "./DelayCompression.js"
 import { normalizeGSSAPIClientMechanisms } from "./GSSAPI.js"
 import { copyProtocolVersionExchange } from "./ProtocolVersionExchange.js"
 import type ClientTCPIPChannel from "./channels/ClientTCPIPChannel.js"
+import { normalizeOptionalTimeout } from "./utils/Timeout.js"
 
 export interface SSHAgentOptions {
     /** Originator address reported in the RFC 4254 direct-tcpip request. */
@@ -144,13 +145,7 @@ function socketCompatible(channel: ClientTCPIPChannel): SocketCompatibleChannel 
     socket.setKeepAlive = () => socket
     socket.setNoDelay = () => socket
     socket.setTimeout = (milliseconds = 0, callback) => {
-        if (
-            typeof milliseconds !== "number" ||
-            !Number.isFinite(milliseconds) ||
-            milliseconds < 0
-        ) {
-            throw new RangeError("SSH HTTP socket timeout must be a non-negative number")
-        }
+        normalizeOptionalTimeout(milliseconds, "SSH HTTP socket timeout")
         if (callback !== undefined) socket.once("timeout", callback)
         timeoutMilliseconds = milliseconds
         armSocketTimeout()

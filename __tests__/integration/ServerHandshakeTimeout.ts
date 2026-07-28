@@ -75,7 +75,7 @@ describe("server SSH handshake deadlines", () => {
 
     test("validates the server handshake deadline", () => {
         expect(() => new Server({ handshakeTimeout: -1 })).toThrow(
-            "SSH handshake timeout must be a non-negative number",
+            "SSH handshake timeout must be an integer between 0 and 2147483647",
         )
     })
 })

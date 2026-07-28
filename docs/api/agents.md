@@ -592,7 +592,7 @@ Interface. Declared in [`src/publickey/PublicKeySubsystemClient.ts`](https://git
 
 ```ts
 export interface PublicKeySubsystemClientOptions {
-    /** Maximum milliseconds for subsystem initialization or a serialized request reply. */
+    /** Maximum integer milliseconds for initialization or a reply. Range: 1 through 2147483647. */
     requestTimeout?: number;
 }
 ```
@@ -962,9 +962,12 @@ Interface. Declared in [`src/publickey/PublicKeySubsystemServer.ts`](https://git
 ```ts
 export interface PublicKeySubsystemServerOptions {
     readonly attributes?: readonly PublicKeySubsystemSupportedAttribute[];
-    /** Maximum milliseconds to wait for the channel to close. Defaults to 30 seconds. */
+    /** Integer milliseconds to wait for close. Defaults to 30000; range: 1 through 2147483647. */
     readonly closeTimeout?: number;
-    /** Maximum milliseconds for initialization, policy, and response writes. Defaults to 30 seconds. */
+    /**
+     * Integer milliseconds for initialization, policy, and response writes.
+     * Defaults to 30000; range: 1 through 2147483647.
+     */
     readonly requestTimeout?: number;
 }
 ```

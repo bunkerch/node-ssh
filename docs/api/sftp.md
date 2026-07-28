@@ -386,7 +386,7 @@ Interface. Declared in [`src/sftp/SFTPClient.ts`](https://github.com/bunkerch/no
 
 ```ts
 export interface SFTPClientOptions {
-    /** Maximum milliseconds for SFTP initialization or a tagged request reply. */
+    /** Maximum integer milliseconds for initialization or a reply. Range: 1 through 2147483647. */
     requestTimeout?: number;
 }
 ```
@@ -1036,9 +1036,12 @@ export interface SFTPServerOptions {
     maxWriteLength?: number;
     /** Advertise and answer the limits extension. Defaults to true when handles are enabled. */
     advertiseLimits?: boolean;
-    /** Maximum milliseconds to wait for the channel to close. Defaults to 30 seconds. */
+    /** Integer milliseconds to wait for close. Defaults to 30000; range: 1 through 2147483647. */
     closeTimeout?: number;
-    /** Maximum milliseconds for initialization, policy, and response writes. Defaults to 30 seconds. */
+    /**
+     * Integer milliseconds for initialization, policy, and response writes.
+     * Defaults to 30000; range: 1 through 2147483647.
+     */
     requestTimeout?: number;
 }
 ```

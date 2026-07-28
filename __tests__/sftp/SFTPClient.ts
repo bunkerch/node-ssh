@@ -74,14 +74,22 @@ function asClientChannel(channel: Duplex): ClientSessionChannel {
 }
 
 describe("SFTP client request engine", () => {
-    test("validates a finite positive request timeout before initialization", async () => {
-        for (const requestTimeout of [null, 0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+    test("validates the request timeout before initialization", async () => {
+        for (const requestTimeout of [
+            null,
+            0,
+            -1,
+            1.5,
+            2_147_483_648,
+            Number.NaN,
+            Number.POSITIVE_INFINITY,
+        ]) {
             const fixture = new SFTPServerFixture(() => undefined)
             await expect(
                 SFTPClient.connect(asClientChannel(fixture), false, {
                     requestTimeout: requestTimeout as number,
                 }),
-            ).rejects.toThrow("SFTP request timeout must be a positive number")
+            ).rejects.toThrow("SFTP request timeout must be an integer between 1 and 2147483647")
             fixture.destroy()
         }
         const fixture = new SFTPServerFixture(() => undefined)

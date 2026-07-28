@@ -31,7 +31,7 @@ enable, disable, or alter the capabilities used internally by `supportsExtension
 Version matching compares the advertised opaque bytes exactly with the requested UTF-8 version;
 non-ASCII bytes cannot alias an ASCII version through lossy decoding.
 The timeout defaults to the connection's `replyTimeout`; direct `SFTPClient.connect()` calls default
-to 30 seconds. It must be a positive finite number.
+to 30 seconds. It must be an integer from `1` through `2147483647`.
 Client environment and option bags must be plain objects, environment values must be strings, and
 only `undefined` selects the inherited or 30-second timeout default. Explicit `null` is rejected
 before a session channel is allocated or initialization is sent. Direct `SFTPClient.connect()`
@@ -446,7 +446,8 @@ enforce the 256-byte protocol limit.
 
 `SFTPServerOptions.requestTimeout` bounds the version response and each dispatched request from the
 start of its awaited Hooker policy through completion of its response write. It defaults to 30
-seconds. Expiry aborts only that subsystem channel, rejects an in-progress response write, and
+seconds and must be an integer from `1` through `2147483647`. Expiry aborts only that subsystem
+channel, rejects an in-progress response write, and
 releases all queued request state; the authenticated SSH connection and its other multiplexed
 channels remain usable. This deadline starts when a request reaches a concurrency slot, while the
 separate 1024-request bound limits work waiting in the scheduler. The request signal aborts with
@@ -458,7 +459,8 @@ Call `await sftp.close()` when the application owns the server session lifecycle
 request dispatch immediately, asks the SSH channel to close, and settles after the channel's
 terminal `close` event. Concurrent calls share one Promise, and `Symbol.asyncDispose` provides the
 same operation for `await using`. `SFTPServerOptions.closeTimeout` bounds peer acknowledgement and
-defaults to 30 seconds; expiry force-aborts the channel and rejects the close operation.
+defaults to 30 seconds, with the same integer range; expiry force-aborts the channel and rejects the
+close operation.
 `sftp.destroy(error?)` remains the immediate abort path.
 
 The implementation rejects duplicate outstanding identifiers, invalid response types,

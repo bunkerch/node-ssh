@@ -39,7 +39,7 @@ describe("client session configuration ownership", () => {
             [client.sftp({ LANG: 7 } as never), "SSH SFTP environment values must be strings"],
             [
                 client.sftp({}, { requestTimeout: null as never }),
-                "SFTP request timeout must be a positive number",
+                "SFTP request timeout must be an integer between 1 and 2147483647",
             ],
             [
                 client.publicKeySubsystem(null as never),
@@ -47,7 +47,7 @@ describe("client session configuration ownership", () => {
             ],
             [
                 client.publicKeySubsystem({ requestTimeout: null as never }),
-                "Public-key subsystem request timeout must be a positive number",
+                "Public-key subsystem request timeout must be an integer between 1 and 2147483647",
             ],
         ]
 

@@ -43,6 +43,7 @@ import type {
 } from "./types.js"
 import { decodeSSHUTF8, encodeSSHUTF8 } from "../utils/SSHText.js"
 import { isPlainConfigurationObject } from "../utils/Configuration.js"
+import { normalizeTimeout } from "../utils/Timeout.js"
 import { validateSFTPDirectoryEntryName, validateSFTPRealPath } from "./names.js"
 
 export interface SFTPExtendedRequestOptions {
@@ -53,7 +54,7 @@ export interface SFTPExtendedRequestOptions {
 }
 
 export interface SFTPClientOptions {
-    /** Maximum milliseconds for SFTP initialization or a tagged request reply. */
+    /** Maximum integer milliseconds for initialization or a reply. Range: 1 through 2147483647. */
     requestTimeout?: number
 }
 
@@ -64,11 +65,11 @@ export function normalizeSFTPClientOptions(
     if (!isPlainConfigurationObject(options)) {
         throw new TypeError("SFTP client options must be an object")
     }
-    const requestTimeout =
-        options.requestTimeout === undefined ? defaultRequestTimeout : options.requestTimeout
-    if (!Number.isFinite(requestTimeout) || requestTimeout <= 0) {
-        throw new RangeError("SFTP request timeout must be a positive number")
-    }
+    const requestTimeout = normalizeTimeout(
+        options.requestTimeout,
+        defaultRequestTimeout,
+        "SFTP request timeout",
+    )
     return Object.freeze({ requestTimeout })
 }
 

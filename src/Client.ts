@@ -205,6 +205,7 @@ import {
     validateRekeyBytes,
     validateRekeyInterval,
 } from "./RekeyLimits.js"
+import { normalizeOptionalTimeout, normalizeTimeout } from "./utils/Timeout.js"
 import GSSAPIKeyExchange, {
     createGSSAPIKeyExchangeAlgorithms,
 } from "./algorithms/kex/gssapi-key-exchange.js"
@@ -331,17 +332,21 @@ export interface ClientOptions {
     authenticationMethodsOrder?: readonly SSHAuthenticationMethods[]
     /** Public-key and host-based user-authentication signature algorithms the client may use. */
     authenticationSignatureAlgorithms?: readonly string[]
+    /** Integer milliseconds between keepalive probes. Zero disables; maximum 2147483647. */
     keepaliveInterval?: number
     keepaliveCountMax?: number
     /** Protected wire bytes allowed per key in either direction. Zero disables this limit. */
     rekeyBytes?: number
     /** Milliseconds a transport key may remain active. Zero disables this limit. */
     rekeyInterval?: number
-    /** Maximum milliseconds for TCP connection, SSH handshake, and authentication. Zero disables. */
+    /**
+     * Maximum integer milliseconds for TCP connection, SSH handshake, and authentication.
+     * Zero disables; maximum 2147483647.
+     */
     readyTimeout?: number
-    /** Milliseconds of direct TCP inactivity before emitting `timeout`. Zero disables. */
+    /** Integer milliseconds of direct TCP inactivity. Zero disables; maximum 2147483647. */
     timeout?: number
-    /** Maximum milliseconds for an ordered peer reply before the connection is closed. */
+    /** Maximum integer milliseconds for an ordered peer reply. Range: 1 through 2147483647. */
     replyTimeout?: number
     /** Maximum peer channel-open decisions allowed to remain pending. */
     maxPendingChannelOpens?: number
@@ -989,12 +994,7 @@ export default class Client extends EventEmitter<ClientEvents> {
             this.#options.maxPendingChannelOpens = 64
         }
         if (this.#options.maxChannels === undefined) this.#options.maxChannels = 1024
-        if (
-            !Number.isFinite(this.#options.keepaliveInterval) ||
-            this.#options.keepaliveInterval < 0
-        ) {
-            throw new RangeError("SSH keepalive interval must be a non-negative number")
-        }
+        normalizeOptionalTimeout(this.#options.keepaliveInterval, "SSH keepalive interval")
         if (
             !Number.isInteger(this.#options.keepaliveCountMax) ||
             this.#options.keepaliveCountMax < 0
@@ -1003,21 +1003,9 @@ export default class Client extends EventEmitter<ClientEvents> {
         }
         validateRekeyBytes(this.#options.rekeyBytes)
         validateRekeyInterval(this.#options.rekeyInterval)
-        if (!Number.isFinite(this.#options.readyTimeout) || this.#options.readyTimeout < 0) {
-            throw new RangeError("SSH ready timeout must be a non-negative number")
-        }
-        if (
-            !Number.isInteger(this.#options.timeout) ||
-            this.#options.timeout < 0 ||
-            this.#options.timeout > 2_147_483_647
-        ) {
-            throw new RangeError(
-                "SSH transport inactivity timeout must be an integer between 0 and 2147483647",
-            )
-        }
-        if (!Number.isFinite(this.#options.replyTimeout) || this.#options.replyTimeout <= 0) {
-            throw new RangeError("SSH reply timeout must be a positive number")
-        }
+        normalizeOptionalTimeout(this.#options.readyTimeout, "SSH ready timeout")
+        normalizeOptionalTimeout(this.#options.timeout, "SSH transport inactivity timeout")
+        normalizeTimeout(this.#options.replyTimeout, 30_000, "SSH reply timeout")
         if (
             !Number.isSafeInteger(this.#options.maxPendingChannelOpens) ||
             this.#options.maxPendingChannelOpens < 0

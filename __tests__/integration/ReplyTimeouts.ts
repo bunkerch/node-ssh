@@ -72,12 +72,19 @@ async function closePeers({ client, peer, server }: ConnectedPeers): Promise<voi
 
 describe("ordered SSH reply deadlines", () => {
     test("validates positive client and server reply deadlines", () => {
-        for (const replyTimeout of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+        for (const replyTimeout of [
+            0,
+            -1,
+            1.5,
+            2_147_483_648,
+            Number.NaN,
+            Number.POSITIVE_INFINITY,
+        ]) {
             expect(() => new Client({ username: "test", replyTimeout })).toThrow(
-                "SSH reply timeout must be a positive number",
+                "SSH reply timeout must be an integer between 1 and 2147483647",
             )
             expect(() => new Server({ replyTimeout })).toThrow(
-                "SSH reply timeout must be a positive number",
+                "SSH reply timeout must be an integer between 1 and 2147483647",
             )
         }
     })

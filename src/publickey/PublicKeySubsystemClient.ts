@@ -20,6 +20,7 @@ import PublicKey from "../utils/PublicKey.js"
 import { encodeSSHName } from "../utils/SSHName.js"
 import { encodeSSHUTF8 } from "../utils/SSHText.js"
 import { isPlainConfigurationObject } from "../utils/Configuration.js"
+import { normalizeTimeout } from "../utils/Timeout.js"
 
 export interface PublicKeySubsystemAttributeInput {
     readonly name: string
@@ -48,7 +49,7 @@ export interface PublicKeySubsystemRemoveCertificateOptions
 }
 
 export interface PublicKeySubsystemClientOptions {
-    /** Maximum milliseconds for subsystem initialization or a serialized request reply. */
+    /** Maximum integer milliseconds for initialization or a reply. Range: 1 through 2147483647. */
     requestTimeout?: number
 }
 
@@ -59,11 +60,11 @@ export function normalizePublicKeySubsystemClientOptions(
     if (!isPlainConfigurationObject(options)) {
         throw new TypeError("Public-key subsystem client options must be an object")
     }
-    const requestTimeout =
-        options.requestTimeout === undefined ? defaultRequestTimeout : options.requestTimeout
-    if (!Number.isFinite(requestTimeout) || requestTimeout <= 0) {
-        throw new RangeError("Public-key subsystem request timeout must be a positive number")
-    }
+    const requestTimeout = normalizeTimeout(
+        options.requestTimeout,
+        defaultRequestTimeout,
+        "Public-key subsystem request timeout",
+    )
     return Object.freeze({ requestTimeout })
 }
 

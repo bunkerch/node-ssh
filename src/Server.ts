@@ -50,6 +50,7 @@ import {
 import { encodeSSHLanguageTag, encodeSSHUTF8 } from "./utils/SSHText.js"
 import { MAX_HOST_KEYS_PER_REQUEST } from "./utils/HostKeysProof.js"
 import { isPlainConfigurationObject } from "./utils/Configuration.js"
+import { normalizeOptionalTimeout, normalizeTimeout } from "./utils/Timeout.js"
 
 /** Wire name used for the post-authentication host-key advertisement. */
 export type HostKeyAdvertisementFormat = "standard" | "compatibility"
@@ -75,11 +76,17 @@ export interface ServerOptions {
     bannerLanguageTag?: string
     /** Public-key and host-based user-authentication signature algorithms accepted by the server. */
     authenticationSignatureAlgorithms?: readonly string[]
-    /** Milliseconds allowed through key exchange and user-auth service acceptance. Zero disables. */
+    /**
+     * Integer milliseconds through key exchange and user-auth service acceptance.
+     * Zero disables; maximum 2147483647.
+     */
     handshakeTimeout?: number
-    /** Milliseconds allowed after accepting the user-authentication service. Zero disables. */
+    /**
+     * Integer milliseconds after accepting the user-authentication service.
+     * Zero disables; maximum 2147483647.
+     */
     authenticationTimeout?: number
-    /** Maximum milliseconds for an ordered peer reply before the connection is closed. */
+    /** Maximum integer milliseconds for an ordered peer reply. Range: 1 through 2147483647. */
     replyTimeout?: number
     /** Maximum peer channel-open decisions allowed to remain pending per connection. */
     maxPendingChannelOpens?: number
@@ -93,7 +100,10 @@ export interface ServerOptions {
     maxSessionEnvironmentBytes?: number
     /** Maximum rejected non-`none` authentication requests per connection. */
     maxAuthenticationAttempts?: number
-    /** Milliseconds between authenticated per-connection SSH keepalive probes. Zero disables. */
+    /**
+     * Integer milliseconds between authenticated keepalive probes.
+     * Zero disables; maximum 2147483647.
+     */
     keepaliveInterval?: number
     /** Consecutive unanswered probes allowed before terminating a connection. */
     keepaliveCountMax?: number
@@ -574,21 +584,9 @@ export default class Server extends EventEmitter<ServerEvents> {
         if (this.#options.rekeyInterval === undefined) {
             this.#options.rekeyInterval = DEFAULT_REKEY_INTERVAL
         }
-        if (
-            !Number.isFinite(this.#options.handshakeTimeout) ||
-            this.#options.handshakeTimeout < 0
-        ) {
-            throw new RangeError("SSH handshake timeout must be a non-negative number")
-        }
-        if (
-            !Number.isFinite(this.#options.authenticationTimeout) ||
-            this.#options.authenticationTimeout < 0
-        ) {
-            throw new RangeError("SSH authentication timeout must be a non-negative number")
-        }
-        if (!Number.isFinite(this.#options.replyTimeout) || this.#options.replyTimeout <= 0) {
-            throw new RangeError("SSH reply timeout must be a positive number")
-        }
+        normalizeOptionalTimeout(this.#options.handshakeTimeout, "SSH handshake timeout")
+        normalizeOptionalTimeout(this.#options.authenticationTimeout, "SSH authentication timeout")
+        normalizeTimeout(this.#options.replyTimeout, 30_000, "SSH reply timeout")
         if (
             !Number.isSafeInteger(this.#options.maxPendingChannelOpens) ||
             this.#options.maxPendingChannelOpens < 0
@@ -632,12 +630,7 @@ export default class Server extends EventEmitter<ServerEvents> {
         ) {
             throw new RangeError("SSH maximum authentication attempts must be a positive integer")
         }
-        if (
-            !Number.isFinite(this.#options.keepaliveInterval) ||
-            this.#options.keepaliveInterval < 0
-        ) {
-            throw new RangeError("SSH keepalive interval must be a non-negative number")
-        }
+        normalizeOptionalTimeout(this.#options.keepaliveInterval, "SSH keepalive interval")
         if (
             !Number.isInteger(this.#options.keepaliveCountMax) ||
             this.#options.keepaliveCountMax < 0

@@ -102,7 +102,9 @@ describe("server SSH keepalives", () => {
     }, 15_000)
 
     test("validates server keepalive limits", () => {
-        expect(() => new Server({ keepaliveInterval: -1 })).toThrow("non-negative")
+        expect(() => new Server({ keepaliveInterval: -1 })).toThrow(
+            "SSH keepalive interval must be an integer between 0 and 2147483647",
+        )
         expect(() => new Server({ keepaliveCountMax: 1.5 })).toThrow("non-negative integer")
     })
 })
