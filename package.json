@@ -55,7 +55,7 @@
         "type": "git",
         "url": "git+https://github.com/bunkerch/node-ssh.git"
     },
-    "homepage": "https://modernssh.bunkerx.io",
+    "homepage": "https://modernssh.bunkerx.dev",
     "keywords": [
         "ssh",
         "typescript",

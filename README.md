@@ -51,7 +51,7 @@ asynchronous policy decisions belong in awaited `Hooker` handlers.
 
 ## Documentation
 
-Browse the hosted documentation at [modernssh.bunkerx.io](https://modernssh.bunkerx.io).
+Browse the hosted documentation at [modernssh.bunkerx.dev](https://modernssh.bunkerx.dev).
 
 | Goal                                                              | Guide                                                                                       |
 | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
