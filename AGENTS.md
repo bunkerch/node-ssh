@@ -161,9 +161,8 @@ Before committing, run the focused tests for the change, then `pnpm build`, `pnp
   commands to discard them.
 - Publish the public package to `https://registry.npmjs.org/` only through the GitHub Release
   workflow. Release tags must exactly match `v<package.json version>`; mark prerelease versions as
-  GitHub prereleases so npm publishes them under the `next` dist-tag. The self-hosted runner is not
-  eligible for npm trusted publishing, so keep a granular publish-only `NPM_TOKEN` secret on the
-  release job and rotate it according to npm policy.
+  GitHub prereleases so npm publishes them under the `next` dist-tag. The publish job must use a
+  GitHub-hosted runner with npm trusted publishing and must not use a long-lived npm token.
 - Use focused Conventional Commit subjects such as `feat:`, `fix:`, `test:`, `docs:`, and
   `chore:`. Commit and push complete logical slices frequently.
 - Before committing, run `git diff --check` and the tracked-file terminology gate:

@@ -6,6 +6,7 @@ on:
 
 permissions:
     contents: read
+    id-token: write
 
 concurrency:
     group: npm-publish-${{ github.event.release.tag_name }}
@@ -13,7 +14,7 @@ concurrency:
 
 jobs:
     publish:
-        runs-on: bunkerch-sysbox
+        runs-on: ubuntu-latest
         timeout-minutes: 60
         steps:
             - name: Checkout release tag
@@ -93,8 +94,6 @@ jobs:
                   echo "archive=$archive_path" >> "$GITHUB_OUTPUT"
 
             - name: Publish package archive
-              env:
-                  NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
               run: >-
                   npm publish "${{ steps.package.outputs.archive }}"
                   --ignore-scripts
