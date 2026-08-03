@@ -10,6 +10,7 @@ const basePath =
 const config = {
     reactStrictMode: true,
     basePath,
+    output: "standalone",
     allowedDevOrigins: ["*.dev.manaf.ch"],
     typescript: {
         tsconfigPath: "./tsconfig.docs.json",
@@ -17,3 +18,5 @@ const config = {
 }
 
 export default createMDX()(config)
+
+import("@opennextjs/cloudflare").then((module) => module.initOpenNextCloudflareForDev())

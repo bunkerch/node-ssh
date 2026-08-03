@@ -5,7 +5,7 @@ import stylistic from "@stylistic/eslint-plugin"
 
 export default defineConfig(
     {
-        ignores: ["dist/", ".next/", ".source/", "out/"],
+        ignores: ["dist/", ".next/", ".open-next/", ".source/", "out/"],
     },
     eslint.configs.recommended,
     tseslint.configs.recommended,
