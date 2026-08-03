@@ -507,7 +507,7 @@ describe("client/server integration", () => {
                 new ProtocolVersionExchange("2.0", "modernssh_integration", "fixed-comment"),
             )
             expect(client.serverProtocolVersion).toEqual(
-                new ProtocolVersionExchange("2.0", "modernssh_1.0.0"),
+                new ProtocolVersionExchange("2.0", "modernssh_1.0.1"),
             )
             expect(client.keyExchangeAlgorithm).toBe("curve25519-sha256")
             expect(client.negotiatedAlgorithms?.cs.cipher).toBe("aes128-ctr")

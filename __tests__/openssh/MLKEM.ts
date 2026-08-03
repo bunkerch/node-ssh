@@ -2,7 +2,7 @@ import { spawn } from "node:child_process"
 import { once } from "node:events"
 import { access, mkdtemp, readFile, rm } from "node:fs/promises"
 import type { AddressInfo } from "node:net"
-import { createConnection } from "node:net"
+import { createConnection, type Socket } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -69,6 +69,24 @@ async function waitForPort(port: number): Promise<void> {
     throw new Error(`OpenSSH server did not listen on port ${port}`)
 }
 
+async function connectToPort(port: number): Promise<Socket> {
+    for (let attempt = 0; attempt < 100; attempt++) {
+        const socket = createConnection({ host: "127.0.0.1", port })
+        const connected = await new Promise<boolean>((resolve) => {
+            const onError = () => resolve(false)
+            socket.once("error", onError)
+            socket.once("connect", () => {
+                socket.off("error", onError)
+                resolve(true)
+            })
+        })
+        if (connected) return socket
+        socket.destroy()
+        await new Promise<void>((resolve) => setTimeout(resolve, 100))
+    }
+    throw new Error(`OpenSSH agent relay did not listen on port ${port}`)
+}
+
 describe("OpenSSH 10.4 interoperability", () => {
     test("modernssh queries the standard extensions of an OpenSSH 10.4 agent", async () => {
         await buildImage()
@@ -98,9 +116,7 @@ describe("OpenSSH 10.4 interoperability", () => {
             expect(portResult.code).toBe(0)
             const port = Number(portResult.stdout.trim().match(/:(\d+)$/u)?.[1])
             expect(Number.isInteger(port)).toBe(true)
-            await waitForPort(port)
-            const stream = createConnection({ host: "127.0.0.1", port })
-            await once(stream, "connect")
+            const stream = await connectToPort(port)
             protocol = new SSHAgentProtocolClient(stream)
             expect(await protocol.queryExtensions()).toEqual(["session-bind@openssh.com"])
         } finally {
