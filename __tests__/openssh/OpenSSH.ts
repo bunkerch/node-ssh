@@ -2235,6 +2235,7 @@ describe("OpenSSH interoperability", () => {
                 username: "interop",
                 privateKey: await readFile(dsaUserKeyPath),
                 authenticationMethodsOrder: [SSHAuthenticationMethods.PublicKey],
+                authenticationSignatureAlgorithms: ["ssh-dss"],
                 algorithms: { serverHostKey: ["ssh-dss"] },
             })
             dsaClient.hooker.hook("hostKey", (_hook, decision) => {

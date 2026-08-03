@@ -85,6 +85,7 @@ describe("OpenSSH 10.4 interoperability", () => {
             "run",
             "--detach",
             "--rm",
+            "--userns=host",
             "--user",
             `${process.getuid!()}:${process.getgid!()}`,
             "--volume",
