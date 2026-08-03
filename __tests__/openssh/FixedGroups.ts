@@ -21,15 +21,21 @@ const methods = [
 
 async function waitForPort(port: number): Promise<void> {
     for (let attempt = 0; attempt < 100; attempt++) {
-        const connected = await new Promise<boolean>((resolve) => {
+        const identified = await new Promise<boolean>((resolve) => {
             const socket = createConnection({ host: "127.0.0.1", port })
-            socket.once("connect", () => {
+            let settled = false
+            const finish = (ready: boolean) => {
+                if (settled) return
+                settled = true
                 socket.destroy()
-                resolve(true)
-            })
-            socket.once("error", () => resolve(false))
+                resolve(ready)
+            }
+            socket.setTimeout(100, () => finish(false))
+            socket.once("data", (data) => finish(data.toString().startsWith("SSH-")))
+            socket.once("close", () => finish(false))
+            socket.once("error", () => finish(false))
         })
-        if (connected) return
+        if (identified) return
         await new Promise<void>((resolve) => setTimeout(resolve, 100))
     }
     throw new Error(`OpenSSH server did not listen on port ${port}`)

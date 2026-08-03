@@ -79,44 +79,33 @@ describe("OpenSSH 10.4 interoperability", () => {
             stderr: expect.stringContaining("OpenSSH_10.4p1"),
         })
 
-        const directory = await mkdtemp(join(tmpdir(), "modernssh-openssh-agent-query-"))
-        const socketPath = join(directory, "agent.sock")
         const started = await collectProcess("docker", [
             "run",
             "--detach",
             "--rm",
-            "--userns=host",
-            "--user",
-            `${process.getuid!()}:${process.getgid!()}`,
-            "--volume",
-            `${directory}:/agent`,
+            "--publish",
+            "127.0.0.1::18080",
             imageName,
-            "ssh-agent",
-            "-D",
-            "-a",
-            "/agent/agent.sock",
+            "sh",
+            "-c",
+            "ssh-agent -D -a /tmp/agent.sock & while [ ! -S /tmp/agent.sock ]; do sleep 0.01; done; exec socat TCP-LISTEN:18080,reuseaddr,fork UNIX-CONNECT:/tmp/agent.sock",
         ])
         expect(started.code).toBe(0)
         const containerId = started.stdout.trim()
         let protocol: SSHAgentProtocolClient | undefined
         try {
-            for (let attempt = 0; attempt < 100; attempt++) {
-                try {
-                    await access(socketPath)
-                    break
-                } catch {
-                    await new Promise<void>((resolve) => setTimeout(resolve, 20))
-                }
-            }
-            await access(socketPath)
-            const stream = createConnection(socketPath)
+            const portResult = await collectProcess("docker", ["port", containerId, "18080/tcp"])
+            expect(portResult.code).toBe(0)
+            const port = Number(portResult.stdout.trim().match(/:(\d+)$/u)?.[1])
+            expect(Number.isInteger(port)).toBe(true)
+            await waitForPort(port)
+            const stream = createConnection({ host: "127.0.0.1", port })
             await once(stream, "connect")
             protocol = new SSHAgentProtocolClient(stream)
             expect(await protocol.queryExtensions()).toEqual(["session-bind@openssh.com"])
         } finally {
             protocol?.destroy()
             await collectProcess("docker", ["rm", "--force", containerId])
-            await rm(directory, { recursive: true, force: true })
         }
     }, 90_000)
 

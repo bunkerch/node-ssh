@@ -11,6 +11,7 @@ RUN apt-get update \
         libpam0g-dev \
         libssl-dev \
         openssh-server \
+        socat \
         zlib1g-dev \
     && curl --fail --location --silent --show-error \
         "https://cdn.openbsd.org/pub/OpenBSD/OpenSSH/portable/openssh-${OPENSSH_VERSION}.tar.gz" \
